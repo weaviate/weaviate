@@ -178,68 +178,55 @@ func unpackDeltas(packed []byte, deltasCount int) []uint64 {
 }
 
 func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uint64 {
-	bitPos := 0
-	currentByteIndex := 0
-	bitsNeeded := 0
+	if len(packed) < 8 || len(deltas) < deltasCount {
+		return deltas // Error handling: insufficient input or output space
+	}
 
 	deltas[0] = binary.BigEndian.Uint64(packed[:8])
-
-	currentByteIndex += 8
+	currentByteIndex := 8
 	currentByte := packed[currentByteIndex]
 
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
-	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
-	bitPos++
+	// Use a single operation to read bitsNeeded
+	bitsNeeded := int(currentByte >> 2 & 0x3F)
+	bitPos := uint(6)
 
 	for i := 1; i < deltasCount; i++ {
-		deltas[i] = 0
-		bitsNeededInternal := bitsNeeded
-		// Read the delta bits based on the bitsNeeded
-		for bitsNeededInternal > 0 {
+		delta := uint64(0)
+		bitsRead := 0
+
+		for bitsRead < bitsNeeded {
 			if currentByteIndex >= len(packed) {
 				break
 			}
 
 			if bitPos == 8 {
 				currentByteIndex++
-				bitPos = 0
 				if currentByteIndex >= len(packed) {
 					break
 				}
 				currentByte = packed[currentByteIndex]
-
+				bitPos = 0
 			}
 
-			// Calculate how many bits to read from the current byte
-			bitsToRead := 8 - bitPos
-			if bitsToRead > bitsNeeded {
-				bitsToRead = bitsNeeded
-			}
-			if bitsNeededInternal < bitsToRead {
-				bitsToRead = bitsNeededInternal
-			}
-
-			// Extract bits from the packed byte
-			shiftAmount := 8 - bitPos - bitsToRead
-			deltas[i] |= (uint64(currentByte>>shiftAmount) & uint64((1<<bitsToRead)-1)) << (bitsNeededInternal - bitsToRead)
+			bitsToRead := minU(uint(8)-bitPos, uint(bitsNeeded-bitsRead))
+			mask := uint64((1 << bitsToRead) - 1)
+			delta |= (uint64(currentByte>>(8-bitPos-bitsToRead)) & mask) << (bitsNeeded - bitsRead - int(bitsToRead))
 
 			bitPos += bitsToRead
-
-			bitsNeededInternal -= bitsToRead
+			bitsRead += int(bitsToRead)
 		}
 
+		deltas[i] = delta
 	}
 
 	return deltas
+}
+
+func minU(a, b uint) uint {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func packedEncode(docIds, termFreqs, propLengths []uint64) *terms.BlockData {
