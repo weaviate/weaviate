@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package queue
 
 import (
@@ -241,6 +252,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	// if there are no more chunks to read,
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if f == nil {
+		s.Logger.Debug("no chunks to read, checking if partial chunk is stale")
 		f, path, err = s.checkIfStale(q)
 		if err != nil || f == nil {
 			return err
@@ -254,6 +266,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	var taskCount int64
 	for {
+		s.Logger.WithField("file", path).Debug("decoding task")
+
 		t, err := q.q.DecodeTask(r)
 		if errors.Is(err, io.EOF) {
 			break
@@ -332,6 +346,8 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 			return nil, "", err
 		}
 
+		s.Logger.WithField("file", q.readFiles[q.cursor]).Debug("reading chunk file")
+
 		return f, q.readFiles[q.cursor], nil
 	}
 
@@ -365,6 +381,8 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
+	s.Logger.WithField("file", q.readFiles[q.cursor]).Debug("reading chunk file")
 
 	return f, q.readFiles[q.cursor], nil
 }

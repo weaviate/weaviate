@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package queue
 
 import (
 	"context"
@@ -17,28 +17,27 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 )
 
-type AsyncWorker struct {
+type Worker struct {
 	logger        logrus.FieldLogger
 	retryInterval time.Duration
-	ch            chan queue.Batch
+	ch            chan Batch
 }
 
-func NewAsyncWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*AsyncWorker, chan queue.Batch) {
-	ch := make(chan queue.Batch)
+func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker, chan Batch) {
+	ch := make(chan Batch)
 
-	return &AsyncWorker{
+	return &Worker{
 		logger:        logger,
 		retryInterval: retryInterval,
 		ch:            ch,
 	}, ch
 }
 
-func (a *AsyncWorker) Run() {
-	for batch := range a.ch {
-		stop := a.do(&batch)
+func (w *Worker) Run() {
+	for batch := range w.ch {
+		stop := w.do(&batch)
 
 		if stop {
 			return
@@ -46,11 +45,11 @@ func (a *AsyncWorker) Run() {
 	}
 }
 
-func (a *AsyncWorker) do(batch *queue.Batch) (stop bool) {
+func (w *Worker) do(batch *Batch) (stop bool) {
 	defer batch.Done()
 
 	for _, t := range batch.Tasks {
-		if a.processTask(batch.Ctx, t) {
+		if w.processTask(batch.Ctx, t) {
 			return true
 		}
 	}
@@ -58,7 +57,7 @@ func (a *AsyncWorker) do(batch *queue.Batch) (stop bool) {
 	return false
 }
 
-func (a *AsyncWorker) processTask(ctx context.Context, task *queue.Task) (stop bool) {
+func (w *Worker) processTask(ctx context.Context, task *Task) (stop bool) {
 	for {
 		err := task.Execute(ctx)
 		if err == nil {
@@ -66,13 +65,13 @@ func (a *AsyncWorker) processTask(ctx context.Context, task *queue.Task) (stop b
 		}
 
 		if errors.Is(err, context.Canceled) {
-			a.logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
+			w.logger.WithError(err).Debug("skipping processing task due to context cancellation")
 			return true
 		}
 
-		a.logger.WithError(err).Infof("failed to index vectors, retrying in %s", a.retryInterval.String())
+		w.logger.WithError(err).Infof("failed to process task, retrying in %s", w.retryInterval.String())
 
-		t := time.NewTimer(a.retryInterval)
+		t := time.NewTimer(w.retryInterval)
 		select {
 		case <-ctx.Done():
 			// drain the timer

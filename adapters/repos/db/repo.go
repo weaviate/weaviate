@@ -79,12 +79,11 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh              chan job
-	scheduler               *queue.Scheduler
-	asyncIndexRetryInterval time.Duration
-	shutDownWg              sync.WaitGroup
-	maxNumberGoroutines     int
-	ratePerSecond           atomic.Int64
+	jobQueueCh          chan job
+	scheduler           *queue.Scheduler
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+	ratePerSecond       atomic.Int64
 
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
@@ -134,19 +133,18 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor = memwatch.NewDummyMonitor()
 	}
 	db := &DB{
-		logger:                  logger,
-		config:                  config,
-		indices:                 map[string]*Index{},
-		remoteIndex:             remoteIndex,
-		nodeResolver:            nodeResolver,
-		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:           replicaClient,
-		promMetrics:             promMetrics,
-		shutdown:                make(chan struct{}),
-		asyncIndexRetryInterval: 5 * time.Second,
-		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:       newResourceScanState(),
-		memMonitor:              memMonitor,
+		logger:              logger,
+		config:              config,
+		indices:             map[string]*Index{},
+		remoteIndex:         remoteIndex,
+		nodeResolver:        nodeResolver,
+		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:       replicaClient,
+		promMetrics:         promMetrics,
+		shutdown:            make(chan struct{}),
+		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:   newResourceScanState(),
+		memMonitor:          memMonitor,
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -167,7 +165,7 @@ func New(logger logrus.FieldLogger, config Config,
 		chans := make([]chan queue.Batch, w)
 
 		for i := 0; i < w; i++ {
-			worker, ch := NewAsyncWorker(db.logger, db.asyncIndexRetryInterval)
+			worker, ch := queue.NewWorker(db.logger, 5*time.Second)
 			chans[i] = ch
 
 			f := func() {
