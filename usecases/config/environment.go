@@ -27,10 +27,13 @@ import (
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
-	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftPort         = 8300
+	DefaultRaftInternalPort = 8301
+	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
+	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
+	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
+	// on a single node cluster.
+	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 )
@@ -416,7 +419,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
+	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
 
