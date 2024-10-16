@@ -108,10 +108,17 @@ enum CombinationMethod {
   COMBINATION_METHOD_TYPE_MANUAL = 5;
 }
 
+message WeightsForTarget {
+  string target = 1;
+  float weight = 2;
+}
+
+
 message Targets {
   repeated string target_vectors = 1;
   CombinationMethod combination = 2;
-  map<string,float> weights = 3;
+  map<string,float> weights = 3 [deprecated = true];   // deprecated in 1.26.2 - use weights_for_targets
+  repeated WeightsForTarget weights_for_targets = 4;
 }
 
 message Hybrid {
@@ -216,6 +223,11 @@ message RefPropertiesRequest {
   string target_collection = 4;
 }
 
+message VectorForTarget {
+  string name = 1;
+  bytes vector_bytes = 2;
+}
+
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
@@ -224,7 +236,8 @@ message NearVector {
   bytes vector_bytes = 4;
   repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 6;
-  map <string, bytes> vector_per_target = 7;
+  map <string, bytes> vector_per_target = 7 [deprecated = true]; // deprecated in 1.26.2 - use vector_for_targets
+  repeated VectorForTarget vector_for_targets = 8;
 }
 
 message NearObject {

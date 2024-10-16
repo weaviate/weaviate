@@ -388,12 +388,12 @@
           "type": "boolean",
           "x-omitempty": false
         },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
         }
@@ -934,7 +934,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -1049,7 +1050,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -1156,7 +1158,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -2184,7 +2187,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.27.0-alpha"
+    "version": "1.27.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4843,7 +4846,7 @@
         }
       },
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "operationId": "backups.list",
         "x-serviceIds": [
           "weaviate.local.backup"

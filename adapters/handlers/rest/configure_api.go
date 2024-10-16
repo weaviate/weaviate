@@ -34,6 +34,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -101,8 +103,10 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -185,8 +189,19 @@ func calcCPUs(cpuString string) (int, error) {
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
 
+	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
+
+	// config.ServerVersion is deprecated: It's there to be backward compatible
+	// use build.Version instead.
+	config.ServerVersion = build.Version
+
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.ServerMetrics = monitoring.NewServerMetrics(appState.ServerConfig.Config.Monitoring, prometheus.DefaultRegisterer)
 		appState.TenantActivity = tenantactivity.NewHandler()
+
+		// export build tags to prometheus metric
+		build.SetPrometheusBuildInfo()
+		prometheus.MustRegister(version.NewCollector(build.AppName))
 
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
@@ -202,7 +217,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			// Setup related config
 			Dsn:         appState.ServerConfig.Config.Sentry.DSN,
 			Debug:       appState.ServerConfig.Config.Sentry.Debug,
-			Release:     "weaviate-core@" + config.ImageTag,
+			Release:     "weaviate-core@" + build.Version,
 			Environment: appState.ServerConfig.Config.Sentry.Environment,
 			// Enable tracing if requested
 			EnableTracing:    !appState.ServerConfig.Config.Sentry.TracingDisabled,
@@ -299,7 +314,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
-		GitHash:                   config.GitHash,
+		GitHash:                   build.Revision,
 		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
 		MemtablesInitialSizeMB:    10,
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
@@ -434,6 +449,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
 		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
@@ -615,12 +631,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
-	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)
 
 	appState.Logger.WithFields(logrus.Fields{
-		"server_version":   config.ServerVersion,
-		"docker_image_tag": config.ImageTag,
+		"server_version": config.ServerVersion,
+		"version":        build.Version,
 	}).Infof("configured versions")
 
 	api.ServeError = openapierrors.ServeError
@@ -632,7 +647,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.ImageTag}).Infof(msg, args...)
+		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "version": build.Version}).Infof(msg, args...)
 	}
 
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
@@ -664,7 +679,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	grpcServer := createGrpcServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
-	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState, api.Context())
 
 	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 	if telemetryEnabled(appState) {
@@ -811,8 +826,8 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 func logger() *logrus.Logger {
 	logger := logrus.New()
 	logger.SetFormatter(&WeaviateTextFormatter{
-		config.GitHash,
-		config.ImageTag,
+		build.Revision,
+		build.Version,
 		config.ServerVersion,
 		goruntime.Version(),
 		&logrus.TextFormatter{},
@@ -820,8 +835,8 @@ func logger() *logrus.Logger {
 
 	if os.Getenv("LOG_FORMAT") != "text" {
 		logger.SetFormatter(&WeaviateJSONFormatter{
-			config.GitHash,
-			config.ImageTag,
+			build.Revision,
+			build.Version,
 			config.ServerVersion,
 			goruntime.Version(),
 			&logrus.JSONFormatter{},
@@ -1166,7 +1181,6 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", modgenerativeanthropic.Name).
 			Debug("enabled module")
-
 	}
 
 	_, enabledText2vecGoogle := enabledModules[modtext2vecgoogle.Name]
@@ -1280,6 +1294,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modweaviateembed.Name]; ok {
+		appState.Modules.Register(modweaviateembed.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modweaviateembed.Name).
 			Debug("enabled module")
 	}
 
@@ -1399,7 +1421,7 @@ func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 	}
 }
 
-func parseVersionFromSwaggerSpec() string {
+func ParseVersionFromSwaggerSpec() string {
 	spec := struct {
 		Info struct {
 			Version string `json:"version"`

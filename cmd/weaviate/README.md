@@ -320,3 +320,16 @@ with weaviate.connect_to_local(
 Offload the tenant again using the [#Offload tenants (on Weaviate core)] script above. Then, after waiting a second, run the [#Vector search] script above to query the new tenant data.
 
 TODO why does running offload, then a "proper filters" query, then a "vector search" query error?
+## TODO(s)
+
+- [ ] Handle "empty write-ahead-log found" warnings on `querier`
+- [ ] Support BM25 search
+- [ ] Support other indexes other than flat index with Binary Quantization(BQ)
+- [ ] Integrate `query.Search` with core weaviate's http, grpc and graphql endpoints for frozen tenants.
+- [x] Instrument `grpc` server
+- [x] Instrument `http` server
+- [ ] Log query metadata (add it in `slow_queries.go`)
+- [ ] Grafana dashboards
+- [ ] Alerts
+- [ ] Playbook for each alerts.
+- [ ] Demo video of running core + querier to query offloaded tenants.

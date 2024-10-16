@@ -43,6 +43,7 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "" // to support backward compabitlity. Metric names won't have prefix by default.
 
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
 			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
@@ -54,6 +55,10 @@ func FromEnv(config *Config) error {
 			// want to group. The new name reflects that it's just about grouping,
 			// not about classes or shards.
 			config.Monitoring.Group = true
+		}
+
+		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
+			config.Monitoring.MetricsNamespace = val
 		}
 	}
 
@@ -409,7 +414,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
-		config.Replication.ForceObjectDeletionConflictResolution = v
+		config.Replication.DeletionStrategy = v
 	}
 
 	config.DisableTelemetry = false
@@ -540,6 +545,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
 	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside

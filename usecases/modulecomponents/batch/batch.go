@@ -184,7 +184,7 @@ func (b *Batch) batchWorker() {
 		//  - For sequential batching, the rate limit  will be passed into the sendBatch function and is observed and
 		//    updated there. This allows to use the rate-limit in an optimal way, but also requires more checks. No
 		//    concurrent batch can be started while a sequential batch is running.
-
+		repeats := 0
 		for {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
 			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
@@ -192,8 +192,14 @@ func (b *Batch) batchWorker() {
 			stats := monitoring.GetMetrics().T2VRateLimitStats
 			stats.WithLabelValues(b.label, "token_limit").Set(float64(rateLimit.LimitTokens))
 			stats.WithLabelValues(b.label, "token_remaining").Set(float64(rateLimit.RemainingTokens))
+			stats.WithLabelValues(b.label, "token_reserved").Set(float64(rateLimit.ReservedTokens))
 			stats.WithLabelValues(b.label, "request_limit").Set(float64(rateLimit.LimitRequests))
 			stats.WithLabelValues(b.label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
+			stats.WithLabelValues(b.label, "request_reserved").Set(float64(rateLimit.ReservedRequests))
+			stats.WithLabelValues(b.label, "estimated_requests_needed").Set(float64(numRequests))
+			stats.WithLabelValues(b.label, "tokens_needed").Set(float64(job.tokenSum))
+			stats.WithLabelValues(b.label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
+			stats.WithLabelValues(b.label, "repeats_for_scheduling").Set(float64(repeats))
 
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				b.concurrentBatches.Add(1)
@@ -222,6 +228,7 @@ func (b *Batch) batchWorker() {
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
+			repeats++
 		}
 
 	}
@@ -292,6 +299,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		}
 
 		if job.tokens[objCounter] > rateLimit.LimitTokens || job.tokens[objCounter] > maxTokensPerBatch {
+			b.logger.Debugf("text too long for vectorization. Tokens for text: %v, max tokens per batch: %v, ApiKey absolute token limit: %v", job.tokens[objCounter], maxTokensPerBatch, rateLimit.LimitTokens)
 			job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Tokens for text: %v, max tokens per batch: %v, ApiKey absolute token limit: %v", job.tokens[objCounter], maxTokensPerBatch, rateLimit.LimitTokens)
 			objCounter++
 			continue

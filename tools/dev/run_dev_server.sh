@@ -20,11 +20,17 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 
+# inject build info into binaries.
+GIT_REVISION=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+VPREFIX="github.com/weaviate/weaviate/usecases/build"
+
+BUILD_TAGS="-X ${VPREFIX}.Branch=${GIT_BRANCH} -X ${VPREFIX}.Revision=${GIT_REVISION} -X ${VPREFIX}.BuildUser=$(whoami)@$(hostname) -X ${VPREFIX}.BuildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+
 function go_run() {
-  GIT_HASH=$(git rev-parse --short HEAD)
-   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH \
-   -X github.com/weaviate/weaviate/usecases/config.IMAGE_TAG=localhost" \
-   "$@"
+   go run -ldflags "${BUILD_TAGS}" "$@"
 }
 
 case $CONFIG in
@@ -526,6 +532,7 @@ case $CONFIG in
       BACKUP_S3_ENDPOINT="localhost:9000" \
       ENABLE_MODULES="backup-filesystem,text2vec-contextionary,offload-s3" \
       PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
