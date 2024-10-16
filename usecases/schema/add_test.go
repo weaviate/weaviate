@@ -563,9 +563,8 @@ func TestAddClass(t *testing.T) {
 							DataType: []string{"uuid"},
 						},
 					},
-					MultiTenancyConfig: nil,
-					ShardingConfig: map[string]interface{}{
-						"desiredCount": 2,
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
 					},
 					ReplicationConfig: &models.ReplicationConfig{
 						Factor: 2,
