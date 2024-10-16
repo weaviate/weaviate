@@ -37,6 +37,8 @@ type VectorIndexQueue struct {
 	metrics   *IndexQueueMetrics
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
+	// indicate if the index is being upgraded
+	upgrading atomic.Bool
 
 	// prevents replacing the index while
 	// the queue is dequeuing vectors
@@ -61,6 +63,7 @@ func NewVectorIndexQueue(
 
 	q, err := queue.New(
 		s,
+		shard.index.logger,
 		fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
 		filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
 		&viq,
@@ -185,15 +188,17 @@ func (iq *VectorIndexQueue) checkCompressionSettings() {
 	}
 
 	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
-	if !shouldUpgrade || ci.Upgraded() {
+	if !shouldUpgrade || ci.Upgraded() || iq.upgrading.Load() {
 		return
 	}
 
 	if iq.index.i.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+		iq.upgrading.Store(true)
 		iq.scheduler.PauseQueue(iq.Queue.ID())
 
 		err := ci.Upgrade(func() {
 			iq.scheduler.ResumeQueue(iq.Queue.ID())
+			iq.upgrading.Store(false)
 		})
 		if err != nil {
 			iq.Queue.Logger.WithError(err).Error("failed to upgrade vector index")
