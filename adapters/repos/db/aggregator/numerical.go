@@ -14,6 +14,7 @@ package aggregator
 import (
 	"math"
 	"sort"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -83,6 +84,7 @@ func newNumericalAggregator() *numericalAggregator {
 }
 
 type numericalAggregator struct {
+	sync.Mutex
 	count        uint64
 	min          float64
 	max          float64
@@ -142,6 +144,8 @@ func (a *numericalAggregator) AddInt64Row(number []byte, count uint64) error {
 }
 
 func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
+	a.Lock()
+	defer a.Unlock()
 	if count == 0 {
 		// skip
 		return nil
