@@ -15,13 +15,13 @@ type Queue struct {
 	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
 	BeforeScheduleFn func()
 
-	scheduler  *Scheduler
-	id         string
-	path       string
-	enc        *Encoder
-	exec       TaskExecutor
-	lastPushed atomic.Pointer[time.Time]
-	closed     atomic.Bool
+	scheduler    *Scheduler
+	id           string
+	path         string
+	enc          *Encoder
+	exec         TaskExecutor
+	lastPushTime atomic.Pointer[time.Time]
+	closed       atomic.Bool
 }
 
 func New(s *Scheduler, id, path string, exec TaskExecutor) (*Queue, error) {
@@ -73,7 +73,7 @@ func (q *Queue) Push(op uint8, keys ...uint64) error {
 
 	now := time.Now()
 
-	q.lastPushed.Store(&now)
+	q.lastPushTime.Store(&now)
 
 	for _, key := range keys {
 		err := q.enc.Encode(op, key)

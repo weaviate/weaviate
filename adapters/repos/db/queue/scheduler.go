@@ -379,7 +379,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 }
 
 func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
-	lastPushed := q.q.lastPushed.Load()
+	lastPushed := q.q.lastPushTime.Load()
 	if lastPushed == nil {
 		return nil, "", nil
 	}
