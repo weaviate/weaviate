@@ -165,7 +165,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -189,15 +189,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+	bucketName := req.S3Bucket
+	bucketPath := req.S3Path
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, bucketName, bucketPath); err != nil {
 		c.lastOp.reset()
-		return fmt.Errorf("cannot init meta file: %w", err)
+		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
 	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
+		Method:   OpCreate,
+		ID:       req.ID,
+		Backend:  req.Backend,
+		S3Bucket: req.S3Bucket,
+		S3Path:   req.S3Path,
 	}
 
 	f := func() {
@@ -205,7 +209,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, bucketName, bucketPath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -229,7 +233,7 @@ func (c *coordinator) Restore(
 ) error {
 	req.Method = OpRestore
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
 
@@ -244,22 +248,25 @@ func (c *coordinator) Restore(
 		return err
 	}
 
+	bucketName := req.S3Bucket
+	bucketPath := req.S3Path
+
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, bucketName, bucketPath); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: bucketName, S3Path: bucketPath}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
 		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, bucketName, bucketPath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -313,20 +320,24 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	if req.Method == OpRestore {
 		filename = GlobalRestoreFile
 	}
+
+	fmt.Printf("Checking backup for store: %+v\n", store)
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename)
+	meta, err := store.Meta(ctx, filename, store.S3Bucket, store.S3Path)
 	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, filename)
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
+		path := st.Path
+		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)
 	}
 
-	return &Status{
-		Path:        store.HomeDir(),
+	status := &Status{
+		Path:        store.HomeDir(store.S3Bucket, store.S3Path),
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,
 		Err:         meta.Error,
-	}, nil
+	}
+	fmt.Printf("Status: %+v\n", status)
+	return status, nil
 }
 
 // canCommit asks candidates if they agree to participate in DBRO

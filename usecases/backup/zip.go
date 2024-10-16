@@ -50,6 +50,7 @@ func NewZip(sourcePath string, level int) (zip, io.ReadCloser) {
 	gzw, _ := gzip.NewWriterLevel(pw, zipLevel(level))
 	reader := &readCloser{src: pr, n: 0}
 
+	fmt.Printf("zip sourcePath: %s\n", sourcePath)
 	return zip{
 		sourcePath: sourcePath,
 		gzw:        gzw,
@@ -155,7 +156,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
-		return written, fmt.Errorf("write header %s: %w", relPath, err)
+		return written, fmt.Errorf("backup write header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)

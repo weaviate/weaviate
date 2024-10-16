@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,7 +33,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_AzureBackend_Backup(t *testing.T) {
+var override = []string{"", ""}
+
+func Test_AzureBackend_Start(t *testing.T) {
+	overrides := [][]string{
+		{"", ""},
+		{"testbucketoverride", "testBucketPathOverride"},
+	}
+
+	override = overrides[0]
+	AzureBackend_Backup(t)
+	time.Sleep(5 * time.Second)
+
+	override = overrides[1]
+	AzureBackend_Backup(t)
+}
+
+func AzureBackend_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithAzurite().Start(ctx)
 	if err != nil {
@@ -60,6 +75,9 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	className := "BackupClass"
 	backupID := "backup_id"
 	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 	metadataFilename := "backup.json"
 
@@ -77,12 +95,12 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := azure.Initialize(testCtx, backupID)
+			err := azure.Initialize(testCtx, backupID, override[0], override[1])
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := azure.GetObject(testCtx, backupID, metadataFilename)
+			meta, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -105,17 +123,21 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = azure.PutObject(testCtx, backupID, metadataFilename, b)
+			err = azure.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := azure.HomeDir(backupID)
+			dest := azure.HomeDir(backupID, override[0], override[1])
 
 			expected := fmt.Sprintf("http://%s/devstoreaccount1/%s/%s", os.Getenv(envAzureEndpoint), containerName, backupID)
+			if override[1] != "" {
+				expected = fmt.Sprintf("http://%s/devstoreaccount1/%s/%s/%s", os.Getenv(envAzureEndpoint), containerName, override[1], backupID)
+			}
 			assert.Equal(t, expected, dest)
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := azure.GetObject(testCtx, backupID, metadataFilename)
+			obj, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
+			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -141,6 +163,9 @@ func moduleLevelCopyObjects(t *testing.T) {
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
@@ -157,12 +182,13 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := azure.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := azure.PutObject(testCtx, backupID, key, override[0], override[1], []byte("hello"))
+			t.Logf("Error: %+v", err)
 			assert.Nil(t, err)
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
-			meta, err := azure.GetObject(testCtx, backupID, key)
+			meta, err := azure.GetObject(testCtx, backupID, key, override[0], override[1])
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -177,12 +203,17 @@ func moduleLevelCopyFiles(t *testing.T) {
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
 	t.Setenv(envAzureEndpoint, endpoint)
 	t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, endpoint))
+	fmt.Printf("Connection string: %s\n", os.Getenv(envAzureStorageConnectionString))
 	t.Setenv(envAzureContainer, containerName)
+	fmt.Printf("Creating container %s\n", containerName)
 	moduleshelper.CreateAzureContainer(testCtx, t, endpoint, containerName)
 	defer moduleshelper.DeleteAzureContainer(testCtx, t, endpoint, containerName)
 
@@ -203,11 +234,10 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := azure.PutFile(testCtx, backupID, key, srcPath)
+			err = azure.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
 			require.Nil(t, err)
 
-			contents, err := azure.GetObject(testCtx, backupID, key)
+			contents, err := azure.GetObject(testCtx, backupID, key, override[0], override[1])
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
@@ -215,7 +245,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			err := azure.WriteToFile(testCtx, backupID, key, destPath)
+			err := azure.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1])
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)
