@@ -550,6 +550,30 @@ func TestAddClass(t *testing.T) {
 			)
 			require.Nil(t, err)
 		})
+
+		t.Run("fail on invalid replication factor", func(t *testing.T) {
+			mgr := newSchemaManager()
+			err := mgr.AddClass(context.Background(),
+				nil,
+				&models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{
+							Name:     "uuidProp",
+							DataType: []string{"uuid"},
+						},
+					},
+					MultiTenancyConfig: nil,
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 2,
+					},
+					ReplicationConfig: &models.ReplicationConfig{
+						Factor: 2,
+					},
+				},
+			)
+			require.EqualError(t, err, "init sharding state: not enough replicas: found 1 want 2")
+		})
 	})
 }
 
