@@ -1069,6 +1069,8 @@ type VectorIndexQueue struct {
 
 	scheduler *queue.Scheduler
 	metrics   *IndexQueueMetrics
+	// tracks the dimensions of the vectors in the queue
+	dims atomic.Int32
 
 	// prevents replacing the index while
 	// the queue is dequeuing vectors
@@ -1114,12 +1116,37 @@ func NewVectorIndexQueue(
 
 func (iq *VectorIndexQueue) Insert(vectors ...vectorDescriptor) error {
 	iq.index.RLock()
+	defer iq.index.RUnlock()
+
 	ids := make([]uint64, len(vectors))
 	for i, v := range vectors {
+		// ensure the vector is not empty
+		if len(v.vector) == 0 {
+			return errors.Errorf("vector is empty")
+		}
+
+		// delegate the validation to the index
+		err := iq.index.i.ValidateBeforeInsert(v.vector)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		// if the index is still empty, ensure the first batch is consistent
+		// by keeping track of the dimensions of the vectors.
+		if iq.dims.CompareAndSwap(0, int32(len(v.vector))) {
+			continue
+		}
+		if iq.dims.Load() != int32(len(v.vector)) {
+			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].vector), iq.dims.Load())
+		}
+
+		// since the queue only stores the vector id on disk,
+		// we need to preload the vector index cache to avoid
+		// loading the vector from disk when it is indexed.
 		iq.index.i.PreloadCache(v.id, v.vector)
+
 		ids[i] = v.id
 	}
-	iq.index.RUnlock()
 
 	return iq.Queue.Push(vectorIndexQueueInsertOp, ids...)
 }
