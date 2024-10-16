@@ -80,8 +80,6 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	}
 	s.queues.m = make(map[string]*queueState)
 
-	s.ctx, s.cancelFn = context.WithCancel(context.Background())
-
 	return &s
 }
 
@@ -114,6 +112,13 @@ func (s *Scheduler) UnregisterQueue(id string) {
 }
 
 func (s *Scheduler) Start() {
+	if s.ctx != nil {
+		// scheduler already started
+		return
+	}
+
+	s.ctx, s.cancelFn = context.WithCancel(context.Background())
+
 	s.wg.Add(1)
 
 	f := func() {
@@ -125,7 +130,7 @@ func (s *Scheduler) Start() {
 }
 
 func (s *Scheduler) Close() error {
-	if s == nil {
+	if s == nil || s.ctx == nil {
 		// scheduler not initialized. No op.
 		return nil
 	}
