@@ -1085,26 +1085,17 @@ func NewVectorIndexQueue(
 	targetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
-	var qID string
-	if targetVector == "" {
-		qID = fmt.Sprintf("vector_index_queue_%s", shard.ID())
-	} else {
-		qID = fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), targetVector)
-	}
-
-	var dir string
-	if targetVector == "" {
-		dir = filepath.Join(shard.path(), "vector_index_queue_default")
-	} else {
-		dir = filepath.Join(shard.path(), "vector_index_queue", targetVector)
-	}
-
 	viq := VectorIndexQueue{
 		scheduler: s,
 	}
 	viq.index.i = index
 
-	q, err := queue.New(s, qID, dir, &viq)
+	q, err := queue.New(
+		s,
+		fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
+		filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
+		&viq,
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create vector index queue")
 	}
@@ -1112,7 +1103,8 @@ func NewVectorIndexQueue(
 
 	q.Logger = q.Logger.
 		WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID())
+		WithField("shard_id", shard.ID()).
+		WithField("target_vector", targetVector)
 
 	viq.Queue = q
 	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
