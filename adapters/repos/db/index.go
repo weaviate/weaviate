@@ -550,24 +550,25 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 type IndexConfig struct {
-	RootPath                  string
-	ClassName                 schema.ClassName
-	QueryMaximumResults       int64
-	QueryNestedRefLimit       int64
-	ResourceUsage             config.ResourceUsage
-	MemtablesFlushDirtyAfter  int
-	MemtablesInitialSizeMB    int
-	MemtablesMaxSizeMB        int
-	MemtablesMinActiveSeconds int
-	MemtablesMaxActiveSeconds int
-	MaxSegmentSize            int64
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	ReplicationFactor         *atomic.Int64
-	DeletionStrategy          string
-	AvoidMMap                 bool
-	DisableLazyLoadShards     bool
-	ForceFullReplicasSearch   bool
+	RootPath                       string
+	ClassName                      schema.ClassName
+	QueryMaximumResults            int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	SegmentsCleanupIntervalSeconds int
+	MaxSegmentSize                 int64
+	HNSWMaxLogSize                 int64
+	HNSWWaitForCachePrefill        bool
+	ReplicationFactor              *atomic.Int64
+	DeletionStrategy               string
+	AvoidMMap                      bool
+	DisableLazyLoadShards          bool
+	ForceFullReplicasSearch        bool
 
 	TrackVectorDimensions bool
 }
