@@ -18,22 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-type job struct {
-	object  *storobj.Object
-	status  objectInsertStatus
-	index   int
-	ctx     context.Context
-	batcher *objectsBatcher
-
-	// async only
-	indexer batchIndexer
-	ids     []uint64
-	vectors [][]float32
-	done    func()
-}
 
 type AsyncWorker struct {
 	logger        logrus.FieldLogger
