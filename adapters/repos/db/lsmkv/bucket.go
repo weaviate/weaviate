@@ -130,6 +130,10 @@ type Bucket struct {
 	// so. However, the hint can help the compaction process to delay an action
 	// without blocking.
 	isFlushing atomic.Bool
+	// optional segments cleanup interval. If set, segments will be cleaned of
+	// redundant obsolete data, that was deleted or updated in newer segments
+	// (currently supported only in buckets of REPLACE strategy)
+	segmentsCleanupInterval time.Duration
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -192,6 +196,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
 			isFlushing:            &b.isFlushing,
+			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
