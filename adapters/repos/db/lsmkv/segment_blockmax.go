@@ -127,7 +127,7 @@ func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([
 	return results, nil
 }
 
-func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd uint64, buf []byte, documents []*terms.DocPointerWithScore) error {
+func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd uint64, buf []byte, documents []*terms.DocPointerWithScore, decoded *terms.BlockDataDecoded) error {
 	r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
 	if err != nil {
 		return err
@@ -139,7 +139,7 @@ func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd ui
 	}
 
 	blockData := terms.DecodeBlockData(buf[:offsetEnd-offsetStart])
-	convertFromBlockReusable(blockData, blockSize, documents)
+	convertFromBlockReusable(blockData, blockSize, documents, decoded)
 
 	return nil
 }
@@ -151,6 +151,7 @@ type SegmentBlockMax struct {
 	blockEntries         []*terms.BlockEntry
 	blockEntryIdx        int
 	blockDataBuffer      []byte
+	blockDataDecoded     *terms.BlockDataDecoded
 	blockData            []*terms.DocPointerWithScore
 	blockDataSize        int
 	blockDataIdx         int
@@ -197,7 +198,11 @@ func (s *SegmentBlockMax) reset() error {
 			s.blockData[i] = &terms.DocPointerWithScore{}
 		}
 		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
-	} else {
+		s.blockDataDecoded = &terms.BlockDataDecoded{
+			DocIds:      make([]uint64, terms.BLOCK_SIZE),
+			Tfs:         make([]uint64, terms.BLOCK_SIZE),
+			PropLenghts: make([]uint64, terms.BLOCK_SIZE),
+		}
 	}
 
 	s.blockEntryIdx = 0
@@ -234,7 +239,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
 
-	err = s.segment.loadBlockDataReusable(s.blockDataSize, startOffset, endOffset, s.blockDataBuffer, s.blockData)
+	err = s.segment.loadBlockDataReusable(s.blockDataSize, startOffset, endOffset, s.blockDataBuffer, s.blockData, s.blockDataDecoded)
 	if err != nil {
 		return err
 	}
