@@ -139,7 +139,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			cfg.Path = overridePath
 		}
 
-		fmt.Printf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
+		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
 		_, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 

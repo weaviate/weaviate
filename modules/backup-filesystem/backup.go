@@ -109,12 +109,10 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPat
 
 	dir := path.Dir(backupPath)
 
-	fmt.Printf("Making dir %s\n", dir)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)
 	}
 
-	fmt.Printf("Writing file %s\n", backupPath)
 	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "write file '%s'", backupPath)
 	}
@@ -141,7 +139,6 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 		objectPath = filepath.Join(m.backupsPath, backupID, key)
 	}
 
-	fmt.Printf("WriteToFile: Copying file from %s to %s\n", objectPath, destPath)
 	bytesWritten, err := m.copyFile(objectPath, destPath)
 	if err != nil {
 		return err

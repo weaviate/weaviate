@@ -211,9 +211,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 	t.Log("setup env")
 	t.Setenv(envAzureEndpoint, endpoint)
 	t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, endpoint))
-	fmt.Printf("Connection string: %s\n", os.Getenv(envAzureStorageConnectionString))
+	t.Logf("Connection string: %s\n", os.Getenv(envAzureStorageConnectionString))
 	t.Setenv(envAzureContainer, containerName)
-	fmt.Printf("Creating container %s\n", containerName)
+	t.Logf("Creating container %s\n", containerName)
 	moduleshelper.CreateAzureContainer(testCtx, t, endpoint, containerName)
 	defer moduleshelper.DeleteAzureContainer(testCtx, t, endpoint, containerName)
 

@@ -93,9 +93,6 @@ func parseCompressionLevel(l string) ubak.CompressionLevel {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	fmt.Printf("BackupHandler: %+v\n", params)
-	fmt.Printf("Body: %+v\n", params.Body)
-	fmt.Printf("Config: %+v\n", params.Body.Config)
 	OverrideBucket := ""
 	OverridePath := ""
 	if params.Body.Config != nil {

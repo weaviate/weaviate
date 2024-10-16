@@ -12,7 +12,6 @@
 package helper
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/weaviate/weaviate/client/backups"
@@ -42,7 +41,7 @@ func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, ba
 			Include: []string{className},
 			Config:  cfg,
 		})
-	fmt.Printf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
+	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
 	return Client(t).Backups.BackupsCreate(params, nil)
 }
 

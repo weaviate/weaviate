@@ -102,7 +102,6 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, bucketName, buc
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object '%s'", remotePath))
 	}
 
-	fmt.Printf("!!!Get object '%s' from bucket '%s'\n", remotePath, bucket)
 	obj, err := s.client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", remotePath))
@@ -139,14 +138,12 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 		bucket = bucketName
 	}
 
-	fmt.Printf("!!!Put object '%s' to bucket '%s'\n", remotePath, bucket)
 	_, err := s.client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
 			errors.Wrapf(err, "put object '%s:%s'", bucket, remotePath))
 	}
 
-	fmt.Printf("Put object '%s' to bucket '%s'\n", remotePath, bucket)
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(byes)))

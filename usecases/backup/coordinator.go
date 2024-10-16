@@ -321,7 +321,6 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 
-	fmt.Printf("Checking backup for store: %+v\n", store)
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.S3Bucket, store.S3Path)
 	if err != nil {
@@ -336,7 +335,6 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		Status:      meta.Status,
 		Err:         meta.Error,
 	}
-	fmt.Printf("Status: %+v\n", status)
 	return status, nil
 }
 

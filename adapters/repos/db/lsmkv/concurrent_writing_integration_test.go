@@ -91,7 +91,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 		}
 
 		if len(missingKeys) > 0 {
-			fmt.Printf("missing keys: %v\n", missingKeys)
+			t.Logf("missing keys: %v\n", missingKeys)
 		}
 		assert.Equal(t, amount, correct)
 	})

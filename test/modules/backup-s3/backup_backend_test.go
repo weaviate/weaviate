@@ -51,7 +51,7 @@ func S3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
 
-	fmt.Printf("Starting test with bucket: %s, %s\n", bucketName, region)
+	t.Logf("Starting test with bucket: %s, %s\n", bucketName, region)
 	compose, err := docker.New().WithBackendS3(bucketName, region).Start(ctx)
 	if err != nil {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
@@ -59,7 +59,7 @@ func S3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 
 	t.Setenv(envMinioEndpoint, compose.GetMinIO().URI())
 
-	fmt.Printf("running tests with bucket %v and path overrides: %v\n", bucketName, override)
+	t.Logf("running tests with bucket %v and path overrides: %v\n", bucketName, override)
 	t.Run("store backup meta",
 		func(t *testing.T) {
 			moduleLevelStoreBackupMeta(t, override, containerName, overrideBucket, overridePath)

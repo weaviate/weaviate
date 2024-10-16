@@ -155,7 +155,6 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, 
 		containerName = bucketName
 	}
 
-	fmt.Printf("Uploading object %s to container %s\n", objectName, containerName)
 	reader := bytes.NewReader(data)
 	_, err := a.client.UploadStream(ctx,
 		containerName,
