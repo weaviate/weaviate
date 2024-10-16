@@ -523,7 +523,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 // see Store.candidates.
 //
 // The value of "last_store_log_applied_index" is the index of the last applied command found when
-// the store was opened, see Store.lastAppliedIndexOnStart.
+// the store was opened, see Store.lastAppliedIndexToDB.
 //
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
