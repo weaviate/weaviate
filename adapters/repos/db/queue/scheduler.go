@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -256,12 +255,15 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	}
 	// if there are no more chunks to read,
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
-	if f == nil {
+	if f == nil && q.q.Size() > 0 {
 		s.Logger.Debug("no chunks to read, checking if partial chunk is stale")
 		f, path, err = s.checkIfStale(q)
 		if err != nil || f == nil {
 			return err
 		}
+	}
+	if f == nil {
+		return nil
 	}
 
 	// decode all tasks from the chunk
@@ -271,8 +273,6 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	var taskCount int64
 	for {
-		s.Logger.WithField("file", path).Debug("decoding task")
-
 		t, err := q.q.DecodeTask(r)
 		if errors.Is(err, io.EOF) {
 			break
@@ -303,8 +303,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	// keep track of the number of active tasks
 	// for this chunk to remove it when all tasks are done
-	var counter atomic.Int32
-	counter.Store(int32(len(partitions)))
+	counter := len(partitions)
 
 	for i, batch := range partitions {
 		if len(batch) == 0 {
@@ -327,11 +326,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				defer s.activeTasks.Decr()
 				defer q.activeTasks.Decr()
 
-				if counter.Add(-1) == 0 {
-					q.m.Lock()
+				q.m.Lock()
+				counter--
+				if counter == 0 {
 					q.q.enc.removeChunk(path)
-					q.m.Unlock()
 				}
+				q.m.Unlock()
 			},
 		}:
 		}

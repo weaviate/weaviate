@@ -35,8 +35,8 @@ type Queue struct {
 	closed       atomic.Bool
 }
 
-func New(s *Scheduler, id, path string, exec TaskExecutor) (*Queue, error) {
-	logger := logrus.New().WithField("queue_id", id)
+func New(s *Scheduler, logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
+	logger = logger.WithField("queue_id", id)
 
 	enc, err := NewEncoder(path, logger)
 	if err != nil {

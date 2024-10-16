@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +19,7 @@ func TestNewQueue(t *testing.T) {
 		Workers: []chan Batch{make(chan Batch, 1)},
 	})
 
-	q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+	q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 		return nil
 	}))
 
@@ -35,7 +36,7 @@ func TestQueuePush(t *testing.T) {
 	t.Run("a few tasks", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+		q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 			return nil
 		}))
 		require.NoError(t, err)
@@ -49,7 +50,7 @@ func TestQueuePush(t *testing.T) {
 	t.Run("push when closed", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+		q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 			return nil
 		}))
 		require.NoError(t, err)
@@ -64,7 +65,7 @@ func TestQueuePush(t *testing.T) {
 	t.Run("keeps track of last push time", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+		q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 			return nil
 		}))
 		require.NoError(t, err)
@@ -88,7 +89,7 @@ func TestQueuePush(t *testing.T) {
 	t.Run("persistence", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+		q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 			return nil
 		}))
 		require.NoError(t, err)
@@ -114,7 +115,7 @@ func TestQueueDecodeTask(t *testing.T) {
 	t.Run("a few tasks", func(t *testing.T) {
 		tempDir := t.TempDir()
 
-		q, err := New(s, "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+		q, err := New(s, newTestLogger(t), "test_queue", tempDir, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 			return nil
 		}))
 		require.NoError(t, err)
@@ -149,4 +150,10 @@ func TestQueueDecodeTask(t *testing.T) {
 		_, err = q.DecodeTask(buf)
 		require.ErrorIs(t, io.EOF, err)
 	})
+}
+
+func newTestLogger(t *testing.T) logrus.FieldLogger {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	return logger
 }
