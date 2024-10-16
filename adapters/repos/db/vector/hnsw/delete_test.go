@@ -986,18 +986,18 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 			require.Nil(t, err)
 			require.True(t, ok)
 		}()
-		ellapsed := time.Duration(0)
+		elapsed := time.Duration(0)
 		go func() {
 			defer wg.Done()
 			time.Sleep(time.Millisecond * 100)
 			starting := time.Now()
 			err := vectorIndex.Delete(vectorIndex.entryPointID)
-			ellapsed = time.Since(starting)
+			elapsed = time.Since(starting)
 			require.Nil(t, err)
 		}()
 		wg.Wait()
-		fmt.Println(ellapsed.Milliseconds())
-		assert.LessOrEqual(t, ellapsed.Milliseconds(), int64(180))
+		fmt.Printf("ms elapsed: %d\n", elapsed.Milliseconds())
+		assert.LessOrEqual(t, elapsed.Milliseconds(), int64(180))
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
