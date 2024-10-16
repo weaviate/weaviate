@@ -13,7 +13,7 @@ type Queue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
 	Logger logrus.FieldLogger
 	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
-	BeforeScheduleFn func()
+	BeforeScheduleFn func() (skip bool)
 
 	scheduler    *Scheduler
 	id           string
@@ -120,8 +120,10 @@ func (q *Queue) Drop() error {
 	return q.enc.Drop()
 }
 
-func (q *Queue) BeforeSchedule() {
+func (q *Queue) BeforeSchedule() bool {
 	if q.BeforeScheduleFn != nil {
-		q.BeforeScheduleFn()
+		return q.BeforeScheduleFn()
 	}
+
+	return false
 }
