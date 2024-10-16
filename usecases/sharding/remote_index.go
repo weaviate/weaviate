@@ -473,8 +473,10 @@ func (ri *RemoteIndex) queryAllReplicas(
 		if len(resp) == 0 {
 			return nil, errList
 		}
-		if len(resp) != len(replicas)-1 {
+		if len(resp) < len(replicas)-1 {
 			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
+		} else if len(resp) > len(replicas)-1 {
+			log.Debugf("full replicas search has more results than the count of replicas: have=%d want=%d. This is expected if the request is received/coordinated by a node which does not have the shard locally.", len(resp), len(replicas)-1)
 		}
 		return resp, nil
 	}
