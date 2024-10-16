@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
 
 var BLOCK_SIZE_TEST = 128
@@ -67,8 +68,14 @@ func BenchmarkBits(m *testing.B) {
 	sizeBaseline := 0
 	sizePacked := 0
 
+	blockDataDecode := &terms.BlockDataDecoded{
+		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
+		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+	}
+
 	// do 1000 iterations
-	for j := 0; j < 10000; j++ {
+	for j := 0; j < 100000; j++ {
 
 		for i := range docIds {
 			docIds[i] = uint64(100 + i)
@@ -88,9 +95,10 @@ func BenchmarkBits(m *testing.B) {
 
 		// Packed encoding
 		encoded2 := packedEncode(docIds, termFreqs, propLengths)
+
 		startTime = time.Now()
 
-		decodedDocIds2, decodedTermFreqs2, decodedPropLengths2 := packedDecode(encoded2, len(docIds))
+		packedDecodeReusable(encoded2, len(docIds), blockDataDecode)
 		stopTime = time.Now()
 
 		timePacked += int(stopTime.Sub(startTime))
@@ -103,9 +111,9 @@ func BenchmarkBits(m *testing.B) {
 			assert.Equal(m, termFreqs[i], uint64(decodedTermFreqs[i]))
 			assert.Equal(m, propLengths[i], uint64(decodedPropLengths[i]))
 
-			assert.Equal(m, docIds[i], decodedDocIds2[i])
-			assert.Equal(m, termFreqs[i], decodedTermFreqs2[i])
-			assert.Equal(m, propLengths[i], decodedPropLengths2[i])
+			assert.Equal(m, docIds[i], blockDataDecode.DocIds[i])
+			assert.Equal(m, termFreqs[i], blockDataDecode.Tfs[i])
+			assert.Equal(m, propLengths[i], blockDataDecode.PropLenghts[i])
 		}
 	}
 
