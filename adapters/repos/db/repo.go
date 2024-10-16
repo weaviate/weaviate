@@ -21,6 +21,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -334,6 +335,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
 }
 
 func (db *DB) batchWorker(first bool) {
