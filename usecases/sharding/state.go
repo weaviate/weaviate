@@ -128,8 +128,10 @@ type nodes interface {
 
 func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	names := nodes.Candidates()
-	if f, n := replFactor, len(names); f > int64(n) {
-		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	if replFactor > int64(len(names)) {
+		return nil, fmt.Errorf(
+			"could not find enough weaviate nodes for replication: %d available, %d requested",
+			len(names), replFactor)
 	}
 
 	out := &State{

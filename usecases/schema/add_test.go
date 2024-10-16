@@ -571,7 +571,8 @@ func TestAddClass(t *testing.T) {
 					},
 				},
 			)
-			require.EqualError(t, err, "init sharding state: not enough replicas: found 1 want 2")
+			require.EqualError(t, err, "init sharding state: "+
+				"could not find enough weaviate nodes for replication: 1 available, 2 requested")
 		})
 	})
 }
