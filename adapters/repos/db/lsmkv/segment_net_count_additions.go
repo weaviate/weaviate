@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
@@ -51,7 +52,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 
 	path := s.countNetPath()
 
-	ok, err := fileExists(path)
+	ok, err := diskio.FileExists(path)
 	if err != nil {
 		return err
 	}

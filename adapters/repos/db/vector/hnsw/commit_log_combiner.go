@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 type CommitLogCombiner struct {
@@ -127,8 +128,49 @@ func (c *CommitLogCombiner) combine(first, second string) error {
 		return errors.Wrap(err, "merge files")
 	}
 
+	tmpChecksumFileName := strings.TrimSuffix(first, ".condensed") + (".combined.checksum.tmp")
+	firstChecksumFileName := commitLogChecksumFileName(first)
+	secondChecksumFileName := commitLogChecksumFileName(second)
+	finalChecksumFileName := commitLogChecksumFileName(finalName)
+
+	existsFirstChecksum, err := diskio.FileExists(firstChecksumFileName)
+	if err != nil {
+		return errors.Wrap(err, "checking existence of checksum file")
+	}
+
+	existsSecondChecksum, err := diskio.FileExists(secondChecksumFileName)
+	if err != nil {
+		return errors.Wrap(err, "checking existence of checksum file")
+	}
+
+	if existsFirstChecksum && existsSecondChecksum {
+		if err := c.mergeFiles(tmpChecksumFileName, firstChecksumFileName, secondChecksumFileName); err != nil {
+			return errors.Wrap(err, "merge checksum files")
+		}
+	}
+
+	if existsFirstChecksum {
+		err := os.Remove(firstChecksumFileName)
+		if err != nil {
+			return errors.Wrap(err, "removing uncondensed checksum file")
+		}
+	}
+
+	if existsSecondChecksum {
+		err := os.Remove(secondChecksumFileName)
+		if err != nil {
+			return errors.Wrap(err, "removing uncondensed checksum file")
+		}
+	}
+
 	if err := c.renameAndCleanUp(tmpName, finalName, first, second); err != nil {
 		return errors.Wrap(err, "rename and clean up files")
+	}
+
+	if existsFirstChecksum && existsSecondChecksum {
+		if err := c.renameAndCleanUp(tmpChecksumFileName, finalChecksumFileName); err != nil {
+			return errors.Wrap(err, "rename and clean up checksum file")
+		}
 	}
 
 	c.logger.WithFields(logrus.Fields{
