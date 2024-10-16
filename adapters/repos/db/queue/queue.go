@@ -98,8 +98,20 @@ func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
 	}, nil
 }
 
-func (q *Queue) Size() int {
+func (q *Queue) Size() int64 {
 	return q.enc.RecordCount()
+}
+
+func (q *Queue) Pause() {
+	q.scheduler.PauseQueue(q.id)
+}
+
+func (q *Queue) Resume() {
+	q.scheduler.ResumeQueue(q.id)
+}
+
+func (q *Queue) Wait() {
+	q.scheduler.Wait(q.id)
 }
 
 func (q *Queue) Drop() error {

@@ -181,6 +181,8 @@ func New(logger logrus.FieldLogger, config Config,
 			Logger:  logger,
 			Workers: chans,
 		})
+
+		db.scheduler.Start()
 	}
 
 	return db, nil
@@ -317,7 +319,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	if asyncEnabled() {
 		// shut down the async workers
-		close(db.jobQueueCh)
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
