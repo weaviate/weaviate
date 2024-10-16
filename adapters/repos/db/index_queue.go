@@ -1065,24 +1065,24 @@ const (
 )
 
 type VectorIndexQueue struct {
-	q *queue.Queue
+	*queue.Queue
 
 	index     VectorIndex
 	scheduler *queue.Scheduler
+	metrics   *IndexQueueMetrics
 }
 
 func NewVectorIndexQueue(
 	s *queue.Scheduler,
-	shardID string,
-	targetVector string,
 	shard *Shard,
+	targetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
 	var qID string
 	if targetVector == "" {
-		qID = fmt.Sprintf("vector_index_queue_%s", shardID)
+		qID = fmt.Sprintf("vector_index_queue_%s", shard.ID())
 	} else {
-		qID = fmt.Sprintf("vector_index_queue_%s_%s", shardID, targetVector)
+		qID = fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), targetVector)
 	}
 
 	var dir string
@@ -1092,7 +1092,10 @@ func NewVectorIndexQueue(
 		dir = filepath.Join(shard.path(), "vector_index_queue", targetVector)
 	}
 
-	var viq VectorIndexQueue
+	viq := VectorIndexQueue{
+		index:     index,
+		scheduler: s,
+	}
 
 	q, err := queue.New(s, qID, dir, &viq)
 	if err != nil {
@@ -1102,9 +1105,10 @@ func NewVectorIndexQueue(
 
 	q.Logger = q.Logger.
 		WithField("component", "vector_index_queue").
-		WithField("shard_id", shardID)
+		WithField("shard_id", shard.ID())
 
-	viq.q = q
+	viq.Queue = q
+	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
 	return &viq, nil
 }
@@ -1116,11 +1120,11 @@ func (iq *VectorIndexQueue) Insert(vectors ...vectorDescriptor) error {
 		ids[i] = v.id
 	}
 
-	return iq.q.Push(vectorIndexQueueInsertOp, ids...)
+	return iq.Queue.Push(vectorIndexQueueInsertOp, ids...)
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
-	return iq.q.Push(vectorIndexQueueDeleteOp, ids...)
+	return iq.Queue.Push(vectorIndexQueueDeleteOp, ids...)
 }
 
 func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64) error {
@@ -1147,15 +1151,19 @@ func (iq *VectorIndexQueue) BeforeSchedule() {
 	}
 
 	if iq.index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
-		iq.scheduler.PauseQueue(iq.q.ID())
+		iq.scheduler.PauseQueue(iq.Queue.ID())
 
 		err := ci.Upgrade(func() {
-			iq.scheduler.ResumeQueue(iq.q.ID())
+			iq.scheduler.ResumeQueue(iq.Queue.ID())
 		})
 		if err != nil {
-			iq.q.Logger.WithError(err).Error("failed to upgrade vector index")
+			iq.Queue.Logger.WithError(err).Error("failed to upgrade vector index")
 		}
 
 		return
 	}
+}
+
+func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
+	iq.index = vidx
 }

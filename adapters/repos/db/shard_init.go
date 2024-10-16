@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -31,6 +32,7 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
 	before := time.Now()
@@ -52,6 +54,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		stopDimensionTracking: make(chan struct{}),
 		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:       jobQueueCh,
+		scheduler:             scheduler,
 		indexCheckpoints:      indexCheckpoints,
 
 		shut:         false,

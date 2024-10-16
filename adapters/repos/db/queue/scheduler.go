@@ -133,37 +133,49 @@ func (s *Scheduler) Close() error {
 	// wait for the workers to finish processing tasks
 	s.activeTasks.Wait()
 
+	// close the channels
+	for _, ch := range s.Workers {
+		close(ch)
+	}
+
 	s.Logger.Debug("scheduler closed")
 
 	return nil
 }
 
 func (s *Scheduler) PauseQueue(id string) {
-	s.queues.Lock()
-	defer s.queues.Unlock()
-
-	q, ok := s.queues.m[id]
-	if !ok {
+	q := s.getQueue(id)
+	if q == nil {
 		return
 	}
 
+	q.m.Lock()
 	q.paused = true
+	q.m.Unlock()
 
 	s.Logger.WithField("id", id).Debug("queue paused")
 }
 
 func (s *Scheduler) ResumeQueue(id string) {
-	s.queues.Lock()
-	defer s.queues.Unlock()
-
-	q, ok := s.queues.m[id]
-	if !ok {
+	q := s.getQueue(id)
+	if q == nil {
 		return
 	}
 
+	q.m.Lock()
 	q.paused = false
+	q.m.Unlock()
 
 	s.Logger.WithField("id", id).Debug("queue resumed")
+}
+
+func (s *Scheduler) Wait(id string) {
+	q := s.getQueue(id)
+	if q == nil {
+		return
+	}
+
+	q.activeTasks.Wait()
 }
 
 func (s *Scheduler) getQueue(id string) *queueState {
@@ -214,6 +226,7 @@ func (s *Scheduler) schedule() {
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
+
 	}
 }
 
@@ -248,6 +261,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	r := bufio.NewReader(f)
 	partitions := make([][]*Task, len(s.Workers))
 
+	var taskCount int64
 	for {
 		t, err := q.q.DecodeTask(r)
 		if errors.Is(err, io.EOF) {
@@ -261,6 +275,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		// TODO: introduce other partitioning strategies if needed
 		slot := t.Key() % uint64(len(s.Workers))
 		partitions[slot] = append(partitions[slot], t)
+		taskCount++
 	}
 
 	err = f.Close()
@@ -311,6 +326,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		}:
 		}
 	}
+
+	s.logQueueStats(q.q, taskCount)
 
 	return nil
 }
@@ -379,6 +396,16 @@ func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
 	}
 
 	return s.readQueueChunk(q)
+}
+
+func (s *Scheduler) logQueueStats(q *Queue, vectorsSent int64) {
+	// q.metrics.VectorsDequeued(vectorsSent)
+
+	s.Logger.
+		WithField("queue_id", q.ID()).
+		WithField("queue_size", q.Size()).
+		WithField("vectors_sent", vectorsSent).
+		Debug("queue stats")
 }
 
 type queueState struct {

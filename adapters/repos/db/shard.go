@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -103,8 +104,8 @@ type ShardLike interface {
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	Queue() *IndexQueue
-	Queues() map[string]*IndexQueue
+	Queue() *VectorIndexQueue
+	Queues() map[string]*VectorIndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
 	PreloadQueue(targetVector string) error
 	Shutdown(context.Context) error // Shutdown the shard
@@ -178,8 +179,9 @@ type ShardLike interface {
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
 	class             *models.Class
-	queue             *IndexQueue
-	queues            map[string]*IndexQueue
+	queue             *VectorIndexQueue
+	queues            map[string]*VectorIndexQueue
+	scheduler         *queue.Scheduler
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
