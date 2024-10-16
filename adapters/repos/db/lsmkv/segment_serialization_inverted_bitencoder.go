@@ -177,6 +177,71 @@ func unpackDeltas(packed []byte, deltasCount int) []uint64 {
 	return deltas
 }
 
+func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uint64 {
+	bitPos := 0
+	currentByteIndex := 0
+	bitsNeeded := 0
+
+	deltas[0] = binary.BigEndian.Uint64(packed[:8])
+
+	currentByteIndex += 8
+	currentByte := packed[currentByteIndex]
+
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+	bitsNeeded = (bitsNeeded << 1) | int((currentByte>>(7-bitPos))&1)
+	bitPos++
+
+	for i := 1; i < deltasCount; i++ {
+		deltas[i] = 0
+		bitsNeededInternal := bitsNeeded
+		// Read the delta bits based on the bitsNeeded
+		for bitsNeededInternal > 0 {
+			if currentByteIndex >= len(packed) {
+				break
+			}
+
+			if bitPos == 8 {
+				currentByteIndex++
+				bitPos = 0
+				if currentByteIndex >= len(packed) {
+					break
+				}
+				currentByte = packed[currentByteIndex]
+
+			}
+
+			// Calculate how many bits to read from the current byte
+			bitsToRead := 8 - bitPos
+			if bitsToRead > bitsNeeded {
+				bitsToRead = bitsNeeded
+			}
+			if bitsNeededInternal < bitsToRead {
+				bitsToRead = bitsNeededInternal
+			}
+
+			// Extract bits from the packed byte
+			shiftAmount := 8 - bitPos - bitsToRead
+			deltas[i] |= (uint64(currentByte>>shiftAmount) & uint64((1<<bitsToRead)-1)) << (bitsNeededInternal - bitsToRead)
+
+			bitPos += bitsToRead
+
+			bitsNeededInternal -= bitsToRead
+		}
+
+	}
+
+	return deltas
+}
+
 func packedEncode(docIds, termFreqs, propLengths []uint64) *terms.BlockData {
 	docIdsDeltas := deltaEncode(docIds)
 	docIdsPacked := packDeltas(docIdsDeltas)
@@ -195,4 +260,10 @@ func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64, [
 	termFreqs := unpackDeltas(values.Tfs, numValues)
 	propLengths := unpackDeltas(values.PropLenghts, numValues)
 	return docIds, termFreqs, propLengths
+}
+
+func packedDecodeReusable(values *terms.BlockData, numValues int, output *terms.BlockDataDecoded) {
+	deltaDecode(unpackDeltasReusable(values.DocIds, numValues, output.DocIds))
+	unpackDeltasReusable(values.Tfs, numValues, output.Tfs)
+	unpackDeltasReusable(values.PropLenghts, numValues, output.PropLenghts)
 }

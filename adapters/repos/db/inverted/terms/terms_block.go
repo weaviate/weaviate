@@ -47,6 +47,12 @@ func DecodeBlockEntry(data []byte) *BlockEntry {
 	}
 }
 
+type BlockDataDecoded struct {
+	DocIds      []uint64
+	Tfs         []uint64
+	PropLenghts []uint64
+}
+
 type BlockData struct {
 	DocIds      []byte
 	Tfs         []byte
