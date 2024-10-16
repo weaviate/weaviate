@@ -15,14 +15,12 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 type pools struct {
-	visitedLists     *visited.Pool
-	visitedListsLock *sync.RWMutex
+	visitedLists *visitedPool
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -34,8 +32,7 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500),
-		visitedListsLock: &sync.RWMutex{},
+		visitedLists: newVisitedPool(),
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
@@ -46,6 +43,29 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
 		tempVectors:  common.NewTempVectorsPool(),
 	}
+}
+
+type visitedPool struct {
+	pool *sync.Pool
+}
+
+func newVisitedPool() *visitedPool {
+	return &visitedPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return visited.NewSparseSet(1_000_000, 8192)
+			},
+		},
+	}
+}
+
+func (vp *visitedPool) Get() *visited.SparseSet {
+	return vp.pool.Get().(*visited.SparseSet)
+}
+
+func (vp *visitedPool) Put(v *visited.SparseSet) {
+	v.Reset()
+	vp.pool.Put(v)
 }
 
 type pqMinPool struct {
