@@ -356,7 +356,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
+func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	if s.hasTargetVectors() {
 		if targetVector == "" {
 			return nil, fmt.Errorf("index queue: missing target vector")
@@ -459,6 +459,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+	vidx := s.getVectorIndex(targetVector)
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
 	if err != nil {

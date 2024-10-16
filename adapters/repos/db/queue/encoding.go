@@ -44,7 +44,7 @@ type Encoder struct {
 	w                bufio.Writer
 	f                *os.File
 	partialChunkSize int
-	recordCount      int
+	recordCount      int64
 }
 
 func NewEncoder(dir string, logger logrus.FieldLogger) (*Encoder, error) {
@@ -235,7 +235,7 @@ func (e *Encoder) promoteChunk() error {
 }
 
 // Returns the number of records stored on disk and in the partial chunk.
-func (e *Encoder) RecordCount() int {
+func (e *Encoder) RecordCount() int64 {
 	e.m.RLock()
 	defer e.m.RUnlock()
 
@@ -245,7 +245,7 @@ func (e *Encoder) RecordCount() int {
 // calculateRecordCount is a slow method that determines the number of records
 // stored on disk and in the partial chunk, by reading the size of all the files in the directory.
 // It is used when the encoder is first initialized.
-func (e *Encoder) calculateRecordCount() (int, error) {
+func (e *Encoder) calculateRecordCount() (int64, error) {
 	e.m.Lock()
 	defer e.m.Unlock()
 
@@ -254,7 +254,7 @@ func (e *Encoder) calculateRecordCount() (int, error) {
 		return 0, errors.Wrap(err, "failed to read directory")
 	}
 
-	var size int
+	var size int64
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -270,7 +270,7 @@ func (e *Encoder) calculateRecordCount() (int, error) {
 			return 0, errors.Wrap(err, "failed to get file info")
 		}
 
-		size += int(info.Size()) / 9 /* size of a single record */
+		size += int64(info.Size()) / 9 /* size of a single record */
 	}
 
 	return size, nil
@@ -292,7 +292,7 @@ func (e *Encoder) removeChunk(path string) {
 		return
 	}
 
-	e.recordCount -= int(info.Size()) / 9
+	e.recordCount -= int64(info.Size()) / 9
 
 	e.logger.WithField("file", path).Debug("chunk removed")
 }

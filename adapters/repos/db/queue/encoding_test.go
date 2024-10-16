@@ -78,13 +78,13 @@ func TestEncoder(t *testing.T) {
 
 	// check the queue size
 	size := enc.RecordCount()
-	require.Equal(t, 120, size)
+	require.EqualValues(t, 120, size)
 
 	// check the queue size with a different encoder
 	enc2, err := NewEncoderWith(dir, logger, 9*50)
 	require.NoError(t, err)
 	size = enc2.RecordCount()
-	require.Equal(t, 120, size)
+	require.EqualValues(t, 120, size)
 
 	// promote the partial file
 	err = enc.promoteChunk()
@@ -104,7 +104,7 @@ func TestEncoder(t *testing.T) {
 
 	// check the queue size again
 	size = enc.RecordCount()
-	require.Equal(t, 120, size)
+	require.EqualValues(t, 120, size)
 
 	// promote again, no-op
 	err = enc.promoteChunk()

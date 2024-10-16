@@ -358,14 +358,14 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			if !ok {
 				ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
 			} else {
-				err := queue.Push(ctx, vectors...)
+				err := queue.Insert(vectors...)
 				if err != nil {
 					ob.setErrorAtIndex(err, 0)
 				}
 			}
 		}
 	} else {
-		err := ob.shard.Queue().Push(ctx, vectors...)
+		err := ob.shard.Queue().Insert(vectors...)
 		if err != nil {
 			ob.setErrorAtIndex(err, 0)
 		}
