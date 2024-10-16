@@ -12,7 +12,6 @@
 package journey
 
 import (
-	"fmt"
 	"strconv"
 	"testing"
 	"time"
