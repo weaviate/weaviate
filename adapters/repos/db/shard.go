@@ -619,6 +619,11 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
+func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
+	return lsmkv.WithSegmentsCleanupInterval(
+		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
+}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
