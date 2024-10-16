@@ -23,6 +23,7 @@ import (
 )
 
 func TestScheduler(t *testing.T) {
+	logger := newTestLogger(t)
 	t.Run("start and close", func(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
@@ -53,7 +54,7 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		ch, e := streamExecutor()
-		q, err := New(s, "test", t.TempDir(), e)
+		q, err := New(s, logger, "test", t.TempDir(), e)
 		require.NoError(t, err)
 
 		err = q.Push(1, 100, 200, 300)
@@ -90,7 +91,7 @@ func TestScheduler(t *testing.T) {
 
 		ch, e := streamExecutor()
 		dir := t.TempDir()
-		q, err := New(s, "test", dir, e)
+		q, err := New(s, logger, "test", dir, e)
 		require.NoError(t, err)
 
 		err = q.Push(1, 100, 200, 300)
@@ -119,7 +120,7 @@ func TestScheduler(t *testing.T) {
 
 		ch, e := streamExecutor()
 		dir := t.TempDir()
-		q, err := New(s, "test", dir, e)
+		q, err := New(s, logger, "test", dir, e)
 		require.NoError(t, err)
 		// override chunk size for testing
 		q.enc.chunkSize = 9000
@@ -172,7 +173,7 @@ func TestScheduler(t *testing.T) {
 
 		_, e := streamExecutor()
 		dir := t.TempDir()
-		q, err := New(s, "test", dir, e)
+		q, err := New(s, logger, "test", dir, e)
 		require.NoError(t, err)
 		// override chunk size for testing
 		q.enc.chunkSize = 90
@@ -201,7 +202,7 @@ func TestScheduler(t *testing.T) {
 
 		ch, e := streamExecutor()
 		dir := t.TempDir()
-		q, err := New(s, "test", dir, e)
+		q, err := New(s, logger, "test", dir, e)
 		require.NoError(t, err)
 
 		var batch []uint64

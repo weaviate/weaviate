@@ -293,8 +293,11 @@ func (e *Encoder) removeChunk(path string) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		e.logger.WithError(err).WithField("file", path).Error("failed to stat chunk")
-		return
+		if os.IsNotExist(err) {
+			return
+		}
+
+		e.logger.WithError(err).WithField("file", path).Warn("failed to stat chunk. trying to remove it anyway")
 	}
 
 	err = os.Remove(path)
