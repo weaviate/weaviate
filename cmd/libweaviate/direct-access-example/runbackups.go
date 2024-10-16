@@ -11,7 +11,7 @@
 
 package main
 
-//This example shows how to start weaviate and get the appState, which can be used for scripting and direct control
+// This example shows how to start weaviate and get the appState, which can be used for scripting and direct control
 
 import (
 	"context"
@@ -27,7 +27,7 @@ import (
 func main() {
 	dataPath := flag.String("data-path", "./data", "path to the data directory")
 	origin := flag.String("origin", "http://localhost:8080", "listen address")
-	//clusterHostname := flag.String("cluster-hostname", "node1", "cluster hostname")
+	// clusterHostname := flag.String("cluster-hostname", "node1", "cluster hostname")
 	defaultVectoriser := flag.String("default-vectoriser", "none", "default vectoriser")
 
 	flag.Parse()
@@ -41,13 +41,13 @@ func main() {
 	os.Setenv("ORIGIN", *origin)
 	os.Setenv("QUERY_DEFAULTS_LIMIT", "20")
 	os.Setenv("QUERY_MAXIMUM_RESULTS", "10000")
-	//os.Setenv("CLUSTER_HOSTNAME", *clusterHostname)
+	// os.Setenv("CLUSTER_HOSTNAME", *clusterHostname)
 	os.Setenv("TRACK_VECTOR_DIMENSIONS", "true")
-	//os.Setenv("CLUSTER_GOSSIP_BIND_PORT", "7100")
-	//os.Setenv("CLUSTER_DATA_BIND_PORT", "7101")
+	// os.Setenv("CLUSTER_GOSSIP_BIND_PORT", "7100")
+	// os.Setenv("CLUSTER_DATA_BIND_PORT", "7101")
 	os.Setenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED", "true")
 	os.Setenv("DEFAULT_VECTORIZER_MODULE", *defaultVectoriser)
-	//os.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	// os.Setenv("CLUSTER_IN_LOCALHOST", "true")
 
 	config := config.GetConfigOptionGroup()
 	appState := rest.MakeAppState(context.Background(), config)
@@ -73,7 +73,9 @@ func main() {
 				backup.ObjectStore{
 					backend,
 					"test",
-					"", ""}}
+					"", "",
+				},
+			}
 			meta, err := backupper.Backup(context.Background(), ns, "test", []string{"Page"}, "", "")
 			if err != nil {
 				fmt.Printf("Error: %+v\n", err)
