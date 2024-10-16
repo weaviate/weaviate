@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"fmt"
-
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -166,8 +164,6 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Error:   status.Err,
 	}
 	s.metricRequestsTotal.logOk("")
-	str := fmt.Sprintf("%+v", payload)
-	fmt.Println(str) // FIXME s
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 
