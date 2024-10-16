@@ -77,7 +77,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 				},
 				"replicationConfig": map[string]interface{}{
 					"factor":           float64(1),
-					"deletionStrategy": "NoAutomatedResolution",
+					"deletionStrategy": "DeleteOnConflict",
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
