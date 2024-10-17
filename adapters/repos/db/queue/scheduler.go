@@ -216,6 +216,20 @@ func (s *Scheduler) runScheduler() {
 }
 
 func (s *Scheduler) schedule() {
+	// as long as there are tasks to schedule, keep running
+	// in a tight loop
+	for {
+		if s.ctx.Err() != nil {
+			return
+		}
+
+		if nothingScheduled := s.scheduleQueues(); nothingScheduled {
+			return
+		}
+	}
+}
+
+func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 	// loop over the queues in random order
 	s.queues.Lock()
 	ids := make([]string, 0, len(s.queues.m))
@@ -223,6 +237,8 @@ func (s *Scheduler) schedule() {
 		ids = append(ids, id)
 	}
 	s.queues.Unlock()
+
+	nothingScheduled = true
 
 	for _, id := range ids {
 		q := s.getQueue(id)
@@ -243,11 +259,15 @@ func (s *Scheduler) schedule() {
 			continue
 		}
 
+		nothingScheduled = false
+
 		err := s.dispatchQueue(q)
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
 	}
+
+	return
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
