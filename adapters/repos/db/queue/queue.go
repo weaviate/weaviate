@@ -13,6 +13,7 @@ package queue
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -27,13 +28,8 @@ import (
 )
 
 const (
-	// defaultChunkSize is the maximum size of each chunk file.
-	// It is set to 144KB to be a multiple of 4KB (common page size)
-	// and of 9 bytes (size of a single record).
-	// This also works for larger page sizes (e.g. 16KB for macOS).
-	// The goal is to have a quick way of determining the number of records
-	// without having to read the entire file or to maintain an index.
-	defaultChunkSize = 144 * 1024
+	// defaultChunkSize is the maximum size of each chunk file. Set to 10MB.
+	defaultChunkSize = 10 * 1024 * 1024
 
 	// name of the file that stores records before they reach the target size.
 	partialChunkFile = "chunk.bin.partial"
@@ -41,6 +37,8 @@ const (
 	// i.e. files that have reached the target size, or those that are
 	// stale and need to be promoted.
 	chunkFileFmt = "chunk-%d.bin"
+
+	magicHeader = "WV8Q"
 )
 
 // regex pattern for the chunk files
@@ -191,19 +189,26 @@ func (q *DiskQueue) Push(r *Record) error {
 		return err
 	}
 
+	// length of the record in 4 bytes
+	err = binary.Write(&q.w, binary.BigEndian, uint32(r.buf.Len()))
+	if err != nil {
+		return errors.Wrap(err, "failed to write record length")
+	}
+
+	// write the record
 	n, err := r.buf.WriteTo(&q.w)
 	if err != nil {
 		return errors.Wrap(err, "failed to write record")
 	}
 
-	q.partialChunkSize += int(n)
+	q.partialChunkSize += 4 /* length */ + int(n)
 	q.recordCount++
 
 	return nil
 }
 
 func (q *DiskQueue) ensureChunk() error {
-	if q.f != nil && q.partialChunkSize+9 /* size of op + key */ > q.chunkSize {
+	if q.f != nil && q.partialChunkSize >= q.chunkSize {
 		err := q.promoteChunkNoLock()
 		if err != nil {
 			return err
@@ -229,6 +234,24 @@ func (q *DiskQueue) ensureChunk() error {
 		}
 
 		q.partialChunkSize = int(info.Size())
+
+		if info.Size() == 0 {
+			// magic
+			_, err = q.w.Write([]byte(magicHeader))
+			if err != nil {
+				return errors.Wrap(err, "failed to write header")
+			}
+			// version
+			err = q.w.WriteByte(1)
+			if err != nil {
+				return errors.Wrap(err, "failed to write version")
+			}
+			// number of records
+			err = binary.Write(&q.w, binary.BigEndian, uint64(0))
+			if err != nil {
+				return errors.Wrap(err, "failed to write size")
+			}
+		}
 	}
 
 	return nil
@@ -260,7 +283,7 @@ func (q *DiskQueue) promoteChunkNoLock() error {
 
 	// rename the file to remove the .partial suffix
 	// and add a timestamp to the filename
-	newPath := filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixNano()))
+	newPath := filepath.Join(q.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMilli()))
 	err = os.Rename(fName, newPath)
 	if err != nil {
 		return errors.Wrap(err, "failed to rename chunk file")
@@ -271,8 +294,6 @@ func (q *DiskQueue) promoteChunkNoLock() error {
 	return nil
 }
 
-// This method is used by the scheduler to promote the current chunk
-// when it's been stalled for too long.
 func (q *DiskQueue) promoteChunk() error {
 	q.m.Lock()
 	defer q.m.Unlock()
@@ -315,35 +336,60 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 		return nil, nil, nil
 	}
 
+	defer f.Close()
+
 	// decode all tasks from the chunk
 	// and partition them by worker
-	dec := NewDecoder(bufio.NewReader(f))
+	r := bufio.NewReader(f)
 
 	var tasks []Task
 
+	buf := make([]byte, 4)
 	for {
-		t, err := q.taskDecoder.DecodeTask(dec)
+		buf = buf[:4]
+
+		// read the record length
+		_, err := io.ReadFull(r, buf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
-		if err != nil || t == nil {
-			_ = f.Close()
-			return nil, nil, err
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to read record length")
+		}
+		length := binary.BigEndian.Uint32(buf)
+		if length == 0 {
+			return nil, nil, errors.New("invalid record length")
+		}
+
+		// read the record
+		if cap(buf) < int(length) {
+			buf = make([]byte, length)
+		} else {
+			buf = buf[:length]
+		}
+		_, err = io.ReadFull(r, buf)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to read record")
+		}
+
+		// decode the task
+		t, err := q.taskDecoder.DecodeTask(buf)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "failed to decode task")
 		}
 
 		tasks = append(tasks, t)
 	}
 
-	if len(tasks) == 0 {
-		// empty chunk, remove it
-		_ = f.Close()
-		q.removeChunk(path)
-		return nil, nil, nil
-	}
-
 	err = f.Close()
 	if err != nil {
 		q.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
+	}
+
+	if len(tasks) == 0 {
+		// empty chunk, remove it
+		q.removeChunk(path)
+		return nil, nil, nil
 	}
 
 	doneFn := func() {
