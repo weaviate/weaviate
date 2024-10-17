@@ -50,10 +50,10 @@ type Request struct {
 	Compression
 
 	// Override bucket
-	S3Bucket string
+	Bucket string
 
 	// Additional path prefix override
-	S3Path string
+	Path string
 }
 
 type CanCommitResponse struct {
@@ -74,10 +74,10 @@ type StatusRequest struct {
 	ID string
 	// Backend specify on which backend to store backups (gcs, s3, ..)
 	Backend string
-	// S3Bucket specify the bucket name
-	S3Bucket string
-	// S3Path specify the path
-	S3Path string
+	// Bucket specify the bucket name
+	Bucket string
+	// Path specify the path
+	Path string
 }
 
 type StatusResponse struct {

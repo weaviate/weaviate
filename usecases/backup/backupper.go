@@ -54,8 +54,8 @@ func (b *backupper) Backup(ctx context.Context,
 		Method:   OpCreate,
 		ID:       id,
 		Classes:  classes,
-		S3Bucket: overrideBucket,
-		S3Path:   overridePath,
+		Bucket: overrideBucket,
+		Path:   overridePath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -138,7 +138,7 @@ func (b *backupper) backup(store NodeStore, req *Request) (CanCommitResponse, er
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
+	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path)); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
@@ -169,7 +169,7 @@ func (b *backupper) backup(store NodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
-		if err := provider.all(ctx, req.Classes, &result, req.S3Bucket, req.S3Path); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 

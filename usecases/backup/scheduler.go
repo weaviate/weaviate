@@ -99,8 +99,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Backend:     req.Backend,
 		Classes:     classes,
 		Compression: req.Compression,
-		S3Bucket:    req.Bucket,
-		S3Path:      req.Path,
+		Bucket:    req.Bucket,
+		Path:      req.Path,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -159,8 +159,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:     req.Backend,
 		Compression: req.Compression,
 		Classes:     meta.Classes(),
-		S3Bucket:    req.Bucket,
-		S3Path:      req.Path,
+		Bucket:    req.Bucket,
+		Path:      req.Path,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -228,7 +228,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath) // FIXME?
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return backup.NewErrUnprocessable(err)
@@ -265,7 +265,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 	s.backupper.abortAll(ctx,
-		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, S3Bucket: overrideBucket, S3Path: overridePath}, nodes)
+		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
 	return nil
 }

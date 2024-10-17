@@ -74,7 +74,7 @@ func (r *restorer) restore(
 		Timeout: expiration,
 	}
 
-	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
+	destPath := store.HomeDir(req.Bucket, req.Path)
 
 	// make sure there is no active restore
 	if prevID := r.lastOp.renew(req.ID, destPath); prevID != "" {
@@ -109,8 +109,8 @@ func (r *restorer) restore(
 			return
 		}
 
-		overrideBucket := req.S3Bucket
-		overridePath := req.S3Path
+		overrideBucket := req.Bucket
+		overridePath := req.Path
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
@@ -204,8 +204,8 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 }
 
 func (r *restorer) validate(ctx context.Context, store *NodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
-	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
-	meta, err := store.Meta(ctx, req.ID, req.S3Bucket, req.S3Path, true)
+	destPath := store.HomeDir(req.Bucket, req.Path)
+	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {

@@ -183,7 +183,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		if err = store.Initialize(ctx, req.S3Bucket, req.S3Path); err != nil {
+		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}

@@ -40,7 +40,6 @@ func Test_FileSystemBackend_Start(t *testing.T) {
 
 	override = overrides[0]
 	FilesystemBackend_Backup(t)
-	time.Sleep(5 * time.Second)
 
 	override = overrides[1]
 	FilesystemBackend_Backup(t)

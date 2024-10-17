@@ -165,7 +165,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path)); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -189,8 +189,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 
-	overrideBucket := req.S3Bucket
-	overridePath := req.S3Path
+	overrideBucket := req.Bucket
+	overridePath := req.Path
 	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
@@ -200,8 +200,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Method:   OpCreate,
 		ID:       req.ID,
 		Backend:  req.Backend,
-		S3Bucket: req.S3Bucket,
-		S3Path:   req.S3Path,
+		Bucket: req.Bucket,
+		Path:   req.Path,
 	}
 
 	f := func() {
@@ -233,7 +233,7 @@ func (c *coordinator) Restore(
 ) error {
 	req.Method = OpRestore
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path)); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
 
@@ -248,8 +248,8 @@ func (c *coordinator) Restore(
 		return err
 	}
 
-	overrideBucket := req.S3Bucket
-	overridePath := req.S3Path
+	overrideBucket := req.Bucket
+	overridePath := req.Path
 
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
@@ -259,7 +259,7 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: overrideBucket, S3Path: overridePath}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()

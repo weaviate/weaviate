@@ -149,8 +149,8 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 			Classes:  []string{"class1"},
 			Backend:  "s3",
 			Duration: time.Millisecond * 20,
-			S3Bucket: "bucket", // FIXME
-			S3Path:   "path",   // FIXME
+			Bucket: "bucket", // FIXME
+			Path:   "path",   // FIXME
 		}
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "unknown backup operation")
