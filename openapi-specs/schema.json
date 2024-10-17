@@ -946,7 +946,7 @@
       "properties": {
         "Endpoint": {
           "type": "string",
-          "description": "S3 endpoint, e.g. s3.amazonaws.com"
+          "description": "name of the endpoint, e.g. s3.amazonaws.com"
         },
         "Bucket": {
           "type": "string",
@@ -991,7 +991,7 @@
       "properties": {
         "Endpoint": {
           "type": "string",
-          "description": "S3 endpoint, e.g. s3.amazonaws.com"
+          "description": "name of the endpoint, e.g. s3.amazonaws.com"
         },
         "Bucket": {
           "type": "string",
