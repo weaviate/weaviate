@@ -13,10 +13,14 @@ package hnsw
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -89,4 +93,117 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 		_, ok := vectorIndex.tombstones[1]
 		assert.True(t, ok)
 	})
+}
+
+func TestRescore(t *testing.T) {
+	type test struct {
+		name        string
+		concurrency int
+		k           int
+		objects     int
+	}
+
+	tests := []test{
+		{
+			name:        "single-threaded, limit < objects",
+			concurrency: 1,
+			k:           10,
+			objects:     100,
+		},
+		{
+			name:        "two threads, limit < objects",
+			concurrency: 2,
+			k:           10,
+			objects:     50,
+		},
+		{
+			name:        "more threads than objects",
+			concurrency: 60,
+			k:           10,
+			objects:     50,
+		},
+		{
+			name:        "result limit above objects with no concurrency",
+			concurrency: 1,
+			k:           60,
+			objects:     50,
+		},
+		{
+			name:        "result limit above objects with low concurrency",
+			concurrency: 4,
+			k:           60,
+			objects:     50,
+		},
+		{
+			name:        "result limit above objects with high concurrency",
+			concurrency: 100,
+			k:           60,
+			objects:     50,
+		},
+	}
+
+	logger := logrus.New()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			vectors, queries := testinghelpers.RandomVecs(test.objects, 1, 128)
+
+			d := distancer.NewDotProductProvider()
+			distFn := func(a, b []float32) float32 {
+				dist, _ := d.SingleDist(a, b)
+				return dist
+			}
+			ids, _ := testinghelpers.BruteForce(logger, vectors, queries[0], test.k, distFn)
+
+			res := priorityqueue.NewMax[any](test.k)
+			// insert with random distances, so the result can't possibly be correct
+			// without re-ranking
+			for i := 0; i < test.objects; i++ {
+				res.Insert(uint64(i), rand.Float32())
+			}
+
+			h := &hnsw{
+				rescoreConcurrency: test.concurrency,
+				logger:             logger,
+				TempVectorForIDThunk: func(
+					ctx context.Context, id uint64, container *common.VectorSlice,
+				) ([]float32, error) {
+					return vectors[id], nil
+				},
+				pools:             newPools(32),
+				distancerProvider: d,
+			}
+
+			compDistancer := newFakeCompressionDistancer(queries[0], distFn)
+			h.rescore(res, test.k, compDistancer)
+
+			resultIDs := make([]uint64, res.Len())
+			for res.Len() > 0 {
+				item := res.Pop()
+				resultIDs[res.Len()] = item.ID
+			}
+
+			assert.Equal(t, ids, resultIDs)
+		})
+	}
+}
+
+type fakeCompressionDistancer struct {
+	queryVec []float32
+	distFn   func(a, b []float32) float32
+}
+
+func newFakeCompressionDistancer(queryVec []float32, distFn func(a, b []float32) float32) *fakeCompressionDistancer {
+	return &fakeCompressionDistancer{
+		distFn:   distFn,
+		queryVec: queryVec,
+	}
+}
+
+func (f *fakeCompressionDistancer) DistanceToNode(id uint64) (float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeCompressionDistancer) DistanceToFloat(vec []float32) (float32, error) {
+	return f.distFn(f.queryVec, vec), nil
 }

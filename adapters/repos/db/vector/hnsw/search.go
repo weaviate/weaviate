@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -597,13 +596,12 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 		}
 	}
 
-	parallel := runtime.GOMAXPROCS(0) * 2
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < parallel; workerID++ {
+	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
 		workerID := workerID
 
 		eg.Go(func() error {
-			for idPos := workerID; idPos < len(ids); idPos += parallel {
+			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
 				id := ids[idPos]
 				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
 				if err == nil {
