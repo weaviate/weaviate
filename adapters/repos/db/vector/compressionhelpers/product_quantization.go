@@ -311,6 +311,13 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
+	if len(x) != pq.dimensions {
+		return 0, fmt.Errorf(
+			"ProductQuantizer.DistanceBetweenCompressedAndUncompressedVectors: "+
+				"mismatched dimensions: %d (search vector), %d (configured index dims)",
+			len(x), pq.dimensions)
+	}
+
 	dist := float32(0)
 	for i := 0; i < pq.m; i++ {
 		cY := pq.kms[i].Centroid(ExtractCode8(encoded, i))

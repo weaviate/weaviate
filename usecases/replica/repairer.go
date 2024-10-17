@@ -43,10 +43,10 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class                            string
-	objectDeletionConflictResolution string
-	client                           finderClient // needed to commit and abort operation
-	logger                           logrus.FieldLogger
+	class            string
+	deletionStrategy string
+	client           finderClient // needed to commit and abort operation
+	logger           logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -74,7 +74,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	}
 
 	if deleted {
-		if r.objectDeletionConflictResolution != models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion {
+		if r.deletionStrategy != models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 			return nil, errConflictExistOrDeleted
 		}
 
@@ -187,7 +187,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 
 	if deleted {
-		if r.objectDeletionConflictResolution != models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion {
+		if r.deletionStrategy != models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 			return false, errConflictExistOrDeleted
 		}
 
@@ -365,11 +365,19 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		m := make(map[string]int, len(ids)/2) //
 		for j, x := range lastTimes {
 			if result[j] == nil {
-				if x.Deleted {
+				alreadyDeleted := false
+
+				if rid == contentIdx {
+					alreadyDeleted = vote.batchReply.FullData[j].Deleted
+				} else {
+					alreadyDeleted = vote.batchReply.DigestData[j].Deleted
+				}
+
+				if alreadyDeleted {
 					continue
 				}
 
-				if r.objectDeletionConflictResolution != models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion {
+				if r.deletionStrategy != models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 					// note: errConflictExistOrDeleted may be returned instead
 					// but keeping equivalent logic to ensure existing behaviour
 					continue

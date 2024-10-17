@@ -1,0 +1,88 @@
+name: Create Cross-Functional Issues
+
+on:
+  pull_request:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      pr_body:
+        description: 'PR body content for testing'
+        required: true
+        default: '- [x] This change requires public documentation (weaviate-io) to be updated.'
+
+jobs:
+  create-cross-functional-issues:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check github token existence
+        env:
+          GH_TOKEN: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
+        run: |
+          if [[ "$GH_TOKEN" == "" ]]; then
+            echo "gh_token_exists=false" >> $GITHUB_ENV
+          else
+            echo "gh_token_exists=true" >> $GITHUB_ENV
+          fi
+
+      - name: Check PR body
+        id: check_pr
+        if: ${{ env.gh_token_exists == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
+          script: |
+            const pr = context.payload.pull_request ?
+              context.payload.pull_request :
+              await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+              }).then(res => res.data);
+
+            const body = pr.body || '';
+
+            const checkboxes = [
+              { repo: 'weaviate-io', regex: /- \[x\] This change requires public documentation \(weaviate-io\) to be updated/ },
+              { repo: 'weaviate-python-client', regex: /- \[x\] Python \(weaviate-python-client\)/ },
+              { repo: 'typescript-client', regex: /- \[x\] JavaScript\/TypeScript \(typescript-client\)/ },
+              { repo: 'weaviate-go-client', regex: /- \[x\] Go \(weaviate-go-client\)/ },
+              { repo: 'java-client', regex: /- \[x\] Java \(java-client\)/ }
+            ];
+
+            const results = checkboxes.map(checkbox => ({
+              repo: checkbox.repo,
+              checked: checkbox.regex.test(body)
+            }));
+
+            console.log('Checkbox results:', JSON.stringify(results));
+            return results;
+
+      - name: Create issues in respective repos
+        if: ${{ env.gh_token_exists == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          RESULTS: ${{ steps.check_pr.outputs.result }}
+        with:
+          github-token: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
+          script: |
+            const results = JSON.parse(process.env.RESULTS);
+            const pr = context.payload.pull_request;
+
+            for (const result of results) {
+              if (result.checked) {
+                const issueTitle = `Update ${result.repo} for PR #${pr.number}`;
+                const issueBody = `A change in [PR #${pr.number}](${pr.html_url}) requires updates in the ${result.repo} repository.`;
+
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: result.repo,
+                  title: issueTitle,
+                  body: issueBody
+                });
+
+                console.log(`Created issue in ${result.repo}`);
+              }
+            }

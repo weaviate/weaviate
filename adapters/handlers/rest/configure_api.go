@@ -60,15 +60,15 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
@@ -82,6 +82,7 @@ import (
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
+	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
@@ -89,7 +90,6 @@ import (
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
-	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -289,26 +289,27 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
-		ServerVersion:             config.ServerVersion,
-		GitHash:                   config.GitHash,
-		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
-		MemtablesInitialSizeMB:    10,
-		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		MaxSegmentSize:            appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
-		HNSWMaxLogSize:            appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:   appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
-		QueryNestedRefLimit:       appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
-		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
-		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
-		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
-		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
-		ForceFullReplicasSearch:   appState.ServerConfig.Config.ForceFullReplicasSearch,
+		ServerVersion:                  config.ServerVersion,
+		GitHash:                        config.GitHash,
+		MemtablesFlushDirtyAfter:       appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
+		MemtablesInitialSizeMB:         10,
+		MemtablesMaxSizeMB:             appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		SegmentsCleanupIntervalSeconds: appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
+		MaxSegmentSize:                 appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		HNSWMaxLogSize:                 appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:        appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		RootPath:                       appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                     appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:            appState.ServerConfig.Config.QueryMaximumResults,
+		QueryNestedRefLimit:            appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
+		MaxImportGoroutinesFactor:      appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:          appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:                  appState.ServerConfig.Config.ResourceUsage,
+		AvoidMMap:                      appState.ServerConfig.Config.AvoidMmap,
+		DisableLazyLoadShards:          appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:        appState.ServerConfig.Config.ForceFullReplicasSearch,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -391,6 +392,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
 		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
@@ -924,11 +926,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modmulti2vecpalm.Name]; ok {
-		appState.Modules.Register(modmulti2vecpalm.New())
+	_, enabledMulti2VecGoogle := enabledModules[modmulti2vecgoogle.Name]
+	_, enabledMulti2VecPaLM := enabledModules[modmulti2vecgoogle.LegacyName]
+	if enabledMulti2VecGoogle || enabledMulti2VecPaLM {
+		appState.Modules.Register(modmulti2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modmulti2vecpalm.Name).
+			WithField("module", modmulti2vecgoogle.Name).
 			Debug("enabled module")
 	}
 
@@ -1004,11 +1008,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
-		appState.Modules.Register(modgenerativepalm.New())
+	_, enabledGenerativeGoogle := enabledModules[modgenerativegoogle.Name]
+	_, enabledGenerativePaLM := enabledModules[modgenerativegoogle.LegacyName]
+	if enabledGenerativeGoogle || enabledGenerativePaLM {
+		appState.Modules.Register(modgenerativegoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modgenerativepalm.Name).
+			WithField("module", modgenerativegoogle.Name).
 			Debug("enabled module")
 	}
 
@@ -1020,11 +1026,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
-		appState.Modules.Register(modtext2vecpalm.New())
+	_, enabledText2vecGoogle := enabledModules[modtext2vecgoogle.Name]
+	_, enabledText2vecPaLM := enabledModules[modtext2vecgoogle.LegacyName]
+	if enabledText2vecGoogle || enabledText2vecPaLM {
+		appState.Modules.Register(modtext2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modtext2vecpalm.Name).
+			WithField("module", modtext2vecgoogle.Name).
 			Debug("enabled module")
 	}
 

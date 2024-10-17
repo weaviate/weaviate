@@ -61,3 +61,10 @@ func (e ErrInternal) Error() string {
 func NewErrInternal(err error) ErrInternal {
 	return ErrInternal{err}
 }
+
+func IsCancelled(err error, meta *DistributedBackupDescriptor) bool {
+	if err == nil && meta.Status == Cancelled {
+		return true
+	}
+	return false
+}

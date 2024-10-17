@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -260,13 +261,19 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 }
 
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType,
+	moduleType modulecapabilities.ModuleType, altNames []string,
 ) bool {
 	if p.isVectorizerModule(moduleType) {
 		for _, vectorConfig := range class.VectorConfig {
 			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
 				if _, ok := vectorizer[module]; ok {
 					return true
+				} else if len(altNames) > 0 {
+					for _, altName := range altNames {
+						if _, ok := vectorizer[altName]; ok {
+							return true
+						}
+					}
 				}
 			}
 		}
@@ -284,19 +291,19 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 }
 
 func (p *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType,
+	moduleType modulecapabilities.ModuleType, altNames []string,
 ) bool {
 	if class == nil {
 		return !p.HasMultipleVectorizers()
 	}
-	return p.shouldIncludeClassArgument(class, module, moduleType)
+	return p.shouldIncludeClassArgument(class, module, moduleType, altNames)
 }
 
 func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
-	moduleType modulecapabilities.ModuleType,
+	moduleType modulecapabilities.ModuleType, altNames []string,
 ) bool {
 	for _, c := range schema.Classes {
-		if p.shouldIncludeClassArgument(c, module, moduleType) {
+		if p.shouldIncludeClassArgument(c, module, moduleType, altNames) {
 			return true
 		}
 	}
@@ -351,7 +358,7 @@ func (p *Provider) getGenericAdditionalProperty(name string, class *models.Class
 func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.GetArgumentsFunction != nil {
@@ -371,11 +378,30 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 	return arguments
 }
 
+func (p *Provider) getModuleAltNames(module modulecapabilities.Module) []string {
+	if moduleWithAltNames, ok := module.(modulecapabilities.ModuleHasAltNames); ok {
+		return moduleWithAltNames.AltNames()
+	}
+	return nil
+}
+
+func (p *Provider) isModuleNameEqual(module modulecapabilities.Module, targetModule string) bool {
+	if module.Name() == targetModule {
+		return true
+	}
+	if altNames := p.getModuleAltNames(module); len(altNames) > 0 {
+		if slices.Contains(altNames, targetModule) {
+			return true
+		}
+	}
+	return false
+}
+
 // AggregateArguments provides GraphQL Aggregate arguments
 func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.AggregateArgumentsFunction != nil {
@@ -398,7 +424,7 @@ func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.A
 func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeArgument(schema, module.Name(), module.Type()) {
+		if p.shouldIncludeArgument(schema, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.ExploreArgumentsFunction != nil {
@@ -437,7 +463,7 @@ func (p *Provider) ExtractSearchParams(arguments map[string]interface{}, classNa
 func (p *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
 	exractedParams := map[string]interface{}{}
 	for _, module := range p.GetAll() {
-		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
@@ -470,7 +496,7 @@ func (p *Provider) ValidateSearchParam(name string, value interface{}, className
 
 func (p *Provider) validateSearchParam(name string, value interface{}, class *models.Class) error {
 	for _, module := range p.GetAll() {
-		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if paramName == name && argument.ValidateFunction != nil {
@@ -488,7 +514,7 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					if additionalProperty.GraphQLFieldFunction != nil {
@@ -516,7 +542,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 		return err
 	}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
@@ -570,7 +596,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 		for _, module := range p.GetAll() {
-			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+			if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 				if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 					if arg != nil && arg.AdditionalProperties() != nil {
 						for name, additionalProperty := range arg.AdditionalProperties() {
@@ -664,7 +690,7 @@ func (p *Provider) GraphQLAdditionalFieldNames() []string {
 func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models.Class) map[string]interface{} {
 	moduleParams := map[string]interface{}{}
 	for _, module := range p.GetAll() {
-		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					for _, includePropName := range additionalProperty.RestNames {
@@ -696,11 +722,11 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 			var moduleName string
 			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-				if mod.Name() == targetModule {
+				if p.isModuleNameEqual(mod, targetModule) {
 					moduleName = mod.Name()
 					vectorSearches = searcher.VectorSearches()
 				}
@@ -797,7 +823,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 
 	for _, mod := range p.GetAll() {
 		if mod.Name() == targetModule {
-			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
 				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
 					// does not access any objects, therefore tenant is irrelevant
 					cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
@@ -819,7 +845,7 @@ func (p *Provider) ParseClassifierSettings(name string,
 		return err
 	}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
 				for _, classifier := range c.Classifiers() {
 					if classifier != nil && classifier.Name() == name {
@@ -841,7 +867,7 @@ func (p *Provider) GetClassificationFn(className, name string,
 		return nil, err
 	}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.shouldIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if c, ok := module.(modulecapabilities.ClassificationProvider); ok {
 				for _, classifier := range c.Classifiers() {
 					if classifier != nil && classifier.Name() == name {

@@ -155,6 +155,13 @@ func WithMaxSegmentSize(maxSegmentSize int64) BucketOption {
 	}
 }
 
+func WithSegmentsCleanupInterval(interval time.Duration) BucketOption {
+	return func(b *Bucket) error {
+		b.segmentsCleanupInterval = interval
+		return nil
+	}
+}
+
 /*
 Background for this option:
 
