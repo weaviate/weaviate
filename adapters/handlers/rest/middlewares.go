@@ -34,7 +34,7 @@ import (
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
 // The middleware executes after routing but before authentication, binding and validation
 //
-// we are setting the middlewares from within configureAPI, as we need access
+// we are setting the middlewares from within ConfigureAPI, as we need access
 // to some resources which are not exposed
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {

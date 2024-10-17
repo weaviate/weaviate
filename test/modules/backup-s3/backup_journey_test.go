@@ -34,17 +34,24 @@ const (
 	s3BackupJourneyClassName          = "S3Backup"
 	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
 	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"
-	s3BackupJourneyBucketName         = "backups"
 	s3BackupJourneyRegion             = "eu-west-1"
 	s3BackupJourneyAccessKey          = "aws_access_key"
 	s3BackupJourneySecretKey          = "aws_secret_key"
 )
 
 func Test_BackupJourney(t *testing.T) {
-	t.Run("single node", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 
+	RunBackupJourney(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		RunBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func RunBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	s3BackupJourneyBucketName := containerName
+	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -68,7 +75,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil)
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, override, overrideBucket, overridePath)
 		})
 	})
 
@@ -99,7 +106,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, nil,
+				s3BackupJourneyBackupIDCluster, nil, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
