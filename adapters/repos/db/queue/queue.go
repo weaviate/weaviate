@@ -104,7 +104,7 @@ func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
 
 	return &Task{
 		Op:       op,
-		DocIDs:   []uint64{key},
+		IDs:      []uint64{key},
 		executor: q.exec,
 	}, nil
 }

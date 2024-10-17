@@ -241,6 +241,10 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 	nothingScheduled = true
 
 	for _, id := range ids {
+		if s.ctx.Err() != nil {
+			return
+		}
+
 		q := s.getQueue(id)
 		if q == nil {
 			continue
@@ -343,6 +347,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		select {
 		case <-s.ctx.Done():
 			s.activeTasks.Decr()
+			q.activeTasks.Decr()
 			return nil
 		case s.Workers[i] <- Batch{
 			Tasks: batch,
@@ -455,28 +460,28 @@ func (s *Scheduler) compressTasks(tasks []*Task) []*Task {
 	for i, t := range tasks {
 		if i == 0 {
 			cur = t.Op
-			keys = append(keys, t.DocIDs...)
+			keys = append(keys, t.IDs...)
 			continue
 		}
 
 		if t.Op == cur {
-			keys = append(keys, t.DocIDs...)
+			keys = append(keys, t.IDs...)
 			continue
 		}
 
 		compressed = append(compressed, &Task{
 			Op:       cur,
-			DocIDs:   keys,
+			IDs:      keys,
 			executor: t.executor,
 		})
 
 		cur = t.Op
-		keys = append([]uint64{}, t.DocIDs...)
+		keys = append([]uint64{}, t.IDs...)
 	}
 
 	compressed = append(compressed, &Task{
 		Op:       cur,
-		DocIDs:   keys,
+		IDs:      keys,
 		executor: tasks[0].executor,
 	})
 
