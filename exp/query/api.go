@@ -325,7 +325,7 @@ func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) 
 	defer a.omu.Unlock()
 
 	_, err := os.Stat(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
 		// src - s3://<collection>/<tenant>/<node>/
 		// dst (local) - <data-path/<collection>/<tenant>
 		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {
