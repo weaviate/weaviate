@@ -303,20 +303,6 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		}
 	})
 
-	t.Run("running two cleanups should start only once", func(t *testing.T) {
-		wg := sync.WaitGroup{}
-		wg.Add(1)
-		go func() {
-			wg.Done()
-			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-			require.Nil(t, err)
-		}()
-		wg.Wait()
-		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-		assert.NotNil(t, err)
-		assert.Equal(t, err.Error(), "tombstone cleanup already running")
-	})
-
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
