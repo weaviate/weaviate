@@ -12,15 +12,11 @@
 package queue
 
 import (
-	"bufio"
 	"context"
-	"errors"
-	"io"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -82,13 +78,13 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	return &s
 }
 
-func (s *Scheduler) RegisterQueue(q *Queue) {
+func (s *Scheduler) RegisterQueue(q Queue) {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.id] = newQueueState(q)
+	s.queues.m[q.ID()] = newQueueState(q)
 
-	s.Logger.WithField("id", q.id).Debug("queue registered")
+	s.Logger.WithField("id", q.ID()).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -251,8 +247,10 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		}
 
 		// run the before-schedule hook if it is implemented
-		if skip := q.q.BeforeSchedule(); skip {
-			continue
+		if hook, ok := q.q.(BeforeScheduleHook); ok {
+			if skip := hook.BeforeSchedule(); skip {
+				continue
+			}
 		}
 
 		if q.Paused() {
@@ -275,53 +273,22 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
-	f, path, err := s.readQueueChunk(q)
+	batch, done, err := q.q.DequeueBatch()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to dequeue batch")
 	}
-	// if there are no more chunks to read,
-	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
-	if f == nil && q.q.Size() > 0 {
-		f, path, err = s.checkIfStale(q)
-		if err != nil || f == nil {
-			return err
-		}
-	}
-	if f == nil {
+	if len(batch) == 0 {
 		return nil
 	}
 
-	// decode all tasks from the chunk
-	// and partition them by worker
-	r := bufio.NewReader(f)
-	partitions := make([][]*Task, len(s.Workers))
+	partitions := make([][]Task, len(s.Workers))
 
 	var taskCount int64
-	for {
-		t, err := q.q.DecodeTask(r)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil || t == nil {
-			_ = f.Close()
-			return err
-		}
-
+	for _, t := range batch {
 		// TODO: introduce other partitioning strategies if needed
 		slot := t.Key() % uint64(len(s.Workers))
 		partitions[slot] = append(partitions[slot], t)
 		taskCount++
-	}
-
-	err = f.Close()
-	if err != nil {
-		s.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
-	}
-
-	if len(partitions) == 0 {
-		s.Logger.WithField("file", path).Warn("read chunk is empty. removing file")
-		q.q.enc.removeChunk(path)
-		return nil
 	}
 
 	// compress the tasks before sending them to the workers
@@ -359,7 +326,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				q.m.Lock()
 				counter--
 				if counter == 0 {
-					q.q.enc.removeChunk(path)
+					done()
 				}
 				q.m.Unlock()
 			},
@@ -372,73 +339,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	return nil
 }
 
-func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
-	if q.cursor+1 < len(q.readFiles) {
-		q.cursor++
-
-		f, err := os.Open(q.readFiles[q.cursor])
-		if err != nil {
-			return nil, "", err
-		}
-
-		return f, q.readFiles[q.cursor], nil
-	}
-
-	q.readFiles = q.readFiles[:0]
-	q.cursor = 0
-
-	// read the directory
-	entries, err := os.ReadDir(q.q.path)
-	if err != nil {
-		return nil, "", err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		// check if the entry name matches the regex pattern of a chunk file
-		if !chunkFilePattern.Match([]byte(entry.Name())) {
-			continue
-		}
-
-		q.readFiles = append(q.readFiles, filepath.Join(q.q.path, entry.Name()))
-	}
-
-	if len(q.readFiles) == 0 {
-		return nil, "", nil
-	}
-
-	f, err := os.Open(q.readFiles[q.cursor])
-	if err != nil {
-		return nil, "", err
-	}
-
-	return f, q.readFiles[q.cursor], nil
-}
-
-func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
-	lastPushed := q.q.lastPushTime.Load()
-	if lastPushed == nil {
-		return nil, "", nil
-	}
-
-	if time.Since(*lastPushed) < s.StaleTimeout {
-		return nil, "", nil
-	}
-
-	s.Logger.WithField("id", q.q.id).Debug("partial chunk is stale, scheduling")
-
-	err := q.q.enc.promoteChunk()
-	if err != nil {
-		return nil, "", err
-	}
-
-	return s.readQueueChunk(q)
-}
-
-func (s *Scheduler) logQueueStats(q *Queue, vectorsSent int64) {
+func (s *Scheduler) logQueueStats(q Queue, vectorsSent int64) {
 	// q.metrics.VectorsDequeued(vectorsSent)
 
 	s.Logger.
@@ -448,42 +349,38 @@ func (s *Scheduler) logQueueStats(q *Queue, vectorsSent int64) {
 		Debug("queue stats")
 }
 
-func (s *Scheduler) compressTasks(tasks []*Task) []*Task {
-	var cur uint8
-	var keys []uint64
-	var compressed []*Task
-
+func (s *Scheduler) compressTasks(tasks []Task) []Task {
 	if len(tasks) == 0 {
 		return tasks
 	}
+	grouper, ok := tasks[0].(TaskGrouper)
+	if !ok {
+		return tasks
+	}
+
+	var cur uint8
+	var group []Task
+	var compressed []Task
 
 	for i, t := range tasks {
 		if i == 0 {
-			cur = t.Op
-			keys = append(keys, t.IDs...)
+			cur = t.Op()
+			group = append(group, t)
 			continue
 		}
 
-		if t.Op == cur {
-			keys = append(keys, t.IDs...)
+		if t.Op() == cur {
+			group = append(group, t)
 			continue
 		}
 
-		compressed = append(compressed, &Task{
-			Op:       cur,
-			IDs:      keys,
-			executor: t.executor,
-		})
+		compressed = append(compressed, grouper.NewGroup(cur, group...))
 
-		cur = t.Op
-		keys = append([]uint64{}, t.IDs...)
+		cur = t.Op()
+		group = []Task{t}
 	}
 
-	compressed = append(compressed, &Task{
-		Op:       cur,
-		IDs:      keys,
-		executor: tasks[0].executor,
-	})
+	compressed = append(compressed, grouper.NewGroup(cur, group...))
 
 	s.Logger.WithField("original", len(tasks)).WithField("compressed", len(compressed)).Debug("tasks compressed")
 
@@ -492,14 +389,14 @@ func (s *Scheduler) compressTasks(tasks []*Task) []*Task {
 
 type queueState struct {
 	m           sync.RWMutex
-	q           *Queue
+	q           Queue
 	paused      bool
 	readFiles   []string
 	cursor      int
 	activeTasks *common.SharedGauge
 }
 
-func newQueueState(q *Queue) *queueState {
+func newQueueState(q Queue) *queueState {
 	return &queueState{
 		q:           q,
 		activeTasks: common.NewSharedGauge(),

@@ -20,11 +20,15 @@ type Task interface {
 }
 
 type TaskGrouper interface {
-	NewGroup(op uint8, tasks ...*Task) Task
+	NewGroup(op uint8, tasks ...Task) Task
 }
 
 type Batch struct {
-	Tasks []*Task
+	Tasks []Task
 	Ctx   context.Context
 	Done  func()
+}
+
+type TaskDecoder interface {
+	DecodeTask(*Decoder) (Task, error)
 }
