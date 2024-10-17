@@ -725,11 +725,6 @@ func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
 }
 
-func (h *hnsw) PreloadCache(id uint64, vec []float32) {
-	h.cache.Grow(id)
-	h.cache.Preload(id, vec)
-}
-
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine

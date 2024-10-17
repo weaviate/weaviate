@@ -407,15 +407,6 @@ func (index *flat) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *flat) PreloadCache(id uint64, vec []float32) {
-	if !index.isBQCached() {
-		return
-	}
-	vectorBQ := index.bq.Encode(vec)
-	index.bqCache.Grow(id)
-	index.bqCache.Preload(id, vectorBQ)
-}
-
 func (index *flat) searchTimeRescore(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which

@@ -382,15 +382,6 @@ func (dynamic *dynamic) Upgraded() bool {
 	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
 }
 
-func (dynamic *dynamic) PreloadCache(id uint64, vec []float32) {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-
-	if dynamic.upgraded.Load() {
-		dynamic.index.PreloadCache(id, vec)
-	}
-}
-
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	for i := range slice {
 		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
