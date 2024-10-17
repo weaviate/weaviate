@@ -15,7 +15,7 @@ import "context"
 
 type Task interface {
 	Op() uint8
-	ID() uint64
+	Key() uint64
 	Execute(ctx context.Context) error
 }
 

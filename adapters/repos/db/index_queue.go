@@ -30,7 +30,7 @@ const (
 )
 
 type VectorIndexQueue struct {
-	*queue.Queue
+	*queue.DiskQueue
 
 	shard     *Shard
 	scheduler *queue.Scheduler
@@ -78,7 +78,7 @@ func NewVectorIndexQueue(
 		WithField("shard_id", shard.ID()).
 		WithField("target_vector", targetVector)
 
-	viq.Queue = q
+	viq.DiskQueue = q
 	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
 	return &viq, nil
@@ -128,13 +128,13 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 			r.EncodeFloat32(vv)
 		}
 
-		err = iq.Queue.Push(r)
+		err = iq.DiskQueue.Push(r)
 		if err != nil {
 			return errors.Wrap(err, "failed to push record to queue")
 		}
 	}
 
-	return iq.Queue.Flush()
+	return iq.DiskQueue.Flush()
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
@@ -149,12 +149,12 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 		r.EncodeUint(id)
 	}
 
-	err := iq.Queue.Push(r)
+	err := iq.DiskQueue.Push(r)
 	if err != nil {
 		return errors.Wrap(err, "failed to push record to queue")
 	}
 
-	return iq.Queue.Flush()
+	return iq.DiskQueue.Flush()
 }
 
 func (iq *VectorIndexQueue) DecodeTask(dec *queue.Decoder) (queue.Task, error) {
@@ -250,14 +250,14 @@ func (iq *VectorIndexQueue) checkCompressionSettings() {
 
 	if iq.index.i.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.upgrading.Store(true)
-		iq.scheduler.PauseQueue(iq.Queue.ID())
+		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
 
 		err := ci.Upgrade(func() {
-			iq.scheduler.ResumeQueue(iq.Queue.ID())
+			iq.scheduler.ResumeQueue(iq.DiskQueue.ID())
 			iq.upgrading.Store(false)
 		})
 		if err != nil {
-			iq.Queue.Logger.WithError(err).Error("failed to upgrade vector index")
+			iq.DiskQueue.Logger.WithError(err).Error("failed to upgrade vector index")
 		}
 
 		return
@@ -281,7 +281,7 @@ func (t *Task) Op() uint8 {
 	return t.op
 }
 
-func (t *Task) ID() uint64 {
+func (t *Task) Key() uint64 {
 	return t.id
 }
 
@@ -324,7 +324,7 @@ func (t *TaskGroup) Op() uint8 {
 	return t.op
 }
 
-func (t *TaskGroup) ID() uint64 {
+func (t *TaskGroup) Key() uint64 {
 	return t.ids[0]
 }
 
