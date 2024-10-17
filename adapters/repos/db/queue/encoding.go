@@ -84,7 +84,7 @@ func NewEncoderWith(dir string, logger logrus.FieldLogger, chunkSize int) (*Enco
 	return &e, nil
 }
 
-func (e *Encoder) Encode(op uint8, key uint64) error {
+func (e *Encoder) Encode(r *Record) error {
 	e.m.Lock()
 	defer e.m.Unlock()
 
@@ -93,17 +93,12 @@ func (e *Encoder) Encode(op uint8, key uint64) error {
 		return err
 	}
 
-	err = binary.Write(&e.w, binary.LittleEndian, op)
+	n, err := r.buf.WriteTo(&e.w)
 	if err != nil {
-		return errors.Wrap(err, "failed to write op")
+		return errors.Wrap(err, "failed to write record")
 	}
 
-	err = binary.Write(&e.w, binary.LittleEndian, key)
-	if err != nil {
-		return errors.Wrap(err, "failed to write key")
-	}
-
-	e.partialChunkSize += 9
+	e.partialChunkSize += int(n)
 	e.recordCount++
 
 	return nil
