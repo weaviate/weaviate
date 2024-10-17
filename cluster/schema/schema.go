@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/exp/metadataserver"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -51,7 +51,7 @@ type schema struct {
 	shardReader shardReader
 	sync.RWMutex
 	Classes               map[string]*metaClass
-	classTenantDataEvents chan metadataserver.ClassTenant
+	classTenantDataEvents chan metadata.ClassTenant
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -212,7 +212,15 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader, classTenantDataEvents chan metadataserver.ClassTenant) *schema {
+func NewSchema(nodeID string, shardReader shardReader) *schema {
+	return &schema{
+		nodeID:      nodeID,
+		Classes:     make(map[string]*metaClass, 128),
+		shardReader: shardReader,
+	}
+}
+
+func NewSchemaWithTenantEvents(nodeID string, shardReader shardReader, classTenantDataEvents chan metadata.ClassTenant) *schema {
 	return &schema{
 		nodeID:                nodeID,
 		Classes:               make(map[string]*metaClass, 128),

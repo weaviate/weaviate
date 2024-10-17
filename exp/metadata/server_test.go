@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package metadataserver
+package metadata
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
+	"github.com/weaviate/weaviate/exp/metadata/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -30,7 +30,7 @@ import (
 
 // testServerSetup gives you a ready to use Server and Logger and tells you which port
 // number to use.
-func testServerSetup(t *testing.T) (*Server, *logrus.Logger, int) {
+func testServerSetup(t *testing.T, ctx context.Context) (*Server, *logrus.Logger, int) {
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
 	// TODO replace real port with bufconn? This causes a firewall alert to trigger
@@ -39,14 +39,15 @@ func testServerSetup(t *testing.T) (*Server, *logrus.Logger, int) {
 	l, err := net.ListenTCP("tcp", addr)
 	require.Nil(t, err)
 	port := func() int {
-		defer l.Close()
+		defer l.Close() // TODO test context based close
 		return l.Addr().(*net.TCPAddr).Port
 	}()
 
 	querierManager := NewQuerierManager(log)
 	server := NewServer(fmt.Sprintf(":%d", port), 1024*1024*1024, false, querierManager, 100, log)
 	enterrors.GoWrapper(func() {
-		err = server.Open()
+		// TODO test context for shutdown instead of close
+		err = server.Serve(ctx)
 		require.Nil(t, err)
 	}, log)
 	return server, log, port
@@ -72,7 +73,7 @@ func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataSe
 // TestServerNotifyRecv tests that notifying the server.querierManager of a classTenantDataEvent
 // propagates that to the client
 func TestServerNotifyRecv(t *testing.T) {
-	server, log, port := testServerSetup(t)
+	server, log, port := testServerSetup(t, context.Background())
 	client := testClientSetup(t, port, context.Background())
 
 	notifyCh := make(chan ClassTenant)
@@ -99,7 +100,7 @@ func TestServerNotifyRecv(t *testing.T) {
 // TestServerClientSendClose tests that the client closing the stream immediately works,
 // even if the server tries to send the client an event
 func TestServerClientSendClose(t *testing.T) {
-	server, log, port := testServerSetup(t)
+	server, log, port := testServerSetup(t, context.Background())
 	client := testClientSetup(t, port, context.Background())
 
 	notifyCh := make(chan ClassTenant)
@@ -117,9 +118,26 @@ func TestServerClientSendClose(t *testing.T) {
 // TestServerClientDiesUnexpectedly tests that the server can handle the client dying
 // unexpectedly (eg context cancelled)
 func TestServerClientDiesUnexpectedly(t *testing.T) {
-	server, log, port := testServerSetup(t)
+	server, log, port := testServerSetup(t, context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	client := testClientSetup(t, port, ctx)
+
+	notifyCh := make(chan ClassTenant)
+	enterrors.GoWrapper(func() {
+		for ct := range notifyCh {
+			err := server.querierManager.NotifyClassTenantDataEvent(ct)
+			require.Nil(t, err)
+		}
+	}, log)
+	time.AfterFunc(time.Millisecond, cancel)
+	client.Recv()
+}
+
+// TestServerContextCancellation tests that the server closes if the serve context is cancelled
+func TestServerContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	server, log, port := testServerSetup(t, ctx)
+	client := testClientSetup(t, port, context.Background())
 
 	notifyCh := make(chan ClassTenant)
 	enterrors.GoWrapper(func() {

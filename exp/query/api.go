@@ -319,11 +319,6 @@ func (a *API) vectorSearch(
 	return objs, distance, nil
 }
 
-type LSMEnsurer interface {
-	// EnsureLSM returns the store for this collection/tenant and the local path for the lsm store
-	EnsureLSM(ctx context.Context, collection, tenant string, doUpdateTenantIfExistsLocally bool) (*lsmkv.Store, string, error)
-}
-
 type tenantLsmkvStore struct {
 	s *lsmkv.Store
 	// localTenantPath is the path on disk to the tenant dir
@@ -346,8 +341,7 @@ func (a *API) EnsureLSM(
 	// TODO if multiple calls to download the same tenant at nearly the same time happen
 	// we'll unecessarily download the same tenant multiple times. If multiple calls to download
 	// get the same microseconds value from the system, there could be issues.
-	// I think the easiest way to fix this would be to have a channel per tenant that we use to
-	// serialize downloads.
+	// I think the easiest way to fix this would be to serialize downloads per tenant.
 	currentLocalTime := time.Now().UnixMicro()
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
@@ -358,20 +352,24 @@ func (a *API) EnsureLSM(
 			// we should download because we've been told there is a new tenant version
 			// for a tenant we have locally
 			proceedWithDownload = true
+			a.log.WithField("tenant", tenant).Debug("downloading tenant because it exists locally and there is a new version")
 		} else {
 			// TODO we only care about tenants we have for new versions, make diff func instead of
 			// using bool or return error or other?
-			return nil, "", errors.New("tenant does not exist locally, you can ignore this error, the tenant will be downloaded later")
+			a.log.WithField("tenant", tenant).Debug("ignoring new tenant data version because tenant does not exist locally")
+			return nil, "", errors.New("tenant does not exist locally, ignore this error, will download later if needed")
 		}
 	}
 	if !doUpdateTenantIfExistsLocally {
 		if tenantIsCachedLocally {
 			// tenant is cached, we can just return it because this is not a new version call
 			cachedLsmkvStore := cachedTenantLsmkvStore.(tenantLsmkvStore)
+			a.log.WithField("tenant", tenant).Debug("returning cached tenant")
 			return cachedLsmkvStore.s, path.Join(cachedLsmkvStore.localTenantPath, defaultLSMRoot), nil
 		} else {
 			// we should download because the caller wants this tenant to exist locally but it does not
 			proceedWithDownload = true
+			a.log.WithField("tenant", tenant).Debug("downloading tenant because it does not exist locally and is requested")
 		}
 	}
 
@@ -394,6 +392,12 @@ func (a *API) EnsureLSM(
 	if proceedWithDownload {
 		// src - s3://<collection>/<tenant>/<node>/
 		// dst (local) - <data-path/<collection>/<tenant>/timestamp
+		a.log.WithFields(logrus.Fields{
+			"collection":          collection,
+			"tenant":              tenant,
+			"nodeName":            nodeName,
+			"localTenantTimePath": localTenantTimePath,
+		}).Debug("starting download to path")
 		if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
 			return nil, "", err
 		}
@@ -413,10 +417,12 @@ func (a *API) EnsureLSM(
 		oldTenantLsmkvStore.s.Shutdown(ctx)
 
 		// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
-		re := regexp.MustCompile(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant))
-		if re.MatchString(oldTenantLsmkvStore.localTenantPath) {
+		// NOTE if MatchString is too slow, we could use a simpler check like strings.HasPrefix without the timestamp
+		if matched, err := regexp.MatchString(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant),
+			oldTenantLsmkvStore.localTenantPath); matched && err == nil {
+
 			dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
-			a.log.Debugf("removing old tenant dir: %s", dirToRemove)
+			a.log.WithField("dirToRemove", dirToRemove).Debugf("removing old tenant dir")
 			os.RemoveAll(dirToRemove)
 		}
 	}

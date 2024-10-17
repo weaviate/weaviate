@@ -4,7 +4,7 @@
 // - protoc             (unknown)
 // source: api/metadata_server.proto
 
-// NOTE run `buf generate` from `exp/metadataserver/proto` to regenerate code
+// NOTE run `buf generate` from `exp/metadata/proto` to regenerate code
 
 package api
 
@@ -21,7 +21,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MetadataService_QuerierStream_FullMethodName = "/weaviate.internal.metadataserver.MetadataService/QuerierStream"
+	MetadataService_QuerierStream_FullMethodName = "/weaviate.internal.metadata.MetadataService/QuerierStream"
 )
 
 // MetadataServiceClient is the client API for MetadataService service.
@@ -132,7 +132,7 @@ func (x *metadataServiceQuerierStreamServer) Recv() (*QuerierStreamRequest, erro
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var MetadataService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "weaviate.internal.metadataserver.MetadataService",
+	ServiceName: "weaviate.internal.metadata.MetadataService",
 	HandlerType: (*MetadataServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

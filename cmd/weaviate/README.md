@@ -9,7 +9,8 @@ tldr; use `cmd/weaviate-server` instead. This is experimental
 
 ## Setup
 
-If you're prompted "Do you want the application “weaviate-server” to accept incoming network connections?" by your firewall select "Allow", this is because the server accepts incoming client connections (in this case from the querier).
+> [!NOTE]  
+> If you're prompted "Do you want the application “weaviate-server” to accept incoming network connections?" by your firewall select "Allow", this is because the server accepts incoming client connections (in this case from the querier).
 
 ### Start Weaviate core.
 

@@ -50,7 +50,7 @@ import (
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/exp/metadataserver"
+	"github.com/weaviate/weaviate/exp/metadata"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -392,29 +392,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// let classTenantDataEvents be nil if the metadata server is not enabled since the metadata
 	// server/querierManager are the users of the channel
-	var classTenantDataEvents chan metadataserver.ClassTenant
-	querierManager := metadataserver.NewQuerierManager(appState.Logger)
-	metadataServer := metadataserver.NewServer(
-		appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
-		1024*1024*1024,
-		true,
-		querierManager,
-		appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
-		appState.Logger)
-	appState.MetadataServer = metadataServer
-
+	var classTenantDataEvents chan metadata.ClassTenant
 	if appState.ServerConfig.Config.MetadataServer.Enabled {
-		classTenantDataEvents = make(chan metadataserver.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
+		querierManager := metadata.NewQuerierManager(appState.Logger)
+		metadataServer := metadata.NewServer(
+			appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
+			1024*1024*1024,
+			true,
+			querierManager,
+			appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
+			appState.Logger)
+		appState.MetadataServer = metadataServer
+
+		classTenantDataEvents = make(chan metadata.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
 		enterrors.GoWrapper(func() {
-			err := metadataServer.Open()
-			if err != nil {
-				appState.Logger.Errorf("metadata server did not start: %v", err)
+			// TODO do i need this?
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := metadataServer.Serve(ctx); err != nil {
+				appState.Logger.WithError(err).Errorf("metadata server did not start")
 			}
 		}, appState.Logger)
 
 		enterrors.GoWrapper(func() {
 			for classTenantDataEvent := range classTenantDataEvents {
-				querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
+				notifyErr := querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
+				if notifyErr != nil {
+					appState.Logger.WithError(notifyErr).
+						Warnf("error when notifying metadata servers about class tenant data event")
+				}
 			}
 		}, appState.Logger)
 	}
@@ -710,12 +716,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
-
-		if appState.ServerConfig.Config.MetadataServer.Enabled {
-			if appState.MetadataServer != nil {
-				appState.MetadataServer.Close()
-			}
-		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)

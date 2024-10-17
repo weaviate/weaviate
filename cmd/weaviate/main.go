@@ -116,7 +116,7 @@ func main() {
 				opts.Query.MetadataGRPCAddress,
 				log)
 			if err = metadataSubscription.Start(); err != nil {
-				log.Warnf("Failed to start metadata subscription: %v", err)
+				log.WithError(err).Warnf("Failed to start metadata subscription")
 			}
 		}, log)
 

@@ -10,7 +10,7 @@
 //
 
 // Package querier provides abstractions to keep track of and manage querier nodes.
-package metadataserver
+package metadata
 
 import (
 	"errors"

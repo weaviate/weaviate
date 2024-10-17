@@ -9,16 +9,17 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package metadataserver
+package metadata
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
+	"github.com/weaviate/weaviate/exp/metadata/proto/api"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -49,17 +50,19 @@ func NewServer(listenAddress string, grpcMessageMaxSize int,
 	}
 }
 
-// Open starts the server and registers it as the cluster service server. Blocking.
+// Serve starts the server and registers it as the cluster service server. Blocking.
 // Returns an error if the configured listenAddress is invalid.
 // Returns an error if the configured listenAddress is un-usable to listen on.
-func (s *Server) Open() error {
-	s.log.WithField("address", s.listenAddress).Info("starting cloud rpc server ...")
+// When the passed in context is cancelled, the server will stop.
+func (s *Server) Serve(ctx context.Context) error {
+	s.log.WithField("address", s.listenAddress).Info("starting metadata rpc server ...")
 	if s.listenAddress == "" {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}
 
-	// Note listen uses context.background by default, can set if needed
-	listener, err := net.Listen("tcp", s.listenAddress)
+	// use ListenConfig so we can pass a context to Listen
+	lc := &net.ListenConfig{}
+	listener, err := lc.Listen(ctx, "tcp", s.listenAddress)
 	if err != nil {
 		return fmt.Errorf("server tcp net.listen: %w", err)
 	}
@@ -74,6 +77,14 @@ func (s *Server) Open() error {
 	}
 	s.grpcServer = grpc.NewServer(options...)
 	api.RegisterMetadataServiceServer(s.grpcServer, s)
+
+	// If the context is cancelled, stop the server
+	enterrors.GoWrapper(func() {
+		<-ctx.Done()
+		s.log.WithError(ctx.Err()).Debug("Context done, stopping metadata server")
+		s.grpcServer.Stop()
+	}, s.log)
+
 	if err := s.grpcServer.Serve(listener); err != nil {
 		return err
 	}
@@ -90,6 +101,8 @@ func (s *Server) Open() error {
 func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) error {
 	// Note, if you add any potentially blocking calls within QuerierStream, you should
 	// use/derive their context from stream.Context()
+
+	s.log.Debug("a querier node has connected to this metadata node")
 
 	// set up a querier and register it
 	q := NewQuerier(s.dataEventsChannelCapacity)
@@ -115,16 +128,18 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 		for {
 			// Wait here until the stream is done (for now, we aren't expecting any messages from the
 			// querier but we have the for loop to retry in case we get transient errors).
-			_, err := stream.Recv()
+			r, err := stream.Recv()
 			if err == io.EOF {
 				// io.EOF is expected when the stream is closed by the querier
+				s.log.Debug("querier node sent eof to this metadata node")
 				return
 			}
 			if err != nil {
 				// stream aborted
-				s.log.Warnf("metadataserver/Server.QuerierStream unexpected error: %v", err)
+				s.log.WithError(err).Warn("the querier stream was aborted")
 				return
 			}
+			s.log.WithField("request", r).Warn("querier node sent an unexpected message to this metadata node")
 		}
 	}, s.log)
 
@@ -139,8 +154,13 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 			// stream's context is done (eg the client closes the stream).
 			select {
 			case <-stream.Context().Done():
+				s.log.Debug("querier stream send worker got context done")
 				return
 			case ct := <-classTenantDataUpdates:
+				s.log.WithFields(logrus.Fields{
+					"className":  ct.ClassName,
+					"tenantName": ct.TenantName,
+				}).Debug("sending class tenant data update to querier node")
 				err := stream.Send(&api.QuerierStreamResponse{
 					Type: api.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE,
 					ClassTenant: &api.ClassTenant{
@@ -161,13 +181,4 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 	wg.Wait()
 
 	return returnErr
-}
-
-// Close closes the server and free any used ressources.
-func (s *Server) Close() {
-	if s.grpcServer != nil {
-		// don't use GracefulStop here yet because we don't currently tell the client when to
-		// disconnect and it's fine if we drop some tenant cache invalidation messages for now
-		s.grpcServer.Stop()
-	}
 }
