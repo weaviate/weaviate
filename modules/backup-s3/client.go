@@ -74,6 +74,10 @@ func (s *s3Client) HomeDir(backupID string) string {
 		s.makeObjectName(backupID))
 }
 
+func (s *s3Client) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	objectName := s.makeObjectName(backupID, key)
 
