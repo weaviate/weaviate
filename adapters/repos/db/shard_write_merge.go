@@ -27,7 +27,7 @@ var errObjectNotFound = errors.New("object not found")
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	s.activityTracker.Add(1)
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 

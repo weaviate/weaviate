@@ -23,7 +23,7 @@ import (
 )
 
 func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 

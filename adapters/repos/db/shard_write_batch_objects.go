@@ -34,7 +34,7 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTracker.Add(1)
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return []error{err}
 	}
 

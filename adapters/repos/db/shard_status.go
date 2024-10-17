@@ -52,11 +52,8 @@ func (s *Shard) GetStatusNoLoad() storagestate.Status {
 	return s.GetStatus()
 }
 
-func (s *Shard) isReadOnly() bool {
-	return s.GetStatus() == storagestate.StatusReadOnly
-}
-
-func (s *Shard) readOnlyError() error {
+// isReadOnly returns an error if shard is readOnly and nil otherwise
+func (s *Shard) isReadOnly() error {
 	if s.status.Status == storagestate.StatusReadOnly {
 		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
 	}
@@ -92,7 +89,7 @@ func (s *Shard) UpdateStatus(in string) error {
 
 	reason := ""
 	if in == storagestate.StatusReadOnly.String() {
-		reason = "manually set"
+		reason = "manually set by user"
 	}
 
 	return s.updateStatusUnlocked(in, reason)

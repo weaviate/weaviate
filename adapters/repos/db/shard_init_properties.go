@@ -86,7 +86,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -140,7 +140,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -163,7 +163,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -178,7 +178,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -198,7 +198,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -220,7 +220,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
