@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -298,13 +299,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	ob.batchStartTime = time.Now()
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 
-	var vectors []vectorDescriptor
-	var targetVectors map[string][]vectorDescriptor
+	var vectors []common.VectorRecord
+	var targetVectors map[string][]common.VectorRecord
 	hasTargetVectors := ob.shard.hasTargetVectors()
 	if hasTargetVectors {
-		targetVectors = make(map[string][]vectorDescriptor)
+		targetVectors = make(map[string][]common.VectorRecord)
 	} else {
-		vectors = make([]vectorDescriptor, 0, len(ob.objects))
+		vectors = make([]common.VectorRecord, 0, len(ob.objects))
 	}
 
 	for i, object := range ob.objects {
@@ -333,16 +334,16 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 		if hasTargetVectors {
 			for targetVector, vector := range object.Vectors {
-				targetVectors[targetVector] = append(targetVectors[targetVector], vectorDescriptor{
-					id:     status.docID,
-					vector: vector,
+				targetVectors[targetVector] = append(targetVectors[targetVector], common.VectorRecord{
+					ID:     status.docID,
+					Vector: vector,
 				})
 			}
 		} else {
 			if len(object.Vector) > 0 {
-				vectors = append(vectors, vectorDescriptor{
-					id:     status.docID,
-					vector: object.Vector,
+				vectors = append(vectors, common.VectorRecord{
+					ID:     status.docID,
+					Vector: object.Vector,
 				})
 			}
 		}
@@ -354,14 +355,14 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			if !ok {
 				ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
 			} else {
-				err := queue.Push(ctx, vectors...)
+				err := queue.Insert(vectors...)
 				if err != nil {
 					ob.setErrorAtIndex(err, 0)
 				}
 			}
 		}
 	} else {
-		err := ob.shard.Queue().Push(ctx, vectors...)
+		err := ob.shard.Queue().Insert(vectors...)
 		if err != nil {
 			ob.setErrorAtIndex(err, 0)
 		}

@@ -34,6 +34,11 @@ func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) e
 	return nil
 }
 
+func (i *Index) AddBatchFromDisk(ctx context.Context, id []uint64) error {
+	// silently ignore
+	return nil
+}
+
 func (i *Index) Add(id uint64, vector []float32) error {
 	// silently ignore
 	return nil
@@ -143,4 +148,7 @@ func (s *NoopStats) IndexType() common.IndexType {
 
 func (i *Index) Stats() (common.IndexStats, error) {
 	return &NoopStats{}, errors.New("Stats() is not implemented for noop index")
+}
+
+func (i *Index) PreloadCache(id uint64, vec []float32) {
 }

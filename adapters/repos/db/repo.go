@@ -21,11 +21,13 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -77,11 +79,11 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh              chan job
-	asyncIndexRetryInterval time.Duration
-	shutDownWg              sync.WaitGroup
-	maxNumberGoroutines     int
-	ratePerSecond           atomic.Int64
+	jobQueueCh          chan job
+	scheduler           *queue.Scheduler
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+	ratePerSecond       atomic.Int64
 
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
@@ -131,19 +133,18 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor = memwatch.NewDummyMonitor()
 	}
 	db := &DB{
-		logger:                  logger,
-		config:                  config,
-		indices:                 map[string]*Index{},
-		remoteIndex:             remoteIndex,
-		nodeResolver:            nodeResolver,
-		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:           replicaClient,
-		promMetrics:             promMetrics,
-		shutdown:                make(chan struct{}),
-		asyncIndexRetryInterval: 5 * time.Second,
-		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:       newResourceScanState(),
-		memMonitor:              memMonitor,
+		logger:              logger,
+		config:              config,
+		indices:             map[string]*Index{},
+		remoteIndex:         remoteIndex,
+		nodeResolver:        nodeResolver,
+		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:       replicaClient,
+		promMetrics:         promMetrics,
+		shutdown:            make(chan struct{}),
+		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:   newResourceScanState(),
+		memMonitor:          memMonitor,
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -160,14 +161,27 @@ func New(logger logrus.FieldLogger, config Config,
 		logger.Info("async indexing enabled")
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job)
+
+		chans := make([]chan queue.Batch, w)
+
 		for i := 0; i < w; i++ {
+			worker, ch := queue.NewWorker(db.logger, 5*time.Second)
+			chans[i] = ch
+
 			f := func() {
 				defer db.shutDownWg.Done()
-				NewAsyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval).Run()
+
+				worker.Run()
 			}
 			enterrors.GoWrapper(f, db.logger)
 		}
+
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger:  logger,
+			Workers: chans,
+		})
+
+		db.scheduler.Start()
 	}
 
 	return db, nil
@@ -305,7 +319,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	if asyncEnabled() {
 		// shut down the async workers
-		close(db.jobQueueCh)
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
@@ -315,6 +332,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
 }
 
 func (db *DB) batchWorker(first bool) {

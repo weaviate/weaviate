@@ -265,7 +265,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
+func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	if s.hasTargetVectors() {
 		if targetVector == "" {
 			return nil, fmt.Errorf("index queue: missing target vector")
@@ -317,14 +317,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
-	queue, err := s.getIndexQueue(targetVector)
-	if err != nil {
-		return nil, nil, err
-	}
+	vidx := s.getVectorIndex(targetVector)
 
 	beforeVector := time.Now()
 	if limit < 0 {
-		ids, dists, err = queue.SearchByVectorDistance(
+		ids, dists, err = vidx.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
 			// This should normally not fail. A failure here could indicate that more
@@ -336,7 +333,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 			return nil, nil, err
 		}
 	} else {
-		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = vidx.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
 			// This should normally not fail. A failure here could indicate that more
 			// attention is required, for example because data is corrupted. That's
