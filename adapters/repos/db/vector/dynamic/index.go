@@ -50,7 +50,6 @@ type VectorIndex interface {
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
-	AddBatchFromDisk(ctx context.Context, ids []uint64) error
 	Delete(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
@@ -75,7 +74,6 @@ type VectorIndex interface {
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(id uint64) bool)
 	Stats() (common.IndexStats, error)
-	PreloadCache(id uint64, vec []float32)
 }
 
 type upgradableIndexer interface {
@@ -227,12 +225,6 @@ func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.AddBatch(ctx, ids, vectors)
-}
-
-func (dynamic *dynamic) AddBatchFromDisk(ctx context.Context, ids []uint64) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
-	return dynamic.index.AddBatchFromDisk(ctx, ids)
 }
 
 func (dynamic *dynamic) Add(ctx context.Context, id uint64, vector []float32) error {

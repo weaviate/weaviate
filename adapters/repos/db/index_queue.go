@@ -113,11 +113,6 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 			}
 		}
 
-		// since the queue only stores the vector id on disk,
-		// we need to preload the vector index cache to avoid
-		// loading the vector from disk when it is indexed.
-		iq.index.i.PreloadCache(v.ID, v.Vector)
-
 		r.Reset()
 
 		// write the operation first
