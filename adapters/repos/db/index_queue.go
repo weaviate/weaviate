@@ -61,25 +61,27 @@ func NewVectorIndexQueue(
 	}
 	viq.index.i = index
 
-	q, err := queue.New(
-		s,
-		shard.index.logger,
-		fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
-		filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
-		&viq,
+	logger := shard.index.logger.WithField("component", "vector_index_queue").
+		WithField("shard_id", shard.ID()).
+		WithField("target_vector", targetVector)
+
+	q, err := queue.NewDiskQueue(
+		queue.DiskQueueOptions{
+			ID:          fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
+			Logger:      logger,
+			Scheduler:   s,
+			Dir:         filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
+			TaskDecoder: &vectorIndexQueueDecoder{idx: index},
+		},
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create vector index queue")
 	}
-	q.BeforeScheduleFn = viq.beforeScheduleHook
-
-	q.Logger = q.Logger.
-		WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID()).
-		WithField("target_vector", targetVector)
 
 	viq.DiskQueue = q
 	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
+
+	s.RegisterQueue(&viq)
 
 	return &viq, nil
 }
@@ -157,46 +159,7 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	return iq.DiskQueue.Flush()
 }
 
-func (iq *VectorIndexQueue) DecodeTask(dec *queue.Decoder) (queue.Task, error) {
-	op, err := dec.DecodeUint8()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to decode operation")
-	}
-
-	switch op {
-	case vectorIndexQueueInsertOp:
-		id, err := dec.DecodeUint()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode id")
-		}
-
-		vec, err := dec.DecodeFloat32Array()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode vector")
-		}
-
-		return &Task{
-			op:     op,
-			id:     uint64(id),
-			vector: vec,
-		}, nil
-
-	case vectorIndexQueueDeleteOp:
-		id, err := dec.DecodeUint()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode id")
-		}
-
-		return &Task{
-			op: op,
-			id: uint64(id),
-		}, nil
-	}
-
-	return nil, errors.Errorf("unknown operation: %d", op)
-}
-
-func (iq *VectorIndexQueue) beforeScheduleHook() (skip bool) {
+func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 	skip = iq.updateShardStatus()
 	if skip {
 		return true
@@ -268,6 +231,51 @@ func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
 	iq.index.Lock()
 	iq.index.i = vidx
 	iq.index.Unlock()
+}
+
+type vectorIndexQueueDecoder struct {
+	idx VectorIndex
+}
+
+func (v *vectorIndexQueueDecoder) DecodeTask(dec *queue.Decoder) (queue.Task, error) {
+	op, err := dec.DecodeUint8()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to decode operation")
+	}
+
+	switch op {
+	case vectorIndexQueueInsertOp:
+		id, err := dec.DecodeUint()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode id")
+		}
+
+		vec, err := dec.DecodeFloat32Array()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode vector")
+		}
+
+		return &Task{
+			op:     op,
+			id:     uint64(id),
+			vector: vec,
+			idx:    v.idx,
+		}, nil
+
+	case vectorIndexQueueDeleteOp:
+		id, err := dec.DecodeUint()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode id")
+		}
+
+		return &Task{
+			op:  op,
+			id:  uint64(id),
+			idx: v.idx,
+		}, nil
+	}
+
+	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
 type Task struct {
