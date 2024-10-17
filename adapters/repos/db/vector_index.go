@@ -54,8 +54,4 @@ type VectorIndex interface {
 	DistancerProvider() distancer.Provider
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	Stats() (common.IndexStats, error)
-	// PreloadCache is used to preload the cache of the index with the given id and vector.
-	// This is used by async indexing to avoid the need to load the vector from disk
-	// when the vector is already in memory.
-	PreloadCache(id uint64, vec []float32)
 }
