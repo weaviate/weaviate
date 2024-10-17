@@ -22,11 +22,11 @@ func (v *Validator) vector(ctx context.Context, class *models.Class,
 	incomingObject *models.Object,
 ) error {
 	if len(class.VectorConfig) > 1 && len(incomingObject.Vector) > 0 {
-		return fmt.Errorf("collection %v is configured with multiple named vectors %v, but recieved a single vector", class.Class, class.VectorConfig)
+		return fmt.Errorf("collection %v is configured with multiple named vectors %v, but received a single vector", class.Class, class.VectorConfig)
 	}
 
 	if class.VectorIndexConfig != nil && len(incomingObject.Vectors) > 0 {
-		return fmt.Errorf("collection %v is configured without multiple named vectors, but recieved named vectors: %v", class.Class, incomingObject.Vectors)
+		return fmt.Errorf("collection %v is configured without multiple named vectors, but received named vectors: %v", class.Class, incomingObject.Vectors)
 	}
 
 	// if there is only one named vector we can assume that the single vector
