@@ -140,8 +140,8 @@ func TestQueueDecodeTask(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, task)
 			require.Equal(t, uint8(1), task.Op)
-			require.Len(t, task.DocIDs, 1)
-			require.Equal(t, uint64(100*(i+1)), task.DocIDs[0])
+			require.Len(t, task.IDs, 1)
+			require.Equal(t, uint64(100*(i+1)), task.IDs[0])
 		}
 
 		require.Equal(t, int64(3), q.Size())

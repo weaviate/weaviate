@@ -15,16 +15,16 @@ import "context"
 
 type Task struct {
 	Op       uint8
-	DocIDs   []uint64
+	IDs      []uint64
 	executor TaskExecutor
 }
 
 func (t *Task) Key() uint64 {
-	return t.DocIDs[0]
+	return t.IDs[0]
 }
 
 func (t *Task) Execute(ctx context.Context) error {
-	return t.executor.Execute(ctx, t.Op, t.DocIDs...)
+	return t.executor.Execute(ctx, t.Op, t.IDs...)
 }
 
 type Batch struct {
