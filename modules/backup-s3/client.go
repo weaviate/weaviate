@@ -14,17 +14,20 @@ package modstgs3
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -74,8 +77,34 @@ func (s *s3Client) HomeDir(backupID string) string {
 		s.makeObjectName(backupID))
 }
 
-func (s *s3Client) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *s3Client) AllBackups(ctx context.Context,
+) ([]*backup.DistributedBackupDescriptor, error) {
+	var meta []*backup.DistributedBackupDescriptor
+	objectsInfo := s.client.ListObjects(ctx,
+		s.config.Bucket,
+		minio.ListObjectsOptions{
+			Recursive: true,
+		},
+	)
+	for info := range objectsInfo {
+		if strings.Contains(info.Key, ubak.GlobalBackupFile) {
+			obj, err := s.client.GetObject(ctx,
+				s.config.Bucket, info.Key, minio.GetObjectOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("get object %q: %w", info.Key, err)
+			}
+			contents, err := io.ReadAll(obj)
+			if err != nil {
+				return nil, fmt.Errorf("read object %q: %w", info.Key, err)
+			}
+			var desc backup.DistributedBackupDescriptor
+			if err := json.Unmarshal(contents, &desc); err != nil {
+				return nil, fmt.Errorf("unmarshal object %q: %w", err)
+			}
+			meta = append(meta, &desc)
+		}
+	}
+	return meta, nil
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
