@@ -69,8 +69,8 @@ type ObjectStore struct {
 	Backend modulecapabilities.BackupBackend
 
 	BackupId string // use supplied backup id
-	S3Bucket string // Override bucket for one call
-	S3Path   string // Override path for one call
+	Bucket string // Override bucket for one call
+	Path   string // Override path for one call
 }
 
 func (s *ObjectStore) HomeDir(overrideBucket, overridePath string) string {

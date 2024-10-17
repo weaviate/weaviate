@@ -188,7 +188,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.S3Bucket, store.S3Path}
+	req := &StatusRequest{OpCreate, backupID, backend, store.Bucket, store.Path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -287,7 +287,7 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{ObjectStore{Backend: caps, BackupId: id, S3Bucket: overrideBucket, S3Path: overridePath}}, nil
+	return coordStore{ObjectStore{Backend: caps, BackupId: id, Bucket: overrideBucket, Path: overridePath}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
@@ -405,7 +405,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.S3Bucket, store.S3Path, true)
+		meta, err := store.Meta(ctx, req.ID, store.Bucket, store.Path, true)
 		if err != nil {
 			return nil, err
 		}
