@@ -13,7 +13,7 @@ package query
 
 // Config represents any type of configs and flags to control the querier
 type Config struct {
-	GRPCListenAddr string `long:"grpc.listen" description:"gRPC address that query node listens at" default:"0.0.0.0:9091"`
+	GRPCListenAddr string `long:"grpc.listen" description:"gRPC address that query node listens at" default:"0.0.0.0:7071"`
 	SchemaAddr     string `long:"schema.addr" description:"address to get schema information" default:"http://0.0.0.0:8080"`
 	S3URL          string `long:"s3.url" description:"s3 URL to query offloaded tenants (e.g: s3://<url>)"`
 	S3Endpoint     string `long:"s3.endpoint" description:"s3 endpoint to if mocking s3 (e.g: via minio)"`
@@ -30,4 +30,8 @@ type Config struct {
 	// Note that this should be replaced later to avoid having a single metadata node as a single point of failure.
 	// If MetadataGRPCAddress is empty, the querier will connect to localhost.
 	MetadataGRPCAddress string `long:"metadata.grpc.address" description:"metadata grpc address" default:":9050"`
+	// AlwaysFetchObjectStore flag ignore what version does local querier has and fetch from
+	// object store (source of truth) all the time.
+	// NOTE: Enabling this (without any intermediate cache) can introduce more latency. Can be used to during performance testing, debugging, correctness check, etc.
+	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state." default:"false"`
 }

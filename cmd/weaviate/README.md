@@ -326,6 +326,8 @@ TODO why does running offload, then a "proper filters" query, then a "vector sea
 - [ ] Handle "empty write-ahead-log found" warnings on `querier`
 - [ ] Support BM25 search
 - [ ] Support other indexes other than flat index with Binary Quantization(BQ)
+- [ ] Remove hard coded dependency with `contextionary`.
+- [ ] Make querier respect `PROMETHEUS_MONITORING_ENABLED` env config.
 - [ ] Integrate `query.Search` with core weaviate's http, grpc and graphql endpoints for frozen tenants.
 - [x] Instrument `grpc` server
 - [x] Instrument `http` server
