@@ -293,6 +293,11 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
+	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
+	return m.DownloadToPath(ctx, className, shardName, nodeName, localPath)
+}
+
+func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeName, localPath string) error {
 	start := time.Now()
 
 	if err := validate(className, shardName, nodeName); err != nil {
@@ -302,7 +307,6 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",

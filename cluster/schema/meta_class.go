@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -35,6 +36,9 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
+		// classTenantDataEvents receives messages for tenant events if the metadata server is
+		// enabled (eg when a tenant is frozen). It will be nil if not enabled
+		classTenantDataEvents chan metadata.ClassTenant
 	}
 )
 
@@ -403,7 +407,8 @@ func (m *metaClass) RLockGuard(reader func(*models.Class, *sharding.State) error
 }
 
 func shardProcessID(name string, action command.TenantProcessRequest_Action) string {
-	return fmt.Sprintf("%s-%s", name, action)
+	r := fmt.Sprintf("%s-%s", name, action)
+	return r
 }
 
 func (m *metaClass) findRequestedStatus(nodeID, name string, action command.TenantProcessRequest_Action) string {
@@ -478,6 +483,22 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
+			// TODO move the data events channel out of cluster/schema and handle at a higher/different level
+			// Note, the channel being nil indicates that it is not enabled to receive events. Technically,
+			// this nil check isn't needed but I think it makes the intent more clear
+			if m.classTenantDataEvents != nil {
+				// Whenever a tenant is frozen, we send an event on the class tenant data events
+				// channel. This send is non-blocking and will drop events if the channel is full.
+				select {
+				case m.classTenantDataEvents <- metadata.ClassTenant{
+					ClassName:  m.Class.Class,
+					TenantName: name,
+				}:
+				default:
+					// drop event if channel is full, we don't want to have any slow ops on
+					// this critical path of the raft apply
+				}
+			}
 		} else {
 			copy.Status = onAbortStatus
 			req.Tenant.Status = onAbortStatus
