@@ -65,7 +65,7 @@ func (s *Shard) compareAndSwapStatusIndexingAndReady(old, new string) (storagest
 	defer s.statusLock.Unlock()
 
 	if (old != storagestate.StatusIndexing.String() && old != storagestate.StatusReady.String()) ||
-		(old != storagestate.StatusIndexing.String() && old != storagestate.StatusReady.String()) {
+		(new != storagestate.StatusIndexing.String() && new != storagestate.StatusReady.String()) {
 		return s.status.Status, fmt.Errorf("can only swap between indexing and ready, got %v and %v", old, new)
 	}
 
