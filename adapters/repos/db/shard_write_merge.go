@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -28,8 +27,8 @@ var errObjectNotFound = errors.New("object not found")
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.readOnlyError(); err != nil {
+		return err
 	}
 
 	if s.hasTargetVectors() {

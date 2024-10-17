@@ -26,7 +26,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -35,8 +34,8 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return []error{storagestate.ErrStatusReadOnly}
+	if err := s.readOnlyError(); err != nil {
+		return []error{err}
 	}
 
 	return s.putBatch(ctx, objects)
