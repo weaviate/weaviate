@@ -391,8 +391,6 @@ type queueState struct {
 	m           sync.RWMutex
 	q           Queue
 	paused      bool
-	readFiles   []string
-	cursor      int
 	activeTasks *common.SharedGauge
 }
 

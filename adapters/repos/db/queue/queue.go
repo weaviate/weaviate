@@ -58,14 +58,9 @@ type BeforeScheduleHook interface {
 
 type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
-	Logger logrus.FieldLogger
-	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
-	BeforeScheduleFn func() (skip bool)
-	// If a queue does not receive any tasks for this duration, it is considered stale
-	// and must be scheduled. Defaults to 5 seconds.
-	StaleTimeout time.Duration
-	TaskDecoder  TaskDecoder
-
+	Logger       logrus.FieldLogger
+	staleTimeout time.Duration
+	taskDecoder  TaskDecoder
 	scheduler    *Scheduler
 	id           string
 	dir          string
@@ -85,19 +80,56 @@ type DiskQueue struct {
 	cursor           int
 }
 
-func NewDiskQueue(s *Scheduler, logger logrus.FieldLogger, id, dir string) (*DiskQueue, error) {
-	logger = logger.WithField("queue_id", id)
+type DiskQueueOptions struct {
+	// Required
+	ID          string
+	Scheduler   *Scheduler
+	Dir         string
+	TaskDecoder TaskDecoder
+
+	// Optional
+	Logger       logrus.FieldLogger
+	StaleTimeout time.Duration
+	ChunkSize    int
+}
+
+func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
+	if opt.ID == "" {
+		return nil, errors.New("id is required")
+	}
+	if opt.Scheduler == nil {
+		return nil, errors.New("scheduler is required")
+	}
+	if opt.Dir == "" {
+		return nil, errors.New("dir is required")
+	}
+	if opt.TaskDecoder == nil {
+		return nil, errors.New("task decoder is required")
+	}
+
+	if opt.Logger == nil {
+		opt.Logger = logrus.New()
+	}
+	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
+	if opt.StaleTimeout <= 0 {
+		opt.StaleTimeout = 5 * time.Second
+	}
+	if opt.ChunkSize <= 0 {
+		opt.ChunkSize = defaultChunkSize
+	}
 
 	q := DiskQueue{
-		Logger:    logger,
-		scheduler: s,
-		id:        id,
-		dir:       dir,
-		chunkSize: defaultChunkSize,
+		id:           opt.ID,
+		scheduler:    opt.Scheduler,
+		dir:          opt.Dir,
+		Logger:       opt.Logger,
+		chunkSize:    opt.ChunkSize,
+		staleTimeout: opt.StaleTimeout,
+		taskDecoder:  opt.TaskDecoder,
 	}
 
 	// create the directory if it doesn't exist
-	err := os.MkdirAll(dir, 0755)
+	err := os.MkdirAll(q.dir, 0755)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create directory")
 	}
@@ -107,8 +139,6 @@ func NewDiskQueue(s *Scheduler, logger logrus.FieldLogger, id, dir string) (*Dis
 	if err != nil {
 		return nil, err
 	}
-
-	s.RegisterQueue(&q)
 
 	return &q, nil
 }
@@ -292,7 +322,7 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 	var tasks []Task
 
 	for {
-		t, err := q.TaskDecoder.DecodeTask(dec)
+		t, err := q.taskDecoder.DecodeTask(dec)
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -375,7 +405,7 @@ func (q *DiskQueue) checkIfStale() (*os.File, string, error) {
 		return nil, "", nil
 	}
 
-	if time.Since(*lastPushed) < q.StaleTimeout {
+	if time.Since(*lastPushed) < q.staleTimeout {
 		return nil, "", nil
 	}
 
@@ -486,12 +516,4 @@ func (q *DiskQueue) removeChunk(path string) {
 	q.recordCount -= int64(info.Size()) / 9
 
 	q.Logger.WithField("file", path).Debug("chunk removed")
-}
-
-func (q *DiskQueue) BeforeSchedule() bool {
-	if q.BeforeScheduleFn != nil {
-		return q.BeforeScheduleFn()
-	}
-
-	return false
 }
