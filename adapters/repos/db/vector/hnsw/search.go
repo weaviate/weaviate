@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -23,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -582,20 +585,41 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 		i--
 	}
 	res.Reset()
-	for _, id := range ids {
-		dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-		if err == nil {
-			res.Insert(id, dist)
-			if res.Len() > k {
-				res.Pop()
-			}
-		} else {
-			h.logger.
-				WithField("action", "rescore").
-				WithError(err).
-				Warnf("could not rescore node %d", id)
+
+	mu := sync.Mutex{} // protect res
+	addID := func(id uint64, dist float32) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		res.Insert(id, dist)
+		if res.Len() > k {
+			res.Pop()
 		}
 	}
+
+	parallel := runtime.GOMAXPROCS(0) * 2
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < parallel; workerID++ {
+		workerID := workerID
+
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(ids); idPos += parallel {
+				id := ids[idPos]
+				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+				if err == nil {
+					addID(id, dist)
+				} else {
+					h.logger.
+						WithField("action", "rescore").
+						WithError(err).
+						Warnf("could not rescore node %d", id)
+				}
+			}
+			return nil
+		}, h.logger)
+	}
+
+	eg.Wait() // can never return an error
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {
