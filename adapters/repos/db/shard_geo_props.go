@@ -93,7 +93,7 @@ func geoPropID(propName string) string {
 func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	status objectInsertStatus,
 ) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -125,7 +125,7 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus,
 ) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -146,7 +146,7 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus,
 ) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
@@ -177,7 +177,7 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint64,
 ) error {
-	if err := s.readOnlyError(); err != nil {
+	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 

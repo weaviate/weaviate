@@ -477,7 +477,7 @@ func (l *LazyLoadShard) Versioner() *shardVersioner {
 	return l.shard.Versioner()
 }
 
-func (l *LazyLoadShard) isReadOnly() bool {
+func (l *LazyLoadShard) isReadOnly() error {
 	l.mustLoad()
 	return l.shard.isReadOnly()
 }
