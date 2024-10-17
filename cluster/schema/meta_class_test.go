@@ -24,14 +24,14 @@ import (
 // block regardless of the state of the classTenantDataEvents channel (eg nil or full).
 // It's not ideal to test metaClass as it's not public, but our current higher level tests at the
 // Raft/Store level mock the metaClass code we want to test.
-// If you make chnages that break this test, you should verify/update the tests to verify that
+// If you make changes that break this test, you should verify/update the tests to verify that
 // freezing a tenant does not throw errors or block.
 // Later, we should replace this test with one that uses only public types/methods.
 func TestUpdateTenantsProcess(t *testing.T) {
 	metaClassesToTest := []*metaClass{
-		&metaClass{},
-		&metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 0)},
-		&metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+		{},
+		{classTenantDataEvents: make(chan metadata.ClassTenant)},
+		{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
 	}
 	for _, m := range metaClassesToTest {
 		t.Run("TestUpdateTenantsProcess", func(t *testing.T) {

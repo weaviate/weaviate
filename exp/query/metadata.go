@@ -86,7 +86,7 @@ func (m *MetadataSubscription) Start() error {
 			}
 			switch resp.Type {
 			case api.QuerierStreamResponse_TYPE_UNSPECIFIED:
-				m.log.WithField("repsonse", resp).Error("got an unspecified type in the metadata subscription stream")
+				m.log.WithField("response", resp).Error("got an unspecified type in the metadata subscription stream")
 			case api.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
 				// TODO don't block on download, use worker pool/rate limit
 				_, _, err = m.api.EnsureLSM(ctx, resp.ClassTenant.ClassName, resp.ClassTenant.TenantName, true)
