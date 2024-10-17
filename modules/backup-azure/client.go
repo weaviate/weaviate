@@ -109,6 +109,10 @@ func (a *azureClient) makeObjectName(parts ...string) string {
 	return path.Join(a.config.BackupPath, base)
 }
 
+func (a *azureClient) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (a *azureClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	objectName := a.makeObjectName(backupID, key)
 

@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -100,6 +101,10 @@ func (fb *fakeBackend) HomeDir(backupID string) string {
 	defer fb.RUnlock()
 	args := fb.Called(backupID)
 	return args.String(0)
+}
+
+func (fb *fakeBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
