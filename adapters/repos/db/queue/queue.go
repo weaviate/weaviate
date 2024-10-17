@@ -13,18 +13,17 @@ package queue
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 const (
@@ -44,10 +43,13 @@ const (
 	chunkFileFmt = "chunk-%d.bin"
 )
 
+// regex pattern for the chunk files
+var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
+
 type Queue interface {
 	ID() string
 	Size() int64
-	DecodeBatch(dec *Decoder) (batch []Task, done func(), err error)
+	DequeueBatch() (batch []Task, done func(), err error)
 }
 
 type BeforeScheduleHook interface {
@@ -59,21 +61,31 @@ type DiskQueue struct {
 	Logger logrus.FieldLogger
 	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
 	BeforeScheduleFn func() (skip bool)
+	// If a queue does not receive any tasks for this duration, it is considered stale
+	// and must be scheduled. Defaults to 5 seconds.
+	StaleTimeout time.Duration
+	TaskDecoder  TaskDecoder
 
-	scheduler        *Scheduler
-	id               string
-	dir              string
-	lastPushTime     atomic.Pointer[time.Time]
-	closed           atomic.Bool
-	chunkSize        int
+	scheduler    *Scheduler
+	id           string
+	dir          string
+	lastPushTime atomic.Pointer[time.Time]
+	closed       atomic.Bool
+
+	// chunkSize is the maximum size of each chunk file.
+	chunkSize int
+
+	// m protects the disk operations
 	m                sync.RWMutex
 	w                bufio.Writer
 	f                *os.File
 	partialChunkSize int
 	recordCount      int64
+	readFiles        []string
+	cursor           int
 }
 
-func New(s *Scheduler, logger logrus.FieldLogger, id, dir string) (*DiskQueue, error) {
+func NewDiskQueue(s *Scheduler, logger logrus.FieldLogger, id, dir string) (*DiskQueue, error) {
 	logger = logger.WithField("queue_id", id)
 
 	q := DiskQueue{
@@ -254,6 +266,129 @@ func (q *DiskQueue) Flush() error {
 	return q.f.Sync()
 }
 
+func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
+	f, path, err := q.readChunk()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// if there are no more chunks to read,
+	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
+	if f == nil && q.Size() > 0 {
+		f, path, err = q.checkIfStale()
+		if err != nil || f == nil {
+			return nil, nil, err
+		}
+	}
+
+	if f == nil {
+		return nil, nil, nil
+	}
+
+	// decode all tasks from the chunk
+	// and partition them by worker
+	dec := NewDecoder(bufio.NewReader(f))
+
+	var tasks []Task
+
+	for {
+		t, err := q.TaskDecoder.DecodeTask(dec)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil || t == nil {
+			_ = f.Close()
+			return nil, nil, err
+		}
+
+		tasks = append(tasks, t)
+	}
+
+	if len(tasks) == 0 {
+		// empty chunk, remove it
+		_ = f.Close()
+		q.removeChunk(path)
+		return nil, nil, nil
+	}
+
+	err = f.Close()
+	if err != nil {
+		q.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
+	}
+
+	doneFn := func() {
+		q.removeChunk(path)
+	}
+
+	return tasks, doneFn, nil
+}
+
+func (q *DiskQueue) readChunk() (*os.File, string, error) {
+	if q.cursor+1 < len(q.readFiles) {
+		q.cursor++
+
+		f, err := os.Open(q.readFiles[q.cursor])
+		if err != nil {
+			return nil, "", err
+		}
+
+		return f, q.readFiles[q.cursor], nil
+	}
+
+	q.readFiles = q.readFiles[:0]
+	q.cursor = 0
+
+	// read the directory
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// check if the entry name matches the regex pattern of a chunk file
+		if !chunkFilePattern.Match([]byte(entry.Name())) {
+			continue
+		}
+
+		q.readFiles = append(q.readFiles, filepath.Join(q.dir, entry.Name()))
+	}
+
+	if len(q.readFiles) == 0 {
+		return nil, "", nil
+	}
+
+	f, err := os.Open(q.readFiles[q.cursor])
+	if err != nil {
+		return nil, "", err
+	}
+
+	return f, q.readFiles[q.cursor], nil
+}
+
+func (q *DiskQueue) checkIfStale() (*os.File, string, error) {
+	lastPushed := q.lastPushTime.Load()
+	if lastPushed == nil {
+		return nil, "", nil
+	}
+
+	if time.Since(*lastPushed) < q.StaleTimeout {
+		return nil, "", nil
+	}
+
+	q.Logger.Debug("partial chunk is stale, scheduling")
+
+	err := q.promoteChunk()
+	if err != nil {
+		return nil, "", err
+	}
+
+	return q.readChunk()
+}
+
 func (q *DiskQueue) Size() int64 {
 	q.m.RLock()
 	defer q.m.RUnlock()
@@ -359,143 +494,4 @@ func (q *DiskQueue) BeforeSchedule() bool {
 	}
 
 	return false
-}
-
-var bufPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
-
-type Record struct {
-	*msgpack.Encoder
-	buf *bytes.Buffer
-}
-
-func NewRecord() *Record {
-	enc := msgpack.GetEncoder()
-	buf := bufPool.Get().(*bytes.Buffer)
-	enc.Reset(buf)
-
-	return &Record{
-		Encoder: enc,
-		buf:     buf,
-	}
-}
-
-func (r *Record) Release() {
-	msgpack.PutEncoder(r.Encoder)
-	r.buf.Reset()
-	bufPool.Put(r.buf)
-}
-
-func (r *Record) Reset() {
-	r.buf.Reset()
-	r.Encoder.Reset(r.buf)
-}
-
-// shadow most msgpack methods with functions that don't return errors
-func (r *Record) EncodeInt8(n int8) {
-	r.Encoder.EncodeInt8(n)
-}
-
-func (r *Record) EncodeUint8(n uint8) {
-	r.Encoder.EncodeUint8(n)
-}
-
-func (r *Record) EncodeUint16(n uint16) {
-	r.Encoder.EncodeUint16(n)
-}
-
-func (r *Record) EncodeUint32(n uint32) {
-	r.Encoder.EncodeUint32(n)
-}
-
-func (r *Record) EncodeUint64(n uint64) {
-	r.Encoder.EncodeUint64(n)
-}
-
-func (r *Record) EncodeInt16(n int16) {
-	r.Encoder.EncodeInt16(n)
-}
-
-func (r *Record) EncodeInt32(n int32) {
-	r.Encoder.EncodeInt32(n)
-}
-
-func (r *Record) EncodeInt64(n int64) {
-	r.Encoder.EncodeInt64(n)
-}
-
-func (r *Record) EncodeFloat32(n float32) {
-	r.Encoder.EncodeFloat32(n)
-}
-
-func (r *Record) EncodeFloat64(n float64) {
-	r.Encoder.EncodeFloat64(n)
-}
-
-func (r *Record) EncodeString(s string) {
-	r.Encoder.EncodeString(s)
-}
-
-func (r *Record) EncodeBytes(b []byte) {
-	r.Encoder.EncodeBytes(b)
-}
-
-func (r *Record) EncodeNil() {
-	r.Encoder.EncodeNil()
-}
-
-func (r *Record) EncodeBool(b bool) {
-	r.Encoder.EncodeBool(b)
-}
-
-func (r *Record) EncodeTime(t time.Time) {
-	r.Encoder.EncodeTime(t)
-}
-
-func (r *Record) EncodeArrayLen(n int) {
-	r.Encoder.EncodeArrayLen(n)
-}
-
-func (r *Record) EncodeMapLen(n int) {
-	r.Encoder.EncodeMapLen(n)
-}
-
-type Decoder struct {
-	*msgpack.Decoder
-}
-
-func NewDecoder(r io.Reader) *Decoder {
-	dec := msgpack.GetDecoder()
-	dec.Reset(r)
-
-	return &Decoder{
-		dec,
-	}
-}
-
-func (d *Decoder) DecodeOp() (uint8, error) {
-	n, err := d.DecodeInt8()
-	return uint8(n), err
-}
-
-func (d *Decoder) DecodeFloat32Array() ([]float32, error) {
-	n, err := d.DecodeArrayLen()
-	if err != nil {
-		return nil, err
-	}
-
-	vec := make([]float32, n)
-	for i := 0; i < n; i++ {
-		v, err := d.DecodeFloat32()
-		if err != nil {
-			return nil, err
-		}
-
-		vec[i] = v
-	}
-
-	return vec, nil
 }
