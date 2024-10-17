@@ -25,4 +25,9 @@ type Config struct {
 	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
+
+	// AlwaysFetchObjectStore flag ignore what version does local querier has and fetch from
+	// object store (source of truth) all the time.
+	// NOTE: Enabling this (without any intermediate cache) can introduce more latency. Can be used to during performance testing, debugging, correctness check, etc.
+	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state." default:"false"`
 }
