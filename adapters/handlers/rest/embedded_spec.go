@@ -292,13 +292,13 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the S3 bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the S3 bucket",
+            "description": "The path within the bucket",
             "name": "path",
             "in": "query"
           }
@@ -365,7 +365,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
@@ -431,7 +431,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
@@ -3241,7 +3241,7 @@ func init() {
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "CPUPercentage": {
@@ -3272,11 +3272,11 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
           "type": "string"
         },
         "Path": {
-          "description": "Path within the bucket",
+          "description": "Path or key within the bucket",
           "type": "string"
         }
       }
@@ -3317,7 +3317,7 @@ func init() {
           "type": "string"
         },
         "bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "classes": {
@@ -3336,7 +3336,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination bucket and path of backup files",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "status": {
@@ -4951,7 +4951,7 @@ func init() {
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "CPUPercentage": {
@@ -4963,7 +4963,7 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
           "type": "string"
         },
         "Path": {
@@ -5792,13 +5792,13 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the S3 bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the S3 bucket",
+            "description": "The path within the bucket",
             "name": "path",
             "in": "query"
           }
@@ -5865,7 +5865,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
@@ -5931,7 +5931,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
+            "description": "Name of the bucket, container, volume, etc",
             "name": "bucket",
             "in": "query"
           },
@@ -8863,7 +8863,7 @@ func init() {
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "CPUPercentage": {
@@ -8894,11 +8894,11 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
           "type": "string"
         },
         "Path": {
-          "description": "Path within the bucket",
+          "description": "Path or key within the bucket",
           "type": "string"
         }
       }
@@ -8939,7 +8939,7 @@ func init() {
           "type": "string"
         },
         "bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "classes": {
@@ -8958,7 +8958,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination bucket and path of backup files",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "status": {
@@ -10753,7 +10753,7 @@ func init() {
       "type": "object",
       "properties": {
         "Bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "CPUPercentage": {
@@ -10765,7 +10765,7 @@ func init() {
           "x-nullable": false
         },
         "Endpoint": {
-          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
           "type": "string"
         },
         "Path": {

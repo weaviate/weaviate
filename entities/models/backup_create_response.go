@@ -34,7 +34,7 @@ type BackupCreateResponse struct {
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
-	// Name of the S3 bucket
+	// Name of the bucket, container, volume, etc
 	Bucket string `json:"bucket,omitempty"`
 
 	// The list of classes for which the backup creation process was started
@@ -46,7 +46,7 @@ type BackupCreateResponse struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination bucket and path of backup files
+	// Path within bucket of backup
 	Path string `json:"path,omitempty"`
 
 	// phase of backup creation process

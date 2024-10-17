@@ -186,7 +186,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 	key := "access-check"
 
 	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
-		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v",overrideBucket, overridePath, backupID, key)
+		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)
 	}
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
@@ -196,7 +196,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 	if err := bucket.Object(objectName).Delete(ctx); err != nil {
-		return errors.Wrap(err, "failed to remove access-check gcs backup module "+ objectName)
+		return errors.Wrap(err, "failed to remove access-check gcs backup module "+objectName)
 	}
 
 	return nil

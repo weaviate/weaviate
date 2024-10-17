@@ -80,7 +80,7 @@ type BackupsCreateStatusParams struct {
 
 	/* Bucket.
 
-	   The name of the S3 bucket
+	   Name of the bucket, container, volume, etc
 	*/
 	Bucket *string
 
@@ -92,7 +92,7 @@ type BackupsCreateStatusParams struct {
 
 	/* Path.
 
-	   The path within the S3 bucket
+	   The path within the bucket
 	*/
 	Path *string
 

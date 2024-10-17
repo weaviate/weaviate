@@ -29,14 +29,14 @@ import (
 
 func TestDistributedBackupsOverride(t *testing.T) {
 	var (
-		dirName  = setupDirectory(t)
-		rnd      = getRandomSeed()
-		numObjs  = 100
-		numNodes = 3
-		backupID = "new-backup"
-		nodes    []*node
+		dirName        = setupDirectory(t)
+		rnd            = getRandomSeed()
+		numObjs        = 100
+		numNodes       = 3
+		backupID       = "new-backup"
+		nodes          []*node
 		overrideBucket = "testbucketoverride"
-		overridePath = "testBucketPathOverride"
+		overridePath   = "testBucketPathOverride"
 	)
 
 	t.Run("setup", func(t *testing.T) {

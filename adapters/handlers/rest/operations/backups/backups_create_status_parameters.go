@@ -47,7 +47,7 @@ type BackupsCreateStatusParams struct {
 	  In: path
 	*/
 	Backend string
-	/*The name of the S3 bucket
+	/*Name of the bucket, container, volume, etc
 	  In: query
 	*/
 	Bucket *string
@@ -56,7 +56,7 @@ type BackupsCreateStatusParams struct {
 	  In: path
 	*/
 	ID string
-	/*The path within the S3 bucket
+	/*The path within the bucket
 	  In: query
 	*/
 	Path *string

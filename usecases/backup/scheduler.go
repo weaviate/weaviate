@@ -99,8 +99,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Backend:     req.Backend,
 		Classes:     classes,
 		Compression: req.Compression,
-		Bucket:    req.Bucket,
-		Path:      req.Path,
+		Bucket:      req.Bucket,
+		Path:        req.Path,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -159,8 +159,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:     req.Backend,
 		Compression: req.Compression,
 		Classes:     meta.Classes(),
-		Bucket:    req.Bucket,
-		Path:      req.Path,
+		Bucket:      req.Bucket,
+		Path:        req.Path,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {

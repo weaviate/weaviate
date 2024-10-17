@@ -47,7 +47,7 @@ type BackupsCancelParams struct {
 	  In: path
 	*/
 	Backend string
-	/*The name of the bucket
+	/*Name of the bucket, container, volume, etc
 	  In: query
 	*/
 	Bucket *string

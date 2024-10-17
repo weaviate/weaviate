@@ -80,7 +80,7 @@ type BackupsRestoreStatusParams struct {
 
 	/* Bucket.
 
-	   The name of the bucket
+	   Name of the bucket, container, volume, etc
 	*/
 	Bucket *string
 

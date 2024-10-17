@@ -51,11 +51,11 @@ func (b *backupper) Backup(ctx context.Context,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
-		Method:   OpCreate,
-		ID:       id,
-		Classes:  classes,
-		Bucket: overrideBucket,
-		Path:   overridePath,
+		Method:  OpCreate,
+		ID:      id,
+		Classes: classes,
+		Bucket:  overrideBucket,
+		Path:    overridePath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
