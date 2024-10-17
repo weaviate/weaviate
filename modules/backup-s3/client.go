@@ -99,7 +99,7 @@ func (s *s3Client) AllBackups(ctx context.Context,
 			}
 			var desc backup.DistributedBackupDescriptor
 			if err := json.Unmarshal(contents, &desc); err != nil {
-				return nil, fmt.Errorf("unmarshal object %q: %w", err)
+				return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
 			}
 			meta = append(meta, &desc)
 		}
