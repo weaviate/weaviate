@@ -30,5 +30,5 @@ type Batch struct {
 }
 
 type TaskDecoder interface {
-	DecodeTask(*Decoder) (Task, error)
+	DecodeTask([]byte) (Task, error)
 }
