@@ -189,9 +189,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 
-	bucketName := req.S3Bucket
-	bucketPath := req.S3Path
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, bucketName, bucketPath); err != nil {
+	overrideBucket := req.S3Bucket
+	overridePath := req.S3Path
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
@@ -209,7 +209,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, bucketName, bucketPath); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -248,25 +248,25 @@ func (c *coordinator) Restore(
 		return err
 	}
 
-	bucketName := req.S3Bucket
-	bucketPath := req.S3Path
+	overrideBucket := req.S3Bucket
+	overridePath := req.S3Path
 
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, bucketName, bucketPath); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: bucketName, S3Path: bucketPath}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: overrideBucket, S3Path: overridePath}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
 		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, bucketName, bucketPath); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {

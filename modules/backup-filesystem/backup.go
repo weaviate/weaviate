@@ -24,11 +24,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	var metaPath string
 	var err error
-	if bucketPath != "" {
-		metaPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+	if overridePath != "" {
+		metaPath, err = m.getObjectPath(ctx, overridePath, backupID, key)
 	} else {
 		metaPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
 	}
@@ -97,14 +97,14 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overridePath string, byes []byte) error {
 	if bucket != "" {
 		m.logger.Info("bucket parameter not supported for filesystem backup module!")
 	}
 
 	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
-	if bucketPath != "" {
-		backupPath = path.Join(bucketPath, backupID, key)
+	if overridePath != "" {
+		backupPath = path.Join(overridePath, backupID, key)
 	}
 
 	dir := path.Dir(backupPath)
@@ -125,16 +125,16 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPat
 	return nil
 }
 
-func (m *Module) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
+func (m *Module) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	var objectPath string
 	var err error
-	if bucketPath != "" {
-		objectPath = filepath.Join(bucketPath, backupID, key)
+	if overridePath != "" {
+		objectPath = filepath.Join(overridePath, backupID, key)
 	} else {
 		objectPath = filepath.Join(m.backupsPath, backupID, key)
 	}
@@ -152,13 +152,13 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
 	var backupPath string
 	var err error
-	if bucketPath != "" {
-		backupPath = filepath.Join(bucketPath, backupID, key)
+	if overridePath != "" {
+		backupPath = filepath.Join(overridePath, backupID, key)
 	} else {
 		backupPath = filepath.Join(m.backupsPath, backupID, key)
 	}
@@ -184,7 +184,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPat
 	return written, err
 }
 
-func (m *Module) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 	sourcePath, err := m.getObjectPath(ctx, m.backupsPath, backupID, key)
 	if err != nil {

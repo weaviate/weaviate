@@ -513,19 +513,19 @@ func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overri
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	return 0, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return 0, nil
 }
 
@@ -537,14 +537,14 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, bucketName, bucketPath, filePath string) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, overrideBucket, overridePath, filePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	return nil
 }

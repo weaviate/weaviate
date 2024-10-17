@@ -128,14 +128,14 @@ func (g *gcsClient) makeObjectName(overridePath string, parts []string) string {
 	}
 }
 
-func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
-	objectName := g.makeObjectName(bucketPath, []string{backupID, key})
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	bucket, err := g.findBucket(ctx, bucketName)
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		if errors.Is(err, storage.ErrBucketNotExist) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
@@ -154,13 +154,13 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bu
 	return contents, nil
 }
 
-func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
-	bucket, err := g.findBucket(ctx, bucketName)
+func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
 	}
 
-	objectName := g.makeObjectName(bucketPath, []string{backupID, key})
+	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 	obj := bucket.Object(objectName)
 	writer := obj.NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
@@ -182,21 +182,21 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bu
 	return nil
 }
 
-func (g *gcsClient) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
+func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	key := "access-check"
 
-	if err := g.PutObject(ctx, backupID, key, bucketName, bucketPath, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check gcs backup module"+bucketName+bucketPath+backupID+key)
+	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
+		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v",overrideBucket, overridePath, backupID, key)
 	}
 
-	bucket, err := g.findBucket(ctx, "")
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
 	}
 
-	objectName := g.makeObjectName(bucketPath, []string{backupID, key})
+	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 	if err := bucket.Object(objectName).Delete(ctx); err != nil {
-		return errors.Wrap(err, "failed to remove access-check gcs backup module"+objectName)
+		return errors.Wrap(err, "failed to remove access-check gcs backup module "+ objectName)
 	}
 
 	return nil
@@ -204,8 +204,8 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, bucketName, bucket
 
 // WriteToFile downloads an object and store its content in destPath
 // The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) (err error) {
-	bucket, err := g.findBucket(ctx, bucketName)
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return fmt.Errorf("(WriteToFile) find bucket: '%w'", err)
 	}
@@ -239,7 +239,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bu
 	}()
 
 	// create reader
-	object := g.makeObjectName(bucketPath, []string{backupID, key})
+	object := g.makeObjectName(overridePath, []string{backupID, key})
 	rc, err := bucket.Object(object).NewReader(ctx)
 	if err != nil {
 		return fmt.Errorf("find object %q: %w", object, err)
@@ -258,16 +258,16 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bu
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
-	bucket, err := g.findBucket(ctx, bucketName)
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return 0, fmt.Errorf("(Write) find bucket: '%w'", err)
 	}
 
 	// create a new writer
-	path := g.makeObjectName(bucketPath, []string{backupID, key})
+	path := g.makeObjectName(overridePath, []string{backupID, key})
 	writer := bucket.Object(path).NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{"backup-id": backupID}
@@ -290,10 +290,10 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, bucketName, bucket
 	return written, nil
 }
 
-func (g *gcsClient) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-	bucket, err := g.findBucket(ctx, bucketName)
+	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		err = fmt.Errorf("(read) find bucket: '%w'", err)
 		if errors.Is(err, storage.ErrObjectNotExist) {
@@ -303,7 +303,7 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, bucketName, bucketP
 	}
 
 	// create reader
-	path := g.makeObjectName(bucketPath, []string{backupID, key})
+	path := g.makeObjectName(overridePath, []string{backupID, key})
 	rc, err := bucket.Object(path).NewReader(ctx)
 	if err != nil {
 		err = fmt.Errorf("find object %s: %v", path, err)

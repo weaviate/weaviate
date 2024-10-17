@@ -102,14 +102,14 @@ func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath string) st
 	return args.String(0)
 }
 
-func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
+func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath, overrideBucket, overridePath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, srcPath)
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, bytes []byte) error {
+func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, bytes []byte) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)
@@ -124,7 +124,7 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, bucketName,
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	fb.RLock()
 	defer fb.RUnlock()
 	args := fb.Called(ctx, backupID, key)
@@ -134,7 +134,7 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, bucketName,
 	return nil, args.Error(1)
 }
 
-func (fb *fakeBackend) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
+func (fb *fakeBackend) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID)
@@ -156,14 +156,14 @@ func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
 }
 
-func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
+func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+func (fb *fakeBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer w.Close()
@@ -179,7 +179,7 @@ func (fb *fakeBackend) Read(ctx context.Context, backupID, key, bucketName, buck
 	return 0, args.Error(1)
 }
 
-func (fb *fakeBackend) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer r.Close()

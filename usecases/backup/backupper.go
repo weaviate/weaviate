@@ -47,22 +47,22 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backe
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store NodeStore, id string, classes []string, bucketName, bucketPath string,
+	store NodeStore, id string, classes []string, overrideBucket, overridePath string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
 		Method:   OpCreate,
 		ID:       id,
 		Classes:  classes,
-		S3Bucket: bucketName,
-		S3Path:   bucketPath,
+		S3Bucket: overrideBucket,
+		S3Path:   overridePath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(bucketName, bucketPath),
+		Path:   store.HomeDir(overrideBucket, overridePath),
 		Status: backup.Started,
 	}, nil
 }

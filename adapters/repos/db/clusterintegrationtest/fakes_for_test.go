@@ -305,7 +305,7 @@ func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath strin
 	}
 }
 
-func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -327,20 +327,20 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, bucket
 	return b, nil
 }
 
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
+func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()
 	return 0, nil
 }
 
-func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer w.Close()
@@ -381,7 +381,7 @@ func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key, bucket
 	return nil
 }
 
-func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
+func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
