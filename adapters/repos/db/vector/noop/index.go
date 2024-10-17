@@ -34,11 +34,6 @@ func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) e
 	return nil
 }
 
-func (i *Index) AddBatchFromDisk(ctx context.Context, id []uint64) error {
-	// silently ignore
-	return nil
-}
-
 func (i *Index) Add(id uint64, vector []float32) error {
 	// silently ignore
 	return nil
