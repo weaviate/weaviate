@@ -227,25 +227,6 @@ func (h *hnsw) Add(ctx context.Context, id uint64, vector []float32) error {
 	return h.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
-func (h *hnsw) AddBatchFromDisk(ctx context.Context, ids []uint64) error {
-	validIDs := make([]uint64, 0, len(ids))
-	validVectors := make([][]float32, 0, len(ids))
-
-	vectors, errs := h.cache.MultiGet(ctx, ids)
-	for i, err := range errs {
-		if err == nil {
-			validIDs = append(validIDs, ids[i])
-			validVectors = append(validVectors, vectors[i])
-		}
-	}
-
-	if len(validIDs) == 0 {
-		return nil
-	}
-
-	return h.AddBatch(ctx, validIDs, validVectors)
-}
-
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()

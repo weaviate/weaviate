@@ -38,7 +38,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	bolt "go.etcd.io/bbolt"
@@ -269,55 +268,6 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 		}
 	}
 	return nil
-}
-
-func (index *flat) AddBatchFromDisk(ctx context.Context, ids []uint64) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if len(ids) == 0 {
-		return errors.Errorf("AddBatchFromDisk called with empty lists")
-	}
-
-	validIDs := make([]uint64, 0, len(ids))
-	validVectors := make([][]float32, 0, len(ids))
-
-	var keyBuf [8]byte
-	var valueBuf []byte
-	var vecBytes []byte
-	var err error
-
-	bucket := index.store.Bucket(helpers.ObjectsBucketLSM)
-	for i, id := range ids {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		binary.BigEndian.PutUint64(keyBuf[:], id)
-		vecBytes, valueBuf, err = bucket.GetBySecondaryWithBuffer(0, keyBuf[:], valueBuf)
-		if err != nil || vecBytes == nil {
-			continue
-		}
-
-		vector, err := storobj.VectorFromBinary(vecBytes, nil, index.targetVector)
-		if err != nil {
-			return err
-		}
-
-		if len(vector) == 0 {
-			continue
-		}
-
-		validIDs = append(validIDs, ids[i])
-		validVectors = append(validVectors, vector)
-	}
-
-	if len(validIDs) == 0 {
-		return nil
-	}
-
-	return index.AddBatch(ctx, validIDs, validVectors)
 }
 
 func byteSliceFromUint64Slice(vector []uint64, slice []byte) []byte {
