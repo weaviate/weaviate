@@ -85,6 +85,10 @@ func (v *Validator) Object(ctx context.Context, class *models.Class,
 		return fmt.Errorf(ErrorMissingClass)
 	}
 
+	if err := v.vector(ctx, class, incoming); err != nil {
+		return err
+	}
+
 	return v.properties(ctx, class, incoming, existing)
 }
 
