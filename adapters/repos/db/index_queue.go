@@ -88,7 +88,9 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 	iq.index.RLock()
 	defer iq.index.RUnlock()
 
-	ids := make([]uint64, len(vectors))
+	r := queue.NewRecord()
+	defer r.Release()
+
 	for i, v := range vectors {
 		// ensure the vector is not empty
 		if len(v.Vector) == 0 {
@@ -103,11 +105,10 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 
 		// if the index is still empty, ensure the first batch is consistent
 		// by keeping track of the dimensions of the vectors.
-		if iq.dims.CompareAndSwap(0, int32(len(v.Vector))) {
-			continue
-		}
-		if iq.dims.Load() != int32(len(v.Vector)) {
-			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].Vector), iq.dims.Load())
+		if !iq.dims.CompareAndSwap(0, int32(len(v.Vector))) {
+			if iq.dims.Load() != int32(len(v.Vector)) {
+				return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].Vector), iq.dims.Load())
+			}
 		}
 
 		// since the queue only stores the vector id on disk,
@@ -115,29 +116,84 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 		// loading the vector from disk when it is indexed.
 		iq.index.i.PreloadCache(v.ID, v.Vector)
 
-		ids[i] = v.ID
+		r.Reset()
+
+		// write the operation first
+		r.EncodeInt8(int8(vectorIndexQueueInsertOp))
+		// write the id
+		r.EncodeUint(v.ID)
+		// write the vector
+		r.EncodeArrayLen(len(v.Vector))
+		for _, vv := range v.Vector {
+			r.EncodeFloat32(vv)
+		}
+
+		err = iq.Queue.Push(r)
+		if err != nil {
+			return errors.Wrap(err, "failed to push record to queue")
+		}
 	}
 
-	return iq.Queue.Push(vectorIndexQueueInsertOp, ids...)
+	return iq.Queue.Flush()
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
-	return iq.Queue.Push(vectorIndexQueueDeleteOp, ids...)
+	r := queue.NewRecord()
+	defer r.Release()
+
+	for _, id := range ids {
+		r.Reset()
+		// write the operation
+		r.EncodeInt8(int8(vectorIndexQueueDeleteOp))
+		// write the id
+		r.EncodeUint(id)
+	}
+
+	err := iq.Queue.Push(r)
+	if err != nil {
+		return errors.Wrap(err, "failed to push record to queue")
+	}
+
+	return iq.Queue.Flush()
 }
 
-func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64) error {
-	iq.index.RLock()
-	defer iq.index.RUnlock()
+func (iq *VectorIndexQueue) DecodeTask(dec *queue.Decoder) (queue.Task, error) {
+	op, err := dec.DecodeUint8()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to decode operation")
+	}
 
 	switch op {
 	case vectorIndexQueueInsertOp:
-		return iq.index.i.AddBatchFromDisk(ctx, ids)
+		id, err := dec.DecodeUint()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode id")
+		}
+
+		vec, err := dec.DecodeFloat32Array()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode vector")
+		}
+
+		return &Task{
+			op:     op,
+			id:     uint64(id),
+			vector: vec,
+		}, nil
+
 	case vectorIndexQueueDeleteOp:
-		return iq.index.i.Delete(ids...)
+		id, err := dec.DecodeUint()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to decode id")
+		}
+
+		return &Task{
+			op: op,
+			id: uint64(id),
+		}, nil
 	}
 
-	// TODO: deal with errors
-	return errors.Errorf("unknown operation: %d", op)
+	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
 func (iq *VectorIndexQueue) beforeScheduleHook() (skip bool) {
@@ -212,4 +268,73 @@ func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
 	iq.index.Lock()
 	iq.index.i = vidx
 	iq.index.Unlock()
+}
+
+type Task struct {
+	op     uint8
+	id     uint64
+	vector []float32
+	idx    VectorIndex
+}
+
+func (t *Task) Op() uint8 {
+	return t.op
+}
+
+func (t *Task) ID() uint64 {
+	return t.id
+}
+
+func (t *Task) Execute(ctx context.Context) error {
+	switch t.op {
+	case vectorIndexQueueInsertOp:
+		return t.idx.Add(t.id, t.vector)
+	case vectorIndexQueueDeleteOp:
+		return t.idx.Delete(t.id)
+	}
+
+	return errors.Errorf("unknown operation: %d", t.Op)
+}
+
+func (t *Task) NewGroup(op uint8, tasks ...*Task) queue.Task {
+	ids := make([]uint64, len(tasks))
+	vectors := make([][]float32, len(tasks))
+
+	for i, task := range tasks {
+		ids[i] = task.id
+		vectors[i] = task.vector
+	}
+
+	return &TaskGroup{
+		op:      op,
+		ids:     ids,
+		vectors: vectors,
+		idx:     t.idx,
+	}
+}
+
+type TaskGroup struct {
+	op      uint8
+	ids     []uint64
+	vectors [][]float32
+	idx     VectorIndex
+}
+
+func (t *TaskGroup) Op() uint8 {
+	return t.op
+}
+
+func (t *TaskGroup) ID() uint64 {
+	return t.ids[0]
+}
+
+func (tg *TaskGroup) Execute(ctx context.Context) error {
+	switch tg.op {
+	case vectorIndexQueueInsertOp:
+		return tg.idx.AddBatch(ctx, tg.ids, tg.vectors)
+	case vectorIndexQueueDeleteOp:
+		return tg.idx.Delete(tg.ids...)
+	}
+
+	return errors.Errorf("unknown operation: %d", tg.Op)
 }
