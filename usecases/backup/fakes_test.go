@@ -48,6 +48,10 @@ func (bsp *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapab
 	return bsp.backend, bsp.err
 }
 
+func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	return []modulecapabilities.BackupBackend{bsp.backend}
+}
+
 type fakeSourcer struct {
 	mock.Mock
 }
