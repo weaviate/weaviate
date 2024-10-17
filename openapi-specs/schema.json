@@ -950,11 +950,11 @@
         },
         "Bucket": {
           "type": "string",
-          "description": "Name of the S3 bucket"
+          "description": "Name of the bucket, container, volume, etc"
         },
         "Path": {
           "type": "string",
-          "description": "Path within the bucket"
+          "description": "Path or key within the bucket"
         },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -995,7 +995,7 @@
         },
         "Bucket": {
           "type": "string",
-          "description": "Name of the S3 bucket"
+          "description": "Name of the bucket, container, volume, etc"
         },
         "Path": {
           "type": "string",
@@ -1058,11 +1058,11 @@
           "type": "string"
         },
         "bucket": {
-          "description": "Name of the S3 bucket",
+          "description": "Name of the bucket, container, volume, etc",
           "type": "string"
         },
         "path": {
-          "description": "destination bucket and path of backup files",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "error": {
@@ -4970,14 +4970,14 @@
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The name of the S3 bucket"
+            "description": "Name of the bucket, container, volume, etc"
           },
           {
             "name": "path",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The path within the S3 bucket"
+            "description": "The path within the bucket"
           }
         ],
         "responses": {
@@ -5045,7 +5045,7 @@
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The name of the bucket"
+            "description": "Name of the bucket, container, volume, etc"
           },
           {
             "name": "path",
@@ -5182,7 +5182,7 @@
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The name of the bucket"
+            "description": "Name of the bucket, container, volume, etc"
           },
           {
             "name": "path",
