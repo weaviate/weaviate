@@ -523,7 +523,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(queryVec []float32, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
@@ -537,7 +537,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
 	vec = h.normalizeVec(vec)
-	return concreteDistancer.DistanceToFloat(vec)
+	return h.distancerProvider.SingleDist(queryVec, vec)
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64) (float32, error) {
@@ -688,7 +688,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		compressorDistancer, returnFn = h.compressor.NewCompressedDistancer(searchVec)
 		defer returnFn()
 	}
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
@@ -773,7 +773,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
-		h.rescore(res, k, compressorDistancer)
+		h.rescore(res, k, searchVec)
 	}
 
 	for res.Len() > k {
@@ -821,7 +821,7 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	}
 }
 
-func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) {
+func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, queryVec []float32) {
 	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
 			res.Pop()
@@ -836,7 +836,7 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 	}
 	res.Reset()
 	for _, id := range ids {
-		dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+		dist, err := h.distanceFromBytesToFloatNode(queryVec, id)
 		if err == nil {
 			res.Insert(id, dist)
 			if res.Len() > k {
