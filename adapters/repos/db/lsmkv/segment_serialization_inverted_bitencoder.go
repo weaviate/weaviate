@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 	"math/bits"
+	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
@@ -182,51 +183,40 @@ func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uin
 		return deltas // Error handling: insufficient input or output space
 	}
 
-	deltas[0] = binary.BigEndian.Uint64(packed[:8])
-	currentByteIndex := 8
-	currentByte := packed[currentByteIndex]
+	deltas[0] = bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(&packed[0])))
 
-	// Use a single operation to read bitsNeeded
-	bitsNeeded := int(currentByte >> 2 & 0x3F)
-	bitPos := uint(6)
+	bitOffset := 0
+
+	// Read bitsNeeded
+	bitsNeeded := int(packed[8] >> 2 & 0x3F)
+	bitOffset += 6
+
+	ptr := uintptr(unsafe.Pointer(&packed[8]))
+	wordOffset := bitOffset >> 6 // Divide by 64 to get the word offset
+	bitOffset &= 63              // Modulo 64 to get the bit offset within the word
+
+	// Read only if we haven't read the word before
+	word1 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr(wordOffset*8))))
+	word2 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr((wordOffset+1)*8))))
+	combined := uint64(0)
 
 	for i := 1; i < deltasCount; i++ {
-		delta := uint64(0)
-		bitsRead := 0
+		combined = word1<<bitOffset | word2>>(64-bitOffset)
+		// Mask off the desired number of bits
+		deltas[i] = combined >> (64 - bitsNeeded) & ((1 << bitsNeeded) - 1)
+		bitOffset += bitsNeeded
 
-		for bitsRead < bitsNeeded {
-			if currentByteIndex >= len(packed) {
-				break
-			}
-
-			if bitPos == 8 {
-				currentByteIndex++
-				if currentByteIndex >= len(packed) {
-					break
-				}
-				currentByte = packed[currentByteIndex]
-				bitPos = 0
-			}
-
-			bitsToRead := minU(uint(8)-bitPos, uint(bitsNeeded-bitsRead))
-			mask := uint64((1 << bitsToRead) - 1)
-			delta |= (uint64(currentByte>>(8-bitPos-bitsToRead)) & mask) << (bitsNeeded - bitsRead - int(bitsToRead))
-
-			bitPos += bitsToRead
-			bitsRead += int(bitsToRead)
+		// Check if we need to read the next word
+		if bitOffset >= 64 {
+			word1 = word2
+			word2 = bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr((wordOffset+2)*8))))
+			bitOffset -= 64
+			wordOffset++
 		}
-
-		deltas[i] = delta
+		wordOffset += bitOffset >> 6
+		bitOffset &= 63
 	}
-
 	return deltas
-}
-
-func minU(a, b uint) uint {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func packedEncode(docIds, termFreqs, propLengths []uint64) *terms.BlockData {
