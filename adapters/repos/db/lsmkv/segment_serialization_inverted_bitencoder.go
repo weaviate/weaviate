@@ -185,11 +185,9 @@ func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uin
 
 	deltas[0] = bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(&packed[0])))
 
-	bitOffset := 0
-
 	// Read bitsNeeded
 	bitsNeeded := int(packed[8] >> 2 & 0x3F)
-	bitOffset += 6
+	bitOffset := 6
 
 	ptr := uintptr(unsafe.Pointer(&packed[8]))
 	wordOffset := bitOffset >> 6 // Divide by 64 to get the word offset
@@ -199,11 +197,13 @@ func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uin
 	word1 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr(wordOffset*8))))
 	word2 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr((wordOffset+1)*8))))
 	combined := uint64(0)
+	mask1 := uint64(64 - bitsNeeded)
+	mask2 := uint64((1 << bitsNeeded) - 1)
 
 	for i := 1; i < deltasCount; i++ {
 		combined = word1<<bitOffset | word2>>(64-bitOffset)
 		// Mask off the desired number of bits
-		deltas[i] = combined >> (64 - bitsNeeded) & ((1 << bitsNeeded) - 1)
+		deltas[i] = combined >> mask1 & mask2
 		bitOffset += bitsNeeded
 
 		// Check if we need to read the next word
