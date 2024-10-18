@@ -42,14 +42,14 @@ func Test_AzureBackend_Start(t *testing.T) {
 	}
 
 	override = overrides[0]
-	AzureBackend_Backup(t)
+	azureBackend_Backup(t)
 	time.Sleep(5 * time.Second)
 
 	override = overrides[1]
-	AzureBackend_Backup(t)
+	azureBackend_Backup(t)
 }
 
-func AzureBackend_Backup(t *testing.T) {
+func azureBackend_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithAzurite().Start(ctx)
 	if err != nil {

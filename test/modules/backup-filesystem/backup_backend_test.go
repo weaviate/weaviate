@@ -30,36 +30,26 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var override = []string{"", ""}
-
 func Test_FileSystemBackend_Start(t *testing.T) {
-	overrides := [][]string{
-		{"", "", ""},
-		{"", "testBucketPathOverride", " with override"}, // Note:  no bucket parameter, because it is not supported by the filesystem backend
-	}
-
-	override = overrides[0]
-	FilesystemBackend_Backup(t)
-
-	override = overrides[1]
-	FilesystemBackend_Backup(t)
+	filesystemBackend_Backup(t, "", "","")
+	filesystemBackend_Backup(t, "", ""," with override") // Note:  no bucket parameter, because it is not supported by the filesystem backend
 }
 
-func FilesystemBackend_Backup(t *testing.T) {
-	t.Run("store backup meta"+override[2], moduleLevelStoreBackupMeta)
-	t.Run("copy objects"+override[2], moduleLevelCopyObjects)
-	t.Run("copy files"+override[2], moduleLevelCopyFiles)
+func filesystemBackend_Backup(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
+	t.Run("store backup meta"+overrideDescription, func (t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath, overrideDescription) })
+	t.Run("copy objects"+overrideDescription, func (t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath, overrideDescription) })
+	t.Run("copy files"+overrideDescription, func (t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath, overrideDescription) })
 }
 
-func moduleLevelStoreBackupMeta(t *testing.T) {
+func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	dataDir := t.TempDir()
 	backupDir := t.TempDir()
 	overrideDir := t.TempDir()
-	if override[1] != "" {
-		override[1] = overrideDir
+	if overridePath != "" {
+		overridePath = overrideDir
 	}
 	className := "BackupClass"
 	backupID := "backup_id"
@@ -67,7 +57,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 
 	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
-	t.Run("store backup meta in fs"+override[2], func(t *testing.T) {
+	t.Run("store backup meta in fs"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
 		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
@@ -76,19 +66,19 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		err := fs.Init(testCtx, params)
 		require.Nil(t, err)
 
-		t.Run("access permissions"+override[2], func(t *testing.T) {
-			err := fs.Initialize(testCtx, backupID, override[0], override[1])
+		t.Run("access permissions"+overrideDescription, func(t *testing.T) {
+			err := fs.Initialize(testCtx, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err)
 		})
 
-		t.Run("backup meta does not exist yet"+override[2], func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
+		t.Run("backup meta does not exist yet"+overrideDescription, func(t *testing.T) {
+			meta, err := fs.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
 		})
 
-		t.Run("put backup meta on backend"+override[2], func(t *testing.T) {
+		t.Run("put backup meta on backend"+overrideDescription, func(t *testing.T) {
 			desc := &backup.BackupDescriptor{
 				StartedAt:   time.Now(),
 				CompletedAt: time.Time{},
@@ -105,22 +95,22 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = fs.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b) // Note:  no bucket parameter, because it is not supported by the filesystem backend
+			err = fs.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b) // Note:  no bucket parameter, because it is not supported by the filesystem backend
 			require.Nil(t, err)
 
-			dest := fs.HomeDir(backupID, override[0], override[1])
-			if override[1] == "" {
+			dest := fs.HomeDir(backupID, overrideBucket, overridePath)
+			if overridePath == "" {
 				expected := fmt.Sprintf("%s/%s", backupDir, backupID)
 				assert.Equal(t, expected, dest)
 			} else {
-				expected := fmt.Sprintf("%s/%s", override[1], backupID)
+				expected := fmt.Sprintf("%s/%s", overridePath, backupID)
 				assert.Equal(t, expected, dest)
 			}
 		})
 	})
 }
 
-func moduleLevelCopyObjects(t *testing.T) {
+func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -131,7 +121,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 
 	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
-	t.Run("copy objects"+override[2], func(t *testing.T) {
+	t.Run("copy objects"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
 		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
@@ -140,20 +130,20 @@ func moduleLevelCopyObjects(t *testing.T) {
 		err := fs.Init(testCtx, params)
 		require.Nil(t, err)
 
-		t.Run("put object to bucket"+override[2], func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, override[0], override[1], []byte("hello"))
+		t.Run("put object to bucket"+overrideDescription, func(t *testing.T) {
+			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
-		t.Run("get object from bucket"+override[2], func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, key, override[0], override[1])
+		t.Run("get object from bucket"+overrideDescription, func(t *testing.T) {
+			meta, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
 	})
 }
 
-func moduleLevelCopyFiles(t *testing.T) {
+func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -164,7 +154,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
-	t.Run("copy files"+override[2], func(t *testing.T) {
+	t.Run("copy files"+overrideDescription, func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
 		fpath := fpaths[0]
 		expectedContents, err := os.ReadFile(fpath)
@@ -179,26 +169,26 @@ func moduleLevelCopyFiles(t *testing.T) {
 		err = fs.Init(testCtx, params)
 		require.Nil(t, err)
 
-		t.Run("verify source data path"+override[2], func(t *testing.T) {
+		t.Run("verify source data path"+overrideDescription, func(t *testing.T) {
 			assert.Equal(t, dataDir, fs.SourceDataPath())
 		})
 
-		t.Logf("Source data path: %s\n"+override[2], fs.SourceDataPath())
+		t.Logf("Source data path: %s\n"+overrideDescription, fs.SourceDataPath())
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
+			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents)
 			require.Nil(t, err)
 
-			contents, err := fs.GetObject(testCtx, backupID, key, override[0], override[1])
+			contents, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
 
-		t.Run("fetch file from backend"+override[2], func(t *testing.T) {
+		t.Run("fetch file from backend"+overrideDescription, func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			t.Logf("Calling WriteToFile with backupID: %s, key: %s, destPath: %s, override: %s\n", backupID, key, destPath, override)
-			err := fs.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1])
+			t.Logf("Calling WriteToFile with backupID: %s, key: %s, destPath: %s, override: %s\n", backupID, key, destPath, overrideBucket+"/"+overridePath)
+			err := fs.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
 			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 

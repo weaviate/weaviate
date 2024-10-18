@@ -38,13 +38,13 @@ func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	BackupJourneyStart(t, ctx, false, "backups", "", "")
+	backupJourneyStart(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		BackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		backupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func BackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+func backupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node"
