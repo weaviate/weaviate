@@ -183,7 +183,7 @@ type TermInterface interface {
 	Count() int
 	QueryTermIndex() int
 	AdvanceAtLeast(minID uint64)
-	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore)
+	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore)
 }
 
 type Term struct {
@@ -206,7 +206,7 @@ func NewTerm(queryTerm string, queryTermIndex int) *Term {
 	}
 }
 
-func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore) {
+func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore) {
 	id := t.idPointer
 	pair := t.Data[t.posPointer]
 	freq := float64(pair.Frequency)
@@ -221,7 +221,7 @@ func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 		t.idPointer = t.Data[t.posPointer].Id
 	}
 
-	return id, tf * t.idf, pair
+	return id, tf * t.idf, &pair
 }
 
 func (t *Term) AdvanceAtLeast(minID uint64) {
@@ -364,7 +364,7 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 		term := t.T[i]
 		_, score, docInfo := term.ScoreAndAdvance(averagePropLength, config)
 		if additionalExplanations {
-			docInfos[term.QueryTermIndex()] = &docInfo
+			docInfos[term.QueryTermIndex()] = docInfo
 		}
 		cumScore += score
 	}
