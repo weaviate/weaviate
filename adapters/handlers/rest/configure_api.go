@@ -407,7 +407,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 		classTenantDataEvents = make(chan metadata.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
 		enterrors.GoWrapper(func() {
-			// TODO do i need this?
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if err := metadataServer.Serve(ctx); err != nil {

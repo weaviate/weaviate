@@ -33,5 +33,5 @@ type Config struct {
 	// AlwaysFetchObjectStore flag ignore what version does local querier has and fetch from
 	// object store (source of truth) all the time.
 	// NOTE: Enabling this (without any intermediate cache) can introduce more latency. Can be used to during performance testing, debugging, correctness check, etc.
-	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state." default:"false"`
+	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state."`
 }

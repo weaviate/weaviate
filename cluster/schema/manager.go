@@ -48,7 +48,8 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logg
 	}
 }
 
-func NewSchemaManagerWithTenantEvents(nodeId string, db Indexer, parser Parser, classTenantDataEvents chan metadata.ClassTenant, log *logrus.Logger) *SchemaManager {
+func NewSchemaManagerWithTenantEvents(nodeId string, db Indexer, parser Parser,
+	classTenantDataEvents chan metadata.ClassTenant, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
 		schema: NewSchemaWithTenantEvents(nodeId, db, classTenantDataEvents),
 		db:     db,

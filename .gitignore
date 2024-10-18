@@ -120,6 +120,3 @@ cmd/weaviate/weaviate
 /weaviate
 cmd/weaviate-server/weviate-server
 weaviate-server
-
-# querier default local path
-querier-data/

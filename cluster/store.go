@@ -210,7 +210,8 @@ func NewFSM(cfg Config) Store {
 	}
 	var schemaManager *schema.SchemaManager
 	if cfg.ClassTenantDataEvents != nil {
-		schemaManager = schema.NewSchemaManagerWithTenantEvents(cfg.NodeID, cfg.DB, cfg.Parser, cfg.ClassTenantDataEvents, cfg.Logger)
+		schemaManager = schema.NewSchemaManagerWithTenantEvents(cfg.NodeID, cfg.DB, cfg.Parser,
+			cfg.ClassTenantDataEvents, cfg.Logger)
 	} else {
 		schemaManager = schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
 	}

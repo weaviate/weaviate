@@ -212,7 +212,7 @@ import weaviate
 from weaviate.classes.init import AdditionalConfig, Timeout
 
 with weaviate.connect_to_local(
-    grpc_port=9091,
+    grpc_port=7071,
     additional_config=AdditionalConfig(
         timeout=Timeout(init=30, query=60, insert=120)  # Values in seconds
     ),
@@ -242,7 +242,7 @@ from weaviate.classes.config import Configure
 import os
 
 with weaviate.connect_to_local(
-    grpc_port=9091,
+    grpc_port=7071,
     additional_config=AdditionalConfig(
         timeout=Timeout(init=30, query=60, insert=120)  # Values in seconds
     ),
@@ -285,7 +285,6 @@ import weaviate.collections.classes.tenants as t
 
 with weaviate.connect_to_local(
     grpc_port=50051, # weaviate core
-    # grpc_port=9091,
     additional_config=AdditionalConfig(
         timeout=Timeout(init=30, query=60, insert=120)  # Values in seconds
     ),
@@ -320,7 +319,6 @@ with weaviate.connect_to_local(
 
 Offload the tenant again using the [#Offload tenants (on Weaviate core)] script above. Then, after waiting a second, run the [#Vector search] script above to query the new tenant data.
 
-TODO why does running offload, then a "proper filters" query, then a "vector search" query error?
 ## TODO(s)
 
 - [ ] Handle "empty write-ahead-log found" warnings on `querier`

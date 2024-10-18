@@ -26,8 +26,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// TODO add tests for shutting down metadata/core/querier nodes and make sure they work as expected
-
 // testServerSetup gives you a ready to use Server and Logger and tells you which port
 // number to use.
 func testServerSetup(t *testing.T, ctx context.Context) (*Server, *logrus.Logger, int) {
