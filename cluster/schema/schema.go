@@ -221,7 +221,8 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 }
 
 func NewSchemaWithTenantEvents(nodeID string, shardReader shardReader,
-	classTenantDataEvents chan metadata.ClassTenant) *schema {
+	classTenantDataEvents chan metadata.ClassTenant,
+) *schema {
 	return &schema{
 		nodeID:                nodeID,
 		Classes:               make(map[string]*metaClass, 128),
@@ -258,8 +259,10 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
-		classTenantDataEvents: s.classTenantDataEvents}
+	s.Classes[cls.Class] = &metaClass{
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+		classTenantDataEvents: s.classTenantDataEvents,
+	}
 	return nil
 }
 
