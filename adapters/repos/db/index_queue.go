@@ -12,6 +12,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -50,14 +51,12 @@ type VectorIndexQueue struct {
 }
 
 func NewVectorIndexQueue(
-	s *queue.Scheduler,
 	shard *Shard,
 	targetVector string,
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
-		scheduler: s,
-		shard:     shard,
+		shard: shard,
 	}
 	viq.index.i = index
 
@@ -67,11 +66,14 @@ func NewVectorIndexQueue(
 
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:          fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
-			Logger:      logger,
-			Scheduler:   s,
-			Dir:         filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
-			TaskDecoder: &vectorIndexQueueDecoder{idx: index},
+			ID:        fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
+			Logger:    logger,
+			Scheduler: shard.scheduler,
+			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
+			TaskDecoder: &vectorIndexQueueDecoder{
+				idx: index,
+				dec: queue.NewMsgPackDecoder(),
+			},
 		},
 	)
 	if err != nil {
@@ -81,7 +83,7 @@ func NewVectorIndexQueue(
 	viq.DiskQueue = q
 	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
-	s.RegisterQueue(&viq)
+	shard.scheduler.RegisterQueue(&viq)
 
 	return &viq, nil
 }
@@ -116,16 +118,13 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 		r.Reset()
 
 		// write the operation first
-		r.EncodeInt8(int8(vectorIndexQueueInsertOp))
+		r.EncodeUint8(vectorIndexQueueInsertOp)
 		// write the id
 		r.EncodeUint(v.ID)
 		// write the vector
-		r.EncodeArrayLen(len(v.Vector))
-		for _, vv := range v.Vector {
-			r.EncodeFloat32(vv)
-		}
+		r.EncodeFloat32Array(v.Vector)
 
-		err = iq.DiskQueue.Push(r)
+		err = iq.DiskQueue.Push(r.Bytes())
 		if err != nil {
 			return errors.Wrap(err, "failed to push record to queue")
 		}
@@ -141,14 +140,14 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		r.Reset()
 		// write the operation
-		r.EncodeInt8(int8(vectorIndexQueueDeleteOp))
+		r.EncodeUint8(vectorIndexQueueDeleteOp)
 		// write the id
 		r.EncodeUint(id)
-	}
 
-	err := iq.DiskQueue.Push(r)
-	if err != nil {
-		return errors.Wrap(err, "failed to push record to queue")
+		err := iq.DiskQueue.Push(r.Bytes())
+		if err != nil {
+			return errors.Wrap(err, "failed to push record to queue")
+		}
 	}
 
 	return iq.DiskQueue.Flush()
@@ -230,22 +229,25 @@ func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
 
 type vectorIndexQueueDecoder struct {
 	idx VectorIndex
+	dec *queue.MsgPackDecoder
 }
 
-func (v *vectorIndexQueueDecoder) DecodeTask(dec *queue.Decoder) (queue.Task, error) {
-	op, err := dec.DecodeUint8()
+func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
+	v.dec.Reset(bytes.NewReader(data))
+
+	op, err := v.dec.DecodeUint8()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to decode operation")
 	}
 
 	switch op {
 	case vectorIndexQueueInsertOp:
-		id, err := dec.DecodeUint()
+		id, err := v.dec.DecodeUint()
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to decode id")
 		}
 
-		vec, err := dec.DecodeFloat32Array()
+		vec, err := v.dec.DecodeFloat32Array()
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to decode vector")
 		}
@@ -258,7 +260,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(dec *queue.Decoder) (queue.Task, er
 		}, nil
 
 	case vectorIndexQueueDeleteOp:
-		id, err := dec.DecodeUint()
+		id, err := v.dec.DecodeUint()
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to decode id")
 		}

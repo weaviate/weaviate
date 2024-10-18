@@ -202,7 +202,7 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 func (s *Shard) initTargetQueues() error {
 	s.queues = make(map[string]*VectorIndexQueue)
 	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewVectorIndexQueue(s.scheduler, s, targetVector, vectorIndex)
+		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
@@ -221,7 +221,7 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyQueue() error {
-	queue, err := NewVectorIndexQueue(s.scheduler, s, "", s.vectorIndex)
+	queue, err := NewVectorIndexQueue(s, "", s.vectorIndex)
 	if err != nil {
 		return err
 	}

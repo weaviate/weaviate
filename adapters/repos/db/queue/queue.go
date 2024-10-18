@@ -174,9 +174,13 @@ func (q *DiskQueue) ID() string {
 	return q.id
 }
 
-func (q *DiskQueue) Push(r *Record) error {
+func (q *DiskQueue) Push(record []byte) error {
 	if q.closed.Load() {
 		return errors.New("queue closed")
+	}
+
+	if len(record) == 0 {
+		return errors.New("empty record")
 	}
 
 	now := time.Now()
@@ -191,13 +195,13 @@ func (q *DiskQueue) Push(r *Record) error {
 	}
 
 	// length of the record in 4 bytes
-	err = binary.Write(&q.w, binary.BigEndian, uint32(r.buf.Len()))
+	err = binary.Write(&q.w, binary.BigEndian, uint32(len(record)))
 	if err != nil {
 		return errors.Wrap(err, "failed to write record length")
 	}
 
 	// write the record
-	n, err := r.buf.WriteTo(&q.w)
+	n, err := q.w.Write(record)
 	if err != nil {
 		return errors.Wrap(err, "failed to write record")
 	}
