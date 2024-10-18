@@ -275,6 +275,8 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
+var _ queue.TaskGrouper = &Task{}
+
 type Task struct {
 	op     uint8
 	id     uint64
@@ -301,13 +303,14 @@ func (t *Task) Execute(ctx context.Context) error {
 	return errors.Errorf("unknown operation: %d", t.Op)
 }
 
-func (t *Task) NewGroup(op uint8, tasks ...*Task) queue.Task {
+func (t *Task) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	ids := make([]uint64, len(tasks))
 	vectors := make([][]float32, len(tasks))
 
 	for i, task := range tasks {
-		ids[i] = task.id
-		vectors[i] = task.vector
+		t := task.(*Task)
+		ids[i] = t.id
+		vectors[i] = t.vector
 	}
 
 	return &TaskGroup{
