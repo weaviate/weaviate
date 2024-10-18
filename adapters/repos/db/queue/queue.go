@@ -13,6 +13,7 @@ package queue
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -66,14 +67,14 @@ type DiskQueue struct {
 	closed       atomic.Bool
 
 	// chunkSize is the maximum size of each chunk file.
-	chunkSize int
+	chunkSize uint64
 
 	// m protects the disk operations
 	m                sync.RWMutex
 	w                bufio.Writer
 	f                *os.File
-	partialChunkSize int
-	recordCount      int64
+	partialChunkSize uint64
+	recordCount      uint64
 	readFiles        []string
 	cursor           int
 }
@@ -88,7 +89,7 @@ type DiskQueueOptions struct {
 	// Optional
 	Logger       logrus.FieldLogger
 	StaleTimeout time.Duration
-	ChunkSize    int
+	ChunkSize    uint64
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -201,7 +202,7 @@ func (q *DiskQueue) Push(r *Record) error {
 		return errors.Wrap(err, "failed to write record")
 	}
 
-	q.partialChunkSize += 4 /* length */ + int(n)
+	q.partialChunkSize += 4 + uint64(n)
 	q.recordCount++
 
 	return nil
@@ -233,7 +234,7 @@ func (q *DiskQueue) ensureChunk() error {
 			return errors.Wrap(err, "failed to stat chunk file")
 		}
 
-		q.partialChunkSize = int(info.Size())
+		q.partialChunkSize = uint64(info.Size())
 
 		if info.Size() == 0 {
 			// magic
@@ -469,7 +470,7 @@ func (q *DiskQueue) Size() int64 {
 	q.m.RLock()
 	defer q.m.RUnlock()
 
-	return q.recordCount
+	return int64(q.recordCount)
 }
 
 func (q *DiskQueue) Pause() {
@@ -506,51 +507,19 @@ func (q *DiskQueue) Drop() error {
 	return nil
 }
 
-// calculateRecordCount is a slow method that determines the number of records
-// stored on disk and in the partial chunk, by reading the size of all the files in the directory.
-// It is used when the encoder is first initialized.
-func (q *DiskQueue) calculateRecordCount() (int64, error) {
-	q.m.Lock()
-	defer q.m.Unlock()
-
-	entries, err := os.ReadDir(q.dir)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to read directory")
-	}
-
-	var size int64
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		if entry.Name() != partialChunkFile && !chunkFilePattern.Match([]byte(entry.Name())) {
-			continue
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return 0, errors.Wrap(err, "failed to get file info")
-		}
-
-		size += int64(info.Size()) / 9 /* size of a single record */
-	}
-
-	return size, nil
-}
-
 func (q *DiskQueue) removeChunk(path string) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	info, err := os.Stat(path)
+	count, err := q.readChunkRecordCount(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// already removed
 			return
 		}
 
-		q.Logger.WithError(err).WithField("file", path).Warn("failed to stat chunk. trying to remove it anyway")
+		q.Logger.WithError(err).WithField("file", path).Warn("failed to read chunk record count")
+		// TODO: recalculate the record count?
 	}
 
 	err = os.Remove(path)
@@ -559,7 +528,144 @@ func (q *DiskQueue) removeChunk(path string) {
 		return
 	}
 
-	q.recordCount -= int64(info.Size()) / 9
+	q.recordCount -= count
 
 	q.Logger.WithField("file", path).Debug("chunk removed")
+}
+
+// calculateRecordCount is a slow method that determines the number of records
+// stored on disk and in the partial chunk, by reading the header of all the files in the directory.
+// It is used when the queue is first initialized.
+func (q *DiskQueue) calculateRecordCount() (uint64, error) {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read directory")
+	}
+
+	var size uint64
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// read the header of the chunk file
+		if chunkFilePattern.Match([]byte(entry.Name())) {
+			count, err := q.readChunkRecordCount(filepath.Join(q.dir, entry.Name()))
+			if err != nil {
+				return 0, err
+			}
+
+			size += count
+			continue
+		}
+
+		// manually count the records in the partial chunk
+		if entry.Name() == partialChunkFile {
+			count, err := q.countPartialChunkRecords(filepath.Join(q.dir, entry.Name()))
+			if err != nil {
+				return 0, err
+			}
+
+			size += count
+			continue
+		}
+	}
+
+	return size, nil
+}
+
+func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to open chunk file")
+	}
+	defer f.Close()
+
+	r := bufio.NewReader(f)
+
+	// read the header
+	header := make([]byte, len(magicHeader)+1+8)
+	_, err = io.ReadFull(r, header)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read header")
+	}
+
+	// check the magic number
+	if !bytes.Equal(header[:len(magicHeader)], []byte(magicHeader)) {
+		return 0, errors.New("invalid magic header")
+	}
+
+	// check the version
+	if header[len(magicHeader)] != 1 {
+		return 0, errors.New("invalid version")
+	}
+
+	// read the number of records
+	return binary.BigEndian.Uint64(header[len(magicHeader)+1:]), nil
+}
+
+func (q *DiskQueue) countPartialChunkRecords(path string) (uint64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to open chunk file")
+	}
+	defer f.Close()
+
+	r := bufio.NewReader(f)
+
+	// read the header
+	header := make([]byte, len(magicHeader)+1)
+	_, err = io.ReadFull(r, header)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read header")
+	}
+
+	// check the magic number
+	if !bytes.Equal(header[:len(magicHeader)], []byte(magicHeader)) {
+		return 0, errors.New("invalid magic header")
+	}
+
+	// check the version
+	if header[len(magicHeader)] != 1 {
+		return 0, errors.New("invalid version")
+	}
+
+	// skip the number of records
+	_, err = r.Discard(8)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to skip header")
+	}
+
+	// count the records by reading the length of each record
+	// and skipping it
+	var count uint64
+	var buf [4]byte
+	for {
+		// read the record length
+		_, err := io.ReadFull(r, buf[:])
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to read record length")
+		}
+		length := binary.BigEndian.Uint32(buf[:])
+		if length == 0 {
+			return 0, errors.New("invalid record length")
+		}
+
+		// skip the record
+		_, err = r.Discard(int(length))
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to skip record")
+		}
+
+		count++
+	}
+
+	return count, nil
 }
