@@ -29,7 +29,8 @@ import (
 func TestVectorizer_New(t *testing.T) {
 	repo := &fakeObjectsRepo{}
 	t.Run("default is set correctly", func(t *testing.T) {
-		vzr := New(fakeClassConfig(config.Default()), repo.Object)
+		vzr, err := New(fakeClassConfig(config.Default()), repo.Object)
+		assert.Nil(t, err)
 
 		expected := reflect.ValueOf(calculateMean).Pointer()
 		received := reflect.ValueOf(vzr.calcFn).Pointer()
@@ -39,7 +40,8 @@ func TestVectorizer_New(t *testing.T) {
 
 	t.Run("default calcFn is used when none provided", func(t *testing.T) {
 		cfg := fakeClassConfig{"method": ""}
-		vzr := New(cfg, repo.Object)
+		vzr, err := New(cfg, repo.Object)
+		assert.Nil(t, err)
 
 		expected := reflect.ValueOf(calculateMean).Pointer()
 		received := reflect.ValueOf(vzr.calcFn).Pointer()
@@ -135,8 +137,9 @@ func TestVectorizer_Object(t *testing.T) {
 				obj := &models.Object{
 					Properties: map[string]interface{}{"toRef": modelRefs},
 				}
-
-				vec, err := New(cfg, repo.Object).Object(ctx, obj)
+				vectorizer, err := New(cfg, repo.Object)
+				assert.Nil(t, err)
+				vec, err := vectorizer.Object(ctx, obj)
 				if test.expectedCalcError != nil {
 					assert.EqualError(t, err, test.expectedCalcError.Error())
 				} else {
@@ -162,7 +165,10 @@ func TestVectorizer_Object(t *testing.T) {
 			Properties: map[string]interface{}{"toRef": []interface{}{}},
 		}
 
-		_, err := New(cfg, repo.Object).Object(ctx, obj)
+		vectorizer, err := New(cfg, repo.Object)
+		assert.Nil(t, err)
+
+		_, err = vectorizer.Object(ctx, obj)
 		assert.Nil(t, err)
 		assert.Nil(t, obj.Vector)
 	})
@@ -188,7 +194,10 @@ func TestVectorizer_Tenant(t *testing.T) {
 		Tenant:     tenant,
 	}
 
-	_, err := New(cfg, repo.Object).Object(ctx, obj)
+	vectorizer, err := New(cfg, repo.Object)
+	assert.Nil(t, err)
+
+	_, err = vectorizer.Object(ctx, obj)
 	assert.Nil(t, err)
 	assert.Nil(t, obj.Vector)
 }
