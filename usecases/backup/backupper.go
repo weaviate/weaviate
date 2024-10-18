@@ -47,20 +47,22 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backe
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string,
+	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
 		Method:  OpCreate,
 		ID:      id,
 		Classes: classes,
+		Bucket:  overrideBucket,
+		Path:    overridePath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(),
+		Path:   store.HomeDir(overrideBucket, overridePath),
 		Status: backup.Started,
 	}, nil
 }
@@ -70,7 +72,7 @@ func (b *backupper) Backup(ctx context.Context,
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend})
+	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend, "", ""}) // retrieved from store
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			err = backup.NewErrNotFound(err)
@@ -93,7 +95,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	// check if backup is still active
 	st := b.lastOp.get()
 	if st.ID == req.ID {
-		return st, nil
+		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
 	// The backup might have been already created.
@@ -102,7 +104,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, req.ID, false)
+	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqStat{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
@@ -114,7 +116,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	return reqStat{
 		Starttime: meta.StartedAt,
 		ID:        req.ID,
-		Path:      store.HomeDir(),
+		Path:      store.HomeDir(store.bucket, store.path),
 		Status:    backup.Status(meta.Status),
 	}, nil
 }
@@ -136,7 +138,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir()); prevID != "" {
+	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path)); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
@@ -167,7 +169,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
-		if err := provider.all(ctx, req.Classes, &result); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 

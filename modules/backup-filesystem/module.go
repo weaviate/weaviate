@@ -69,8 +69,12 @@ func (m *Module) Init(ctx context.Context,
 	return nil
 }
 
-func (m *Module) HomeDir(backupID string) string {
-	return path.Join(m.makeBackupDirPath(backupID))
+func (m *Module) HomeDir(backupID, overrideBucket, overridePath string) string {
+	if overridePath != "" {
+		return path.Join(overridePath, backupID)
+	} else {
+		return path.Join(m.makeBackupDirPath(m.backupsPath, backupID))
+	}
 }
 
 func (m *Module) RootHandler() http.Handler {
@@ -84,8 +88,8 @@ func (m *Module) MetaInfo() (map[string]interface{}, error) {
 	return metaInfo, nil
 }
 
-func (m *Module) makeBackupDirPath(id string) string {
-	return filepath.Join(m.backupsPath, id)
+func (m *Module) makeBackupDirPath(path, id string) string {
+	return filepath.Join(path, id)
 }
 
 // verify we implement the modules.Module interface
