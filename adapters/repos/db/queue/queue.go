@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -70,13 +71,14 @@ type DiskQueue struct {
 	chunkSize uint64
 
 	// m protects the disk operations
-	m                sync.RWMutex
-	w                bufio.Writer
-	f                *os.File
-	partialChunkSize uint64
-	recordCount      uint64
-	readFiles        []string
-	cursor           int
+	m                       sync.RWMutex
+	w                       bufio.Writer
+	f                       *os.File
+	partialChunkSize        uint64
+	partialChunkRecordCount uint64
+	recordCount             uint64
+	chunkList               []string
+	cursor                  int
 }
 
 type DiskQueueOptions struct {
@@ -207,6 +209,7 @@ func (q *DiskQueue) Push(record []byte) error {
 	}
 
 	q.partialChunkSize += 4 + uint64(n)
+	q.partialChunkRecordCount++
 	q.recordCount++
 
 	return nil
@@ -223,8 +226,7 @@ func (q *DiskQueue) ensureChunk() error {
 	if q.f == nil {
 		// create or open partial chunk
 		path := filepath.Join(q.dir, partialChunkFile)
-		// open append mode, write only
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			return errors.Wrap(err, "failed to create chunk file")
 		}
@@ -269,11 +271,23 @@ func (q *DiskQueue) promoteChunkNoLock() error {
 
 	fName := q.f.Name()
 
-	// flush and close current chunk
+	// flush the buffer
 	err := q.w.Flush()
 	if err != nil {
 		return errors.Wrap(err, "failed to flush chunk")
 	}
+
+	// update the number of records in the header
+	_, err = q.f.Seek(int64(len(magicHeader)+1), 0)
+	if err != nil {
+		return errors.Wrap(err, "failed to seek to record count")
+	}
+	err = binary.Write(q.f, binary.BigEndian, q.partialChunkRecordCount)
+	if err != nil {
+		return errors.Wrap(err, "failed to write record count")
+	}
+
+	// sync and close the chunk
 	err = q.f.Sync()
 	if err != nil {
 		return errors.Wrap(err, "failed to sync chunk")
@@ -285,6 +299,7 @@ func (q *DiskQueue) promoteChunkNoLock() error {
 
 	q.f = nil
 	q.partialChunkSize = 0
+	q.partialChunkRecordCount = 0
 
 	// rename the file to remove the .partial suffix
 	// and add a timestamp to the filename
@@ -323,38 +338,36 @@ func (q *DiskQueue) Flush() error {
 }
 
 func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
-	f, path, err := q.readChunk()
+	c, err := q.readChunk()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// if there are no more chunks to read,
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
-	if f == nil && q.Size() > 0 {
-		f, path, err = q.checkIfStale()
-		if err != nil || f == nil {
+	if c == nil || c.f == nil && q.Size() > 0 {
+		c, err = q.checkIfStale()
+		if err != nil || c.f == nil {
 			return nil, nil, err
 		}
 	}
 
-	if f == nil {
+	if c.f == nil {
 		return nil, nil, nil
 	}
 
-	defer f.Close()
+	defer c.Close()
 
 	// decode all tasks from the chunk
 	// and partition them by worker
-	r := bufio.NewReader(f)
-
-	var tasks []Task
+	tasks := make([]Task, 0, c.count)
 
 	buf := make([]byte, 4)
 	for {
 		buf = buf[:4]
 
 		// read the record length
-		_, err := io.ReadFull(r, buf)
+		_, err := io.ReadFull(c.r, buf)
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -372,9 +385,9 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 		} else {
 			buf = buf[:length]
 		}
-		_, err = io.ReadFull(r, buf)
+		_, err = io.ReadFull(c.r, buf)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to read record")
+			return nil, nil, errors.Wrap(err, "failed to read record:")
 		}
 
 		// decode the task
@@ -386,47 +399,53 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 		tasks = append(tasks, t)
 	}
 
-	err = f.Close()
+	err = c.Close()
 	if err != nil {
-		q.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
+		q.Logger.WithField("file", c.path).WithError(err).Warn("failed to close chunk file")
 	}
 
 	if len(tasks) == 0 {
 		// empty chunk, remove it
-		q.removeChunk(path)
+		q.removeChunk(c.path)
 		return nil, nil, nil
 	}
 
 	doneFn := func() {
-		q.removeChunk(path)
+		q.removeChunk(c.path)
 	}
 
 	return tasks, doneFn, nil
 }
 
-func (q *DiskQueue) readChunk() (*os.File, string, error) {
-	if q.cursor+1 < len(q.readFiles) {
+func (q *DiskQueue) readChunk() (*chunk, error) {
+	if q.cursor+1 < len(q.chunkList) {
 		q.cursor++
 
-		f, err := os.Open(q.readFiles[q.cursor])
-		if err != nil {
-			return nil, "", err
-		}
-
-		return f, q.readFiles[q.cursor], nil
+		return openChunk(q.chunkList[q.cursor])
 	}
 
-	q.readFiles = q.readFiles[:0]
+	// ensure we don't read the same files again
+	filesRead := make(map[string]struct{})
+	for _, f := range q.chunkList {
+		filesRead[f] = struct{}{}
+	}
+
+	q.chunkList = q.chunkList[:0]
 	q.cursor = 0
 
 	// read the directory
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+
+		// skip files that have already been read
+		if _, ok := filesRead[entry.Name()]; ok {
 			continue
 		}
 
@@ -435,36 +454,31 @@ func (q *DiskQueue) readChunk() (*os.File, string, error) {
 			continue
 		}
 
-		q.readFiles = append(q.readFiles, filepath.Join(q.dir, entry.Name()))
+		q.chunkList = append(q.chunkList, filepath.Join(q.dir, entry.Name()))
 	}
 
-	if len(q.readFiles) == 0 {
-		return nil, "", nil
+	if len(q.chunkList) == 0 {
+		return nil, nil
 	}
 
-	f, err := os.Open(q.readFiles[q.cursor])
-	if err != nil {
-		return nil, "", err
-	}
-
-	return f, q.readFiles[q.cursor], nil
+	return openChunk(q.chunkList[q.cursor])
 }
 
-func (q *DiskQueue) checkIfStale() (*os.File, string, error) {
+func (q *DiskQueue) checkIfStale() (*chunk, error) {
 	lastPushed := q.lastPushTime.Load()
 	if lastPushed == nil {
-		return nil, "", nil
+		return nil, nil
 	}
 
 	if time.Since(*lastPushed) < q.staleTimeout {
-		return nil, "", nil
+		return nil, nil
 	}
 
 	q.Logger.Debug("partial chunk is stale, scheduling")
 
 	err := q.promoteChunk()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	return q.readChunk()
@@ -515,9 +529,9 @@ func (q *DiskQueue) removeChunk(path string) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	count, err := q.readChunkRecordCount(path)
+	c, err := openChunk(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			// already removed
 			return
 		}
@@ -526,15 +540,15 @@ func (q *DiskQueue) removeChunk(path string) {
 		// TODO: recalculate the record count?
 	}
 
+	_ = c.Close()
+
 	err = os.Remove(path)
 	if err != nil {
 		q.Logger.WithError(err).WithField("file", path).Error("failed to remove chunk")
 		return
 	}
 
-	q.recordCount -= count
-
-	q.Logger.WithField("file", path).Debug("chunk removed")
+	q.recordCount -= c.count
 }
 
 // calculateRecordCount is a slow method that determines the number of records
@@ -574,6 +588,7 @@ func (q *DiskQueue) calculateRecordCount() (uint64, error) {
 				return 0, err
 			}
 
+			q.partialChunkRecordCount = count
 			size += count
 			continue
 		}
@@ -583,17 +598,93 @@ func (q *DiskQueue) calculateRecordCount() (uint64, error) {
 }
 
 func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
-	f, err := os.Open(path)
+	c, err := openChunk(path)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to open chunk file")
 	}
-	defer f.Close()
+	defer c.Close()
 
-	r := bufio.NewReader(f)
+	return c.count, nil
+}
 
+func (q *DiskQueue) countPartialChunkRecords(path string) (uint64, error) {
+	c, err := openChunk(path)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to open chunk file")
+	}
+	defer c.Close()
+
+	// count the records by reading the length of each record
+	// and skipping it
+	var count uint64
+	var buf [4]byte
+	for {
+		// read the record length
+		_, err := io.ReadFull(c.r, buf[:])
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to read record length")
+		}
+		length := binary.BigEndian.Uint32(buf[:])
+		if length == 0 {
+			return 0, errors.New("invalid record length")
+		}
+
+		// skip the record
+		_, err = c.r.Discard(int(length))
+		if err != nil {
+			return 0, errors.Wrap(err, "failed to skip record")
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
+type chunk struct {
+	path  string
+	r     *bufio.Reader
+	f     *os.File
+	count uint64
+}
+
+func openChunk(path string) (*chunk, error) {
+	var err error
+	c := chunk{
+		path: path,
+	}
+
+	c.f, err = os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	c.r = bufio.NewReader(c.f)
+
+	// check the header
+	c.count, err = c.readHeader(c.r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &c, nil
+}
+
+func (c *chunk) Close() error {
+	if c.f == nil {
+		return nil
+	}
+
+	return c.f.Close()
+}
+
+func (c *chunk) readHeader(r io.Reader) (uint64, error) {
 	// read the header
 	header := make([]byte, len(magicHeader)+1+8)
-	_, err = io.ReadFull(r, header)
+	_, err := io.ReadFull(r, header)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read header")
 	}
@@ -610,66 +701,4 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 
 	// read the number of records
 	return binary.BigEndian.Uint64(header[len(magicHeader)+1:]), nil
-}
-
-func (q *DiskQueue) countPartialChunkRecords(path string) (uint64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to open chunk file")
-	}
-	defer f.Close()
-
-	r := bufio.NewReader(f)
-
-	// read the header
-	header := make([]byte, len(magicHeader)+1)
-	_, err = io.ReadFull(r, header)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to read header")
-	}
-
-	// check the magic number
-	if !bytes.Equal(header[:len(magicHeader)], []byte(magicHeader)) {
-		return 0, errors.New("invalid magic header")
-	}
-
-	// check the version
-	if header[len(magicHeader)] != 1 {
-		return 0, errors.New("invalid version")
-	}
-
-	// skip the number of records
-	_, err = r.Discard(8)
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to skip header")
-	}
-
-	// count the records by reading the length of each record
-	// and skipping it
-	var count uint64
-	var buf [4]byte
-	for {
-		// read the record length
-		_, err := io.ReadFull(r, buf[:])
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return 0, errors.Wrap(err, "failed to read record length")
-		}
-		length := binary.BigEndian.Uint32(buf[:])
-		if length == 0 {
-			return 0, errors.New("invalid record length")
-		}
-
-		// skip the record
-		_, err = r.Discard(int(length))
-		if err != nil {
-			return 0, errors.Wrap(err, "failed to skip record")
-		}
-
-		count++
-	}
-
-	return count, nil
 }
