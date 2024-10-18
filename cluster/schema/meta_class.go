@@ -459,7 +459,6 @@ func (m *metaClass) updateShardProcess(name string, action command.TenantProcess
 
 func (m *metaClass) applyShardProcess(name string, action command.TenantProcessRequest_Action, req *command.TenantsProcess, copy *sharding.Physical) {
 	processes := m.ShardProcesses[shardProcessID(name, action)]
-	fmt.Println("NATEE action", action)
 	switch action {
 	case command.TenantProcessRequest_ACTION_UNFREEZING:
 		for _, sp := range processes {
