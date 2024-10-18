@@ -26,7 +26,10 @@ func TestConfigDefaults(t *testing.T) {
 	def := New().ClassConfigDefaults()
 	cfg := config.New(fakeClassConfig(def))
 
-	assert.Equal(t, config.MethodDefault, cfg.CalculationMethod())
+	method, err := cfg.CalculationMethod()
+
+	assert.Equal(t, config.MethodDefault, method)
+	assert.Nil(t, err)
 }
 
 func TestConfigValidator(t *testing.T) {
@@ -44,6 +47,17 @@ func TestConfigValidator(t *testing.T) {
 			classConfig: fakeClassConfig{
 				"referenceProperties": []interface{}{"someRef"},
 			},
+		},
+		{
+			name:  "invalid config - wrong method",
+			class: class,
+			classConfig: fakeClassConfig{
+				"referenceProperties": []interface{}{"someRef"},
+				"method":              []string{"mean"},
+			},
+			expectedErr: fmt.Errorf("validate %q: could not parse calculation methode. "+
+				"Expected a string, got: [mean]",
+				class.Class),
 		},
 		{
 			name:        "invalid config - required fields omitted",
