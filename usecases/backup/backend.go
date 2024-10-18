@@ -66,36 +66,36 @@ const (
 var _NUMCPU = runtime.NumCPU()
 
 type objectStore struct {
-	Backend modulecapabilities.BackupBackend
+	backend modulecapabilities.BackupBackend
 
-	BackupId string // use supplied backup id
-	Bucket   string // Override bucket for one call
-	Path     string // Override path for one call
+	backupId string // use supplied backup id
+	bucket   string // Override bucket for one call
+	path     string // Override path for one call
 }
 
 func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
-	return s.Backend.HomeDir(s.BackupId, overrideBucket, overridePath)
+	return s.backend.HomeDir(s.backupId, overrideBucket, overridePath)
 }
 
 func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
-	return s.Backend.WriteToFile(ctx, s.BackupId, key, destPath, overrideBucket, overridePath)
+	return s.backend.WriteToFile(ctx, s.backupId, key, destPath, overrideBucket, overridePath)
 }
 
 // SourceDataPath is data path of all source files
 func (s *objectStore) SourceDataPath() string {
-	return s.Backend.SourceDataPath()
+	return s.backend.SourceDataPath()
 }
 
 func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
-	return s.Backend.Write(ctx, s.BackupId, key, overrideBucket, overridePath, r)
+	return s.backend.Write(ctx, s.backupId, key, overrideBucket, overridePath, r)
 }
 
 func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
-	return s.Backend.Read(ctx, s.BackupId, key, overrideBucket, overridePath, w)
+	return s.backend.Read(ctx, s.backupId, key, overrideBucket, overridePath, w)
 }
 
 func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
-	return s.Backend.Initialize(ctx, s.BackupId, overrideBucket, overridePath)
+	return s.backend.Initialize(ctx, s.backupId, overrideBucket, overridePath)
 }
 
 // meta marshals and uploads metadata
@@ -106,14 +106,14 @@ func (s *objectStore) putMeta(ctx context.Context, key, overrideBucket, override
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.Backend.PutObject(ctx, s.BackupId, key, overrideBucket, overridePath, bytes); err != nil {
+	if err := s.backend.PutObject(ctx, s.backupId, key, overrideBucket, overridePath, bytes); err != nil {
 		return fmt.Errorf("(putMeta) upload meta file %q into bucket %v, path %v: %w", key, overrideBucket, overridePath, err)
 	}
 	return nil
 }
 
 func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePath string, dest interface{}) error {
-	bytes, err := s.Backend.GetObject(ctx, s.BackupId, key, overrideBucket, overridePath)
+	bytes, err := s.backend.GetObject(ctx, s.backupId, key, overrideBucket, overridePath)
 	if err != nil {
 		return err
 	}
@@ -155,35 +155,35 @@ func (n *nodeStore) SetObjectStore(os *objectStore) {
 }
 
 func (n *nodeStore) GetBackend() modulecapabilities.BackupBackend {
-	return n.Backend
+	return n.backend
 }
 
 func (n *nodeStore) SetBackend(backend modulecapabilities.BackupBackend) {
-	n.Backend = backend
+	n.backend = backend
 }
 
 func (n *nodeStore) GetBackupId() string {
-	return n.BackupId
+	return n.backupId
 }
 
 func (n *nodeStore) SetBackupId(backupId string) {
-	n.BackupId = backupId
+	n.backupId = backupId
 }
 
 func (n *nodeStore) GetBucket() string {
-	return n.Bucket
+	return n.bucket
 }
 
 func (n *nodeStore) SetBucket(bucket string) {
-	n.Bucket = bucket
+	n.bucket = bucket
 }
 
 func (n *nodeStore) GetPath() string {
-	return n.Path
+	return n.path
 }
 
 func (n *nodeStore) SetPath(path string) {
-	n.Path = path
+	n.path = path
 }
 
 // Meta gets meta data using standard path or deprecated old path
@@ -193,10 +193,10 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &objectStore{s.Backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{s.backend, backupID, overrideBucket, overridePath} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
-				s.objectStore.BackupId = backupID
+				s.objectStore.backupId = backupID
 			}
 			return &result, nil
 		}
@@ -335,7 +335,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.Backend), classLabel)
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.backend), classLabel)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()

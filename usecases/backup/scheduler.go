@@ -188,7 +188,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.Bucket, store.Path}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -287,11 +287,11 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{objectStore{Backend: caps, BackupId: id, Bucket: overrideBucket, Path: overridePath}}, nil
+	return coordStore{objectStore{backend: caps, backupId: id, bucket: overrideBucket, path: overridePath}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
-	if !store.Backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
+	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 
@@ -343,7 +343,7 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
-	if !store.Backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
+	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
@@ -405,7 +405,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.Bucket, store.Path, true)
+		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true)
 		if err != nil {
 			return nil, err
 		}

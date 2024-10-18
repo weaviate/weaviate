@@ -322,14 +322,14 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	}
 
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename, store.Bucket, store.Path)
+	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
 		path := st.Path
 		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)
 	}
 
 	status := &Status{
-		Path:        store.HomeDir(store.Bucket, store.Path),
+		Path:        store.HomeDir(store.bucket, store.path),
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,

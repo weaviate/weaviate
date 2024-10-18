@@ -161,7 +161,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.Backend), classLabel)
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
