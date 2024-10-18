@@ -46,6 +46,7 @@ func TestConfigValidator(t *testing.T) {
 			class: class,
 			classConfig: fakeClassConfig{
 				"referenceProperties": []interface{}{"someRef"},
+				"method":              "mean",
 			},
 		},
 		{
