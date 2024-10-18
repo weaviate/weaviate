@@ -118,7 +118,7 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 	}
 }
 
-func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, credentials *backup.Credentials) ([]byte, error) {
 	objectName := a.makeObjectName(overridePath, []string{backupID, key})
 
 	containerName := a.config.Container
@@ -147,7 +147,7 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBuck
 	return downloadData, nil
 }
 
-func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, data []byte) error {
+func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, data []byte, credentials *backup.Credentials) error {
 	objectName := a.makeObjectName(overridePath, []string{backupID, key})
 
 	containerName := a.config.Container
@@ -171,10 +171,10 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBuck
 	return nil
 }
 
-func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string, credentials *backup.Credentials) error {
 	key := "access-check"
 
-	if err := a.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
+	if err := a.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte(""), credentials); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 
@@ -191,7 +191,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 	return nil
 }
 
-func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
+func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string, credentials *backup.Credentials) error {
 	dir := path.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)
@@ -220,7 +220,7 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, 
 	return nil
 }
 
-func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (written int64, err error) {
+func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser, credentials *backup.Credentials) (written int64, err error) {
 	path := a.makeObjectName(overridePath, []string{backupID, key})
 	reader := &reader{src: r}
 	defer func() {
@@ -247,7 +247,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key, overrideBucket, 
 	return
 }
 
-func (a *azureClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+func (a *azureClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser, credentials *backup.Credentials) (int64, error) {
 	defer w.Close()
 
 	containerName := a.config.Container

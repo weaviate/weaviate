@@ -72,6 +72,15 @@ BackupsRestoreStatusParams contains all the parameters to send to the API endpoi
 */
 type BackupsRestoreStatusParams struct {
 
+	// XAwsAccessKey.
+	XAwsAccessKey *string
+
+	// XAwsSecretKey.
+	XAwsSecretKey *string
+
+	// XAwsSessionToken.
+	XAwsSessionToken *string
+
 	/* Backend.
 
 	   Backup backend name e.g. filesystem, gcs, s3.
@@ -149,6 +158,39 @@ func (o *BackupsRestoreStatusParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithXAwsAccessKey adds the xAwsAccessKey to the backups restore status params
+func (o *BackupsRestoreStatusParams) WithXAwsAccessKey(xAwsAccessKey *string) *BackupsRestoreStatusParams {
+	o.SetXAwsAccessKey(xAwsAccessKey)
+	return o
+}
+
+// SetXAwsAccessKey adds the xAwsAccessKey to the backups restore status params
+func (o *BackupsRestoreStatusParams) SetXAwsAccessKey(xAwsAccessKey *string) {
+	o.XAwsAccessKey = xAwsAccessKey
+}
+
+// WithXAwsSecretKey adds the xAwsSecretKey to the backups restore status params
+func (o *BackupsRestoreStatusParams) WithXAwsSecretKey(xAwsSecretKey *string) *BackupsRestoreStatusParams {
+	o.SetXAwsSecretKey(xAwsSecretKey)
+	return o
+}
+
+// SetXAwsSecretKey adds the xAwsSecretKey to the backups restore status params
+func (o *BackupsRestoreStatusParams) SetXAwsSecretKey(xAwsSecretKey *string) {
+	o.XAwsSecretKey = xAwsSecretKey
+}
+
+// WithXAwsSessionToken adds the xAwsSessionToken to the backups restore status params
+func (o *BackupsRestoreStatusParams) WithXAwsSessionToken(xAwsSessionToken *string) *BackupsRestoreStatusParams {
+	o.SetXAwsSessionToken(xAwsSessionToken)
+	return o
+}
+
+// SetXAwsSessionToken adds the xAwsSessionToken to the backups restore status params
+func (o *BackupsRestoreStatusParams) SetXAwsSessionToken(xAwsSessionToken *string) {
+	o.XAwsSessionToken = xAwsSessionToken
+}
+
 // WithBackend adds the backend to the backups restore status params
 func (o *BackupsRestoreStatusParams) WithBackend(backend string) *BackupsRestoreStatusParams {
 	o.SetBackend(backend)
@@ -200,6 +242,30 @@ func (o *BackupsRestoreStatusParams) WriteToRequest(r runtime.ClientRequest, reg
 		return err
 	}
 	var res []error
+
+	if o.XAwsAccessKey != nil {
+
+		// header param X-Aws-Access-Key
+		if err := r.SetHeaderParam("X-Aws-Access-Key", *o.XAwsAccessKey); err != nil {
+			return err
+		}
+	}
+
+	if o.XAwsSecretKey != nil {
+
+		// header param X-Aws-Secret-Key
+		if err := r.SetHeaderParam("X-Aws-Secret-Key", *o.XAwsSecretKey); err != nil {
+			return err
+		}
+	}
+
+	if o.XAwsSessionToken != nil {
+
+		// header param X-Aws-Session-Token
+		if err := r.SetHeaderParam("X-Aws-Session-Token", *o.XAwsSessionToken); err != nil {
+			return err
+		}
+	}
 
 	// path param backend
 	if err := r.SetPathParam("backend", o.Backend); err != nil {

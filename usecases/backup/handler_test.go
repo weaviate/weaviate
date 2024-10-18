@@ -32,15 +32,16 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
+	overrideBucket := req.Bucket
+	overridePath := req.Path
+	credentials := req.Credentials
+
 	classes := req.Include
-	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
+	if err := store.Initialize(ctx, overrideBucket, overridePath, credentials); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	overrideBucket := req.Bucket
-	overridePath := req.Path
-
-	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes, overrideBucket, overridePath); err != nil {
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes, overrideBucket, overridePath, credentials); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)

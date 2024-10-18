@@ -46,6 +46,18 @@ type BackupsRestoreParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*
+	  In: header
+	*/
+	XAwsAccessKey *string
+	/*
+	  In: header
+	*/
+	XAwsSecretKey *string
+	/*
+	  In: header
+	*/
+	XAwsSessionToken *string
 	/*Backup backend name e.g. filesystem, gcs, s3.
 	  Required: true
 	  In: path
@@ -71,6 +83,18 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 	var res []error
 
 	o.HTTPRequest = r
+
+	if err := o.bindXAwsAccessKey(r.Header[http.CanonicalHeaderKey("X-Aws-Access-Key")], true, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.bindXAwsSecretKey(r.Header[http.CanonicalHeaderKey("X-Aws-Secret-Key")], true, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.bindXAwsSessionToken(r.Header[http.CanonicalHeaderKey("X-Aws-Session-Token")], true, route.Formats); err != nil {
+		res = append(res, err)
+	}
 
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
@@ -112,6 +136,57 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindXAwsAccessKey binds and validates parameter XAwsAccessKey from header.
+func (o *BackupsRestoreParams) bindXAwsAccessKey(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.XAwsAccessKey = &raw
+
+	return nil
+}
+
+// bindXAwsSecretKey binds and validates parameter XAwsSecretKey from header.
+func (o *BackupsRestoreParams) bindXAwsSecretKey(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.XAwsSecretKey = &raw
+
+	return nil
+}
+
+// bindXAwsSessionToken binds and validates parameter XAwsSessionToken from header.
+func (o *BackupsRestoreParams) bindXAwsSessionToken(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.XAwsSessionToken = &raw
+
 	return nil
 }
 

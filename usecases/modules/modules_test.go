@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -513,19 +514,19 @@ func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overri
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, credentials *backup.Credentials) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string, credentials *backup.Credentials) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser, credentials *backup.Credentials) (int64, error) {
 	return 0, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser, credentials *backup.Credentials) (int64, error) {
 	return 0, nil
 }
 
@@ -537,7 +538,7 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte, credentials *backup.Credentials) error {
 	return nil
 }
 
@@ -545,6 +546,6 @@ func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, k
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string, credentials *backup.Credentials) error {
 	return nil
 }

@@ -5053,6 +5053,24 @@
             "required": false,
             "type": "string",
             "description": "The path within the bucket"
+          },
+          {
+            "name": "X-Aws-Access-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Secret-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Session-Token",
+            "in": "header",
+            "required": false,
+            "type": "string"
           }
         ],
         "responses": {
@@ -5115,6 +5133,24 @@
             "schema": {
               "$ref": "#/definitions/BackupRestoreRequest"
             }
+          },
+          {
+            "name": "X-Aws-Access-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Secret-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Session-Token",
+            "in": "header",
+            "required": false,
+            "type": "string"
           }
         ],
         "responses": {
@@ -5190,6 +5226,24 @@
             "required": false,
             "type": "string",
             "description": "The path within the bucket"
+          },
+          {
+            "name": "X-Aws-Access-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Secret-Key",
+            "in": "header",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "X-Aws-Session-Token",
+            "in": "header",
+            "required": false,
+            "type": "string"
           }
         ],
         "responses": {

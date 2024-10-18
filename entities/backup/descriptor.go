@@ -23,6 +23,13 @@ type NodeDescriptor struct {
 	Error   string   `json:"error"`
 }
 
+// Remote storage credentials
+type Credentials struct {
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+}
+
 // DistributedBAckupDescriptor contains everything need to completely restore a distributed backup
 type DistributedBackupDescriptor struct {
 	StartedAt     time.Time                  `json:"startedAt"`

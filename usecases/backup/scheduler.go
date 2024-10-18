@@ -79,7 +79,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.authorizer.Authorize(pr, authorization.ADD, authorization.Backup(req.Backend, req.ID)); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
+	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path, req.Credentials)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
@@ -90,7 +90,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
+	if err := store.Initialize(ctx, req.Bucket, req.Path, req.Credentials); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
@@ -101,6 +101,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Compression: req.Compression,
 		Bucket:      req.Bucket,
 		Path:        req.Path,
+		Credentials: req.Credentials,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -129,7 +130,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err := s.authorizer.Authorize(pr, authorization.RESTORE, authorization.Restore(req.Backend, req.ID)); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
+	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path, req.Credentials)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
@@ -161,6 +162,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Classes:     meta.Classes(),
 		Bucket:      req.Bucket,
 		Path:        req.Path,
+		Credentials: req.Credentials,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -174,7 +176,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 }
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
-	backend, backupID, overrideBucket, overridePath string,
+	backend, backupID, overrideBucket, overridePath string, credentials *backup.Credentials,
 ) (_ *Status, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
@@ -182,13 +184,13 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	if err := s.authorizer.Authorize(principal, authorization.GET, authorization.Backup(backend, backupID)); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath, credentials)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path}
+	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, credentials}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -196,7 +198,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	return st, nil
 }
 
-func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
+func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string, credentials *backup.Credentials,
 ) (_ *Status, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
@@ -204,12 +206,12 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizer.Authorize(principal, authorization.GET, authorization.Restore(backend, backupID)); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath, credentials)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, credentials}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -217,7 +219,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	return st, nil
 }
 
-func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string, credentials *backup.Credentials,
 ) error {
 	defer func(begin time.Time) {
 		var err error
@@ -228,7 +230,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath, credentials)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return backup.NewErrUnprocessable(err)
@@ -238,11 +240,11 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
+	if err := store.Initialize(ctx, overrideBucket, overridePath, credentials); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
+	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath, credentials)
 	if meta != nil {
 		// if existed meta and not in the next cases shall be cancellable
 		switch meta.Status {
@@ -282,12 +284,12 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	return nil, fmt.Errorf("not implemented")
 }
 
-func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {
+func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string, credentials *backup.Credentials) (coordStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{objectStore{backend: caps, backupId: id, bucket: overrideBucket, path: overridePath}}, nil
+	return coordStore{objectStore{backend: caps, backupId: id, bucket: overrideBucket, path: overridePath, credentials: credentials}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
@@ -328,7 +330,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
+	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path, req.Credentials)
 	if err == nil && meta.Status != backup.Cancelled {
 		return fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
@@ -353,7 +355,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 	destPath := store.HomeDir(req.Bucket, req.Path)
-	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path)
+	meta, err := store.Meta(ctx, GlobalBackupFile, req.Bucket, req.Path, req.Credentials)
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
@@ -405,7 +407,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true)
+		meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, true, store.credentials)
 		if err != nil {
 			return nil, err
 		}

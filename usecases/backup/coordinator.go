@@ -191,7 +191,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+	credentials := req.Credentials
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath, credentials); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
@@ -209,7 +210,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath, credentials); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -250,9 +251,10 @@ func (c *coordinator) Restore(
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
+	credentials := req.Credentials
 
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath, credentials); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
@@ -266,7 +268,7 @@ func (c *coordinator) Restore(
 		c.commit(ctx, &statusReq, nodes, true)
 		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath, credentials); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -322,7 +324,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	}
 
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
+	meta, err := store.Meta(ctx, filename, store.bucket, store.path, store.credentials)
 	if err != nil {
 		path := st.Path
 		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)

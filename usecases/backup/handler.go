@@ -127,6 +127,16 @@ type Compression struct {
 	CPUPercentage int
 }
 
+// Aws auth details
+type AwsAuth struct {
+	// AccessKey is the AWS access key
+	AccessKey string
+	// SecretKey is the AWS secret key
+	SecretKey string
+	// SessionToken is the AWS session token
+	SessionToken string
+}
+
 // BackupRequest a transition request from API to Backend.
 type BackupRequest struct {
 	// Compression is the compression configuration.
@@ -153,6 +163,9 @@ type BackupRequest struct {
 
 	// Override path (optional) - replaces environement variable for one call
 	Path string
+
+	// Aws auth details
+	Credentials *backup.Credentials
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -183,7 +196,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
+		if err = store.Initialize(ctx, req.Bucket, req.Path, req.Credentials); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
