@@ -990,7 +990,7 @@ type mockShard struct {
 	compareAndSwapStatusFn func(old, new string) (storagestate.Status, error)
 }
 
-func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
+func (m *mockShard) compareAndSwapStatusIndexingAndReady(old, new string) (storagestate.Status, error) {
 	if m.compareAndSwapStatusFn == nil {
 		return storagestate.Status(new), nil
 	}

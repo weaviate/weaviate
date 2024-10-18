@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,6 +100,11 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	var maxSchemaVersion uint64
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
+
+		if obj.Class == "" {
+			batchObjects[i].Err = errors.New("object has an empty class")
+			continue
+		}
 
 		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj)
 		if err != nil {

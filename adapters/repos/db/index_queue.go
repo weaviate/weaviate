@@ -171,11 +171,11 @@ func (iq *VectorIndexQueue) updateShardStatus() bool {
 	defer iq.index.RUnlock()
 
 	if iq.Size() == 0 {
-		_, _ = iq.shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+		_, _ = iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 		return false /* do not skip, let the scheduler decide what to do */
 	}
 
-	status, err := iq.shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+	status, err := iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 	if status != storagestate.StatusIndexing || err != nil {
 		iq.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in ", iq.scheduler.ScheduleInterval)
 		return true

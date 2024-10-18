@@ -24,16 +24,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
+	if err := s.isReadOnly(); err != nil {
 		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
+			objects.BatchSimpleObject{Err: err},
 		}
 	}
 	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)

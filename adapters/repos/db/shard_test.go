@@ -68,11 +68,12 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	t.Run("mark shard readonly and fail to insert", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReadOnly.String())
+		err := shd.SetStatusReadonly("testing")
 		require.Nil(t, err)
 
 		err = shd.PutObject(ctx, testObject(className))
-		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
+		require.Contains(t, err.Error(), storagestate.ErrStatusReadOnly.Error())
+		require.Contains(t, err.Error(), "testing")
 	})
 
 	t.Run("mark shard ready and insert successfully", func(t *testing.T) {
