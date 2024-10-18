@@ -186,8 +186,6 @@ func (n *nodeStore) SetPath(path string) {
 	n.Path = path
 }
 
-
-
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
