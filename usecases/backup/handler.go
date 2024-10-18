@@ -276,12 +276,12 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (NodeStore, error) {
+func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (nodeStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
-		return NodeStore{}, err
+		return nodeStore{}, err
 	}
-	return NodeStore{ObjectStore{Backend: caps, BackupId: fmt.Sprintf("%s/%s", id, node)}}, nil
+	return nodeStore{objectStore{Backend: caps, BackupId: fmt.Sprintf("%s/%s", id, node)}}, nil
 }
 
 // basePath of the backup

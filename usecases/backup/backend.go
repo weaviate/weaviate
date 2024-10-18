@@ -65,7 +65,7 @@ const (
 
 var _NUMCPU = runtime.NumCPU()
 
-type ObjectStore struct {
+type objectStore struct {
 	Backend modulecapabilities.BackupBackend
 
 	BackupId string // use supplied backup id
@@ -73,33 +73,33 @@ type ObjectStore struct {
 	Path     string // Override path for one call
 }
 
-func (s *ObjectStore) HomeDir(overrideBucket, overridePath string) string {
+func (s *objectStore) HomeDir(overrideBucket, overridePath string) string {
 	return s.Backend.HomeDir(s.BackupId, overrideBucket, overridePath)
 }
 
-func (s *ObjectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
+func (s *objectStore) WriteToFile(ctx context.Context, key, destPath, overrideBucket, overridePath string) error {
 	return s.Backend.WriteToFile(ctx, s.BackupId, key, destPath, overrideBucket, overridePath)
 }
 
 // SourceDataPath is data path of all source files
-func (s *ObjectStore) SourceDataPath() string {
+func (s *objectStore) SourceDataPath() string {
 	return s.Backend.SourceDataPath()
 }
 
-func (s *ObjectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
+func (s *objectStore) Write(ctx context.Context, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	return s.Backend.Write(ctx, s.BackupId, key, overrideBucket, overridePath, r)
 }
 
-func (s *ObjectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
+func (s *objectStore) Read(ctx context.Context, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return s.Backend.Read(ctx, s.BackupId, key, overrideBucket, overridePath, w)
 }
 
-func (s *ObjectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
+func (s *objectStore) Initialize(ctx context.Context, overrideBucket, overridePath string) error {
 	return s.Backend.Initialize(ctx, s.BackupId, overrideBucket, overridePath)
 }
 
 // meta marshals and uploads metadata
-func (s *ObjectStore) putMeta(ctx context.Context, key, overrideBucket, overridePath string, desc interface{}) error {
+func (s *objectStore) putMeta(ctx context.Context, key, overrideBucket, overridePath string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
 		return fmt.Errorf("(putMeta)marshal meta file %q: %w", key, err)
@@ -112,7 +112,7 @@ func (s *ObjectStore) putMeta(ctx context.Context, key, overrideBucket, override
 	return nil
 }
 
-func (s *ObjectStore) meta(ctx context.Context, key, overrideBucket, overridePath string, dest interface{}) error {
+func (s *objectStore) meta(ctx context.Context, key, overrideBucket, overridePath string, dest interface{}) error {
 	bytes, err := s.Backend.GetObject(ctx, s.BackupId, key, overrideBucket, overridePath)
 	if err != nil {
 		return err
@@ -124,21 +124,81 @@ func (s *ObjectStore) meta(ctx context.Context, key, overrideBucket, overridePat
 	return nil
 }
 
-type NodeStore struct {
-	ObjectStore
+type nodeStore struct {
+	objectStore
 }
+
+// https://github.com/weaviate/weaviate/pull/6012#pullrequestreview-2371394228
+type NodeStore interface {
+	GetObjectStore(ctx context.Context, key string, overrideBucket, overridePath string) *objectStore
+	SetObjectStore(os *objectStore)
+	GetBackend() modulecapabilities.BackupBackend
+	SetBackend(backend modulecapabilities.BackupBackend)
+	GetBackupId() string
+	SetBackupId(backupId string)
+	GetBucket() string
+	SetBucket(bucket string)
+	GetPath() string
+	SetPath(path string)
+}
+
+func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
+	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
+}
+
+func (n *nodeStore) GetObjectStore(ctx context.Context, key string, overrideBucket, overridePath string) *objectStore {
+	return &n.objectStore
+}
+
+func (n *nodeStore) SetObjectStore(os *objectStore) {
+	n.objectStore = *os
+}
+
+func (n *nodeStore) GetBackend() modulecapabilities.BackupBackend {
+	return n.Backend
+}
+
+func (n *nodeStore) SetBackend(backend modulecapabilities.BackupBackend) {
+	n.Backend = backend
+}
+
+func (n *nodeStore) GetBackupId() string {
+	return n.BackupId
+}
+
+func (n *nodeStore) SetBackupId(backupId string) {
+	n.BackupId = backupId
+}
+
+func (n *nodeStore) GetBucket() string {
+	return n.Bucket
+}
+
+func (n *nodeStore) SetBucket(bucket string) {
+	n.Bucket = bucket
+}
+
+func (n *nodeStore) GetPath() string {
+	return n.Path
+}
+
+func (n *nodeStore) SetPath(path string) {
+	n.Path = path
+}
+
+
 
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *NodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+func (s *nodeStore) Meta(ctx context.Context, backupID, overrideBucket, overridePath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, overrideBucket, overridePath, &result)
 	if err != nil {
-		cs := &ObjectStore{s.Backend, backupID, overrideBucket, overridePath} // for backward compatibility
+		cs := &objectStore{s.Backend, backupID, overrideBucket, overridePath} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, overrideBucket, overridePath, &result); err == nil {
 			if adjustBasePath {
-				s.ObjectStore.BackupId = backupID
+				s.objectStore.BackupId = backupID
 			}
 			return &result, nil
 		}
@@ -148,12 +208,12 @@ func (s *NodeStore) Meta(ctx context.Context, backupID, overrideBucket, override
 }
 
 // meta marshals and uploads metadata
-func (s *NodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, overrideBucket, overridePath string) error {
+func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, overrideBucket, overridePath string) error {
 	return s.putMeta(ctx, BackupFile, overrideBucket, overridePath, desc)
 }
 
 type coordStore struct {
-	ObjectStore
+	objectStore
 }
 
 // PutMeta puts coordinator's global metadata into object store
@@ -177,14 +237,14 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer  Sourcer
-	backend  NodeStore
+	backend  nodeStore
 	backupID string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, backend NodeStore,
+func newUploader(sourcer Sourcer, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -439,7 +499,7 @@ func (u *uploader) compress(ctx context.Context,
 // fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
-	backend    NodeStore
+	backend    nodeStore
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
@@ -449,7 +509,7 @@ type fileWriter struct {
 	logger     logrus.FieldLogger
 }
 
-func newFileWriter(sourcer Sourcer, backend NodeStore,
+func newFileWriter(sourcer Sourcer, backend nodeStore,
 	compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()

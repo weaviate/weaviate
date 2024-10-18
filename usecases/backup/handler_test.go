@@ -87,7 +87,7 @@ func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-func (m *Handler) validateRestoreRequest(ctx context.Context, store NodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Handler) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {

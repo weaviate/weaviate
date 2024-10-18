@@ -62,7 +62,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 func (r *restorer) restore(
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store NodeStore,
+	store nodeStore,
 ) (CanCommitResponse, error) {
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -129,7 +129,7 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store NodeStore, overrideBucket, overridePath string,
+	store nodeStore, overrideBucket, overridePath string,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
@@ -154,7 +154,7 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string,
-	compressed bool, cpuPercentage int, store NodeStore,
+	compressed bool, cpuPercentage int, store nodeStore,
 	overrideBucket, overridePath string,
 ) (err error) {
 	classLabel := desc.Name
@@ -203,7 +203,7 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 	return istatus.(Status), nil
 }
 
-func (r *restorer) validate(ctx context.Context, store *NodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir(req.Bucket, req.Path)
 	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
 	if err != nil {

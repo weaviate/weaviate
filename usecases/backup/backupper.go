@@ -47,7 +47,7 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backe
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store NodeStore, id string, classes []string, overrideBucket, overridePath string,
+	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
@@ -126,7 +126,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(store NodeStore, req *Request) (CanCommitResponse, error) {
+func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {

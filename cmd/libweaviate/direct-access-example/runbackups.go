@@ -69,14 +69,9 @@ func main() {
 		}
 		if backupper != nil {
 			fmt.Printf("Backupper: %+v\n", backupper)
-			ns := backup.NodeStore{
-				backup.ObjectStore{
-					backend,
-					"test",
-					"", "",
-				},
-			}
-			meta, err := backupper.Backup(context.Background(), ns, "test", []string{"Page"}, "", "")
+
+			ns := backup.NewNodeStore(backend, "test", "", "")
+			meta, err := backupper.Backup(context.Background(), *ns, "test", []string{"Page"}, "", "")
 			if err != nil {
 				fmt.Printf("Error: %+v\n", err)
 			}
