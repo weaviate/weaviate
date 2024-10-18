@@ -66,13 +66,11 @@ type DiskQueue struct {
 	dir          string
 	lastPushTime atomic.Pointer[time.Time]
 	closed       atomic.Bool
-
-	// chunkSize is the maximum size of each chunk file.
-	chunkSize uint64
+	chunkSize    uint64
 
 	// m protects the disk operations
 	m                       sync.RWMutex
-	w                       bufio.Writer
+	w                       *bufio.Writer
 	f                       *os.File
 	partialChunkSize        uint64
 	partialChunkRecordCount uint64
@@ -127,6 +125,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		chunkSize:    opt.ChunkSize,
 		staleTimeout: opt.StaleTimeout,
 		taskDecoder:  opt.TaskDecoder,
+		w:            bufio.NewWriterSize(nil, 64*1024),
 	}
 
 	// create the directory if it doesn't exist
@@ -197,7 +196,7 @@ func (q *DiskQueue) Push(record []byte) error {
 	}
 
 	// length of the record in 4 bytes
-	err = binary.Write(&q.w, binary.BigEndian, uint32(len(record)))
+	err = binary.Write(q.w, binary.BigEndian, uint32(len(record)))
 	if err != nil {
 		return errors.Wrap(err, "failed to write record length")
 	}
@@ -254,7 +253,7 @@ func (q *DiskQueue) ensureChunk() error {
 				return errors.Wrap(err, "failed to write version")
 			}
 			// number of records
-			err = binary.Write(&q.w, binary.BigEndian, uint64(0))
+			err = binary.Write(q.w, binary.BigEndian, uint64(0))
 			if err != nil {
 				return errors.Wrap(err, "failed to write size")
 			}
@@ -347,7 +346,7 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if c == nil || c.f == nil && q.Size() > 0 {
 		c, err = q.checkIfStale()
-		if err != nil || c.f == nil {
+		if c == nil || err != nil || c.f == nil {
 			return nil, nil, err
 		}
 	}
