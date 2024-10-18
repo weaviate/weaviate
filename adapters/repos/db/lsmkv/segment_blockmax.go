@@ -304,9 +304,9 @@ func (s *SegmentBlockMax) QueryTermIndex() int {
 	return s.queryTermIndex
 }
 
-func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, terms.DocPointerWithScore) {
+func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
-		return 0, 0, terms.DocPointerWithScore{}
+		return 0, 0, nil
 	}
 
 	pair := s.blockData[s.blockDataIdx]
@@ -327,5 +327,5 @@ func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config sche
 		s.idPointer = s.blockData[s.blockDataIdx].Id
 	}
 
-	return id, tf * s.idf, terms.DocPointerWithScore{Id: pair.Id, Frequency: pair.Frequency, PropLength: pair.PropLength}
+	return id, tf * s.idf, nil
 }
