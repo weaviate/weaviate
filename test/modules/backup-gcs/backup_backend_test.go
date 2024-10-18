@@ -49,9 +49,9 @@ func gCSBackend_Backup(t *testing.T, overrideBucket, overridePath string) {
 
 	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 
-	t.Run("store backup meta", func (t *testing.T) {moduleLevelStoreBackupMeta(t, overrideBucket, overridePath)})
-	t.Run("copy objects", func (t *testing.T) {moduleLevelCopyObjects(t, overrideBucket, overridePath)})
-	t.Run("copy files", func (t *testing.T) {moduleLevelCopyFiles(t, overrideBucket, overridePath)})
+	t.Run("store backup meta", func(t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath) })
+	t.Run("copy objects", func(t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath) })
+	t.Run("copy files", func(t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath) })
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))

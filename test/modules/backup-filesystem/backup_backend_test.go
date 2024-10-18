@@ -31,14 +31,14 @@ import (
 )
 
 func Test_FileSystemBackend_Start(t *testing.T) {
-	filesystemBackend_Backup(t, "", "","")
-	filesystemBackend_Backup(t, "", ""," with override") // Note:  no bucket parameter, because it is not supported by the filesystem backend
+	filesystemBackend_Backup(t, "", "", "")
+	filesystemBackend_Backup(t, "", "", " with override") // Note:  no bucket parameter, because it is not supported by the filesystem backend
 }
 
 func filesystemBackend_Backup(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
-	t.Run("store backup meta"+overrideDescription, func (t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath, overrideDescription) })
-	t.Run("copy objects"+overrideDescription, func (t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath, overrideDescription) })
-	t.Run("copy files"+overrideDescription, func (t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath, overrideDescription) })
+	t.Run("store backup meta"+overrideDescription, func(t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath, overrideDescription) })
+	t.Run("copy objects"+overrideDescription, func(t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath, overrideDescription) })
+	t.Run("copy files"+overrideDescription, func(t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath, overrideDescription) })
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
