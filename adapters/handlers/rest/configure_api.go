@@ -50,6 +50,7 @@ import (
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/exp/metadata"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -390,6 +391,40 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
+	// let classTenantDataEvents be nil if the metadata server is not enabled since the metadata
+	// server/querierManager are the users of the channel
+	var classTenantDataEvents chan metadata.ClassTenant
+	if appState.ServerConfig.Config.MetadataServer.Enabled {
+		querierManager := metadata.NewQuerierManager(appState.Logger)
+		metadataServer := metadata.NewServer(
+			appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
+			1024*1024*1024,
+			true,
+			querierManager,
+			appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
+			appState.Logger)
+		appState.MetadataServer = metadataServer
+
+		classTenantDataEvents = make(chan metadata.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
+		enterrors.GoWrapper(func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := metadataServer.Serve(ctx); err != nil {
+				appState.Logger.WithError(err).Error("metadata server did not start")
+			}
+		}, appState.Logger)
+
+		enterrors.GoWrapper(func() {
+			for classTenantDataEvent := range classTenantDataEvents {
+				notifyErr := querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
+				if notifyErr != nil {
+					appState.Logger.WithError(notifyErr).
+						Warn("error when notifying metadata servers about class tenant data event")
+				}
+			}
+		}, appState.Logger)
+	}
+
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -433,6 +468,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
+		ClassTenantDataEvents:  classTenantDataEvents,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {

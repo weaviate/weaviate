@@ -4,6 +4,8 @@
 // - protoc             (unknown)
 // source: api/message.proto
 
+// NOTE run `buf generate` from `cluster/proto` to regenerate code
+
 package api
 
 import (

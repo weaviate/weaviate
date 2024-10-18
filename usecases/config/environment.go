@@ -444,6 +444,22 @@ func FromEnv(config *Config) error {
 		return fmt.Errorf("parse sentry config from env: %w", err)
 	}
 
+	config.MetadataServer.Enabled = false
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_METADATA_SERVER_ENABLED")) {
+		config.MetadataServer.Enabled = true
+	}
+	config.MetadataServer.GrpcListenAddress = DefaultMetadataServerGrpcListenAddress
+	if v := os.Getenv("EXPERIMENTAL_METADATA_SERVER_GRPC_LISTEN_ADDRESS"); v != "" {
+		config.MetadataServer.GrpcListenAddress = v
+	}
+	if err := parsePositiveInt(
+		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
+		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
+		DefaultMetadataServerDataEventsChannelCapacity,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
