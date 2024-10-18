@@ -43,13 +43,13 @@ func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	RunBackupJourney(t, ctx, false, "backups", "", "")
+	runBackupJourney(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		RunBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		runBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func RunBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	s3BackupJourneyBucketName := containerName
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")

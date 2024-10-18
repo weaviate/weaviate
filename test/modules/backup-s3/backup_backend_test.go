@@ -34,12 +34,12 @@ import (
 )
 
 func Test_S3Backend_Start(t *testing.T) {
-	S3Backend_Backup(t, false, "backups", "", "")
+	s3Backend_Backup(t, false, "backups", "", "")
 
-	S3Backend_Backup(t, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	s3Backend_Backup(t, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 }
 
-func S3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
+func s3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
 	bucketName := containerName
 
 	ctx := context.Background()
