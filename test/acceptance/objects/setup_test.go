@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/test/docker"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
@@ -24,7 +26,6 @@ import (
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -105,6 +106,10 @@ func testObjects(t *testing.T) {
 			{
 				Name:     "testWholeNumber",
 				DataType: []string{"int"},
+			},
+			{
+				Name:     "testReference",
+				DataType: []string{"TestObject"},
 			},
 			{
 				Name:     "testNumber",

@@ -272,11 +272,11 @@ func creatingObjects(t *testing.T) {
 				return &models.Object{
 					Class: "TestObject",
 					Properties: map[string]interface{}{
-						"testReference": map[string]interface{}{
+						"testReference": []interface{}{map[string]interface{}{
 							"beacon": fakeObjectId,
 							"x":      nil,
 							"type":   "Object",
-						},
+						}},
 					},
 				}
 			},

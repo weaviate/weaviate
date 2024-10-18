@@ -197,6 +197,10 @@ func objectVal(ctx context.Context, v *Validator, val interface{}, propertyPrefi
 			return nil, fmt.Errorf("property '%s': %w", propertyName, err)
 		}
 
+		if nestedValue == nil {
+			continue
+		}
+
 		var data interface{}
 		if schema.IsNested(*nestedDataType) {
 			data, err = v.extractAndValidateNestedProperty(ctx, propertyName, nestedValue,
