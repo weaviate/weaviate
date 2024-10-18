@@ -643,6 +643,12 @@ func (q *DiskQueue) countPartialChunkRecords(path string) (uint64, error) {
 	return count, nil
 }
 
+var readerPool = sync.Pool{
+	New: func() any {
+		return bufio.NewReaderSize(nil, defaultChunkSize)
+	},
+}
+
 type chunk struct {
 	path  string
 	r     *bufio.Reader
@@ -661,7 +667,8 @@ func openChunk(path string) (*chunk, error) {
 		return nil, err
 	}
 
-	c.r = bufio.NewReader(c.f)
+	c.r = readerPool.Get().(*bufio.Reader)
+	c.r.Reset(c.f)
 
 	// check the header
 	c.count, err = c.readHeader(c.r)
@@ -677,7 +684,10 @@ func (c *chunk) Close() error {
 		return nil
 	}
 
-	return c.f.Close()
+	err := c.f.Close()
+	readerPool.Put(c.r)
+	c.f = nil
+	return err
 }
 
 func (c *chunk) readHeader(r io.Reader) (uint64, error) {

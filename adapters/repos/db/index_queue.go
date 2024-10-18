@@ -258,7 +258,6 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			vector: vec,
 			idx:    v.idx,
 		}, nil
-
 	case vectorIndexQueueDeleteOp:
 		id, err := v.dec.DecodeUint()
 		if err != nil {
