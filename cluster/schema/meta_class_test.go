@@ -20,48 +20,69 @@ import (
 	"github.com/weaviate/weaviate/exp/metadata"
 )
 
-// TestUpdateTenantsProcess purpose is to verify that freezing a tenant does not throw errors or
+// TestUpdateTenantsProcess purpose is to verify that un/freezing a tenant does not throw errors or
 // block regardless of the state of the classTenantDataEvents channel (eg nil or full).
 // It's not ideal to test metaClass as it's not public, but our current higher level tests at the
 // Raft/Store level mock the metaClass code we want to test.
 // If you make changes that break this test, you should verify/update the tests to verify that
-// freezing a tenant does not throw errors or block.
+// un/freezing a tenant does not throw errors or block.
 // Later, we should replace this test with one that uses only public types/methods.
 func TestUpdateTenantsProcess(t *testing.T) {
-	metaClassesToTest := []*metaClass{
-		{},
-		{classTenantDataEvents: make(chan metadata.ClassTenant)},
-		{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+	classReplFactor1 := models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	tests := []struct {
+		name     string
+		m        *metaClass
+		testFunc func(m *metaClass) error
+	}{
+		{
+			name:     "Freeze/ClassTenantDataEventsNil",
+			m:        &metaClass{},
+			testFunc: addAndFreezeTenant,
+		},
+		{
+			name:     "Freeze/ClassTenantDataEventsUnbuffered",
+			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc: addAndFreezeTenant,
+		},
+		{
+			name:     "Freeze/ClassTenantDataEventsCapacity1",
+			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc: addAndFreezeTenant,
+		},
+		{
+			name:     "Unfreeze/ClassTenantDataEventsNil",
+			m:        &metaClass{Class: classReplFactor1},
+			testFunc: addAndUnfreezeTenant,
+		},
+		{
+			name:     "Unfreeze/ClassTenantDataEventsUnbuffered",
+			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc: addAndUnfreezeTenant,
+		},
+		{
+			name:     "Unfreeze/ClassTenantDataEventsCapacity1",
+			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc: addAndUnfreezeTenant,
+		},
 	}
-	for _, m := range metaClassesToTest {
-		t.Run("TestUpdateTenantsProcess", func(t *testing.T) {
-			err := addAndFreezeTenant(m)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.testFunc(tc.m)
 			require.Nil(t, err)
 		})
 	}
 }
 
+const (
+	nodeID     = "THIS"
+	tenantName = "T0"
+)
+
 func addAndFreezeTenant(m *metaClass) error {
-	nodeID := "THIS"
-	tenantName := "T0"
-	err := m.AddTenants(
-		nodeID,
-		&api.AddTenantsRequest{
-			ClusterNodes: []string{nodeID},
-			Tenants: []*api.Tenant{
-				{
-					Name:   tenantName,
-					Status: models.TenantActivityStatusACTIVE,
-				},
-			},
-		},
-		1,
-		0,
-	)
-	if err != nil {
+	if err := addTenant(m, models.TenantActivityStatusACTIVE); err != nil {
 		return err
 	}
-	err = m.UpdateTenants(
+	err := m.UpdateTenants(
 		nodeID,
 		&api.UpdateTenantsRequest{
 			ClusterNodes: []string{nodeID},
@@ -98,4 +119,65 @@ func addAndFreezeTenant(m *metaClass) error {
 		return err
 	}
 	return nil
+}
+
+func addAndUnfreezeTenant(m *metaClass) error {
+	if err := addTenant(m, models.TenantActivityStatusFROZEN); err != nil {
+		return err
+	}
+	err := m.UpdateTenants(
+		nodeID,
+		&api.UpdateTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants: []*api.Tenant{
+				{
+					Name:   tenantName,
+					Status: models.TenantActivityStatusHOT,
+				},
+			},
+		},
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	err = m.UpdateTenantsProcess(
+		nodeID,
+		&api.TenantProcessRequest{
+			Node:   nodeID,
+			Action: api.TenantProcessRequest_ACTION_UNFREEZING,
+			TenantsProcesses: []*api.TenantsProcess{
+				{
+					Op: api.TenantsProcess_OP_DONE,
+					Tenant: &api.Tenant{
+						Name:   tenantName,
+						Status: models.TenantActivityStatusHOT,
+					},
+				},
+			},
+		},
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func addTenant(m *metaClass, tenantStatus string) error {
+	err := m.AddTenants(
+		nodeID,
+		&api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants: []*api.Tenant{
+				{
+					Name:   tenantName,
+					Status: tenantStatus,
+				},
+			},
+		},
+		1,
+		0,
+	)
+	return err
 }
