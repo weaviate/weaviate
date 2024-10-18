@@ -410,7 +410,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if err := metadataServer.Serve(ctx); err != nil {
-				appState.Logger.WithError(err).Errorf("metadata server did not start")
+				appState.Logger.WithError(err).Error("metadata server did not start")
 			}
 		}, appState.Logger)
 
@@ -419,7 +419,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				notifyErr := querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
 				if notifyErr != nil {
 					appState.Logger.WithError(notifyErr).
-						Warnf("error when notifying metadata servers about class tenant data event")
+						Warn("error when notifying metadata servers about class tenant data event")
 				}
 			}
 		}, appState.Logger)

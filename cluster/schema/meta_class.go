@@ -407,8 +407,7 @@ func (m *metaClass) RLockGuard(reader func(*models.Class, *sharding.State) error
 }
 
 func shardProcessID(name string, action command.TenantProcessRequest_Action) string {
-	r := fmt.Sprintf("%s-%s", name, action)
-	return r
+	return fmt.Sprintf("%s-%s", name, action)
 }
 
 func (m *metaClass) findRequestedStatus(nodeID, name string, action command.TenantProcessRequest_Action) string {

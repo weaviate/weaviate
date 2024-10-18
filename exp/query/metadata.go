@@ -69,7 +69,7 @@ func (m *MetadataSubscription) Start() error {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	// loop to process events from the metadata node (TODO break this out into separate func)
+	// loop to process events from the metadata node
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		for {
