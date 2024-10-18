@@ -382,8 +382,6 @@ func (s *Scheduler) compressTasks(tasks []Task) []Task {
 
 	compressed = append(compressed, grouper.NewGroup(cur, group...))
 
-	s.Logger.WithField("original", len(tasks)).WithField("compressed", len(compressed)).Debug("tasks compressed")
-
 	return compressed
 }
 
