@@ -57,7 +57,7 @@ func (w *Worker) do(batch *Batch) (stop bool) {
 	return false
 }
 
-func (w *Worker) processTask(ctx context.Context, task *Task) (stop bool) {
+func (w *Worker) processTask(ctx context.Context, task Task) (stop bool) {
 	for {
 		err := task.Execute(ctx)
 		if err == nil {
