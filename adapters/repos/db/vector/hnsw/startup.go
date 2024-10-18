@@ -231,7 +231,7 @@ func (h *hnsw) prefillCache() {
 
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
-			"duration": 60 * time.Minute,
+			"duration": 240 * time.Minute,
 		}).Debug("context.WithTimeout")
 
 		var err error
