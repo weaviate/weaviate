@@ -36,7 +36,7 @@ import (
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 //
-// we will set it through ConfigureAPI() as it needs access to resources that
+// we will set it through configureAPI() as it needs access to resources that
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
