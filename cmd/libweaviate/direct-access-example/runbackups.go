@@ -95,7 +95,7 @@ func main() {
 					fmt.Printf("BackupStatus: %+v\n", status)
 					break
 				}
-				backupper.OnCommit(context.Background(), &backup.StatusRequest{"create", "test", "filesystem", "", ""})
+				backupper.OnCommit(context.Background(), &backup.StatusRequest{"create", "test", "filesystem", "", "", nil})
 			}
 
 		}

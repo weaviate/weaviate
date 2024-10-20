@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
@@ -31,6 +32,7 @@ import (
 
 func Test_Authorization(t *testing.T) {
 	req := &BackupRequest{ID: "123", Backend: "s3"}
+	cred := &backup.Credentials{}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -47,7 +49,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			additionalArgs:   []interface{}{"s3", "123", "", "", cred},
 			expectedVerb:     authorization.GET,
 			expectedResource: "backups/s3/123",
 		},
@@ -59,13 +61,13 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			additionalArgs:   []interface{}{"s3", "123", "", "", cred},
 			expectedVerb:     authorization.GET,
 			expectedResource: "backups/s3/123/restore",
 		},
 		{
 			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"s3", "123", "", "", nil},
+			additionalArgs:   []interface{}{"s3", "123", "", "", cred},
 			expectedVerb:     authorization.DELETE,
 			expectedResource: "backups/s3/123",
 		},
