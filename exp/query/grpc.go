@@ -13,7 +13,6 @@ package query
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/sirupsen/logrus"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
@@ -63,6 +62,8 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 		return nil, err
 	}
 
+	g.log.Info("serving request", err.Error())
+
 	return toProtoResponse(res), nil
 }
 
@@ -83,7 +84,6 @@ func requestFromProto(req *protocol.SearchRequest, getClass func(string) *models
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("clause: %+v\n", filter)
 		sr.Filters = &filters.LocalFilter{Root: &filter}
 	}
 	return sr, nil
