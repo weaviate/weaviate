@@ -12,6 +12,9 @@
 package rest
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -76,6 +79,10 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	if os.Getenv("DEMO_SIMULATE_SCHEMA_ERROR") != "" {
+		err := fmt.Errorf("unable to access schema service")
+		return schema.NewSchemaObjectsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
 	class, _, err := s.manager.GetConsistentClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -272,6 +279,11 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	if os.Getenv("DEMO_SIMULATE_SCHEMA_ERROR") != "" {
+		err := fmt.Errorf("unable to access schema service")
+		return schema.NewTenantsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, nil)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)

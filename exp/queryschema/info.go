@@ -96,6 +96,23 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode/100 != 2 {
+		var (
+			rerr  error
+			eresp Response
+		)
+		if err := json.NewDecoder(resp.Body).Decode(&eresp); err != nil {
+			return nil, err
+		}
+		if len(eresp.Error) == 0 {
+			return nil, errors.New("status code is non-200 but error is not set")
+		}
+		for _, e := range eresp.Error {
+			rerr = errors.Join(rerr, errors.New(e.Message))
+		}
+		return nil, rerr
+	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&classResp); err != nil {
 		return nil, err
 	}

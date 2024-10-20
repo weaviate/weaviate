@@ -346,7 +346,7 @@ func (a *API) EnsureLSM(
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
-	proceedWithDownload := false
+	proceedWithDownload := a.config.AlwaysFetchObjectStore
 	if doUpdateTenantIfExistsLocally {
 		if tenantIsCachedLocally {
 			// we should download because we've been told there is a new tenant version
@@ -391,7 +391,7 @@ func (a *API) EnsureLSM(
 	)
 	if proceedWithDownload {
 		_, err := os.Stat(localTenantTimePath)
-		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
+		if os.IsNotExist(err) {
 			// src - s3://<collection>/<tenant>/<node>/
 			// dst (local) - <data-path/<collection>/<tenant>/timestamp
 			a.log.WithFields(logrus.Fields{
