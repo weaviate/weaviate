@@ -98,12 +98,12 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := s3.Initialize(testCtx, backupID, overrideBucket, overridePath)
+			err := s3.Initialize(testCtx, backupID, overrideBucket, overridePath,nil)
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := s3.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
+			meta, err := s3.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath,nil)
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			t.Log(err)
@@ -127,7 +127,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = s3.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b)
+			err = s3.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b,nil)
 			require.Nil(t, err)
 
 			dest := s3.HomeDir(backupID, overrideBucket, overridePath)
@@ -141,7 +141,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := s3.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
+			obj, err := s3.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath,nil)
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -181,13 +181,13 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 
 		t.Run("put object to bucket", func(t *testing.T) {
 			t.Logf("put object with override: %v", override)
-			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"))
+			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"),nil)
 			assert.Nil(t, err, "expected nil, got: %v", err)
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
 			t.Logf("get object with override: %v", override)
-			meta, err := s3.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
+			meta, err := s3.GetObject(testCtx, backupID, key, overrideBucket, overridePath,nil)
 			assert.Nil(t, err, "expected nil, got: %v", err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -222,10 +222,10 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents)
+			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents,nil)
 			require.Nil(t, err)
 
-			contents, err := s3.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
+			contents, err := s3.GetObject(testCtx, backupID, key, overrideBucket, overridePath,nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
@@ -234,7 +234,7 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 			destPath := dataDir + "/file_0.copy.db"
 
 			t.Logf("download file with override: %v", override)
-			err := s3.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
+			err := s3.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath,nil)
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)
