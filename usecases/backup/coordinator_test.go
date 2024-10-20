@@ -44,7 +44,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: req.Compression,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "",nil}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", "", nil}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", "", nil}
 		nodeResolver = newFakeNodeResolver(nodes)
@@ -364,7 +364,7 @@ func TestCoordinatedRestore(t *testing.T) {
 			},
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "",nil}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName, "", "", nil}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 		abortReq = &AbortRequest{OpRestore, backupID, backendName, "", "", nil}
 	)
