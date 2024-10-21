@@ -662,6 +662,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
 				}
 				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable")
+				}
+				return nil
 			}
 		default:
 			if tokenization == "" {
