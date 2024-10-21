@@ -26,9 +26,8 @@ import (
 type Resolver struct {
 	cacher cacher
 	// for groupBy feature
-	withGroup                bool
-	groupByProps             search.SelectProperties
-	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
+	withGroup    bool
+	groupByProps search.SelectProperties
 }
 
 type cacher interface {
