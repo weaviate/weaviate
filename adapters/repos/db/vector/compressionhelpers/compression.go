@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
@@ -216,7 +217,6 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	before := time.Now()
-	count := 0
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
@@ -224,42 +224,31 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []T
-	}
 
-	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
-	// this slice dynamically should be quite cheap compared to other operations
-	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	parallel := 2 * runtime.GOMAXPROCS(0)
 	maxID := uint64(0)
+	vecs := make([]VecAndID[T], 0, 10_000)
 
-	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-
-		if len(k) == 0 {
-			compressor.logger.WithFields(logrus.Fields{
-				"action": "hnsw_compressed_vector_cache_prefill",
-				"len":    len(v),
-				"lenk":   len(k),
-			}).Warn("skipping compressed vector with unexpected length")
-			continue
-		}
-
-		count++
-
-		id := compressor.loadId(k)
-		vc := make([]byte, len(v))
-		copy(vc, v)
-
-		vecs = append(vecs, vec{id: id, vec: compressor.quantizer.FromCompressedBytes(vc)})
-		if id > maxID {
-			maxID = id
-		}
-
+	it := NewCompressedParallelIterator(
+		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
+		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytes,
+		compressor.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
 	}
-	cursor.Close()
+
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	count := 0
+	for i := range vecs {
+		count++
+		if vecs[i].id > maxID {
+			maxID = vecs[i].id
+		}
+	}
 
 	compressor.cache.Grow(maxID)
 
@@ -271,6 +260,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	compressor.logger.WithFields(logrus.Fields{
 		"action": "hnsw_compressed_vector_cache_prefill",
 		"count":  count,
+		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache")
 }
