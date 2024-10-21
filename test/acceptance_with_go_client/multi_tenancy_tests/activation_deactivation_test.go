@@ -645,6 +645,10 @@ func assertActiveTenantObjects(t *testing.T, client *wvt.Client, className, tena
 }
 
 func assertInactiveTenantObjects(t *testing.T, client *wvt.Client, className, tenantName string) {
+	// Data objects in Weaviate are eventually consistent, therefore we have to add some sleep time
+	// to make sure that the tenant was deactivate in all nodes
+	// see docs: https://github.com/weaviate/weaviate-io/blob/main/developers/weaviate/concepts/replication-architecture/consistency.md#data-objects
+	time.Sleep(2 * time.Second)
 	objects, err := client.Data().ObjectsGetter().
 		WithClassName(className).
 		WithTenant(tenantName).
