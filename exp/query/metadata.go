@@ -63,24 +63,27 @@ func (m *MetadataSubscription) Start() error {
 		return err
 	}
 	defer stream.CloseSend()
-	m.log.WithField("metadataGRPCAddress", m.metadataGRPCAddress).Debug("connected to metadata node")
+	m.log.WithField("metadataGRPCAddress", m.metadataGRPCAddress).Info("connected to metadata node")
 	ctx := stream.Context()
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
+	var returnErr error
 	// loop to process events from the metadata node
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		for {
 			resp, err := stream.Recv()
+			returnErr = err
 			if err == io.EOF {
 				// this error is expected when the stream is closed by the metadata node
+				// the caller can use this error to decide if they want to reconnect
 				m.log.Debug("metadata subscription stream closed")
 				return
 			}
 			if err != nil {
-				// unexpected error, stream aborted TODO try to reconnect?
+				// unexpected error
 				m.log.WithError(err).Warn("error metadata subscription recv")
 				return
 			}
@@ -104,5 +107,5 @@ func (m *MetadataSubscription) Start() error {
 	// the existence of the stream to keep the connection alive so we can receive events, we can switch to
 	// a unidirectional stream later if we never want to send messages from the querier
 	wg.Wait()
-	return nil
+	return returnErr
 }

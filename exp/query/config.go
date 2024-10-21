@@ -30,6 +30,10 @@ type Config struct {
 	// Note that this should be replaced later to avoid having a single metadata node as a single point of failure.
 	// If MetadataGRPCAddress is empty, the querier will connect to localhost.
 	MetadataGRPCAddress string `long:"metadata.grpc.address" description:"metadata grpc address" default:":9050"`
+	// MetadataReconnectInterval how long to wait between metadata reconnect attempts. The format
+	// of the string is the same as time.ParseDuration. Defaults to 30 seconds (30s).
+	MetadataReconnectInterval string `long:"metadata.reconnect.interval" description:"how long to wait between metadata reconnect attempts, format per time.ParseDuration" default:":30s"`
+
 	// AlwaysFetchObjectStore flag ignore what version does local querier has and fetch from
 	// object store (source of truth) all the time.
 	// NOTE: Enabling this (without any intermediate cache) can introduce more latency. Can be used to during performance testing, debugging, correctness check, etc.

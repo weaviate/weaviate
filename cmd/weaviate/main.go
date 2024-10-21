@@ -16,7 +16,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -111,13 +113,23 @@ func main() {
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
 		enterrors.GoWrapper(func() {
-			metadataSubscription := query.NewMetadataSubscription(
-				a,
-				opts.Query.MetadataGRPCAddress,
-				log)
-			if err = metadataSubscription.Start(); err != nil {
-				log.WithError(err).Warnf("Failed to start metadata subscription")
+			reconnectInterval, err := time.ParseDuration(opts.Query.MetadataReconnectInterval)
+			if err != nil {
+				log.WithError(err).WithField("MetadataReconnectInterval", opts.Query.MetadataReconnectInterval).
+					Fatal("failed to parse metadata reconnect interval")
 			}
+			backoff.Retry(func() error {
+				metadataSubscription := query.NewMetadataSubscription(
+					a,
+					opts.Query.MetadataGRPCAddress,
+					log)
+				err = metadataSubscription.Start()
+				if err != nil {
+					log.WithError(err).WithField("reconnectInterval", reconnectInterval).
+						Warnf("Failed to start metadata subscription, will try again after reconnectInterval")
+				}
+				return err
+			}, backoff.NewConstantBackOff(reconnectInterval))
 		}, log)
 
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
