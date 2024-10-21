@@ -654,10 +654,10 @@ func assertInactiveTenantObjects(t *testing.T, client *wvt.Client, className, te
 			WithTenant(tenantName).
 			Do(context.Background())
 
-		require.NotNil(t, err)
+		assert.NotNil(t, err)
 		clientErr := err.(*fault.WeaviateClientError)
 		assert.Equal(t, 422, clientErr.StatusCode)
 		assert.Contains(t, clientErr.Msg, "tenant not active")
-		require.Nil(t, objects)
-	}, 5*time.Second, 500*time.Microsecond, "tenant was active, expected to be inactive")
+		assert.Nil(t, objects)
+	}, 5*time.Second, 1*time.Second, "tenant was active, expected to be inactive")
 }
