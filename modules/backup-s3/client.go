@@ -25,8 +25,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type s3Client struct {
@@ -129,7 +129,6 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	if overrideBucket != "" {
 		bucket = overrideBucket
 	}
-
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object '%s'", remotePath))
