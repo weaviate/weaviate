@@ -13,6 +13,7 @@ package modsloads3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -327,6 +328,12 @@ func (m *Module) DownloadToPath(ctx context.Context, className, shardName, nodeN
 		}
 		m.metrics.OpsDuration.WithLabelValues("download", status).Observe(time.Since(start).Seconds())
 	}()
+
+	// TODO(kavi): remove after demo
+	if os.Getenv("DEMO_SIMULATE_DOWNLOAD_FAILURE") != "" {
+		err = errors.New("failed to download from object storage")
+		return err
+	}
 
 	err = m.app.RunContext(ctx, cmd)
 

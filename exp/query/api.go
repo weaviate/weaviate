@@ -346,7 +346,9 @@ func (a *API) EnsureLSM(
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
-	proceedWithDownload := false
+
+	proceedWithDownload := a.config.AlwaysFetchObjectStore
+
 	if doUpdateTenantIfExistsLocally {
 		if tenantIsCachedLocally {
 			// we should download because we've been told there is a new tenant version
@@ -360,7 +362,7 @@ func (a *API) EnsureLSM(
 			return nil, "", errors.New("tenant does not exist locally, ignore this error, will download later if needed")
 		}
 	}
-	if !doUpdateTenantIfExistsLocally {
+	if !doUpdateTenantIfExistsLocally && !proceedWithDownload {
 		if tenantIsCachedLocally {
 			// tenant is cached, we can just return it because this is not a new version call
 			cachedLsmkvStore := cachedTenantLsmkvStore.(tenantLsmkvStore)
@@ -389,20 +391,18 @@ func (a *API) EnsureLSM(
 		localTenantTimePath,
 		defaultLSMRoot,
 	)
+
 	if proceedWithDownload {
-		_, err := os.Stat(localTenantTimePath)
-		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
-			// src - s3://<collection>/<tenant>/<node>/
-			// dst (local) - <data-path/<collection>/<tenant>/timestamp
-			a.log.WithFields(logrus.Fields{
-				"collection":          collection,
-				"tenant":              tenant,
-				"nodeName":            nodeName,
-				"localTenantTimePath": localTenantTimePath,
-			}).Debug("starting download to path")
-			if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
-				return nil, "", err
-			}
+		// src - s3://<collection>/<tenant>/<node>/
+		// dst (local) - <data-path/<collection>/<tenant>/timestamp
+		a.log.WithFields(logrus.Fields{
+			"collection":          collection,
+			"tenant":              tenant,
+			"nodeName":            nodeName,
+			"localTenantTimePath": localTenantTimePath,
+		}).Debug("starting download to path")
+		if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+			return nil, "", err
 		}
 	}
 
