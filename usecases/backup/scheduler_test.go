@@ -820,11 +820,11 @@ func TestCancellingBackup(t *testing.T) {
 	)
 
 	t.Run("ValidateEmptyID-Cancellation", func(t *testing.T) {
-		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "", "", "", nil))
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "", "", ""))
 	})
 
 	t.Run("ValidateID", func(t *testing.T) {
-		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "A*:", "", "", nil))
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "A*:", "", ""))
 	})
 
 	t.Run("CancellingSucceeded", func(t *testing.T) {
@@ -838,7 +838,7 @@ func TestCancellingBackup(t *testing.T) {
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
-		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc", "", "", nil)
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc", "", "")
 		assert.NotNil(t, err)
 		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)

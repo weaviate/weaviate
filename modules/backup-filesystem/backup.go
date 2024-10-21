@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, credentials *backup.Credentials) ([]byte, error) {
+func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	var metaPath string
 	var err error
 	if overridePath != "" {
@@ -97,7 +97,7 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overridePath string, byes []byte, credentials *backup.Credentials) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overridePath string, byes []byte) error {
 	if bucket != "" {
 		m.logger.Info("bucket parameter not supported for filesystem backup module!")
 	}
@@ -125,12 +125,12 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 	return nil
 }
 
-func (m *Module) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string, credentials *backup.Credentials) error {
+func (m *Module) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string, credentials *backup.Credentials) error {
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	var objectPath string
 	var err error
 	if overridePath != "" {
@@ -152,7 +152,7 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, overr
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser, credentials *backup.Credentials) (int64, error) {
+func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
 	var backupPath string
@@ -184,7 +184,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 	return written, err
 }
 
-func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser, credentials *backup.Credentials) (int64, error) {
+func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 	sourcePath, err := m.getObjectPath(ctx, m.backupsPath, backupID, key)
 	if err != nil {

@@ -65,7 +65,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"s3", "123", "", "", nil},
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.DELETE,
 			expectedResource: "backups/s3/123",
 		},

@@ -67,12 +67,12 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, over
 		require.Nil(t, err)
 
 		t.Run("access permissions"+overrideDescription, func(t *testing.T) {
-			err := fs.Initialize(testCtx, backupID, overrideBucket, overridePath, nil)
+			err := fs.Initialize(testCtx, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet"+overrideDescription, func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, nil)
+			meta, err := fs.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -95,7 +95,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, over
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = fs.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b, nil) // Note:  no bucket parameter, because it is not supported by the filesystem backend
+			err = fs.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b) // Note:  no bucket parameter, because it is not supported by the filesystem backend
 			require.Nil(t, err)
 
 			dest := fs.HomeDir(backupID, overrideBucket, overridePath)
@@ -131,12 +131,12 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath, override
 		require.Nil(t, err)
 
 		t.Run("put object to bucket"+overrideDescription, func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"), nil)
+			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
 		t.Run("get object from bucket"+overrideDescription, func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath, nil)
+			meta, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -176,10 +176,10 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath, overrideDe
 		t.Logf("Source data path: %s\n"+overrideDescription, fs.SourceDataPath())
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents, nil)
+			err := fs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents)
 			require.Nil(t, err)
 
-			contents, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath, nil)
+			contents, err := fs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
@@ -188,7 +188,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath, overrideDe
 			destPath := dataDir + "/file_0.copy.db"
 
 			t.Logf("Calling WriteToFile with backupID: %s, key: %s, destPath: %s, override: %s\n", backupID, key, destPath, overrideBucket+"/"+overridePath)
-			err := fs.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath, nil)
+			err := fs.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
 			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 

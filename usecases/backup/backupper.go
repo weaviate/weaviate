@@ -47,16 +47,15 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backe
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string, overrideBucket, overridePath string, credentials *backup.Credentials,
+	store nodeStore, id string, classes []string, overrideBucket, overridePath string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
-		Method:      OpCreate,
-		ID:          id,
-		Classes:     classes,
-		Bucket:      overrideBucket,
-		Path:        overridePath,
-		Credentials: credentials,
+		Method:  OpCreate,
+		ID:      id,
+		Classes: classes,
+		Bucket:  overrideBucket,
+		Path:    overridePath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -105,7 +104,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false, store.credentials)
+	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqStat{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
@@ -170,7 +169,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
-		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path, req.Credentials); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 

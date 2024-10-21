@@ -111,9 +111,8 @@ func (r *restorer) restore(
 
 		overrideBucket := req.Bucket
 		overridePath := req.Path
-		credentials := req.Credentials
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, credentials)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -131,12 +130,11 @@ func (r *restorer) restore(
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
 	store nodeStore, overrideBucket, overridePath string,
-	credentials *backup.Credentials,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath, credentials); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -157,7 +155,7 @@ func getType(myvar interface{}) string {
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string,
 	compressed bool, cpuPercentage int, store nodeStore,
-	overrideBucket, overridePath string, credentials *backup.Credentials,
+	overrideBucket, overridePath string,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -181,7 +179,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc, overrideBucket, overridePath, credentials); err != nil {
+	if err := fw.Write(ctx, desc, overrideBucket, overridePath); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 
@@ -207,7 +205,7 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 
 func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir(req.Bucket, req.Path)
-	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true, req.Credentials)
+	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {

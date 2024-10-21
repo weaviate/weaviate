@@ -54,9 +54,6 @@ type Request struct {
 
 	// Additional path prefix override
 	Path string
-
-	// Aws credentials
-	Credentials *backup.Credentials
 }
 
 type CanCommitResponse struct {
@@ -80,8 +77,7 @@ type StatusRequest struct {
 	// Bucket specify the bucket name
 	Bucket string
 	// Path specify the path
-	Path        string
-	Credentials *backup.Credentials
+	Path string
 }
 
 type StatusResponse struct {

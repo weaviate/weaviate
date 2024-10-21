@@ -97,32 +97,11 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		OverrideBucket = params.Body.Config.Bucket
 		OverridePath = params.Body.Config.Path
 	}
-
-	xAwsAccessKey := ""
-	if params.XAwsAccessKey != nil {
-		xAwsAccessKey = *params.XAwsAccessKey
-	}
-
-	xAwsSecretKey := ""
-	if params.XAwsSecretKey != nil {
-		xAwsSecretKey = *params.XAwsSecretKey
-	}
-
-	xAwsSessionToken := ""
-	if params.XAwsSessionToken != nil {
-		xAwsSessionToken = *params.XAwsSessionToken
-	}
-
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:      params.Body.ID,
-		Backend: params.Backend,
-		Bucket:  OverrideBucket,
-		Path:    OverridePath,
-		Credentials: &backup.Credentials{
-			AccessKey:    xAwsAccessKey,
-			SecretKey:    xAwsSecretKey,
-			SessionToken: xAwsSessionToken,
-		},
+		ID:          params.Body.ID,
+		Backend:     params.Backend,
+		Bucket:      OverrideBucket,
+		Path:        OverridePath,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
@@ -240,12 +219,8 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	if params.Path != nil {
 		overridePath = *params.Path
 	}
-	var credentials *backup.Credentials
-	if params. != nil {
-
-	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, credentials)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -286,25 +261,7 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	if params.Path != nil {
 		overridePath = *params.Path
 	}
-	accessKey := ""
-	if params.XAwsAccessKey != nil {
-		accessKey = *params.XAwsAccessKey
-	}
-	secretKey := ""
-	if params.XAwsSecretKey != nil {
-		secretKey = *params.XAwsSecretKey
-	}
-	sessionToken := ""
-	if params.XAwsSessionToken != nil {
-		sessionToken = *params.XAwsSessionToken
-	}
-	credentials := &backup.Credentials{
-		AccessKey:    accessKey,
-		SecretKey:    secretKey,
-		SessionToken: sessionToken,
-	}
-
-	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, credentials)
+	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

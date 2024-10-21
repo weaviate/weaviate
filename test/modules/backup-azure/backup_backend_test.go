@@ -95,12 +95,12 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := azure.Initialize(testCtx, backupID, override[0], override[1], nil)
+			err := azure.Initialize(testCtx, backupID, override[0], override[1])
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1], nil)
+			meta, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -136,7 +136,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1], nil)
+			obj, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
 			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 
@@ -188,7 +188,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
-			meta, err := azure.GetObject(testCtx, backupID, key, override[0], override[1], nil)
+			meta, err := azure.GetObject(testCtx, backupID, key, override[0], override[1])
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -237,7 +237,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 			err = azure.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
 			require.Nil(t, err)
 
-			contents, err := azure.GetObject(testCtx, backupID, key, override[0], override[1], nil)
+			contents, err := azure.GetObject(testCtx, backupID, key, override[0], override[1])
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
@@ -245,7 +245,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			err := azure.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1], nil)
+			err := azure.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1])
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)

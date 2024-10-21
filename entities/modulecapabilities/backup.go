@@ -14,8 +14,6 @@ package modulecapabilities
 import (
 	"context"
 	"io"
-
-	"github.com/weaviate/weaviate/entities/backup"
 )
 
 type BackupBackend interface {
@@ -27,26 +25,26 @@ type BackupBackend interface {
 	HomeDir(backupID, overrideBucket, overridePath string) string
 
 	// GetObject giving backupID and key
-	GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, credentials *backup.Credentials) ([]byte, error)
+	GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error)
 
 	// WriteToFile writes an object in the specified file with path destPath
 	// The file will be created if it doesn't exist
 	// The file will be overwritten if it exists
-	WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string, credentials *backup.Credentials) error
+	WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error
 
 	// SourceDataPath is data path of all source files
 	SourceDataPath() string
 
 	// PutObject writes bytes to the object with key `key`
 	// bucketName and bucketPath override the initialised bucketName and bucketPath
-	PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte, credentials *backup.Credentials) error
+	PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error
 
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
-	Initialize(ctx context.Context, backupID, overrideBucket, overridePath string, credentials *backup.Credentials) error
+	Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error
 
 	// Write writes the content of the reader to the object with key
 	// bucketName and bucketPath override the initialised bucketName and bucketPath
 	// Allows restores from a different bucket to the designated backup bucket
-	Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser, credentials *backup.Credentials) (int64, error)
-	Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser, credentials *backup.Credentials) (int64, error)
+	Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error)
+	Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error)
 }

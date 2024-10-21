@@ -128,7 +128,7 @@ func (g *gcsClient) makeObjectName(overridePath string, parts []string) string {
 	}
 }
 
-func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, credentials *backup.Credentials) ([]byte, error) {
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 
 	if err := ctx.Err(); err != nil {
@@ -154,7 +154,7 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 	return contents, nil
 }
 
-func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte, credentials *backup.Credentials) error {
+func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
@@ -182,10 +182,10 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 	return nil
 }
 
-func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string, credentials *backup.Credentials) error {
+func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	key := "access-check"
 
-	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte(""), credentials); err != nil {
+	if err := g.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)
 	}
 
@@ -204,7 +204,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 
 // WriteToFile downloads an object and store its content in destPath
 // The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string, credentials *backup.Credentials) (err error) {
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		return fmt.Errorf("WriteToFile: '%w'", err)
@@ -258,7 +258,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, ov
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser, credentials *backup.Credentials) (int64, error) {
+func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
@@ -290,7 +290,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	return written, nil
 }
 
-func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser, credentials *backup.Credentials) (int64, error) {
+func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
