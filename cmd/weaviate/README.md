@@ -47,13 +47,14 @@ Application Options:
       --target=               how should weaviate-server be running as e.g: querier, ingester, etc
 
 query:
-      --query.grpc.listen=    gRPC address that query node listens at (default: 0.0.0.0:9091)
-      --query.schema.addr=    address to get schema information (default: http://0.0.0.0:8080)
-      --query.s3.url=         s3 URL to query offloaded tenants (e.g: s3://<url>)
-      --query.s3.endpoint=    s3 endpoint to if mocking s3 (e.g: via minio)
-      --query.datapath=       place to look for tenant data after downloading it from object storage (default: /tmp)
-      --query.vectorize-addr= vectorizer address to be used to vectorize near-text query (default: 0.0.0.0:9999)
-      --query.metadata.grpc.address= gRPC address at which to connect to the metadata server'(default: :9050)
+      --query.grpc.listen=                 gRPC address that query node listens at (default: 0.0.0.0:9091)
+      --query.schema.addr=                 address to get schema information (default: http://0.0.0.0:8080)
+      --query.s3.url=                      s3 URL to query offloaded tenants (e.g: s3://<url>)
+      --query.s3.endpoint=                 s3 endpoint to if mocking s3 (e.g: via minio)
+      --query.datapath=                    place to look for tenant data after downloading it from object storage (default: /tmp)
+      --query.vectorize-addr=              vectorizer address to be used to vectorize near-text query (default: 0.0.0.0:9999)
+      --query.metadata.grpc.address=       gRPC address at which to connect to the metadata server'(default: :9050)
+      --query.metadata.reconnect.interval= how long to wait between metadata reconnect attempts, format per time.ParseDuration'(default: 30s)
 
 Help Options:
   -h, --help                  Show this help message
