@@ -374,21 +374,6 @@ func init() {
             "description": "The path within the bucket",
             "name": "path",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -455,21 +440,6 @@ func init() {
             "description": "The path within the bucket",
             "name": "path",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -533,21 +503,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupRestoreRequest"
             }
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -5919,21 +5874,6 @@ func init() {
             "description": "The path within the bucket",
             "name": "path",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -6000,21 +5940,6 @@ func init() {
             "description": "The path within the bucket",
             "name": "path",
             "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -6078,21 +6003,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupRestoreRequest"
             }
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
