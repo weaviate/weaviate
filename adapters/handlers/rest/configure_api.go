@@ -362,7 +362,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	server2port, err := parseNode2Port(appState)
+	server2port, err := discoverNodes2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
 			WithField("action", "startup").
@@ -371,6 +371,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("parsing raft-join")
 		os.Exit(1)
 	}
+
+	adjustBootStrapExpect(appState, server2port)
 
 	nodeName := appState.Cluster.LocalName()
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
@@ -406,6 +408,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 	}
+
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
 			rConfig.Voter = true
@@ -537,8 +540,16 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	return appState
 }
 
-func parseNode2Port(appState *state.State) (m map[string]int, err error) {
-	m = make(map[string]int, len(appState.ServerConfig.Config.Raft.Join))
+// discoverNodes2Port it will collect nodes info from configured RAFT_JOIN, RAFT_PORT
+// and will get nodes from memberlist if weren't configured and assign them with
+// default RAFT port incase RAFT_JOIN was 1 or less.
+func discoverNodes2Port(appState *state.State) (m map[string]int, err error) {
+	exMemeberList := appState.Cluster.AllNames()
+	configuredRAFTJoin := appState.ServerConfig.Config.Raft.Join
+
+	m = make(map[string]int, len(exMemeberList))
+
+	// parse RAFT_JOIN config
 	for _, raftNamePort := range appState.ServerConfig.Config.Raft.Join {
 		np := strings.Split(raftNamePort, ":")
 		if np[0] == appState.Cluster.LocalName() {
@@ -550,7 +561,43 @@ func parseNode2Port(appState *state.State) (m map[string]int, err error) {
 		}
 	}
 
+	// memberlist doesn't match raft join and
+	if len(configuredRAFTJoin) <= 1 && len(configuredRAFTJoin) != len(exMemeberList) {
+		for _, n := range exMemeberList {
+			if n == appState.Cluster.LocalName() {
+				continue
+			}
+			m[n] = config.DefaultRaftInternalPort
+			appState.ServerConfig.Config.Raft.Join = append(appState.ServerConfig.Config.Raft.Join, n)
+			appState.Logger.WithFields(logrus.Fields{
+				"node_name": n,
+				"port":      config.DefaultRaftInternalPort,
+			}).Warn("adjust raft join config")
+		}
+	}
+
 	return m, nil
+}
+
+// adjustBootStrapExpect it will also updates BootstrapExpect with the following number of voters
+// 1-2 nodes -> 1 voter
+// 3-9 nodes -> 3 voters
+// 10- nodes -> 5 voters
+func adjustBootStrapExpect(appState *state.State, nodesToPort map[string]int) {
+	adjustedBootstrapExpect := appState.ServerConfig.Config.Raft.BootstrapExpect
+	switch l := len(nodesToPort); {
+	case l <= 2:
+		adjustedBootstrapExpect = 1
+	case l > 2 && l < 10:
+		adjustedBootstrapExpect = 3
+	case l >= 10:
+		adjustedBootstrapExpect = 5
+
+	}
+	if appState.ServerConfig.Config.Raft.BootstrapExpect != adjustedBootstrapExpect {
+		appState.Logger.WithField("bootstrap_excpect", adjustedBootstrapExpect).Warn("adjust bootstrap excpect config")
+	}
+	appState.ServerConfig.Config.Raft.BootstrapExpect = adjustedBootstrapExpect
 }
 
 // parseVotersNames parses names of all voters.
