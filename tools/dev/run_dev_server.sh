@@ -817,7 +817,8 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
       GPT4ALL_INFERENCE_API="http://localhost:8010" \
-      ENABLE_MODULES="text2vec-gpt4all" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/dev-backups" \
+      ENABLE_MODULES="text2vec-bigram,backup-filesystem,text2vec-gpt4all" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
