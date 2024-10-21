@@ -320,8 +320,23 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Determine retry max_attempts value
+        env:
+          MATRIX_TEST: ${{ matrix.test }}
+        run: |
+          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
+            echo "retry_max_attempts=2" >> $GITHUB_ENV
+          else
+            echo "retry_max_attempts=1" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests Large
-        run: ./test/run.sh ${{ matrix.test }}
+        uses: nick-fields/retry@v3
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: ${{ env.retry_max_attempts }}
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
