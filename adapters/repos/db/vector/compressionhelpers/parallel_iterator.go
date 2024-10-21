@@ -69,7 +69,7 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		vc := make([]byte, len(v))
 		copy(vc, v)
 		id := cpi.loadId(k)
-		vec := cpi.fromCompressedBytes(v)
+		vec := cpi.fromCompressedBytes(vc)
 		return VecAndID[T]{id: id, vec: vec}
 	}
 
@@ -187,7 +187,7 @@ func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAn
 			vc := make([]byte, len(v))
 			copy(vc, v)
 			id := cpi.loadId(k)
-			vec := cpi.fromCompressedBytes(v)
+			vec := cpi.fromCompressedBytes(vc)
 			localResults = append(localResults, VecAndID[T]{id: id, vec: vec})
 		}
 
