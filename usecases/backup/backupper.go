@@ -73,7 +73,7 @@ func (b *backupper) Backup(ctx context.Context,
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend, "", "", nil}) // empty fields retrieved from store, not passed in
+	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend, "", ""}) // retrieved from store
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			err = backup.NewErrNotFound(err)

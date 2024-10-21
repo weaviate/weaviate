@@ -166,7 +166,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "", nil)
+		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "") // FIXME
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
@@ -174,7 +174,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "", nil)
+		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 	})
 
@@ -183,7 +183,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
-		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "", nil)
+		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -205,7 +205,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		want.Status = backup.Success
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "", nil)
+		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -220,7 +220,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "", nil)
+		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -250,7 +250,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "", nil)
+		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
@@ -258,14 +258,14 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "", nil)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 	})
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
-		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "", nil)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -282,7 +282,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		want.Status = backup.Success
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "", nil)
+		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -304,7 +304,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", "", nil}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -438,7 +438,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", "", nil}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{

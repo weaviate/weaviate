@@ -157,9 +157,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 	if params.Path != nil {
 		overridePath = *params.Path
 	}
-	var credentials *backup.Credentials
-
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, credentials)
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -243,16 +241,9 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		overridePath = *params.Path
 	}
 	var credentials *backup.Credentials
-	if params.XAwsAccessKey != nil {
-		credentials.AccessKey = *params.XAwsAccessKey
-	}
-	if params.XAwsSecretKey != nil {
-		credentials.SecretKey = *params.XAwsSecretKey
-	}
-	if params.XAwsSessionToken != nil {
-		credentials.SessionToken = *params.XAwsSessionToken
-	}
+	if params. != nil {
 
+	}
 	status, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath, credentials)
 	if err != nil {
