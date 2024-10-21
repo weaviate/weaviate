@@ -353,6 +353,8 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	for _, prop := range out.Properties {
 		additionalGroupHitProp := search.SelectProperty{Name: prop.Name}
 		additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, prop.Refs...)
+		additionalGroupHitProp.IsPrimitive = prop.IsPrimitive
+		additionalGroupHitProp.IsObject = prop.IsObject
 		additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 
 	}

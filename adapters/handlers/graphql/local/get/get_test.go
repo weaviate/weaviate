@@ -2313,7 +2313,7 @@ func TestGroupBy(t *testing.T) {
 
 				expectedParams := dto.GetParams{
 					ClassName:            "SomeAction",
-					GroupBy:              &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3},
+					GroupBy:              &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3, Properties: search.SelectProperties{}},
 					AdditionalProperties: additional.Properties{Group: true},
 				}
 
