@@ -27,10 +27,13 @@ import (
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
-	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftPort         = 8300
+	DefaultRaftInternalPort = 8301
+	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
+	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
+	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
+	// on a single node cluster.
+	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 )
@@ -43,6 +46,7 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "" // to support backward compabitlity. Metric names won't have prefix by default.
 
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
 			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
@@ -54,6 +58,10 @@ func FromEnv(config *Config) error {
 			// want to group. The new name reflects that it's just about grouping,
 			// not about classes or shards.
 			config.Monitoring.Group = true
+		}
+
+		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
+			config.Monitoring.MetricsNamespace = val
 		}
 	}
 
@@ -195,6 +203,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = parsed
 	} else {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
+		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
+		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
@@ -408,8 +424,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
-		config.Replication.ForceObjectDeletionConflictResolution = v
+	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
+		config.Replication.DeletionStrategy = v
 	}
 
 	config.DisableTelemetry = false
@@ -426,6 +442,22 @@ func FromEnv(config *Config) error {
 	config.Sentry, err = sentry.InitSentryConfig()
 	if err != nil {
 		return fmt.Errorf("parse sentry config from env: %w", err)
+	}
+
+	config.MetadataServer.Enabled = false
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_METADATA_SERVER_ENABLED")) {
+		config.MetadataServer.Enabled = true
+	}
+	config.MetadataServer.GrpcListenAddress = DefaultMetadataServerGrpcListenAddress
+	if v := os.Getenv("EXPERIMENTAL_METADATA_SERVER_GRPC_LISTEN_ADDRESS"); v != "" {
+		config.MetadataServer.GrpcListenAddress = v
+	}
+	if err := parsePositiveInt(
+		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
+		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
+		DefaultMetadataServerDataEventsChannelCapacity,
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -524,6 +556,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
 	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside

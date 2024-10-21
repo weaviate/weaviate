@@ -77,7 +77,7 @@ jobs:
         run: |
           echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
@@ -102,7 +102,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +145,11 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests (modules)
         uses: nick-fields/retry@v3
         with:
@@ -172,6 +177,11 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
         uses: nick-fields/retry@v3
         with:
@@ -217,7 +227,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure gcp
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -228,7 +238,7 @@ jobs:
           echo "::add-mask::$google_apikey"
           echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
       - name: configure aws
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-aws
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -240,7 +250,7 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
           GOOGLE_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
@@ -260,7 +270,7 @@ jobs:
           "--acceptance-only-graphql",
           "--acceptance-only-replication",
           "--acceptance-go-client-only-fast",
-          "--acceptance-only-python"
+          "--acceptance-only-python",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -269,6 +279,11 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
@@ -280,7 +295,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors"]
+        test: ["--acceptance-go-client-named-vectors", "--acceptance-lsmkv"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -288,6 +303,11 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large
         run: ./test/run.sh ${{ matrix.test }}
   Codecov:
@@ -327,7 +347,7 @@ jobs:
           install-only: true
       - name: goreleaser
         run: |
-          GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
+          GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
         with:
@@ -393,6 +413,10 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -402,17 +426,22 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh
+        run: ./ci/push_docker.sh ${{ matrix.target }}
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
+        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
     name: push-docker-fast
-    runs-on: ubuntu-latest-8-cores    
+    runs-on: ubuntu-latest-8-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -422,10 +451,11 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh
+        run: ./ci/push_docker.sh ${{ matrix.target }}
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
+        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
         run: ./ci/generate_docker_report.sh

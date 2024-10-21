@@ -48,7 +48,7 @@ type hnsw struct {
 	tombstoneLock *sync.RWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.Mutex
+	resetLock *sync.RWMutex
 	// indicates whether reset operation occurred or not - if so tombstones cleanup method
 	// is aborted as it makes no sense anymore
 	resetCtx       context.Context
@@ -159,6 +159,7 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	acornSearch  atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -172,8 +173,7 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	allocChecker memwatch.AllocChecker
-
+	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 }
 
@@ -257,7 +257,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		distancerProvider:   cfg.DistanceProvider,
 		deleteLock:          &sync.Mutex{},
 		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.Mutex{},
+		resetLock:           &sync.RWMutex{},
 		resetCtx:            resetCtx,
 		resetCtxCancel:      resetCtxCancel,
 		shutdownCtx:         shutdownCtx,
@@ -287,6 +287,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
 	}
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	if uc.BQ.Enabled {
 		var err error

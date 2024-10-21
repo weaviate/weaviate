@@ -33,19 +33,13 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-var (
-	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
-	GitHash = "unknown"
-	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
-	ImageTag = "localhost"
-)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -129,6 +123,7 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -227,6 +222,7 @@ type Persistence struct {
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
 	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
 	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
@@ -238,7 +234,25 @@ const DefaultPersistenceDataPath string = "./data"
 // some noise about it. This is technically a breaking change.
 const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 
+// DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0 for backward compatibility.
+// value = 0 means cleanup is turned off.
+const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
+
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+// MetadataServer is experimental.
+type MetadataServer struct {
+	// When enabled startup will include a "metadata server"
+	// for separation of storage/compute Weaviate.
+	Enabled                   bool   `json:"enabled" yaml:"enabled"`
+	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
+	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
+}
+
+const (
+	DefaultMetadataServerGrpcListenAddress         = ":9050"
+	DefaultMetadataServerDataEventsChannelCapacity = 100
+)
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -296,7 +310,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -326,7 +340,8 @@ type Raft struct {
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
 
-	ForceOneNodeRecovery bool
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string

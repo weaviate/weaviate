@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -342,7 +342,16 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
 
+	// wait for flushing to complete before acquiring the maintenance lock, this
+	// can help avoid blocking user requests
+	sg.waitForFlushingToComplete(10*time.Millisecond, 60*time.Second)
+
+	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.Lock()
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			Debug("compaction took more than 100ms to acquire maintenance lock")
+	}
 	defer sg.maintenanceLock.Unlock()
 
 	leftSegment := sg.segments[old1]
@@ -415,34 +424,6 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 	}
 
 	return newPath, nil
-}
-
-func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	sg.monitorSegments()
-
-	compacted, err := sg.compactOnce()
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("compaction failed")
-	}
-
-	if compacted {
-		return true
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
-		return false
-	}
-}
-
-func (sg *SegmentGroup) Len() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return len(sg.segments)
 }
 
 func (sg *SegmentGroup) monitorSegments() {
@@ -563,4 +544,42 @@ func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
 
 	totalSize := left.size + right.size
 	return totalSize <= sg.maxSegmentSize
+}
+
+// Warning: waitForFlushingToComplete gives you no synchronization guarantees,
+// it mainly acts as a hint that a flushing has just completed, but it gives no
+// guarantees that a new flushing hasn't started yet. The idea is that it's
+// better to delay the attempt to obtain a maintenance lock because it will
+// start blocking user operations if we have to wait for it. But never rely on
+// this behavior alone, always use it in combination with a proper lock.
+func (sg *SegmentGroup) waitForFlushingToComplete(stepSize time.Duration, maxWait time.Duration) {
+	if !sg.isFlushing.Load() {
+		return
+	}
+
+	begin := time.Now()
+
+	t := time.NewTicker(stepSize)
+	defer t.Stop()
+
+	timeout := time.NewTimer(maxWait)
+
+	for {
+		select {
+		case <-t.C:
+			if !sg.isFlushing.Load() {
+				totalDelay := time.Since(begin)
+				sg.logger.WithField("action", "lsm_compaction_delay").
+					WithField("duration", totalDelay).
+					Debugf("waited %s for flushing to complete", totalDelay)
+				return
+			}
+		case <-timeout.C:
+			sg.logger.WithField("action", "lsm_compaction_delay").
+				WithField("duration", maxWait).
+				Warningf("waited %s for flushing to complete, but it did not complete", maxWait)
+
+			return
+		}
+	}
 }

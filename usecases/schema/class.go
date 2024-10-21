@@ -41,7 +41,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.LIST, "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 	cl := h.schemaReader.ReadOnlyClass(name)
@@ -51,7 +51,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.LIST, "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, 0, err
 	}
 	if consistency {
@@ -65,7 +65,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.LIST, "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 
@@ -99,7 +99,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.CREATE, "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -197,7 +197,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, authorization.DELETE, "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_OBJECTS)
 	if err != nil || updated == nil {
 		return err
 	}
@@ -218,6 +218,22 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
+	}
+
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
+
+	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
+	// used in many different areas of the codebase that may cause BC issues with the
+	// new validation logic. Issue ref: gh-5860
+	// As our testing becomes more comprehensive, we can move these calls into ParseClass
+	if err := h.parser.parseModuleConfig(updated); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := h.parser.parseVectorConfig(updated); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
 	}
 
 	if err := h.validateVectorSettings(updated); err != nil {
@@ -266,14 +282,14 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
-			Factor:                           int64(m.config.Replication.MinimumFactor),
-			ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+			Factor:           int64(m.config.Replication.MinimumFactor),
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
 		}
 		return nil
 	}
 
-	if class.ReplicationConfig.ObjectDeletionConflictResolution == "" {
-		class.ReplicationConfig.ObjectDeletionConflictResolution = models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion
+	if class.ReplicationConfig.DeletionStrategy == "" {
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyDeleteOnConflict
 	}
 	return nil
 }
@@ -811,7 +827,16 @@ func validateImmutableFields(initial, updated *models.Class) error {
 	}
 
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return errors.Errorf("module config is immutable")
+		return fmt.Errorf("module config is immutable")
+	}
+
+	for k, v := range updated.VectorConfig {
+		if _, ok := initial.VectorConfig[k]; !ok {
+			return fmt.Errorf("vector config is immutable")
+		}
+		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		}
 	}
 
 	return nil

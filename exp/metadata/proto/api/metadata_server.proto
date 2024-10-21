@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+// NOTE run `buf generate` from `exp/metadata/proto` to regenerate code
+package weaviate.internal.metadata;
+
+service MetadataService {
+  // QuerierStream is experimental, may be changed/removed. A QuerierStream represents a
+  // connection between this metadata cluster and a querier node. See the implementing
+  // function's doc for more information.
+  rpc QuerierStream(stream QuerierStreamRequest) returns (stream QuerierStreamResponse) {}
+}
+
+// QuerierStreamRequest is experimental, may be changed/removed. QuerierStreamRequest is currently
+// unused as we only care about the existence of the stream to register the querier node. We'll
+// likely add new types to this message in the future and use them.
+message QuerierStreamRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+  }
+  Type type = 1;
+}
+
+// QuerierStreamResponse is experimental, may be changed/removed. A QuerierStreamResponse is a
+// message sent from the metadata cluster to a querier node.
+// A TYPE_CLASS_TENANT_DATA_UPDATE message is sent when the metadata cluster has written new data
+// to cloud storage for the specified class/tenant.
+message QuerierStreamResponse {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_CLASS_TENANT_DATA_UPDATE = 1;
+  }
+  Type type = 1;
+  ClassTenant class_tenant = 2;
+}
+
+// ClassTenant is experimental, may be changed/removed. Just a simple message to hold the class
+// and tenant names.
+message ClassTenant {
+  string class_name = 1;
+  string tenant_name = 2;
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -129,4 +130,59 @@ func TestQueryVectorDistancer(t *testing.T) {
 	// get distance for non-existing node above default cache size
 	_, err = dist.DistanceToNode(1001)
 	require.NotNil(t, err)
+}
+
+func TestAcornPercentage(t *testing.T) {
+	vectors, _ := testinghelpers.RandomVecs(10, 1, 3)
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        16,
+			EFConstruction:        16,
+			VectorCacheMaxObjects: 1000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
+		vectorIndex.acornSearch.Store(false)
+		allowList := helpers.NewAllowList(1, 2, 3)
+		useAcorn, M := vectorIndex.acornParams(allowList)
+		assert.False(t, useAcorn)
+		assert.Equal(t, 0, M)
+
+		vectorIndex.acornSearch.Store(true)
+
+		useAcorn, M = vectorIndex.acornParams(allowList)
+		assert.True(t, useAcorn)
+		assert.Equal(t, 3, M)
+
+		vectorIndex.acornSearch.Store(true)
+
+		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
+		useAcorn, M = vectorIndex.acornParams(largerAllowList)
+		// should be false as allow list percentage is 50%
+		assert.False(t, useAcorn)
+		assert.Equal(t, 2, M)
+	})
 }
