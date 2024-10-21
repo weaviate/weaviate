@@ -67,10 +67,11 @@ type SegmentGroup struct {
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
-	isFlushing              *atomic.Bool
-	segmentCleaner          segmentCleaner
-	cleanupInterval         time.Duration
-	cleanupCompactionSwitch bool
+	isFlushing         *atomic.Bool
+	segmentCleaner     segmentCleaner
+	cleanupInterval    time.Duration
+	lastCleanupCall    time.Time
+	lastCompactionCall time.Time
 }
 
 type sgConfig struct {
@@ -97,6 +98,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 
+	now := time.Now()
 	sg := &SegmentGroup{
 		segments:                make([]*segment, len(list)),
 		dir:                     cfg.dir,
@@ -114,6 +116,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		cleanupInterval:         cfg.cleanupInterval,
 		allocChecker:            allocChecker,
 		isFlushing:              cfg.isFlushing,
+		lastCompactionCall:      now,
+		lastCleanupCall:         now,
 	}
 
 	segmentIndex := 0
@@ -137,6 +141,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		jointSegments := segmentID(potentialCompactedSegmentFileName)
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+		if len(jointSegmentsIDs) == 1 {
+			// cleanup leftover, to be removed
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
+			}
+			continue
+		}
 
 		if len(jointSegmentsIDs) != 2 {
 			logger.WithField("action", "lsm_segment_init").
@@ -577,6 +589,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 	sg.monitorSegments()
 
 	compact := func() bool {
+		sg.lastCompactionCall = time.Now()
 		compacted, err := sg.compactOnce()
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
@@ -591,6 +604,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 		return compacted
 	}
 	cleanup := func() bool {
+		sg.lastCleanupCall = time.Now()
 		cleaned, err := sg.segmentCleaner.cleanupOnce(shouldAbort)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_cleanup").
@@ -603,11 +617,17 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 
 	// alternatively run compaction or cleanup first
 	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
-	sg.cleanupCompactionSwitch = !sg.cleanupCompactionSwitch
-	if sg.cleanupCompactionSwitch {
-		return compact() || cleanup()
+	//
+	// compaction has the precedence over cleanup, however if cleanup
+	// was not called for over [forceCleanupInterval], force at least one execution
+	// in between compactions.
+	// (ignore if compaction was not called within that time either)
+	forceCleanupInterval := time.Hour * 12
+
+	if time.Since(sg.lastCleanupCall) > forceCleanupInterval && sg.lastCleanupCall.Before(sg.lastCompactionCall) {
+		return cleanup() || compact()
 	}
-	return cleanup() || compact()
+	return compact() || cleanup()
 }
 
 func (sg *SegmentGroup) Len() int {
