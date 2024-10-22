@@ -103,7 +103,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
-	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), lsmkv.WithPread(true))
 	require.Nil(t, err)
 
 	for i := 0; i < totalVecs; i++ {
