@@ -727,7 +727,7 @@ func (index *flat) PostStartup() {
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
 	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
-		binary.BigEndian.Uint64, index.bq.FromCompressedBytes, index.logger)
+		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
 	channel := it.IterateAll()
 	if channel == nil {
 		return // nothing to do
