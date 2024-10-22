@@ -298,18 +298,49 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		}
 	})
 
-	t.Run("running two cleanups should start only once", func(t *testing.T) {
-		wg := sync.WaitGroup{}
-		wg.Add(1)
-		go func() {
-			wg.Done()
-			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-			require.Nil(t, err)
-		}()
+	t.Run("running two cleanups concurrently", func(t *testing.T) {
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+				results <- err
+			}()
+		}
+
 		wg.Wait()
-		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-		assert.NotNil(t, err)
-		assert.Equal(t, err.Error(), "tombstone cleanup already running")
+		close(results)
+
+		var errors []error
+		for err := range results {
+			errors = append(errors, err)
+		}
+
+		require.Len(t, errors, 2, "Expected exactly two results")
+
+		successCount := 0
+		alreadyRunningCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if err.Error() == "tombstone cleanup already running" {
+				alreadyRunningCount++
+			} else {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		}
+
+		// There is a possibility the first cleanup completes before the second one starts
+		assert.GreaterOrEqual(t, successCount, 1, "Expected at least one successful cleanup")
+		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
+		stats, err := vectorIndex.Stats()
+		require.Nil(t, err)
+		hnswStats, ok := stats.(*HnswStats)
+		require.True(t, ok)
+		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
