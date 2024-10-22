@@ -245,6 +245,19 @@ func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) 
 				determinedDataType = dataType
 			}
 			if dataType != "" {
+				// if an array contains text and UUID/Date, the type should be text
+				if determinedDataType == schema.DataTypeTextArray && (dataType == schema.DataTypeUUIDArray || dataType == schema.DataTypeDateArray) {
+					continue
+				}
+				if determinedDataType == schema.DataTypeDateArray && (dataType == schema.DataTypeUUIDArray || dataType == schema.DataTypeTextArray) {
+					determinedDataType = schema.DataTypeTextArray
+					continue
+				}
+				if determinedDataType == schema.DataTypeUUIDArray && (dataType == schema.DataTypeDateArray || dataType == schema.DataTypeTextArray) {
+					determinedDataType = schema.DataTypeTextArray
+					continue
+				}
+
 				if isRef {
 					return nil, fmt.Errorf("element [%d]: mismatched data type - reference expected, got '%s'",
 						i, asSingleDataType(dataType))

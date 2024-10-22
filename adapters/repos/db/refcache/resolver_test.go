@@ -425,26 +425,7 @@ func TestResolver(t *testing.T) {
 				},
 			}
 		}
-		getResolver := func() *Resolver {
-			cacher := newFakeCacher()
-			r := NewResolverWithGroup(cacher)
-			cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
-				ClassName: "SomeClass",
-				ID:        strfmt.UUID(id1),
-				Schema: map[string]interface{}{
-					"bar": "some string",
-				},
-				Vector: []float32{0.1, 0.2},
-			}
-			cacher.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
-				ClassName: "SomeNestedClass",
-				ID:        strfmt.UUID(id2),
-				Schema: map[string]interface{}{
-					"name": "John Doe",
-				},
-			}
-			return r
-		}
+
 		getSelectProps := func(withVector bool) search.SelectProperties {
 			return search.SelectProperties{
 				search.SelectProperty{
@@ -464,8 +445,12 @@ func TestResolver(t *testing.T) {
 						},
 					},
 				},
+			}
+		}
+		getGroupBySelectProps := func() search.SelectProperties {
+			return search.SelectProperties{
 				search.SelectProperty{
-					Name: "_additional:group:hits:nestedRef",
+					Name: "nestedRef",
 					Refs: []search.SelectClass{
 						{
 							ClassName: "SomeNestedClass",
@@ -479,6 +464,26 @@ func TestResolver(t *testing.T) {
 					},
 				},
 			}
+		}
+		getResolver := func() *Resolver {
+			cacher := newFakeCacher()
+			r := NewResolverWithGroup(cacher, getGroupBySelectProps())
+			cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+				ClassName: "SomeClass",
+				ID:        strfmt.UUID(id1),
+				Schema: map[string]interface{}{
+					"bar": "some string",
+				},
+				Vector: []float32{0.1, 0.2},
+			}
+			cacher.lookup[multi.Identifier{ID: id2, ClassName: "SomeNestedClass"}] = search.Result{
+				ClassName: "SomeNestedClass",
+				ID:        strfmt.UUID(id2),
+				Schema: map[string]interface{}{
+					"name": "John Doe",
+				},
+			}
+			return r
 		}
 		getExpectedResult := func(withVector bool) []search.Result {
 			fields := map[string]interface{}{
@@ -540,7 +545,7 @@ type fakeCacher struct {
 }
 
 func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, groupByProps search.SelectProperties,
 ) error {
 	return nil
 }
