@@ -20,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 type compressedParallelIterator[T byte | uint64] struct {
@@ -221,6 +223,8 @@ func (cpi *compressedParallelIterator[T]) startTracking() func() {
 		lastReported := start
 		last := int64(0)
 
+		p := message.NewPrinter(language.English)
+
 		for {
 			select {
 			case now := <-t.C:
@@ -236,8 +240,8 @@ func (cpi *compressedParallelIterator[T]) startTracking() func() {
 					"rate_per_second":       rate,
 					"total_rate_per_second": totalRate,
 					"elapsed_total":         elapsed,
-				}).Infof("loaded %d vectors in %s so far, current rate is %.2f vectors/s",
-					loaded, elapsed, rate)
+				}).Infof("loaded %s vectors in %s so far, current rate is %s vectors/s, total rate is %s vectors/s",
+					p.Sprintf("%d", loaded), elapsed.Round(10*time.Millisecond), p.Sprintf("%.0f", rate), p.Sprintf("%.0f", totalRate))
 
 				last = loaded
 			case <-cancel:
