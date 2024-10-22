@@ -232,8 +232,10 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 				Errors: &pb.SearchReply_ThirdPartyError{
 					ThirdPartyError: &pb.ThirdPartyError{
 						ProviderName:      targetErr.Provider,
-						ErrorFromProvider: targetErr.ErrorFromProvider.Error(),
+						ErrorFromProvider: targetErr.ErrorFromProvider,
 						FullError:         err.Error(),
+						RequestId:         targetErr.RequestID,
+						StatusCode:        int32(targetErr.StatusCode),
 					},
 				},
 			}, nil
