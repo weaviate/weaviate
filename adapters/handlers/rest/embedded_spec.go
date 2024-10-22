@@ -217,21 +217,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {
@@ -5717,21 +5702,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Access-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Secret-Key",
-            "in": "header"
-          },
-          {
-            "type": "string",
-            "name": "X-Aws-Session-Token",
-            "in": "header"
           }
         ],
         "responses": {

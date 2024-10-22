@@ -43,7 +43,6 @@ func Test_AzureBackend_Start(t *testing.T) {
 
 	override = overrides[0]
 	azureBackend_Backup(t)
-	time.Sleep(5 * time.Second)
 
 	override = overrides[1]
 	azureBackend_Backup(t)
