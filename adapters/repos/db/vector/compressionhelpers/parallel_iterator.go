@@ -84,10 +84,8 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// 3. Read from last checkpoint to end
 
 	extract := func(k, v []byte, buf *[]T) VecAndID[T] {
-		vc := make([]byte, len(v))
-		copy(vc, v)
 		id := cpi.loadId(k)
-		vec := cpi.fromCompressedBytes(vc, buf)
+		vec := cpi.fromCompressedBytes(v, buf)
 		return VecAndID[T]{Id: id, Vec: vec}
 	}
 
@@ -215,10 +213,8 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 				}).Warn("skipping compressed vector with unexpected length")
 				continue
 			}
-			vc := make([]byte, len(v))
-			copy(vc, v)
 			id := cpi.loadId(k)
-			vec := cpi.fromCompressedBytes(vc, &localBuf)
+			vec := cpi.fromCompressedBytes(v, &localBuf)
 			localResults = append(localResults, VecAndID[T]{Id: id, Vec: vec})
 			cpi.trackIndividual(len(localResults))
 		}
