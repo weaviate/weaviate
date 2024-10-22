@@ -32,7 +32,8 @@ import (
 )
 
 const (
-	Name = "text2vec-openai"
+	Name           = "text2vec-" + ModuleProvider
+	ModuleProvider = "openai"
 )
 
 func New() *OpenAIModule {
@@ -98,7 +99,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger, ModuleProvider)
 
 	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
