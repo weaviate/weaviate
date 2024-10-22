@@ -16,11 +16,13 @@ type ErrThirdParty struct {
 	Provider          string
 	StatusCode        int
 	RequestID         string
+	FullError         string
 }
 
-func NewErrThirdParty(err string, thirdPartyProvider string, statusCode int, requestID string) ErrThirdParty {
+func NewErrThirdParty(fullError, errFromProvider, thirdPartyProvider string, statusCode int, requestID string) ErrThirdParty {
 	return ErrThirdParty{
-		ErrorFromProvider: err,
+		FullError:         fullError,
+		ErrorFromProvider: errFromProvider,
 		Provider:          thirdPartyProvider,
 		StatusCode:        statusCode,
 		RequestID:         requestID,
@@ -28,5 +30,5 @@ func NewErrThirdParty(err string, thirdPartyProvider string, statusCode int, req
 }
 
 func (e ErrThirdParty) Error() string {
-	return e.ErrorFromProvider
+	return e.FullError
 }

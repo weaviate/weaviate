@@ -174,7 +174,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		if res != nil {
 			code = res.StatusCode
 		}
-		return nil, nil, enterrors.NewErrThirdParty(err.Error(), v.name, code, "")
+		return nil, nil, enterrors.NewErrThirdParty(err.Error(), err.Error(), v.name, code, "")
 	}
 	defer res.Body.Close()
 
@@ -190,7 +190,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, enterrors.NewErrThirdParty(resBody.Error.Message, v.name, res.StatusCode, requestID)
+		fullErr := v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
+		fullErrStr := fullErr.Error()
+		return nil, nil, enterrors.NewErrThirdParty(fullErrStr, resBody.Error.Message, v.name, res.StatusCode, requestID)
 	}
 	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
@@ -232,16 +234,16 @@ func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (
 }
 
 func (v *client) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
-	endpoint := v.name
+	endpoint := "OpenAI API"
 	if isAzure {
-		endpoint = "Azure " + endpoint
+		endpoint = "Azure OpenAI API"
 	}
-	errorMsg := fmt.Sprintf("%s failed with status %d.", endpoint, statusCode)
-	if resBodyError != nil {
-		errorMsg = fmt.Sprintf("%s Error %v", errorMsg, resBodyError.Message)
-	}
+	errorMsg := fmt.Sprintf("connection to: %s failed with status: %d", endpoint, statusCode)
 	if requestID != "" {
 		errorMsg = fmt.Sprintf("%s request-id: %s", errorMsg, requestID)
+	}
+	if resBodyError != nil {
+		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
 	return errors.New(errorMsg)
 }
