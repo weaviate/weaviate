@@ -157,7 +157,14 @@ func getDataType(dataType schema.DataType) *schema.DataType {
 func TestProperties(t *testing.T) {
 	const myBeacon = "weaviate://localhost/things/8e555f0d-8590-48c2-a9a6-70772ed14c0a"
 	myJournalClass := &models.Class{
-		Properties: []*models.Property{{Name: "inJournal", DataType: []string{"Journal"}}},
+		Properties: []*models.Property{
+			{Name: "inJournal", DataType: []string{"Journal"}},
+			{
+				Name:             "nested",
+				DataType:         schema.DataTypeObject.PropString(),
+				NestedProperties: []*models.NestedProperty{{Name: "nested2", DataType: schema.DataTypeObject.PropString()}},
+			},
+		},
 	}
 	specs := map[string]struct {
 		class     *models.Class
@@ -192,6 +199,14 @@ func TestProperties(t *testing.T) {
 			},
 			expBeacon: "weaviate://localhost/Journal/8e555f0d-8590-48c2-a9a6-70772ed14c0a",
 		},
+		"nested with nil": {
+			class: myJournalClass,
+			obj: &models.Object{
+				Properties: map[string]interface{}{"nested": map[string]interface{}{
+					"nested2": nil,
+				}},
+			},
+		},
 	}
 	for name, spec := range specs {
 		t.Run(name, func(t *testing.T) {
@@ -205,8 +220,11 @@ func TestProperties(t *testing.T) {
 			}
 			require.NoError(t, gotErr)
 			props := spec.obj.Properties
-			gotBeacon := extractBeacon(t, props)
-			assert.Equal(t, spec.expBeacon, gotBeacon)
+			if spec.expBeacon != "" {
+				gotBeacon := extractBeacon(t, props)
+				assert.Equal(t, spec.expBeacon, gotBeacon)
+
+			}
 		})
 	}
 }
