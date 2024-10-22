@@ -134,7 +134,7 @@ type upgradableIndexer interface {
 }
 
 type shardStatusUpdater interface {
-	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+	compareAndSwapStatusIndexingAndReady(old, new string) (storagestate.Status, error)
 	Name() string
 }
 
@@ -415,12 +415,12 @@ func (q *IndexQueue) indexer() {
 			}
 
 			if q.Size() == 0 {
-				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				_, _ = q.Shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				q.indexLock.RUnlock()
 				continue
 			}
 
-			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+			status, err := q.Shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
 				q.indexLock.RUnlock()
