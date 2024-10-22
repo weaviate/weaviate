@@ -231,7 +231,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 
 	it := NewParallelIterator(
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
-		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytes,
+		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
 	channel := it.IterateAll()
 	if channel == nil {

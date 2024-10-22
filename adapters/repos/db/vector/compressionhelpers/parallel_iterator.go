@@ -29,7 +29,7 @@ type parallelIterator[T byte | uint64] struct {
 	parallel            int
 	logger              logrus.FieldLogger
 	loadId              func([]byte) uint64
-	fromCompressedBytes func(compressed []byte) []T
+	fromCompressedBytes func(compressed []byte, buf *[]T) []T
 
 	// a simple counter that each routine can write to atomically. It is used to
 	// track progress and display it to the user.
@@ -41,7 +41,7 @@ type parallelIterator[T byte | uint64] struct {
 	reportProgressInterval time.Duration
 }
 
-func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte) []T,
+func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte, buf *[]T) []T,
 	logger logrus.FieldLogger,
 ) *parallelIterator[T] {
 	return &parallelIterator[T]{
@@ -83,11 +83,11 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// 2. Read from checkpoint n to checkpoint n+1
 	// 3. Read from last checkpoint to end
 
-	extract := func(k, v []byte) VecAndID[T] {
+	extract := func(k, v []byte, buf *[]T) VecAndID[T] {
 		vc := make([]byte, len(v))
 		copy(vc, v)
 		id := cpi.loadId(k)
-		vec := cpi.fromCompressedBytes(vc)
+		vec := cpi.fromCompressedBytes(vc, buf)
 		return VecAndID[T]{Id: id, Vec: vec}
 	}
 
@@ -99,6 +99,11 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		defer c.Close()
 		defer wg.Done()
 
+		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
+		// which can then be used for the rest of the calls. Once the buffer runs
+		// out, the next call will allocate a new buffer.
+		var localBuf []T
+
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
@@ -109,7 +114,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				continue
 			}
 
-			localResults = append(localResults, extract(k, v))
+			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
 
@@ -128,6 +133,10 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 			c := cpi.bucket.Cursor()
 			defer c.Close()
 
+			// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
+			// which can then be used for the rest of the calls. Once the buffer runs
+			// out, the next call will allocate a new buffer.
+			var localBuf []T
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
 				if len(k) == 0 {
 					cpi.logger.WithFields(logrus.Fields{
@@ -137,7 +146,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					}).Warn("skipping compressed vector with unexpected length")
 					continue
 				}
-				localResults = append(localResults, extract(k, v))
+				localResults = append(localResults, extract(k, v, &localBuf))
 				cpi.trackIndividual(len(localResults))
 			}
 
@@ -153,6 +162,10 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		defer wg.Done()
 		localResults := make([]VecAndID[T], 0, 10_000)
 
+		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
+		// which can then be used for the rest of the calls. Once the buffer runs
+		// out, the next call will allocate a new buffer.
+		var localBuf []T
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
@@ -163,7 +176,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				continue
 			}
 
-			localResults = append(localResults, extract(k, v))
+			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
 
@@ -188,6 +201,10 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 		defer c.Close()
 		defer stopTracking()
 
+		// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
+		// which can then be used for the rest of the calls. Once the buffer runs
+		// out, the next call will allocate a new buffer.
+		var localBuf []T
 		localResults := make([]VecAndID[T], 0, 10_000)
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			if len(k) == 0 {
@@ -201,7 +218,7 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 			vc := make([]byte, len(v))
 			copy(vc, v)
 			id := cpi.loadId(k)
-			vec := cpi.fromCompressedBytes(vc)
+			vec := cpi.fromCompressedBytes(vc, &localBuf)
 			localResults = append(localResults, VecAndID[T]{Id: id, Vec: vec})
 			cpi.trackIndividual(len(localResults))
 		}
