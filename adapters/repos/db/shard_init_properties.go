@@ -15,16 +15,14 @@ import (
 	"context"
 	"fmt"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class) {
@@ -88,8 +86,8 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
@@ -154,8 +152,8 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	// some datatypes are not added to the inverted index, so we can skip them here
@@ -177,8 +175,8 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
@@ -192,8 +190,8 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx,
@@ -212,8 +210,8 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	// Note: this data would fit the "Set" type better, but since the "Map" type
@@ -234,8 +232,8 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	if err := s.addCreationTimeUnixProperty(ctx); err != nil {

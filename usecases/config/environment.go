@@ -200,7 +200,7 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
 	}
 
-	if err := parsePositiveInt(
+	if err := parseNonNegativeInt(
 		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
 		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
 		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
@@ -624,20 +624,39 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
-func parsePositiveInt(varName string, cb func(val int), defaultValue int) error {
-	if v := os.Getenv(varName); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as int: %w", varName, err)
-		} else if asInt <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0", varName)
+func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a positive value larger 0", envName)
 		}
+		return nil
+	}, cb)
+}
 
-		cb(asInt)
-	} else {
-		cb(defaultValue)
+func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val < 0 {
+			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+	var err error
+	asInt := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asInt, err = strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if err = verify(asInt); err != nil {
+			return err
+		}
 	}
 
+	cb(asInt)
 	return nil
 }
 
