@@ -100,38 +100,19 @@ func DotFloatByteAVX256(x []float32, y []uint8) float32 {
 }
 
 func LAQDotExpAVX256(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32 {
-	// var LAQDotExpImpl func(x []float32, y1, y2 []byte, a1, a2 float32) float32 = func(x []float32, y1, y2 []byte, a1, a2 float32) float32 {
-	// 	sum := float32(0)
-	// 	for i := range x {
-	// 		sum += x[i] * (a1*float32(y1[i]) + a2*float32(y2[i]))
-	// 	}
-
-	// 	return sum
-	// }
-	// var res float32
 
 	l := len(x)
-
-	println(a2)
-
-	// if l < 16 {
-
-	// 	return LAQDotExpImpl(x, y1, y2, a1, a2)
-	// }
 
 	laq_dot_exp_avx256(
 		unsafe.Pointer(unsafe.SliceData(x)),
 		unsafe.Pointer(unsafe.SliceData(y1)),
 		unsafe.Pointer(unsafe.SliceData(y2)),
 		unsafe.Pointer(&a1),
+		// we use this argument to pass in a2 and get the return pointer, as goat
+		// does not support more than 6 arguments
 		unsafe.Pointer(&a2),
 		unsafe.Pointer(&l),
-		// unsafe.Pointer(&a2)
 	)
-
-	// if l > 16 && l%16 != 0 {
-	// 	return LAQDotExpImpl(x, y1, y2, a1, a2)
-	// }
 
 	return a2
 }

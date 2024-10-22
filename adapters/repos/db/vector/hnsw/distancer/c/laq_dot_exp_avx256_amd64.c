@@ -10,11 +10,9 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
 
   float *a2 = res;
 
-  // *a2 = 0.0f;
-
   float sum = 0;
 
-  //   fast path for small dimensions
+  //  fast path for small dimensions
   if (n < 8) {
     do {
       sum += x[0] * (*a1 * (float)(y1[0]) + *a2 * (float)y2[0]);
@@ -50,6 +48,7 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
     __m128i y1_byte_vec1 = _mm_loadu_si128((__m128i *)(y1 + 8));
     __m128i y1_byte_vec2 = _mm_loadu_si128((__m128i *)(y1 + 16));
     __m128i y1_byte_vec3 = _mm_loadu_si128((__m128i *)(y1 + 24));
+
     // Convert to floats
     __m256 y1_vec0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y1_byte_vec0));
     __m256 y1_vec1 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y1_byte_vec1));
@@ -73,20 +72,10 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
     __m256 y2_vec2 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y2_byte_vec2));
     __m256 y2_vec3 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y2_byte_vec3));
 
-    y2_vec0 = _mm256_mul_ps(y2_vec0, a2_vec);
-    y2_vec1 = _mm256_mul_ps(y2_vec1, a2_vec);
-    y2_vec2 = _mm256_mul_ps(y2_vec2, a2_vec);
-    y2_vec3 = _mm256_mul_ps(y2_vec3, a2_vec);
-
-    // y1_vec0 = _mm256_fmadd_ps(y2_vec0, a2_vec, y1_vec0);
-    // y1_vec1 = _mm256_fmadd_ps(y2_vec1, a2_vec, y1_vec1);
-    // y1_vec2 = _mm256_fmadd_ps(y2_vec2, a2_vec, y1_vec2);
-    // y1_vec3 = _mm256_fmadd_ps(y2_vec3, a2_vec, y1_vec3);
-
-    __m256 y1plusy2_vec0 = _mm256_add_ps(y1_vec0, y2_vec0);
-    __m256 y1plusy2_vec1 = _mm256_add_ps(y1_vec1, y2_vec1);
-    __m256 y1plusy2_vec2 = _mm256_add_ps(y1_vec2, y2_vec2);
-    __m256 y1plusy2_vec3 = _mm256_add_ps(y1_vec3, y2_vec3);
+    __m256 y1plusy2_vec0 = _mm256_fmadd_ps(y2_vec0, a2_vec, y1_vec0);
+    __m256 y1plusy2_vec1 = _mm256_fmadd_ps(y2_vec1, a2_vec, y1_vec1);
+    __m256 y1plusy2_vec2 = _mm256_fmadd_ps(y2_vec2, a2_vec, y1_vec2);
+    __m256 y1plusy2_vec3 = _mm256_fmadd_ps(y2_vec3, a2_vec, y1_vec3);
 
     acc[0] = _mm256_fmadd_ps(x_vec0, y1plusy2_vec0, acc[0]);
     acc[1] = _mm256_fmadd_ps(x_vec1, y1plusy2_vec1, acc[1]);
@@ -101,36 +90,21 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
 
   //   // Process 8 floats at a time
   while (n >= 8) {
-    // __m256 a_vec0 = _mm256_loadu_ps(a);
-    // __m128i b_byte_vec0 = _mm_loadl_epi64((__m128i *)b);
-    // __m256 b_vec0 =
-    // _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(b_byte_vec0));
-
-    // acc[0] = _mm256_fmadd_ps(a_vec0, b_vec0, acc[0]);
-
-    // n -= 8;
-    // a += 8;
-    // b += 8;
-    // Unroll loop for 32 floats
     __m256 x_vec0 = _mm256_loadu_ps(x);
 
-    // Unroll loop for 32 bytes
     __m128i y1_byte_vec0 = _mm_loadu_si128((__m128i *)y1);
 
-    // Convert to floats
     __m256 y1_vec0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y1_byte_vec0));
 
     y1_vec0 = _mm256_mul_ps(y1_vec0, a1_vec);
 
-    // Unroll loop for 32 bytes
     __m128i y2_byte_vec0 = _mm_loadu_si128((__m128i *)y2);
 
-    // Convert to floats
     __m256 y2_vec0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(y2_byte_vec0));
 
-    y1_vec0 = _mm256_fmadd_ps(y2_vec0, a2_vec, y1_vec0);
+    __m256 y1plusy2_vec0 = _mm256_fmadd_ps(y2_vec0, a2_vec, y1_vec0);
 
-    acc[0] = _mm256_fmadd_ps(x_vec0, y1_vec0, acc[0]);
+    acc[0] = _mm256_fmadd_ps(x_vec0, y1plusy2_vec0, acc[0]);
 
     n -= 8;
     x += 8;
@@ -141,7 +115,6 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
   // Tail
   while (n) {
     sum += x[0] * (*a1 * (float)(y1[0]) + *a2 * (float)y2[0]);
-    // sum += x[0];
     n--;
     x++;
     y1++;
@@ -159,5 +132,4 @@ void laq_dot_exp_avx256(float *x, unsigned char *y1, unsigned char *y2,
   sum += _mm_cvtss_f32(t4);
 
   *res = sum;
-  // *res = (float)*a2;
 }
