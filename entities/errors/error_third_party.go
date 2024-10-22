@@ -12,17 +12,21 @@
 package errors
 
 type ErrThirdParty struct {
-	ErrorFromProvider error
+	ErrorFromProvider string
 	Provider          string
+	StatusCode        int
+	RequestID         string
 }
 
-func NewErrThirdParty(err error, thirdPartyProvider string) ErrThirdParty {
+func NewErrThirdParty(err string, thirdPartyProvider string, statusCode int, requestID string) ErrThirdParty {
 	return ErrThirdParty{
 		ErrorFromProvider: err,
 		Provider:          thirdPartyProvider,
+		StatusCode:        statusCode,
+		RequestID:         requestID,
 	}
 }
 
 func (e ErrThirdParty) Error() string {
-	return e.ErrorFromProvider.Error()
+	return e.ErrorFromProvider
 }
