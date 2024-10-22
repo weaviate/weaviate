@@ -237,11 +237,12 @@ func (cpi *compressedParallelIterator[T]) startTracking() func() {
 				cpi.logger.WithFields(logrus.Fields{
 					"action":                "hnsw_compressed_vector_cache_prefill_progress",
 					"loaded":                loaded,
-					"rate_per_second":       rate,
-					"total_rate_per_second": totalRate,
+					"rate_per_second":       int(rate),
+					"total_rate_per_second": int(totalRate),
 					"elapsed_total":         elapsed,
-				}).Infof("loaded %s vectors in %s so far, current rate is %s vectors/s, total rate is %s vectors/s",
-					p.Sprintf("%d", loaded), elapsed.Round(10*time.Millisecond), p.Sprintf("%.0f", rate), p.Sprintf("%.0f", totalRate))
+				}).Infof("loaded %s vectors in %s, current rate is %s vectors/s, total rate is %s vectors/s",
+					p.Sprintf("%d", loaded), elapsed.Round(10*time.Millisecond),
+					p.Sprintf("%.0f", rate), p.Sprintf("%.0f", totalRate))
 
 				last = loaded
 			case <-cancel:
