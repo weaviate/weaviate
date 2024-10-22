@@ -13,6 +13,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -224,9 +225,22 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
-		return nil, err
-	}
+		var targetErr enterrors.ErrThirdParty
 
+		if req.Uses_128Api && errors.As(err, &targetErr) {
+			return &pb.SearchReply{
+				Errors: &pb.SearchReply_ThirdPartyError{
+					ThirdPartyError: &pb.ThirdPartyError{
+						ProviderName:      targetErr.Provider,
+						ErrorFromProvider: targetErr.ErrorFromProvider.Error(),
+						FullError:         err.Error(),
+					},
+				},
+			}, nil
+		} else {
+			return nil, err
+		}
+	}
 	return replier.Search(res, before, searchParams, scheme)
 }
 
