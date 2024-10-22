@@ -27,20 +27,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
-	return s.putOne(ctx, uuid, object)
+	return s.putOne(ctx, uid, object)
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
