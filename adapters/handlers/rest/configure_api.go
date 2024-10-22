@@ -595,6 +595,10 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 	return m
 }
 
+func ConfigureFlags(api *operations.WeaviateAPI) {
+	configureFlags(api)
+}
+
 func ConfigureAPI(api *operations.WeaviateAPI) http.Handler {
 	return configureAPI(api)
 }
