@@ -165,6 +165,11 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 	return l.shard.UpdateStatus(status)
 }
 
+func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
+	l.mustLoad()
+	return l.shard.SetStatusReadonly(reason)
+}
+
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
@@ -505,7 +510,7 @@ func (l *LazyLoadShard) Versioner() *shardVersioner {
 	return l.shard.Versioner()
 }
 
-func (l *LazyLoadShard) isReadOnly() bool {
+func (l *LazyLoadShard) isReadOnly() error {
 	l.mustLoad()
 	return l.shard.isReadOnly()
 }
