@@ -41,6 +41,7 @@ var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
 	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+	EnabledBackupBackends() []modulecapabilities.BackupBackend
 }
 
 type schemaManger interface {
