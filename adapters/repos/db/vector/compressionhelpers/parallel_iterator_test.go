@@ -91,13 +91,17 @@ func TestCompressedParallelIterator(t *testing.T) {
 					valAsUint64 := binary.LittleEndian.Uint64(vec.Vec)
 					assert.Equal(t, vec.Id, valAsUint64)
 				}
-				cpi := NewParallelIterator(bucket, test.parallel, loadId, fakeFromCompressedPQ, logger)
+				q := &ProductQuantizer{}
+				fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
+				cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 				testIterator(t, cpi, test, assertValue)
 			case "bq":
 				assertValue := func(t *testing.T, vec VecAndID[uint64]) {
 					assert.Equal(t, vec.Id, vec.Vec[0])
 				}
-				cpi := NewParallelIterator(bucket, test.parallel, loadId, fakeFromCompressedBQ, logger)
+				q := NewBinaryQuantizer(nil)
+				fromCompressed := q.FromCompressedBytesWithSubsliceBuffer
+				cpi := NewParallelIterator(bucket, test.parallel, loadId, fromCompressed, logger)
 				testIterator(t, cpi, test, assertValue)
 
 			default:
@@ -136,18 +140,6 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 	// we already know that the ids are unique, so we can just check the
 	// length
 	require.Len(t, idsFound, test.totalVecs)
-}
-
-func fakeFromCompressedPQ(in []byte) []byte {
-	return in
-}
-
-func fakeFromCompressedBQ(in []byte) []uint64 {
-	out := make([]uint64, len(in)/8)
-	for i := range out {
-		out[i] = binary.LittleEndian.Uint64(in[i*8:])
-	}
-	return out
 }
 
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
