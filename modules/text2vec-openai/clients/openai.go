@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -108,9 +110,10 @@ type client struct {
 	httpClient         *http.Client
 	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
+	name               string
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger, name string) *client {
 	return &client{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
@@ -120,6 +123,7 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 		},
 		buildUrlFn: buildUrl,
 		logger:     logger,
+		name:       name,
 	}
 }
 
@@ -166,7 +170,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "send POST request")
+		code := 0
+		if res != nil {
+			code = res.StatusCode
+		}
+		return nil, nil, enterrors.NewErrThirdParty(err.Error(), err.Error(), v.name, code, "")
 	}
 	defer res.Body.Close()
 
@@ -182,7 +190,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
+		fullErr := v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
+		fullErrStr := fullErr.Error()
+		return nil, nil, enterrors.NewErrThirdParty(fullErrStr, resBody.Error.Message, v.name, res.StatusCode, requestID)
 	}
 	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 

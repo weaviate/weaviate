@@ -55,7 +55,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	tenant := cfg.Tenant()
 	vector, err := s.vectorizer.Texts(ctx, params.Values, cfg)
 	if err != nil {
-		return nil, errors.Errorf("vectorize keywords: %v", err)
+		return nil, errors.Wrap(err, "vectorize keywords")
 	}
 
 	moveTo := params.MoveTo
@@ -63,7 +63,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
 			moveTo.Objects, className, findVectorFn, cfg, tenant)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
+			return nil, errors.Wrap(err, "vectorize move to")
 		}
 
 		afterMoveTo, err := s.movements.MoveTo(vector, moveToVector, moveTo.Force)
@@ -78,7 +78,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
 			moveAway.Objects, className, findVectorFn, cfg, tenant)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move away from: %v", err)
+			return nil, errors.Wrap(err, "vectorize move away from")
 		}
 
 		afterMoveFrom, err := s.movements.MoveAwayFrom(vector, moveAwayVector, moveAway.Force)
@@ -102,7 +102,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	if len(values) > 0 {
 		moveToVector, err := s.vectorizer.Texts(ctx, values, cfg)
 		if err != nil {
-			return nil, errors.Errorf("vectorize move to: %v", err)
+			return nil, errors.Wrap(err, "vectorize move to")
 		}
 		objectVectors = append(objectVectors, moveToVector)
 	}

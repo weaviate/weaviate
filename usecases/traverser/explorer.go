@@ -250,7 +250,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
-				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+				return errors.Wrap(err, "explorer: get class: vectorize search vector")
 			}
 			searchVectors[i] = vec
 			return nil
@@ -271,7 +271,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, errors.Wrap(err, "explorer: get class: vector search: %v")
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -286,7 +286,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return nil, nil, errors.Wrap(err, "grouper")
 		}
 
 		res = grouped
@@ -296,7 +296,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, errors.Wrap(err, "explorer: get class: extend")
 		}
 	}
 	e.trackUsageGet(res, params)

@@ -116,7 +116,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -136,7 +136,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -156,7 +156,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -175,7 +175,7 @@ func TestClient(t *testing.T) {
 			headerRequestID: "some-request-id",
 		})
 		defer server.Close()
-		c := New("apiKey", "", "", 0, nullLogger())
+		c := New("apiKey", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -190,7 +190,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -214,7 +214,7 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -233,7 +233,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
@@ -251,7 +251,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		config := ent.VectorizationConfig{
 			Type:    "text",
@@ -272,7 +272,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		config := ent.VectorizationConfig{
 			IsAzure:    true,
@@ -290,7 +290,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
@@ -301,7 +301,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("pass rate limit headers tokens", func(t *testing.T) {
-		c := New("", "", "", 0, nullLogger())
+		c := New("", "", "", 0, nullLogger(), "")
 
 		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
@@ -443,7 +443,7 @@ func Test_getModelString(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", "", 0, nullLogger())
+				v := New("apiKey", "", "", 0, nullLogger(), "")
 				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
 				if got := v.getModelString(config, "document"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
@@ -514,7 +514,7 @@ func Test_getModelString(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				v := New("apiKey", "", "", 0, nullLogger())
+				v := New("apiKey", "", "", 0, nullLogger(), "")
 				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
 
 				if got := v.getModelString(config, "query"); got != tt.want {

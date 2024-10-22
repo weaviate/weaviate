@@ -185,7 +185,7 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 	if v.modulesProvider != nil {
 		targetVector, err := v.modulesProvider.TargetsFromSearchParam(className, paramValue)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, errors.Wrap(err, "vectorize params")
 		}
 		return targetVector, nil
 	}
@@ -200,7 +200,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 			className, targetVector, tenant, paramName, paramValue, v.findVector,
 		)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, errors.Wrap(err, "vectorize params")
 		}
 		return vector, nil
 	}

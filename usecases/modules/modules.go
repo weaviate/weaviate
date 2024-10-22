@@ -824,7 +824,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
+						return nil, errors.Wrap(err, "vectorize params")
 					}
 					return vector, nil
 				}
@@ -849,11 +849,11 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 					cfg := NewCrossClassModuleConfig()
 					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 					if err != nil {
-						return nil, "", errors.Errorf("vectorize params: %v", err)
+						return nil, "", errors.Wrap(err, "vectorize params")
 					}
 					targetVector, err := p.getTargetVector(nil, params)
 					if err != nil {
-						return nil, "", errors.Errorf("get target vector: %v", err)
+						return nil, "", errors.Wrap(err, "get target vector")
 					}
 					if len(targetVector) > 0 {
 						return vector, targetVector[0], nil
