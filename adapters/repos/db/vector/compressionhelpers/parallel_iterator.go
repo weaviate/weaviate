@@ -14,6 +14,7 @@ package compressionhelpers
 import (
 	"bytes"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,17 +28,28 @@ type compressedParallelIterator[T byte | uint64] struct {
 	logger              logrus.FieldLogger
 	loadId              func([]byte) uint64
 	fromCompressedBytes func(compressed []byte) []T
+
+	// a simple counter that each routine can write to atomically. It is used to
+	// track progress and display it to the user.
+	loaded atomic.Int64
+	// rather than tracking every tick which adds a lot of synchronization overhead,
+	// only track every trackInterval-th tick.
+	trackInterval int64
+	// how often to report progress to the user (via logs)
+	reportProgressInterval time.Duration
 }
 
 func NewCompressedParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte) []T,
 	logger logrus.FieldLogger,
 ) *compressedParallelIterator[T] {
 	return &compressedParallelIterator[T]{
-		bucket:              bucket,
-		parallel:            parallel,
-		logger:              logger,
-		loadId:              loadId,
-		fromCompressedBytes: fromCompressedBytes,
+		bucket:                 bucket,
+		parallel:               parallel,
+		logger:                 logger,
+		loadId:                 loadId,
+		fromCompressedBytes:    fromCompressedBytes,
+		trackInterval:          1000,
+		reportProgressInterval: 5 * time.Second,
 	}
 }
 
@@ -46,6 +58,10 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		// caller explicitly wants no parallelism, fallback to regular cursor
 		return cpi.iterateAllNoConcurrency()
 	}
+
+	stopTracking := cpi.startTracking()
+	defer func() {
+	}()
 
 	// We need one fewer seed than our desired parallel factor, that is because
 	// we will add one routine that starts with cursor.First() and reads to the
@@ -81,7 +97,6 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		defer c.Close()
 		defer wg.Done()
 
-		before := time.Now()
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
 			if len(k) == 0 {
 				cpi.logger.WithFields(logrus.Fields{
@@ -92,17 +107,8 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				continue
 			}
 
-			if len(localResults)%(1_000_000/cpi.parallel) == 0 {
-				cpi.logger.WithFields(logrus.Fields{
-					"action":                   "hnsw_compressed_vector_cache_prefill_progress",
-					"local_progress":           len(localResults),
-					"total_workers":            cpi.parallel,
-					"estimated_total_progress": cpi.parallel * len(localResults),
-					"time_since_beginning":     time.Since(before),
-				}).Info("single-worker progress prefilling compressed vector cache")
-			}
-
 			localResults = append(localResults, extract(k, v))
+			cpi.trackIndividual(len(localResults))
 		}
 
 		out <- localResults
@@ -130,6 +136,7 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 					continue
 				}
 				localResults = append(localResults, extract(k, v))
+				cpi.trackIndividual(len(localResults))
 			}
 
 			out <- localResults
@@ -153,7 +160,9 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				}).Warn("skipping compressed vector with unexpected length")
 				continue
 			}
+
 			localResults = append(localResults, extract(k, v))
+			cpi.trackIndividual(len(localResults))
 		}
 
 		out <- localResults
@@ -162,6 +171,7 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	enterrors.GoWrapper(func() {
 		wg.Wait()
 		close(out)
+		stopTracking()
 	}, cpi.logger)
 
 	return out
@@ -169,10 +179,12 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 
 func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 	out := make(chan []VecAndID[T])
+	stopTracking := cpi.startTracking()
 	enterrors.GoWrapper(func() {
 		defer close(out)
 		c := cpi.bucket.Cursor()
 		defer c.Close()
+		defer stopTracking()
 
 		localResults := make([]VecAndID[T], 0, 10_000)
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -189,12 +201,66 @@ func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAn
 			id := cpi.loadId(k)
 			vec := cpi.fromCompressedBytes(vc)
 			localResults = append(localResults, VecAndID[T]{id: id, vec: vec})
+			cpi.trackIndividual(len(localResults))
 		}
 
 		out <- localResults
 	}, cpi.logger)
 
 	return out
+}
+
+func (cpi *compressedParallelIterator[T]) startTracking() func() {
+	cpi.loaded.Store(0)
+
+	t := time.NewTicker(cpi.reportProgressInterval)
+	cancel := make(chan struct{})
+
+	enterrors.GoWrapper(func() {
+		start := time.Now()
+		lastReported := start
+		last := int64(0)
+
+		for {
+			select {
+			case now := <-t.C:
+				loaded := cpi.loaded.Load()
+				elapsed := now.Sub(start)
+				elapsedSinceLast := now.Sub(lastReported)
+				rate := float64(loaded-last) / elapsedSinceLast.Seconds()
+				totalRate := float64(loaded) / elapsed.Seconds()
+
+				cpi.logger.WithFields(logrus.Fields{
+					"action":                "hnsw_compressed_vector_cache_prefill_progress",
+					"loaded":                loaded,
+					"rate_per_second":       rate,
+					"total_rate_per_second": totalRate,
+					"elapsed_total":         elapsed,
+				}).Infof("loaded %d vectors in %s so far, current rate is %.2f vectors/s",
+					loaded, elapsed, rate)
+
+				last = loaded
+			case <-cancel:
+				t.Stop()
+				close(cancel)
+				return
+			}
+		}
+	}, cpi.logger)
+
+	return func() {
+		cancel <- struct{}{}
+	}
+}
+
+func (cpi *compressedParallelIterator[T]) trackIndividual(loaded int) {
+	// Possibly a premature optimization, the idea is to reduce the necessary
+	// synchronization when we load from hundreds of goroutines in parallel.
+	// Rather than tracking every single tick, we track in chunks of
+	// cpi.trackInterval.
+	if int64(loaded)%cpi.trackInterval == 0 {
+		cpi.loaded.Add(cpi.trackInterval)
+	}
 }
 
 type VecAndID[T uint64 | byte] struct {
