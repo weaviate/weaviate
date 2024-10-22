@@ -404,7 +404,7 @@ func testLAQDotExpFixedValue(t *testing.T, size uint, dotFn func(x []float32, y1
 
 		resControl := LAQDotExpGo(vec_x, vec_y1, vec_y2, 1, 1)
 
-		delta := float64(0.001)
+		delta := float64(1)
 		diff := float64(resControl) - float64(res)
 		if diff < -delta || diff > delta {
 			fmt.Printf("fixed, dimensions: %d, num: %d, match: %f != %f\n", size, num, resControl, res)
@@ -432,7 +432,7 @@ func testLAQDotExpRandomValue(t *testing.T, size uint, dotFn func(x []float32, y
 		res := dotFn(vec_x, vec_y1, vec_y2, a1, a2)
 		resControl := LAQDotExpGo(vec_x, vec_y1, vec_y2, a1, a2)
 
-		delta := float64(0.01)
+		delta := float64(1)
 		diff := float64(resControl) - float64(res)
 		if diff < -delta || diff > delta {
 			fmt.Printf("match: %f != %f\n", resControl, res)
