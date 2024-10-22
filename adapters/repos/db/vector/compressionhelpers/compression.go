@@ -229,7 +229,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	maxID := uint64(0)
 	vecs := make([]VecAndID[T], 0, 10_000)
 
-	it := NewCompressedParallelIterator(
+	it := NewParallelIterator(
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytes,
 		compressor.logger)
@@ -245,15 +245,15 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	count := 0
 	for i := range vecs {
 		count++
-		if vecs[i].id > maxID {
-			maxID = vecs[i].id
+		if vecs[i].Id > maxID {
+			maxID = vecs[i].Id
 		}
 	}
 
 	compressor.cache.Grow(maxID)
 
 	for _, vec := range vecs {
-		compressor.cache.Preload(vec.id, vec.vec)
+		compressor.cache.Preload(vec.Id, vec.Vec)
 	}
 
 	took := time.Since(before)

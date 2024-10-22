@@ -24,7 +24,7 @@ import (
 	"golang.org/x/text/message"
 )
 
-type compressedParallelIterator[T byte | uint64] struct {
+type parallelIterator[T byte | uint64] struct {
 	bucket              *lsmkv.Bucket
 	parallel            int
 	logger              logrus.FieldLogger
@@ -41,10 +41,10 @@ type compressedParallelIterator[T byte | uint64] struct {
 	reportProgressInterval time.Duration
 }
 
-func NewCompressedParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte) []T,
+func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte) []T,
 	logger logrus.FieldLogger,
-) *compressedParallelIterator[T] {
-	return &compressedParallelIterator[T]{
+) *parallelIterator[T] {
+	return &parallelIterator[T]{
 		bucket:                 bucket,
 		parallel:               parallel,
 		logger:                 logger,
@@ -55,7 +55,7 @@ func NewCompressedParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parall
 	}
 }
 
-func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
+func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	if cpi.parallel <= 1 {
 		// caller explicitly wants no parallelism, fallback to regular cursor
 		return cpi.iterateAllNoConcurrency()
@@ -88,7 +88,7 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		copy(vc, v)
 		id := cpi.loadId(k)
 		vec := cpi.fromCompressedBytes(vc)
-		return VecAndID[T]{id: id, vec: vec}
+		return VecAndID[T]{Id: id, Vec: vec}
 	}
 
 	// S1: Read from beginning to first checkpoint:
@@ -179,7 +179,7 @@ func (cpi *compressedParallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	return out
 }
 
-func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
+func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 	out := make(chan []VecAndID[T])
 	stopTracking := cpi.startTracking()
 	enterrors.GoWrapper(func() {
@@ -202,7 +202,7 @@ func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAn
 			copy(vc, v)
 			id := cpi.loadId(k)
 			vec := cpi.fromCompressedBytes(vc)
-			localResults = append(localResults, VecAndID[T]{id: id, vec: vec})
+			localResults = append(localResults, VecAndID[T]{Id: id, Vec: vec})
 			cpi.trackIndividual(len(localResults))
 		}
 
@@ -212,7 +212,7 @@ func (cpi *compressedParallelIterator[T]) iterateAllNoConcurrency() chan []VecAn
 	return out
 }
 
-func (cpi *compressedParallelIterator[T]) startTracking() func() {
+func (cpi *parallelIterator[T]) startTracking() func() {
 	cpi.loaded.Store(0)
 
 	t := time.NewTicker(cpi.reportProgressInterval)
@@ -258,7 +258,7 @@ func (cpi *compressedParallelIterator[T]) startTracking() func() {
 	}
 }
 
-func (cpi *compressedParallelIterator[T]) trackIndividual(loaded int) {
+func (cpi *parallelIterator[T]) trackIndividual(loaded int) {
 	// Possibly a premature optimization, the idea is to reduce the necessary
 	// synchronization when we load from hundreds of goroutines in parallel.
 	// Rather than tracking every single tick, we track in chunks of
@@ -269,6 +269,6 @@ func (cpi *compressedParallelIterator[T]) trackIndividual(loaded int) {
 }
 
 type VecAndID[T uint64 | byte] struct {
-	id  uint64
-	vec []T
+	Id  uint64
+	Vec []T
 }
