@@ -29,8 +29,8 @@ import (
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return []error{errors.Errorf("shard is read-only")}
+	if err := s.isReadOnly(); err != nil {
+		return []error{err}
 	}
 
 	return newReferencesBatcher(s).References(ctx, refs)
