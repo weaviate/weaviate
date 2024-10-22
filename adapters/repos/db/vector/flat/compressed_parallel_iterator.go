@@ -21,23 +21,23 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-type compressedParallelIterator struct {
+type parallelIterator struct {
 	bucket   *lsmkv.Bucket
 	parallel int
 	logger   logrus.FieldLogger
 }
 
-func NewCompressedParallelIterator(bucket *lsmkv.Bucket, parallel int,
+func NewParallelIterator(bucket *lsmkv.Bucket, parallel int,
 	logger logrus.FieldLogger,
-) *compressedParallelIterator {
-	return &compressedParallelIterator{
+) *parallelIterator {
+	return &parallelIterator{
 		bucket:   bucket,
 		parallel: parallel,
 		logger:   logger,
 	}
 }
 
-func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
+func (cpi *parallelIterator) IterateAll() chan []BQVecAndID {
 	if cpi.parallel <= 1 {
 		// caller explicitly wants no parallelism, fallback to regular cursor
 		return cpi.iterateAllNoConcurrency()
@@ -146,7 +146,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 	return out
 }
 
-func (cpi *compressedParallelIterator) iterateAllNoConcurrency() chan []BQVecAndID {
+func (cpi *parallelIterator) iterateAllNoConcurrency() chan []BQVecAndID {
 	out := make(chan []BQVecAndID)
 	enterrors.GoWrapper(func() {
 		defer close(out)

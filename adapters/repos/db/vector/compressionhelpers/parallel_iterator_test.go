@@ -14,6 +14,7 @@ package compressionhelpers
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -25,13 +26,7 @@ import (
 )
 
 func TestCompressedParallelIterator(t *testing.T) {
-	type test struct {
-		name      string
-		totalVecs int
-		parallel  int
-	}
-
-	tests := []test{
+	tests := []iteratorTestCase{
 		{
 			name:      "single vector, many parallel routines",
 			totalVecs: 1,
@@ -74,41 +69,85 @@ func TestCompressedParallelIterator(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	quantization := []string{"pq"}
+	testsWithQuantization := make([]iteratorTestCase, len(tests)*len(quantization))
+	for i, test := range tests {
+		for j, q := range quantization {
+			test.quantization = q
+			testsWithQuantization[i*len(quantization)+j] = test
+		}
+	}
+
+	for _, test := range testsWithQuantization {
+		t.Run(fmt.Sprintf("%s: %s", test.quantization, test.name), func(t *testing.T) {
 			bucket := buildCompressedBucketForTest(t, test.totalVecs)
 			defer bucket.Shutdown(context.Background())
+
 			logger, _ := logrustest.NewNullLogger()
 			loadId := binary.BigEndian.Uint64
-			fromCompressed := fakeFromCompressedPQ
-			cpi := NewCompressedParallelIterator(bucket, test.parallel, loadId,
-				fromCompressed, logger)
-			require.NotNil(t, cpi)
-
-			ch := cpi.IterateAll()
-			idsFound := make(map[uint64]struct{})
-			for vecs := range ch {
-				for _, vec := range vecs {
-					if _, ok := idsFound[vec.id]; ok {
-						t.Errorf("id %d found more than once", vec.id)
-					}
-					idsFound[vec.id] = struct{}{}
-
-					valAsUint64 := binary.BigEndian.Uint64(vec.vec)
-					assert.Equal(t, vec.id, valAsUint64)
+			switch test.quantization {
+			case "pq":
+				assertValue := func(t *testing.T, vec VecAndID[byte]) {
+					valAsUint64 := binary.LittleEndian.Uint64(vec.Vec)
+					assert.Equal(t, vec.Id, valAsUint64)
 				}
-			}
+				cpi := NewParallelIterator(bucket, test.parallel, loadId, fakeFromCompressedPQ, logger)
+				testIterator(t, cpi, test, assertValue)
+			case "bq":
+				assertValue := func(t *testing.T, vec VecAndID[uint64]) {
+					assert.Equal(t, vec.Id, vec.Vec[0])
+				}
+				cpi := NewParallelIterator(bucket, test.parallel, loadId, fakeFromCompressedBQ, logger)
+				testIterator(t, cpi, test, assertValue)
 
-			// assert all ids are found
-			// we already know that the ids are unique, so we can just check the
-			// length
-			require.Len(t, idsFound, test.totalVecs)
+			default:
+				t.Fatalf("unknown quantization: %s", test.quantization)
+			}
 		})
 	}
 }
 
+type iteratorTestCase struct {
+	name         string
+	totalVecs    int
+	parallel     int
+	quantization string
+}
+
+func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test iteratorTestCase,
+	assertValue func(t *testing.T, vec VecAndID[T]),
+) {
+	require.NotNil(t, cpi)
+
+	ch := cpi.IterateAll()
+	idsFound := make(map[uint64]struct{})
+	for vecs := range ch {
+		for _, vec := range vecs {
+			if _, ok := idsFound[vec.Id]; ok {
+				t.Errorf("id %d found more than once", vec.Id)
+			}
+			idsFound[vec.Id] = struct{}{}
+
+			assertValue(t, vec)
+		}
+	}
+
+	// assert all ids are found
+	// we already know that the ids are unique, so we can just check the
+	// length
+	require.Len(t, idsFound, test.totalVecs)
+}
+
 func fakeFromCompressedPQ(in []byte) []byte {
 	return in
+}
+
+func fakeFromCompressedBQ(in []byte) []uint64 {
+	out := make([]uint64, len(in)/8)
+	for i := range out {
+		out[i] = binary.LittleEndian.Uint64(in[i*8:])
+	}
+	return out
 }
 
 func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
@@ -125,7 +164,7 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 		binary.BigEndian.PutUint64(key, uint64(i))
 		// make the actual vector the same as the key that makes it easy to do some
 		// basic checks
-		binary.BigEndian.PutUint64(val, uint64(i))
+		binary.LittleEndian.PutUint64(val, uint64(i))
 
 		err := bucket.Put(key, val)
 		require.Nil(t, err)
