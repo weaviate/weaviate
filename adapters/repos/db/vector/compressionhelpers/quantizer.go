@@ -31,7 +31,7 @@ type quantizer[T byte | uint64] interface {
 	// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
 	// instead of allocating a new slice you can pass in a buffer to use. It will
 	// slice something off of that buffer. If the buffer is too small, it will
-	// allocate a new slice.
+	// allocate a new buffer.
 	FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]T) []T
 	ExposeFields() PQData
 }
@@ -81,7 +81,7 @@ func (bq *BinaryQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
 // FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
 // instead of allocating a new slice you can pass in a buffer to use. It will
 // slice something off of that buffer. If the buffer is too small, it will
-// allocate a new slice.
+// allocate a new buffer.
 func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
 	l := len(compressed) / 8
 	if len(compressed)%8 != 0 {
