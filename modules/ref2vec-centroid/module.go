@@ -60,7 +60,10 @@ func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 	findRefVecsFn modulecapabilities.FindObjectFn,
 ) ([]float32, error) {
-	vzr := vectorizer.New(cfg, findRefVecsFn)
+	vzr, err := vectorizer.New(cfg, findRefVecsFn)
+	if err != nil {
+		return nil, err
+	}
 	return vzr.Object(ctx, obj)
 }
 

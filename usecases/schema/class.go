@@ -539,7 +539,7 @@ func (h *Handler) validateProperty(
 		}
 
 		if existingPropertyNames[strings.ToLower(property.Name)] {
-			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", class.Class, property.Name)
 		}
 
 		// Validate data type of property.
