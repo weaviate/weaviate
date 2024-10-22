@@ -48,8 +48,6 @@ func main() {
 	os.Setenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED", "true")
 	os.Setenv("DEFAULT_VECTORIZER_MODULE", *defaultVectoriser)
 
-
-
 	logger := logrus.New()
 	var connectorOptionGroup *swag.CommandLineOptionsGroup = config.GetConfigOptionGroup()
 
@@ -68,6 +66,4 @@ func main() {
 	http.Handle("/", handler)
 	fmt.Printf("Weaviate is running on %s\n", *origin)
 	http.ListenAndServe(":8080", nil)
-
-
 }
