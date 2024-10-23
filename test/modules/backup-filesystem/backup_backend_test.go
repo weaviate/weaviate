@@ -32,7 +32,7 @@ import (
 
 func Test_FileSystemBackend_Start(t *testing.T) {
 	filesystemBackend_Backup(t, "", "", "")
-	filesystemBackend_Backup(t, "", "", " with override") // Note:  no bucket parameter, because it is not supported by the filesystem backend
+	filesystemBackend_Backup(t, "", "bucketPath", " with override") // Note:  no bucket parameter, because it is not supported by the filesystem backend
 }
 
 func filesystemBackend_Backup(t *testing.T, overrideBucket, overridePath, overrideDescription string) {
