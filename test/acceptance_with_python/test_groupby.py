@@ -38,10 +38,17 @@ def test_groupby_with_refs(
         return_references=return_refs,
     )
     assert len(res.groups) == 3
+    if return_refs is not None:
+        for _, grp in res.groups.items():
+            for obj in grp.objects:
+                assert obj.references is not None
 
     # repeat with GQL - slightly different code path in
     client = weaviate.connect_to_local()
-    hits = "hits{ref{... on " + col.name + "{_additional{id}}} _additional{id distance}}"
+    ref = "_additional{id distance}"
+    if return_refs is not None:
+        ref = "ref{... on " + col.name + "{_additional{id}}} _additional{id distance}"
+    hits = "hits{" + ref + "}"
     group = f"group{{ id groupedBy {{ value path }} count maxDistance minDistance {hits} }}"
     _additional = f"_additional{{ {group} }}"
     res = client.graphql_raw_query(
@@ -57,4 +64,5 @@ def test_groupby_with_refs(
     assert res.errors is None
     for group in res.get[col.name]:
         assert len(group["_additional"]["group"]["hits"]) == 1
-        assert group["_additional"]["group"]["hits"][0]["ref"] is not None
+        if return_refs is not None:
+            assert group["_additional"]["group"]["hits"][0]["ref"] is not None
