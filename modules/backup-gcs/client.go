@@ -132,23 +132,23 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 
 	if err := ctx.Err(); err != nil {
-		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object %s", objectName))
 	}
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
 		if errors.Is(err, storage.ErrBucketNotExist) {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName))
 	}
 
 	contents, err := g.getObject(ctx, bucket, objectName)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName))
 	}
 
 	return contents, nil
@@ -207,7 +207,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) (err error) {
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
-		return fmt.Errorf("WriteToFile: '%w'", err)
+		return fmt.Errorf("WriteToFile: %w", err)
 	}
 
 	// validate destination path
@@ -263,7 +263,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
-		return 0, fmt.Errorf("gcs write: '%w'", err)
+		return 0, fmt.Errorf("gcs write: %w", err)
 	}
 
 	// create a new writer
@@ -295,7 +295,7 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 
 	bucket, err := g.findBucket(ctx, overrideBucket)
 	if err != nil {
-		err = fmt.Errorf("read cannot:'%w'", err)
+		err = fmt.Errorf("read cannot:%w", err)
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			err = backup.NewErrNotFound(err)
 		}
