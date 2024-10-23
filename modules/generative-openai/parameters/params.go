@@ -17,10 +17,13 @@ import (
 )
 
 type Params struct {
+	BaseURL          string
+	ApiVersion       string
+	ResourceName     string
+	DeploymentID     string
+	IsAzure          bool
 	Model            string
 	FrequencyPenalty *float64
-	Logprobs         *bool
-	TopLogprobs      *int
 	MaxTokens        *int
 	N                *int
 	PresencePenalty  *float64
@@ -35,14 +38,20 @@ func extract(field *ast.ObjectField) interface{} {
 	if ok {
 		for _, f := range fields {
 			switch f.Name.Value {
+			case "baseURL":
+				out.BaseURL = gqlparser.GetValueAsStringOrEmpty(f)
+			case "apiVersion":
+				out.ApiVersion = gqlparser.GetValueAsStringOrEmpty(f)
+			case "resourceName":
+				out.ResourceName = gqlparser.GetValueAsStringOrEmpty(f)
+			case "deploymentId":
+				out.DeploymentID = gqlparser.GetValueAsStringOrEmpty(f)
+			case "isAzure":
+				out.IsAzure = gqlparser.GetValueAsBoolOrFalse(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "frequencyPenalty":
 				out.FrequencyPenalty = gqlparser.GetValueAsFloat64(f)
-			case "logprobs":
-				out.Logprobs = gqlparser.GetValueAsBool(f)
-			case "topLogprobs":
-				out.TopLogprobs = gqlparser.GetValueAsInt(f)
 			case "maxTokens":
 				out.MaxTokens = gqlparser.GetValueAsInt(f)
 			case "n":

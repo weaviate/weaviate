@@ -12,9 +12,9 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -62,17 +62,17 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model": "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong Mistral model name, available model names are: " +
+			wantErr: fmt.Errorf("wrong Mistral model name, available model names are: " +
 				"[open-mistral-7b mistral-tiny-2312 mistral-tiny open-mixtral-8x7b mistral-small-2312 mistral-small mistral-small-2402 mistral-small-latest mistral-medium-latest mistral-medium-2312 mistral-medium mistral-large-latest mistral-large-2402]"),
 		},
 		{
-			name: "default settings with command-light-nightly",
+			name: "default settings with open-mistral-7b",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "command-light-nightly",
+					"model": "open-mistral-7b",
 				},
 			},
-			wantModel:       "command-light-nightly",
+			wantModel:       "open-mistral-7b",
 			wantMaxTokens:   2048,
 			wantTemperature: 0,
 			wantBaseURL:     "https://api.mistral.ai",
@@ -99,9 +99,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.Equal(t, tt.wantErr.Error(), ic.Validate(nil).Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
+				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}
 		})
 	}
