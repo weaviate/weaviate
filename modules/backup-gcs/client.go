@@ -196,7 +196,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
 	if err := bucket.Object(objectName).Delete(ctx); err != nil {
-		return errors.Wrap(err, "failed to remove access-check gcs backup module "+objectName)
+		return errors.Wrapf(err, "failed to remove access-check gcs backup module %v", objectName)
 	}
 
 	return nil
