@@ -195,6 +195,9 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 			return nil, "", errors.New("multiple vectors found, specify target vector")
 		}
 	}
+	if len(res.Vector) == 0 {
+		return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
+	}
 	return res.Vector, targetVector, nil
 }
 
