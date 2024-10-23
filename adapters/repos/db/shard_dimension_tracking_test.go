@@ -604,4 +604,67 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 		metricValue = testutil.ToFloat64(metric)
 		require.Equal(t, 0.0, metricValue, "metrics should be reset")
 	})
+	t.Run("set schema type=PQ segments=0", func(t *testing.T) {
+		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
+		vectorIndexConfig.PQ.Enabled = true
+		vectorIndexConfig.PQ.Segments = 0
+
+		class := &models.Class{
+			Class:               "PQZ",
+			VectorIndexConfig:   vectorIndexConfig,
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema = schema
+	})
+
+	t.Run("import objects and validate metric type=PQ segments=0", func(t *testing.T) {
+		dim := 64
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = r.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "PQZ", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			require.Nil(t, err)
+		}
+
+		publishDimensionMetricsFromRepo(context.Background(), repo, "PQZ")
+
+		shardName = getSingleShardNameFromRepo(repo, "PQZ")
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQZ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "dimensions should not have changed")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQZ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 5000.0, metricValue, "segments should match")
+	})
+
+	t.Run("delete class type=PQ segments=0", func(t *testing.T) {
+		err := migrator.DropClass(context.Background(), "PQZ")
+		require.Nil(t, err)
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQZ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metric should be still zero")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQZ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metrics should be reset")
+	})
 }
