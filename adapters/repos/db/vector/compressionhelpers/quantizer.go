@@ -92,8 +92,9 @@ func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []by
 		*buffer = make([]uint64, 1000*l)
 	}
 
-	slice := (*buffer)[:l]
-	*buffer = (*buffer)[l:]
+	// take from end so we can address the start of the buffer
+	slice := (*buffer)[len(*buffer)-l:]
+	*buffer = (*buffer)[:len(*buffer)-l]
 
 	for i := range slice {
 		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
@@ -114,9 +115,10 @@ func (pq *ProductQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []b
 		*buffer = make([]byte, len(compressed)*1000)
 	}
 
-	copy(*buffer, compressed)
-	out := (*buffer)[:len(compressed)]
-	*buffer = (*buffer)[len(compressed):]
+	// take from end so we can address the start of the buffer
+	out := (*buffer)[len(*buffer)-len(compressed):]
+	copy(out, compressed)
+	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
 
 	return out
 }

@@ -115,6 +115,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
+		cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 		out <- localResults
 	}, cpi.logger)
@@ -147,6 +148,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 				localResults = append(localResults, extract(k, v, &localBuf))
 				cpi.trackIndividual(len(localResults))
 			}
+			cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 			out <- localResults
 		}, cpi.logger)
@@ -177,6 +179,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 			localResults = append(localResults, extract(k, v, &localBuf))
 			cpi.trackIndividual(len(localResults))
 		}
+		cpi.cleanUpTempAllocs(localResults, &localBuf)
 
 		out <- localResults
 	}, cpi.logger)
@@ -284,4 +287,40 @@ func (cpi *parallelIterator[T]) trackIndividual(loaded int) {
 type VecAndID[T uint64 | byte] struct {
 	Id  uint64
 	Vec []T
+}
+
+func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], localBuf *[]T) {
+	wastedSpace := cap(*localBuf) - len(*localBuf)
+	if len(localResults) == 0 || wastedSpace == 0 {
+		return
+	}
+
+	// We allocate localBuf in chunks of 1000 vectors to avoid allocations for every single vector we load, which is a
+	// big performance improvement.
+	// However, we allocate that per go-routine and in the worst case we'd waste 1000*lengthOneVec*num_cores*2 bytes per
+	// index. For MT with many small tenants this can add up to quite a bit of memory
+	// This function creates a slice that exactly fits all elements in the last iteration, copies all data over from
+	// localBuf and reassigns everything to the new buffer
+
+	// localBuf is written to from the back => there is unused space at the front
+	fittingLocalBuf := make([]T, wastedSpace)
+	lengthOneVec := len(localResults[0].Vec)
+	entriesToRecopy := wastedSpace / lengthOneVec
+
+	// copy used data over to new buf
+	unusedLength := len(*localBuf)
+	*localBuf = (*localBuf)[:cap(*localBuf)]
+	copy(fittingLocalBuf, (*localBuf)[unusedLength:])
+
+	// order is important. To get the correct mapping we need to iterated:
+	// - localResults from the back
+	// - fittingLocalBuf from the front
+	for i := 0; i < entriesToRecopy; i++ {
+		localResults[len(localResults)-i-1].Vec = fittingLocalBuf[:lengthOneVec]
+		fittingLocalBuf = fittingLocalBuf[lengthOneVec:]
+	}
+
+	// explicitly tell GC that the old buffer can go away
+	clear(*localBuf)
+	localBuf = nil
 }
