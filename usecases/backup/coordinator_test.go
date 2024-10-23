@@ -44,7 +44,7 @@ func Test_CoordinatedBackup(t *testing.T) {
 			Compression: req.Compression,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""} // FIXME
+		sReq         = &StatusRequest{OpCreate, backupID, backendName, "", ""}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		abortReq     = &AbortRequest{OpCreate, backupID, backendName, "", ""} // FIXME
 		nodeResolver = newFakeNodeResolver(nodes)

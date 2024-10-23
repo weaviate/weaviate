@@ -4841,24 +4841,6 @@
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
-          },
-          {
-            "name": "X-Aws-Access-Key",
-            "in": "header",
-            "required": false,
-            "type": "string"
-          },
-          {
-            "name": "X-Aws-Secret-Key",
-            "in": "header",
-            "required": false,
-            "type": "string"
-          },
-          {
-            "name": "X-Aws-Session-Token",
-            "in": "header",
-            "required": false,
-            "type": "string"
           }
         ],
         "responses": {

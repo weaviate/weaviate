@@ -112,7 +112,7 @@ func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*sto
 	bucket := g.client.Bucket(b)
 
 	if _, err := bucket.Attrs(ctx); err != nil {
-		return nil, fmt.Errorf("find bucket: '%w'", err)
+		return nil, fmt.Errorf("find bucket: %w", err)
 	}
 
 	return bucket, nil

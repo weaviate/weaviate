@@ -128,62 +128,8 @@ type nodeStore struct {
 	objectStore
 }
 
-// https://github.com/weaviate/weaviate/pull/6012#pullrequestreview-2371394228
-type NodeStore interface {
-	GetObjectStore(ctx context.Context, key string, overrideBucket, overridePath string) *objectStore
-	SetObjectStore(os *objectStore)
-	GetBackend() modulecapabilities.BackupBackend
-	SetBackend(backend modulecapabilities.BackupBackend)
-	GetBackupId() string
-	SetBackupId(backupId string)
-	GetBucket() string
-	SetBucket(bucket string)
-	GetPath() string
-	SetPath(path string)
-}
-
 func NewNodeStore(backend modulecapabilities.BackupBackend, backupId, bucket, path string) *nodeStore {
 	return &nodeStore{objectStore: objectStore{backend, backupId, bucket, path}}
-}
-
-func (n *nodeStore) GetObjectStore(ctx context.Context, key string, overrideBucket, overridePath string) *objectStore {
-	return &n.objectStore
-}
-
-func (n *nodeStore) SetObjectStore(os *objectStore) {
-	n.objectStore = *os
-}
-
-func (n *nodeStore) GetBackend() modulecapabilities.BackupBackend {
-	return n.backend
-}
-
-func (n *nodeStore) SetBackend(backend modulecapabilities.BackupBackend) {
-	n.backend = backend
-}
-
-func (n *nodeStore) GetBackupId() string {
-	return n.backupId
-}
-
-func (n *nodeStore) SetBackupId(backupId string) {
-	n.backupId = backupId
-}
-
-func (n *nodeStore) GetBucket() string {
-	return n.bucket
-}
-
-func (n *nodeStore) SetBucket(bucket string) {
-	n.bucket = bucket
-}
-
-func (n *nodeStore) GetPath() string {
-	return n.path
-}
-
-func (n *nodeStore) SetPath(path string) {
-	n.path = path
 }
 
 // Meta gets meta data using standard path or deprecated old path
