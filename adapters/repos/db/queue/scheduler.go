@@ -273,18 +273,18 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
-	batch, done, err := q.q.DequeueBatch()
+	batch, err := q.q.DequeueBatch()
 	if err != nil {
 		return errors.Wrap(err, "failed to dequeue batch")
 	}
-	if len(batch) == 0 {
+	if batch == nil || len(batch.Tasks) == 0 {
 		return nil
 	}
 
 	partitions := make([][]Task, len(s.Workers))
 
 	var taskCount int64
-	for _, t := range batch {
+	for _, t := range batch.Tasks {
 		// TODO: introduce other partitioning strategies if needed
 		slot := t.Key() % uint64(len(s.Workers))
 		partitions[slot] = append(partitions[slot], t)
@@ -301,8 +301,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	// for this chunk to remove it when all tasks are done
 	counter := len(partitions)
 
-	for i, batch := range partitions {
-		if len(batch) == 0 {
+	for i, partition := range partitions {
+		if len(partition) == 0 {
 			continue
 		}
 
@@ -317,7 +317,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 			q.activeTasks.Decr()
 			return nil
 		case s.Workers[i] <- Batch{
-			Tasks: batch,
+			Tasks: partition,
 			Ctx:   s.ctx,
 			Done: func() {
 				defer s.activeTasks.Decr()
@@ -326,7 +326,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				q.m.Lock()
 				counter--
 				if counter == 0 {
-					done()
+					batch.Done()
 				}
 				q.m.Unlock()
 			},
