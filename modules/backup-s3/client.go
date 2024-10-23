@@ -89,9 +89,10 @@ func tempClient(currentClient *s3Client, overrideBucket, overridePath string, ct
 			return nil, errors.Wrap(err, "create minio client")
 		}
 		return &s3Client{client, config, currentClient.logger, currentClient.dataPath, overrideBucket, overridePath, creds, currentClient.region}, nil
-	} else {
-		return currentClient, nil
+	} else if AwsAccessKey != "" || xAwsSecretKey != "" || xAwsSessionToken != "" {
+		return &s3Client{currentClient.client, currentClient.config, currentClient.logger, currentClient.dataPath, currentClient.bucket, currentClient.path, credentials.NewStaticV4(AwsAccessKey, xAwsSecretKey, xAwsSessionToken), currentClient.region}, nil
 	}
+	return currentClient, nil
 }
 
 func (s *s3Client) makeObjectName(parts ...string) string {
