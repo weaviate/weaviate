@@ -524,7 +524,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", ""}) // FIXME
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", ""})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
 		assert.Equal(t, string(backup.Success), backend.meta.Status)
