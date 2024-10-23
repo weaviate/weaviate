@@ -184,8 +184,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 						Beacon:   "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 						Distance: 0.1,
 					},
-					Pagination: &filters.Pagination{Limit: 100},
-					Filters:    nil,
+					Pagination:   &filters.Pagination{Limit: 100},
+					Filters:      nil,
+					SearchVector: []float32{1, 2, 3},
 				}
 
 				searchRes := search.Result{
@@ -193,6 +194,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
+					Vector: []float32{1, 2, 3},
 				}
 
 				searchResults := []search.Result{
@@ -262,8 +264,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Certainty: 0.9,
 				},
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    nil,
+				Pagination:   &filters.Pagination{Limit: 100},
+				Filters:      nil,
+				SearchVector: []float32{1, 2, 3},
 			}
 
 			searchRes := search.Result{
@@ -271,6 +274,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
+				Vector: []float32{1, 2, 3},
 			}
 
 			searchResults := []search.Result{
@@ -342,8 +346,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 					ID:       "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Distance: 0.1,
 				},
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    nil,
+				Pagination:   &filters.Pagination{Limit: 100},
+				Filters:      nil,
+				SearchVector: []float32{1, 2, 3},
 			}
 
 			searchRes := search.Result{
@@ -351,6 +356,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
+				Vector: []float32{1, 2, 3},
 			}
 
 			searchResults := []search.Result{
@@ -420,8 +426,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 					ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Certainty: 0.9,
 				},
-				Pagination: &filters.Pagination{Limit: 100},
-				Filters:    nil,
+				Pagination:   &filters.Pagination{Limit: 100},
+				Filters:      nil,
+				SearchVector: []float32{1, 2, 3},
 			}
 
 			searchRes := search.Result{
@@ -429,6 +436,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
+				Vector: []float32{1, 2, 3},
 			}
 
 			searchResults := []search.Result{

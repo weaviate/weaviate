@@ -104,11 +104,8 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 }
 
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
-	logger := hclogger.entry
-	if len(args) > 0 {
-		logger = hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name))
-	}
-	logger.Log(level, hclogger.name+msg)
+	hclogger.entry = hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name))
+	hclogger.entry.Log(level, msg)
 }
 
 func (hclogger *hclogLogrus) IsTrace() bool {
@@ -133,7 +130,8 @@ func (hclogger *hclogLogrus) IsError() bool {
 
 func (hclogger *hclogLogrus) With(args ...interface{}) hclog.Logger {
 	return &hclogLogrus{
-		entry: hclogger.LoggerWith(args),
+		name:  hclogger.name,
+		entry: hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
 	}
 }
 
