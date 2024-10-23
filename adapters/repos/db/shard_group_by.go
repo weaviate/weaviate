@@ -45,7 +45,15 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s", err, groupBy.Property)
 	}
 
-	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional, properties).Do(ctx)
+	props := []string{}
+	for _, propTmp := range properties {
+		props = append(props, propTmp)
+	}
+	for _, propTmp := range groupBy.Properties {
+		props = append(props, propTmp.Name)
+	}
+
+	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional, props).Do(ctx)
 }
 
 type grouper struct {
