@@ -24,9 +24,22 @@ type TaskGrouper interface {
 }
 
 type Batch struct {
-	Tasks []Task
-	Ctx   context.Context
-	Done  func()
+	Tasks      []Task
+	Ctx        context.Context
+	onDone     func()
+	onCanceled func()
+}
+
+func (b *Batch) Done() {
+	if b.onDone != nil {
+		b.onDone()
+	}
+}
+
+func (b *Batch) Cancel() {
+	if b.onCanceled != nil {
+		b.onCanceled()
+	}
 }
 
 type TaskDecoder interface {

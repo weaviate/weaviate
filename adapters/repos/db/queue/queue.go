@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	// defaultChunkSize is the maximum size of each chunk file. Set to 10MB.
-	defaultChunkSize = 10 * 1024 * 1024
+	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
+	defaultChunkSize = 100 * 1024 * 1024
 
 	// name of the file that stores records before they reach the target size.
 	partialChunkFile = "chunk.bin.partial"
@@ -144,6 +144,16 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// ensure the partial chunk is created or loaded
+	err = q.ensureChunk()
+	if err != nil {
+		return nil, err
+	}
+
+	// set the last push time to now
+	now := time.Now()
+	q.lastPushTime.Store(&now)
 
 	return &q, nil
 }
@@ -349,7 +359,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	// if there are no more chunks to read,
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
-	if c == nil || c.f == nil && q.Size() > 0 {
+	if c == nil || c.f == nil {
 		c, err = q.checkIfStale()
 		if c == nil || err != nil || c.f == nil {
 			return nil, err
@@ -359,7 +369,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	if c.f == nil {
 		return nil, nil
 	}
-
 	defer c.Close()
 
 	// decode all tasks from the chunk
@@ -419,8 +428,8 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	return &Batch{
-		Tasks: tasks,
-		Done:  doneFn,
+		Tasks:  tasks,
+		onDone: doneFn,
 	}, nil
 }
 
@@ -460,8 +469,9 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 			continue
 		}
 
+		path := filepath.Join(q.dir, entry.Name())
 		// skip files that have already been read
-		if _, ok := q.chunkRead[entry.Name()]; ok {
+		if _, ok := q.chunkRead[path]; ok {
 			continue
 		}
 
@@ -470,7 +480,7 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 			continue
 		}
 
-		q.chunkList = append(q.chunkList, filepath.Join(q.dir, entry.Name()))
+		q.chunkList = append(q.chunkList, path)
 	}
 
 	if len(q.chunkList) == 0 {
@@ -478,20 +488,28 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 	}
 
 	// make sure the list is sorted
-	// so that the oldest chunks are read first
-	// (i.e. the ones with the smallest timestamp)
 	sort.Strings(q.chunkList)
+
+	q.chunkRead[q.chunkList[q.cursor]] = struct{}{}
 
 	return openChunk(q.chunkList[q.cursor])
 }
 
 func (q *DiskQueue) checkIfStale() (*chunk, error) {
+	if q.Size() == 0 {
+		return nil, nil
+	}
+
+	if q.partialChunkRecordCount == 0 {
+		return nil, nil
+	}
+
 	lastPushed := q.lastPushTime.Load()
 	if lastPushed == nil {
 		return nil, nil
 	}
 
-	if time.Since(*lastPushed) < q.staleTimeout {
+	if time.Since(*lastPushed) < q.staleTimeout || q.partialChunkRecordCount == 0 {
 		return nil, nil
 	}
 

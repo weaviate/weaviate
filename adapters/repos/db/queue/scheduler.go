@@ -13,6 +13,7 @@ package queue
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
@@ -37,29 +38,32 @@ type Scheduler struct {
 
 	activeTasks *common.SharedGauge
 
-	wg sync.WaitGroup
+	wg    sync.WaitGroup
+	chans []chan Batch
 }
 
 type SchedulerOptions struct {
 	Logger logrus.FieldLogger
-	// Channels to send tasks to the workers. At least one worker is required.
-	Workers []chan Batch
+	// Number of workers to process tasks. Defaults to the number of CPUs - 1.
+	Workers int
 	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
 	// If a queue does not receive any tasks for this duration, it is considered stale
 	// and must be scheduled. Defaults to 5 seconds.
 	StaleTimeout time.Duration
+	// Function to be called when the scheduler is closed
+	OnClose func()
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
-	if len(opts.Workers) <= 0 {
-		panic("at least one worker is required")
-	}
-
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
 	opts.Logger = opts.Logger.WithField("component", "queue-scheduler")
+
+	if opts.Workers <= 0 {
+		opts.Workers = max(1, runtime.GOMAXPROCS(0)-1)
+	}
 
 	if opts.ScheduleInterval == 0 {
 		opts.ScheduleInterval = time.Second
@@ -114,8 +118,26 @@ func (s *Scheduler) Start() {
 
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
 
-	s.wg.Add(1)
+	// run workers
+	chans := make([]chan Batch, s.Workers)
 
+	for i := 0; i < s.Workers; i++ {
+		worker, ch := NewWorker(s.Logger, 5*time.Second)
+		chans[i] = ch
+
+		s.wg.Add(1)
+		f := func() {
+			defer s.wg.Done()
+
+			worker.Run(s.ctx)
+		}
+		enterrors.GoWrapper(f, s.Logger)
+	}
+
+	s.chans = chans
+
+	// run scheduler goroutine
+	s.wg.Add(1)
 	f := func() {
 		defer s.wg.Done()
 
@@ -138,18 +160,22 @@ func (s *Scheduler) Close() error {
 	// stop scheduling
 	s.cancelFn()
 
-	// wait for the scheduler to stop
-	s.wg.Wait()
-
 	// wait for the workers to finish processing tasks
 	s.activeTasks.Wait()
 
+	// wait for the spawned goroutines to stop
+	s.wg.Wait()
+
 	// close the channels
-	for _, ch := range s.Workers {
+	for _, ch := range s.chans {
 		close(ch)
 	}
 
 	s.Logger.Debug("scheduler closed")
+
+	if s.OnClose != nil {
+		s.OnClose()
+	}
 
 	return nil
 }
@@ -261,32 +287,32 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
-		nothingScheduled = false
-
-		err := s.dispatchQueue(q)
+		count, err := s.dispatchQueue(q)
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
+
+		nothingScheduled = count <= 0
 	}
 
 	return
 }
 
-func (s *Scheduler) dispatchQueue(q *queueState) error {
+func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 	batch, err := q.q.DequeueBatch()
 	if err != nil {
-		return errors.Wrap(err, "failed to dequeue batch")
+		return 0, errors.Wrap(err, "failed to dequeue batch")
 	}
 	if batch == nil || len(batch.Tasks) == 0 {
-		return nil
+		return 0, nil
 	}
 
-	partitions := make([][]Task, len(s.Workers))
+	partitions := make([][]Task, s.Workers)
 
 	var taskCount int64
 	for _, t := range batch.Tasks {
 		// TODO: introduce other partitioning strategies if needed
-		slot := t.Key() % uint64(len(s.Workers))
+		slot := t.Key() % uint64(s.Workers)
 		partitions[slot] = append(partitions[slot], t)
 		taskCount++
 	}
@@ -315,11 +341,11 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		case <-s.ctx.Done():
 			s.activeTasks.Decr()
 			q.activeTasks.Decr()
-			return nil
-		case s.Workers[i] <- Batch{
+			return taskCount, nil
+		case s.chans[i] <- Batch{
 			Tasks: partition,
 			Ctx:   s.ctx,
-			Done: func() {
+			onDone: func() {
 				defer s.activeTasks.Decr()
 				defer q.activeTasks.Decr()
 
@@ -330,13 +356,17 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				}
 				q.m.Unlock()
 			},
+			onCanceled: func() {
+				q.activeTasks.Decr()
+				s.activeTasks.Decr()
+			},
 		}:
 		}
 	}
 
 	s.logQueueStats(q.q, taskCount)
 
-	return nil
+	return taskCount, nil
 }
 
 func (s *Scheduler) logQueueStats(q Queue, vectorsSent int64) {

@@ -159,28 +159,13 @@ func New(logger logrus.FieldLogger, config Config,
 		}
 	} else {
 		logger.Info("async indexing enabled")
-		w := runtime.GOMAXPROCS(0) - 1
-		db.shutDownWg.Add(w)
-
-		chans := make([]chan queue.Batch, w)
-
-		for i := 0; i < w; i++ {
-			worker, ch := queue.NewWorker(db.logger, 5*time.Second)
-			chans[i] = ch
-
-			f := func() {
-				defer db.shutDownWg.Done()
-
-				worker.Run()
-			}
-			enterrors.GoWrapper(f, db.logger)
-		}
 
 		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
 			Logger:  logger,
-			Workers: chans,
+			OnClose: db.shutDownWg.Done,
 		})
 
+		db.shutDownWg.Add(1)
 		db.scheduler.Start()
 	}
 
@@ -306,6 +291,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	if asyncEnabled() {
+		// shut down the async workers
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
+	}
+
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
 	}
@@ -315,14 +308,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	for id, index := range db.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)
-		}
-	}
-
-	if asyncEnabled() {
-		// shut down the async workers
-		err := db.scheduler.Close()
-		if err != nil {
-			return errors.Wrap(err, "close scheduler")
 		}
 	}
 
