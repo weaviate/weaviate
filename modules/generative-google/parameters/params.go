@@ -17,6 +17,10 @@ import (
 )
 
 type Params struct {
+	ApiEndpoint      string
+	ProjectID        string
+	EndpointID       string
+	Region           string
 	Model            string
 	Temperature      *float64
 	MaxTokens        *int
@@ -33,6 +37,14 @@ func extract(field *ast.ObjectField) interface{} {
 	if ok {
 		for _, f := range fields {
 			switch f.Name.Value {
+			case "apiEndpoint":
+				out.ApiEndpoint = gqlparser.GetValueAsStringOrEmpty(f)
+			case "projectId":
+				out.ProjectID = gqlparser.GetValueAsStringOrEmpty(f)
+			case "endpointId":
+				out.EndpointID = gqlparser.GetValueAsStringOrEmpty(f)
+			case "region":
+				out.Region = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "temperature":

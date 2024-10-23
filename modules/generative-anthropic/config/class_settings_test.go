@@ -32,6 +32,20 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr           error
 	}{
 		{
+			name: "all empty",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{},
+			},
+			wantModel:         "claude-3-5-sonnet-20240620",
+			wantMaxTokens:     4096,
+			wantTemperature:   1.0,
+			wantTopK:          0,
+			wantTopP:          0.0,
+			wantStopSequences: []string{},
+			wantBaseURL:       "https://api.anthropic.com",
+			wantErr:           nil,
+		},
+		{
 			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
