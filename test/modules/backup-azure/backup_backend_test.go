@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -34,25 +33,72 @@ import (
 )
 
 func Test_AzureBackend_Start(t *testing.T) {
-	azureBackend_Backup(t, "", "")
-	azureBackend_Backup(t, "testbucketoverride", "testBucketPathOverride")
-}
-
-func azureBackend_Backup(t *testing.T, overrideBucket, overridePath string) {
-	ctx := context.Background()
-	compose, err := docker.New().WithAzurite().Start(ctx)
-	if err != nil {
-		t.Fatal(errors.Wrapf(err, "cannot start"))
+	tests := []struct {
+		name           string
+		overrideBucket string
+		overridePath   string
+	}{
+		{
+			name:           "default overrides",
+			overrideBucket: "",
+			overridePath:   "",
+		},
+		{
+			name:           "test bucket and path overrides",
+			overrideBucket: "testbucketoverride",
+			overridePath:   "testBucketPathOverride",
+		},
 	}
 
-	t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testAzureBackendBackup(tt.overrideBucket, tt.overridePath)(t)
+		})
+	}
+}
 
-	t.Run("store backup meta", func(t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath) })
-	t.Run("copy objects", func(t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath) })
-	t.Run("copy files", func(t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath) })
+func testAzureBackendBackup(overrideBucket, overridePath string) func(t *testing.T) {
+	return func(t *testing.T) {
+		ctx := context.Background()
+		compose, err := docker.New().WithAzurite().Start(ctx)
+		if err != nil {
+			t.Fatalf("cannot start: %v", err)
+		}
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminate test containers: %v", err)
+			}
+		}()
 
-	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
+		t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
+
+		subTests := []struct {
+			name string
+			test func(t *testing.T)
+		}{
+			{
+				name: "store backup meta",
+				test: func(t *testing.T) {
+					moduleLevelStoreBackupMeta(t, overrideBucket, overridePath)
+				},
+			},
+			{
+				name: "copy objects",
+				test: func(t *testing.T) {
+					moduleLevelCopyObjects(t, overrideBucket, overridePath)
+				},
+			},
+			{
+				name: "copy files",
+				test: func(t *testing.T) {
+					moduleLevelCopyFiles(t, overrideBucket, overridePath)
+				},
+			},
+		}
+
+		for _, st := range subTests {
+			t.Run(st.name, st.test)
+		}
 	}
 }
 
