@@ -39,7 +39,7 @@ func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, o
 
 	contents, err := os.ReadFile(metaPath)
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", metaPath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
@@ -54,13 +54,13 @@ func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) 
 	metaPath := filepath.Join(path, backupID, key)
 
 	if err := ctx.Err(); err != nil {
-		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object path expired '%s'", metaPath))
+		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object path expired %s", metaPath))
 	}
 
 	if _, err := os.Stat(metaPath); errors.Is(err, os.ErrNotExist) {
-		return "", backup.NewErrNotFound(errors.Wrapf(err, "get object path could not find '%s'", metaPath))
+		return "", backup.NewErrNotFound(errors.Wrapf(err, "get object path could not find %s", metaPath))
 	} else if err != nil {
-		return "", backup.NewErrInternal(errors.Wrapf(err, "get object path '%s'", metaPath))
+		return "", backup.NewErrInternal(errors.Wrapf(err, "get object path %s", metaPath))
 	}
 
 	return metaPath, nil
@@ -72,12 +72,12 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 		return source.Close()
 	}()
 	if err != nil {
-		return 0, errors.Wrapf(err, "open file '%s'", sourcePath)
+		return 0, errors.Wrapf(err, "open file %s", sourcePath)
 	}
 
 	if _, err := os.Stat(destinationPath); err != nil {
 		if err := os.MkdirAll(path.Dir(destinationPath), os.ModePerm); err != nil {
-			return 0, errors.Wrapf(err, "make dir '%s'", destinationPath)
+			return 0, errors.Wrapf(err, "make dir %s", destinationPath)
 		}
 	}
 
@@ -86,12 +86,12 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 		return destination.Close()
 	}()
 	if err != nil {
-		return 0, errors.Wrapf(err, "create destination file '%s'", destinationPath)
+		return 0, errors.Wrapf(err, "create destination file %s", destinationPath)
 	}
 
 	written, err := io.Copy(destination, source)
 	if err != nil {
-		return 0, errors.Wrapf(err, "copy file from '%s' to '%s'", sourcePath, destinationPath)
+		return 0, errors.Wrapf(err, "copy file from %s to %s", sourcePath, destinationPath)
 	}
 
 	return written, nil
@@ -110,11 +110,11 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, overrideP
 	dir := path.Dir(backupPath)
 
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir '%s'", dir)
+		return errors.Wrapf(err, "make dir %s", dir)
 	}
 
 	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "write file '%s'", backupPath)
+		return errors.Wrapf(err, "write file %s", backupPath)
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")

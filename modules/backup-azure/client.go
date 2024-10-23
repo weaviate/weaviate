@@ -129,19 +129,19 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBuck
 	blobDownloadResponse, err := a.client.DownloadStream(ctx, containerName, objectName, nil)
 	if err != nil {
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "download stream for object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "download stream for object %s", objectName))
 	}
 
 	reader := blobDownloadResponse.Body
 	downloadData, err := io.ReadAll(reader)
 	errClose := reader.Close()
 	if errClose != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(errClose, "close stream for object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(errClose, "close stream for object %s", objectName))
 	}
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "read stream for object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "read stream for object %s", objectName))
 	}
 
 	return downloadData, nil
@@ -165,7 +165,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, overrideBuck
 			Tags:     map[string]string{"backupid": backupID},
 		})
 	if err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "upload stream for object '%s'", objectName))
+		return backup.NewErrInternal(errors.Wrapf(err, "upload stream for object %s", objectName))
 	}
 
 	return nil
@@ -194,7 +194,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, overrideBucket, 
 func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	dir := path.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir '%s'", dir)
+		return errors.Wrapf(err, "make dir %s", dir)
 	}
 
 	file, err := os.Create(destPath)
@@ -212,9 +212,9 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, 
 	_, err = a.client.DownloadFile(ctx, containerName, objectName, file, nil)
 	if err != nil {
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
-			return backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+			return backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
 		}
-		return backup.NewErrInternal(errors.Wrapf(err, "download file for object '%s'", objectName))
+		return backup.NewErrInternal(errors.Wrapf(err, "download file for object %s", objectName))
 	}
 
 	return nil

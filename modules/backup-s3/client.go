@@ -132,20 +132,20 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object '%s'", remotePath))
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
 	}
 
 	obj, err := client.client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", remotePath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", remotePath))
 	}
 
 	contents, err := io.ReadAll(obj)
 	if err != nil {
 		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found '%s'", bucket, remotePath, remotePath))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found %s", bucket, remotePath, remotePath))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s '%s'", bucket, remotePath, remotePath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -179,7 +179,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	_, err = client.client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object '%s:%s'", bucket, remotePath))
+			errors.Wrapf(err, "put object %s:%s", bucket, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
