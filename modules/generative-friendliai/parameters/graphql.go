@@ -19,9 +19,9 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s settings", name),
+		Description: fmt.Sprintf("%s settings", Name),
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInputObject", prefix, name),
+			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
 				"baseURL": &graphql.InputObjectFieldConfig{
 					Description: "baseURL",
@@ -55,10 +55,10 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 
 func output(prefix string) *graphql.Field {
 	return &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%s%sFields", prefix, name),
+		Name: fmt.Sprintf("%s%sFields", prefix, Name),
 		Fields: graphql.Fields{
 			"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sUsageMetadataFields", prefix, name),
+				Name: fmt.Sprintf("%s%sUsageMetadataFields", prefix, Name),
 				Fields: graphql.Fields{
 					"prompt_tokens":     &graphql.Field{Type: graphql.Int},
 					"completion_tokens": &graphql.Field{Type: graphql.Int},

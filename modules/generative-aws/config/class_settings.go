@@ -126,23 +126,19 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
 		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
 	}
-	region := ic.Region()
-	if region == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", regionProperty))
-	}
 
 	if isBedrock(service) {
 		model := ic.Model()
-		if model == "" && !ic.validateAWSSetting(model, availableBedrockModels) {
+		if model != "" && !ic.validateAWSSetting(model, availableBedrockModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s: %s, available model names are: %v", modelProperty, model, availableBedrockModels))
 		}
 
 		maxTokenCount := ic.MaxTokenCount(Bedrock, model)
-		if *maxTokenCount < 1 || *maxTokenCount > 8192 {
+		if maxTokenCount != nil && (*maxTokenCount < 1 || *maxTokenCount > 8192) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
 		}
 		temperature := ic.Temperature(Bedrock, model)
-		if *temperature < 0 || *temperature > 1 {
+		if temperature != nil && (*temperature < 0 || *temperature > 1) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 		}
 		topP := ic.TopP(Bedrock, model)

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -27,12 +28,28 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantApiEndpoint string
 		wantProjectID   string
 		wantModelID     string
+		wantModel       string
 		wantTemperature float64
 		wantTokenLimit  int
 		wantTopK        int
 		wantTopP        float64
 		wantErr         error
 	}{
+		{
+			name: "default settings",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "chat-bison-001",
+			wantModel:       "",
+			wantTemperature: 1.0,
+			wantTokenLimit:  1024,
+			wantTopK:        40,
+			wantTopP:        0.95,
+			wantErr:         nil,
+		},
 		{
 			name: "happy flow",
 			cfg: fakeClassConfig{
@@ -105,15 +122,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong all",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId":   "",
 					"temperature": 2,
 					"tokenLimit":  2000,
 					"topK":        2000,
 					"topP":        3,
 				},
 			},
-			wantErr: errors.Errorf("projectId cannot be empty, " +
-				"temperature has to be float value between 0 and 1, " +
+			wantErr: errors.Errorf("temperature has to be float value between 0 and 1, " +
 				"tokenLimit has to be an integer value between 1 and 1024, " +
 				"topP has to be float value between 0 and 1"),
 		},
@@ -185,9 +200,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTokenLimit, ic.TokenLimit())
 				assert.Equal(t, tt.wantTopK, ic.TopK())

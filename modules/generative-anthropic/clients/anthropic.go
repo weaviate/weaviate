@@ -152,7 +152,6 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 	if params.BaseURL == "" {
 		params.BaseURL = settings.BaseURL()
 	}
-
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
