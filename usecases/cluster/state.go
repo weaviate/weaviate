@@ -43,10 +43,10 @@ type NodeSelector interface {
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock                sync.RWMutex
+	list                    *memberlist.Memberlist
+	metaDataOnlyVotersNodes map[string]struct{}
+	delegate                delegate
 }
 
 type Config struct {
@@ -85,13 +85,13 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, metaDataOnlyVotersNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
-		config:          userConfig,
-		nonStorageNodes: nonStorageNodes,
+		config:                  userConfig,
+		metaDataOnlyVotersNodes: metaDataOnlyVotersNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
@@ -207,7 +207,7 @@ func (s *State) AllNames() []string {
 
 // StorageNodes returns all nodes except non storage nodes
 func (s *State) storageNodes() []string {
-	if len(s.nonStorageNodes) == 0 {
+	if len(s.metaDataOnlyVotersNodes) == 0 {
 		return s.AllNames()
 	}
 	members := s.list.Members()
@@ -215,7 +215,7 @@ func (s *State) storageNodes() []string {
 	n := 0
 	for _, m := range members {
 		name := m.Name
-		if _, ok := s.nonStorageNodes[name]; !ok {
+		if _, ok := s.metaDataOnlyVotersNodes[name]; !ok {
 			out[n] = m.Name
 			n++
 		}
@@ -231,10 +231,10 @@ func (s *State) StorageCandidates() []string {
 }
 
 // NonStorageNodes return nodes from member list which
-// they are configured not to be voter only
+// they are configured to be voter only
 func (s *State) NonStorageNodes() []string {
 	nonStorage := []string{}
-	for name := range s.nonStorageNodes {
+	for name := range s.metaDataOnlyVotersNodes {
 		nonStorage = append(nonStorage, name)
 	}
 
