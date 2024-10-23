@@ -34,8 +34,8 @@ func TestCompressedParallelIterator(t *testing.T) {
 		},
 		{
 			name:      "two vectors, many parallel routines",
-			totalVecs: 5,
-			parallel:  1,
+			totalVecs: 2,
+			parallel:  16,
 		},
 		{
 			name:      "three vectors, many parallel routines",
@@ -51,6 +51,11 @@ func TestCompressedParallelIterator(t *testing.T) {
 			name:      "many vectors, single routine",
 			totalVecs: 1000,
 			parallel:  1,
+		},
+		{
+			name:      "many vectors, more than allocation size per routine, two routines",
+			totalVecs: 2020,
+			parallel:  2,
 		},
 		{
 			name:      "one fewer vectors than routines",
@@ -69,7 +74,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 		},
 	}
 
-	quantization := []string{"pq"}
+	quantization := []string{"pq", "bq"}
 	testsWithQuantization := make([]iteratorTestCase, len(tests)*len(quantization))
 	for i, test := range tests {
 		for j, q := range quantization {
