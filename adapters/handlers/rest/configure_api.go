@@ -691,7 +691,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
-func StartBackupScheduler(appState *state.State) *backup.Scheduler {
+func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
