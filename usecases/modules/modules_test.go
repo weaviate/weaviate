@@ -336,7 +336,6 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should provide backup backend", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
-		var _ modulecapabilities.BackupBackend = module
 		modulesProvider := NewProvider(logger)
 		modulesProvider.Register(module)
 
