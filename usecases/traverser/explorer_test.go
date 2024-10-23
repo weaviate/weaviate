@@ -178,15 +178,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("with certainty", func(t *testing.T) {
 				// TODO: this is a module specific test case, which relies on the
 				// text2vec-contextionary module
+				searchVector := []float32{1, 2, 3}
 				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearObject: &searchparams.NearObject{
 						Beacon:   "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 						Distance: 0.1,
 					},
-					Pagination:   &filters.Pagination{Limit: 100},
-					Filters:      nil,
-					SearchVector: []float32{1, 2, 3},
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    nil,
 				}
 
 				searchRes := search.Result{
@@ -224,7 +224,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					}}},
 				})
 				vectors := make([][]float32, 1)
-				vectors[0] = []float32(nil)
+				vectors[0] = searchVector
 				expectedParamsToSearch := params
 				search.
 					On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -258,15 +258,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with certainty", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
+			searchVector := []float32{1, 2, 3}
 			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Certainty: 0.9,
 				},
-				Pagination:   &filters.Pagination{Limit: 100},
-				Filters:      nil,
-				SearchVector: []float32{1, 2, 3},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
 			}
 
 			searchRes := search.Result{
@@ -305,7 +305,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 			expectedParamsToSearch := params
 			vectors := make([][]float32, 1)
-			vectors[0] = []float32(nil)
+			vectors[0] = searchVector
 
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -340,15 +340,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with distance", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
+			searchVector := []float32{1, 2, 3}
 			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					ID:       "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Distance: 0.1,
 				},
-				Pagination:   &filters.Pagination{Limit: 100},
-				Filters:      nil,
-				SearchVector: []float32{1, 2, 3},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
 			}
 
 			searchRes := search.Result{
@@ -387,7 +387,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 			expectedParamsToSearch := params
 			vectors := make([][]float32, 1)
-			vectors[0] = []float32(nil)
+			vectors[0] = searchVector
 
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -420,15 +420,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with certainty", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
+			searchVector := []float32{1, 2, 3}
 			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
 					Certainty: 0.9,
 				},
-				Pagination:   &filters.Pagination{Limit: 100},
-				Filters:      nil,
-				SearchVector: []float32{1, 2, 3},
+				Pagination: &filters.Pagination{Limit: 100},
+				Filters:    nil,
 			}
 
 			searchRes := search.Result{
@@ -467,7 +467,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 			expectedParamsToSearch := params
 			vectors := make([][]float32, 1)
-			vectors[0] = []float32(nil)
+			vectors[0] = searchVector
 
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
