@@ -290,8 +290,8 @@ type VecAndID[T uint64 | byte] struct {
 }
 
 func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], localBuf *[]T) {
-	wastedSpace := cap(*localBuf) - len(*localBuf)
-	if len(localResults) == 0 || wastedSpace == 0 {
+	usedSpaceInBuffer := cap(*localBuf) - len(*localBuf)
+	if len(localResults) == 0 || usedSpaceInBuffer == cap(*localBuf) {
 		return
 	}
 
@@ -303,9 +303,9 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 	// localBuf and reassigns everything to the new buffer
 
 	// localBuf is written to from the back => there is unused space at the front
-	fittingLocalBuf := make([]T, wastedSpace)
+	fittingLocalBuf := make([]T, usedSpaceInBuffer)
 	lengthOneVec := len(localResults[0].Vec)
-	entriesToRecopy := wastedSpace / lengthOneVec
+	entriesToRecopy := usedSpaceInBuffer / lengthOneVec
 
 	// copy used data over to new buf
 	unusedLength := len(*localBuf)
@@ -321,5 +321,5 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 	}
 
 	// explicitly tell GC that the old buffer can go away
-	clear(*localBuf)
+	*localBuf = nil
 }
