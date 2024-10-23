@@ -45,10 +45,8 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s", err, groupBy.Property)
 	}
 
-	props := []string{}
-	for _, propTmp := range properties {
-		props = append(props, propTmp)
-	}
+	var props []string
+	props = append(props, properties...)
 	for _, propTmp := range groupBy.Properties {
 		props = append(props, propTmp.Name)
 	}
