@@ -35,21 +35,33 @@ func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker,
 	}, ch
 }
 
-func (w *Worker) Run() {
-	for batch := range w.ch {
-		stop := w.do(&batch)
-
-		if stop {
+func (w *Worker) Run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case batch := <-w.ch:
+			stop := w.do(&batch)
+
+			if stop {
+				return
+			}
 		}
 	}
 }
 
 func (w *Worker) do(batch *Batch) (stop bool) {
-	defer batch.Done()
+	defer func() {
+		if stop {
+			batch.Cancel()
+		} else {
+			batch.Done()
+		}
+	}()
 
 	for _, t := range batch.Tasks {
-		if w.processTask(batch.Ctx, t) {
+		err := w.processTask(batch.Ctx, t)
+		if err != nil {
 			return true
 		}
 	}
@@ -57,16 +69,15 @@ func (w *Worker) do(batch *Batch) (stop bool) {
 	return false
 }
 
-func (w *Worker) processTask(ctx context.Context, task Task) (stop bool) {
+func (w *Worker) processTask(ctx context.Context, task Task) error {
 	for {
 		err := task.Execute(ctx)
 		if err == nil {
-			return false
+			return nil
 		}
 
 		if errors.Is(err, context.Canceled) {
-			w.logger.WithError(err).Debug("skipping processing task due to context cancellation")
-			return true
+			return err
 		}
 
 		w.logger.WithError(err).Infof("failed to process task, retrying in %s", w.retryInterval.String())
@@ -79,7 +90,7 @@ func (w *Worker) processTask(ctx context.Context, task Task) (stop bool) {
 				<-t.C
 			}
 
-			return true
+			return ctx.Err()
 		case <-t.C:
 		}
 	}
