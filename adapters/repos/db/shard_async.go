@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -67,6 +68,7 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 
 	maxDocID := s.Counter().Get()
 
+	var batch []common.VectorRecord
 	err = s.iterateOnLSMVectors(ctx, checkpoint, targetVector, func(id uint64, vector []float32) error {
 		if vectorIndex.ContainsNode(id) {
 			return nil
@@ -75,16 +77,35 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 			return nil
 		}
 
-		desc := vectorDescriptor{
-			id:     id,
-			vector: vector,
+		rec := common.VectorRecord{
+			ID:     id,
+			Vector: vector,
+		}
+		counter++
+
+		batch = append(batch, rec)
+
+		if len(batch) < 1000 {
+			return nil
 		}
 
-		counter++
-		return q.Push(ctx, desc)
+		err = q.Insert(batch...)
+		if err != nil {
+			return err
+		}
+
+		batch = batch[:0]
+		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "iterate on LSM")
+	}
+
+	if len(batch) > 0 {
+		err = q.Insert(batch...)
+		if err != nil {
+			return errors.Wrap(err, "insert batch")
+		}
 	}
 
 	s.index.logger.
@@ -186,6 +207,8 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	var added, deleted int
 
+	var batch []common.VectorRecord
+
 	// add non-indexed vectors to the queue
 	err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
 		visited.Visit(id)
@@ -197,16 +220,35 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			return nil
 		}
 
-		desc := vectorDescriptor{
-			id:     id,
-			vector: vector,
+		rec := common.VectorRecord{
+			ID:     id,
+			Vector: vector,
+		}
+		added++
+
+		batch = append(batch, rec)
+
+		if len(batch) < 1000 {
+			return nil
 		}
 
-		added++
-		return q.Push(ctx, desc)
+		err = q.Insert(batch...)
+		if err != nil {
+			return err
+		}
+
+		batch = batch[:0]
+		return nil
 	})
 	if err != nil {
 		return errors.Wrap(err, "iterate on LSM")
+	}
+
+	if len(batch) > 0 {
+		err = q.Insert(batch...)
+		if err != nil {
+			return errors.Wrap(err, "insert batch")
+		}
 	}
 
 	// if no nodes were visited, it either means the LSM store is empty or

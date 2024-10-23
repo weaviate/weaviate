@@ -157,7 +157,7 @@ func (s *Shard) updateVectorIndexForName(vector []float32,
 }
 
 func (s *Shard) updateVectorInVectorIndex(vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
+	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
