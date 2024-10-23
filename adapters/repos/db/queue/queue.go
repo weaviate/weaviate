@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,12 +50,14 @@ var chunkFilePattern = regexp.MustCompile(`chunk-\d+\.bin`)
 type Queue interface {
 	ID() string
 	Size() int64
-	DequeueBatch() (batch []Task, done func(), err error)
+	DequeueBatch() (batch *Batch, err error)
 }
 
 type BeforeScheduleHook interface {
 	BeforeSchedule() bool
 }
+
+var _ Queue = &DiskQueue{}
 
 type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
@@ -76,6 +79,7 @@ type DiskQueue struct {
 	partialChunkRecordCount uint64
 	recordCount             uint64
 	chunkList               []string
+	chunkRead               map[string]struct{}
 	cursor                  int
 }
 
@@ -126,6 +130,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		staleTimeout: opt.StaleTimeout,
 		taskDecoder:  opt.TaskDecoder,
 		w:            bufio.NewWriterSize(nil, 64*1024),
+		chunkRead:    make(map[string]struct{}),
 	}
 
 	// create the directory if it doesn't exist
@@ -336,10 +341,10 @@ func (q *DiskQueue) Flush() error {
 	return q.f.Sync()
 }
 
-func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
+func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	c, err := q.readChunk()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// if there are no more chunks to read,
@@ -347,12 +352,12 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 	if c == nil || c.f == nil && q.Size() > 0 {
 		c, err = q.checkIfStale()
 		if c == nil || err != nil || c.f == nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
 	if c.f == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	defer c.Close()
@@ -371,11 +376,11 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 			break
 		}
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to read record length")
+			return nil, errors.Wrap(err, "failed to read record length")
 		}
 		length := binary.BigEndian.Uint32(buf)
 		if length == 0 {
-			return nil, nil, errors.New("invalid record length")
+			return nil, errors.New("invalid record length")
 		}
 
 		// read the record
@@ -386,13 +391,13 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 		}
 		_, err = io.ReadFull(c.r, buf)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to read record:")
+			return nil, errors.Wrap(err, "failed to read record:")
 		}
 
 		// decode the task
 		t, err := q.taskDecoder.DecodeTask(buf)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "failed to decode task")
+			return nil, errors.Wrap(err, "failed to decode task")
 		}
 
 		tasks = append(tasks, t)
@@ -405,28 +410,40 @@ func (q *DiskQueue) DequeueBatch() (batch []Task, done func(), err error) {
 
 	if len(tasks) == 0 {
 		// empty chunk, remove it
-		q.removeChunk(c.path)
-		return nil, nil, nil
+		q.removeChunk(c)
+		return nil, nil
 	}
 
 	doneFn := func() {
-		q.removeChunk(c.path)
+		q.removeChunk(c)
 	}
 
-	return tasks, doneFn, nil
+	return &Batch{
+		Tasks: tasks,
+		Done:  doneFn,
+	}, nil
 }
 
 func (q *DiskQueue) readChunk() (*chunk, error) {
 	if q.cursor+1 < len(q.chunkList) {
 		q.cursor++
 
-		return openChunk(q.chunkList[q.cursor])
-	}
+		for q.cursor < len(q.chunkList) {
+			if _, ok := q.chunkRead[q.chunkList[q.cursor]]; ok {
+				q.cursor++
+				continue
+			}
+			break
+		}
 
-	// ensure we don't read the same files again
-	filesRead := make(map[string]struct{})
-	for _, f := range q.chunkList {
-		filesRead[f] = struct{}{}
+		if q.cursor < len(q.chunkList) {
+			path := q.chunkList[q.cursor]
+
+			// mark the chunk as read
+			q.chunkRead[path] = struct{}{}
+
+			return openChunk(path)
+		}
 	}
 
 	q.chunkList = q.chunkList[:0]
@@ -444,7 +461,7 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 		}
 
 		// skip files that have already been read
-		if _, ok := filesRead[entry.Name()]; ok {
+		if _, ok := q.chunkRead[entry.Name()]; ok {
 			continue
 		}
 
@@ -459,6 +476,11 @@ func (q *DiskQueue) readChunk() (*chunk, error) {
 	if len(q.chunkList) == 0 {
 		return nil, nil
 	}
+
+	// make sure the list is sorted
+	// so that the oldest chunks are read first
+	// (i.e. the ones with the smallest timestamp)
+	sort.Strings(q.chunkList)
 
 	return openChunk(q.chunkList[q.cursor])
 }
@@ -524,26 +546,20 @@ func (q *DiskQueue) Drop() error {
 	return nil
 }
 
-func (q *DiskQueue) removeChunk(path string) {
+func (q *DiskQueue) removeChunk(c *chunk) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	c, err := openChunk(path)
+	_ = c.Close()
+
+	err := os.Remove(c.path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// already removed
 			return
 		}
 
-		q.Logger.WithError(err).WithField("file", path).Warn("failed to read chunk record count")
-		// TODO: recalculate the record count?
-	}
-
-	_ = c.Close()
-
-	err = os.Remove(path)
-	if err != nil {
-		q.Logger.WithError(err).WithField("file", path).Error("failed to remove chunk")
+		q.Logger.WithError(err).WithField("file", c.path).Error("failed to remove chunk")
 		return
 	}
 
@@ -597,13 +613,13 @@ func (q *DiskQueue) calculateRecordCount() (uint64, error) {
 }
 
 func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
-	c, err := openChunk(path)
+	f, err := os.Open(path)
 	if err != nil {
-		return 0, errors.Wrap(err, "failed to open chunk file")
+		return 0, err
 	}
-	defer c.Close()
+	defer f.Close()
 
-	return c.count, nil
+	return readChunkHeader(f)
 }
 
 func (q *DiskQueue) countPartialChunkRecords(path string) (uint64, error) {
@@ -671,7 +687,7 @@ func openChunk(path string) (*chunk, error) {
 	c.r.Reset(c.f)
 
 	// check the header
-	c.count, err = c.readHeader(c.r)
+	c.count, err = readChunkHeader(c.r)
 	if err != nil {
 		return nil, err
 	}
@@ -690,7 +706,7 @@ func (c *chunk) Close() error {
 	return err
 }
 
-func (c *chunk) readHeader(r io.Reader) (uint64, error) {
+func readChunkHeader(r io.Reader) (uint64, error) {
 	// read the header
 	header := make([]byte, len(magicHeader)+1+8)
 	_, err := io.ReadFull(r, header)
