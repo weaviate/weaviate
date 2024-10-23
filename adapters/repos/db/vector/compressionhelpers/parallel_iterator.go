@@ -322,5 +322,4 @@ func (cpi *parallelIterator[T]) cleanUpTempAllocs(localResults []VecAndID[T], lo
 
 	// explicitly tell GC that the old buffer can go away
 	clear(*localBuf)
-	localBuf = nil
 }
