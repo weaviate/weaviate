@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/schema"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -37,7 +38,7 @@ const (
 
 func (s *Shard) Dimensions(ctx context.Context) int {
 	keyLen := 4
-	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			dimLength := binary.LittleEndian.Uint32(k)
@@ -45,12 +46,13 @@ func (s *Shard) Dimensions(ctx context.Context) int {
 		}
 		return 0
 	})
+	return sum
 }
 
 func (s *Shard) DimensionsForVec(ctx context.Context, vecName string) int {
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
@@ -58,17 +60,12 @@ func (s *Shard) DimensionsForVec(ctx context.Context, vecName string) int {
 		}
 		return 0
 	})
+	return sum
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, segments int) int {
-	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
-	// as the segment size
-	if segments <= 0 {
-		return s.Dimensions(ctx)
-	}
-
 	keyLen := 4
-	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			if dimLength := binary.LittleEndian.Uint32(k); dimLength > 0 {
@@ -76,19 +73,15 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, segments int) int {
 			}
 		}
 		return 0
-	}) * segments
+	})
+
+	return sum * correctEmptySegments(segments, dimensions)
 }
 
 func (s *Shard) QuantizedDimensionsForVec(ctx context.Context, segments int, vecName string) int {
-	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
-	// as the segment size
-	if segments <= 0 {
-		return s.DimensionsForVec(ctx, vecName)
-	}
-
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			if dimLength := binary.LittleEndian.Uint32(k[nameLen:]); dimLength > 0 {
@@ -96,24 +89,31 @@ func (s *Shard) QuantizedDimensionsForVec(ctx context.Context, segments int, vec
 			}
 		}
 		return 0
-	}) * segments
+	})
+
+	return sum * correctEmptySegments(segments, dimensions)
 }
 
-func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v []lsmkv.MapPair) int) int {
+func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v []lsmkv.MapPair) int) (sum int, dimensions int) {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, 0
 	}
 
 	c := b.MapCursor()
 	defer c.Close()
 
-	sum := 0
+	sum = 0
+	dimForKey := 0
 	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		sum += calcEntry(k, v)
+		dimForKey = calcEntry(k, v)
+		sum += dimForKey
+		if dimensions == 0 && dimForKey > 0 {
+			dimensions = dimForKey
+		}
 	}
 
-	return sum
+	return sum, dimensions
 }
 
 func (s *Shard) initDimensionTracking() {
@@ -322,4 +322,13 @@ func getDimensionCategory(cfg schema.VectorIndexConfig) (DimensionCategory, int)
 		}
 	}
 	return DimensionCategoryStandard, 0
+}
+
+func correctEmptySegments(segments int, dimensions int) int {
+	// If segments is 0 (unset), in this case PQ will calculate the number of segments
+	// based on the number of dimensions
+	if segments > 0 {
+		return segments
+	}
+	return common.CalculateOptimalSegments(dimensions)
 }
