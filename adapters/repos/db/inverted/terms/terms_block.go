@@ -43,7 +43,7 @@ func DecodeBlockEntry(data []byte) *BlockEntry {
 	return &BlockEntry{
 		MaxId:     binary.LittleEndian.Uint64(data),
 		Offset:    binary.LittleEndian.Uint64(data[8:]),
-		MaxImpact: math.Float32frombits(binary.LittleEndian.Uint32(data[12:])),
+		MaxImpact: math.Float32frombits(binary.LittleEndian.Uint32(data[16:])),
 	}
 }
 

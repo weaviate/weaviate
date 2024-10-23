@@ -214,6 +214,10 @@ func (b *BM25Searcher) combineResults(allObjects [][][]*storobj.Object, allScore
 
 	combinedObjects, combinedScores = b.sortResultsByScore(combinedObjects, combinedScores)
 
+	if len(combinedObjects) <= limit {
+		return combinedObjects, combinedScores
+	}
+
 	return combinedObjects[len(combinedObjects)-limit:], combinedScores[len(combinedObjects)-limit:]
 }
 
