@@ -40,6 +40,32 @@ type NodeSelector interface {
 	NodeHostname(name string) (string, bool)
 }
 
+type Selector interface {
+	NodeSelector
+	// Hostnames for all live members, except self. Use AllHostnames to include
+	// self, prefixes the data port.
+	Hostnames() []string
+	// AllHostnames for live members, including self.
+	AllHostnames() []string
+	// AllNames node names (not their hostnames!) for live members, including self.
+	AllNames() []string
+	// NodeCount node names (not their hostnames!) for live members, including self.
+	NodeCount() int
+	// NodeAddress is used to resolve the node name into an ip address without the port
+	NodeAddress(id string) string
+	// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+	// maintenance mode (which means it should return an error for all data requests).
+	MaintenanceModeEnabled() bool
+	// NodeInfo return node info from memberlist delegate
+	NodeInfo(node string) (NodeInfo, bool)
+	// ClusterHealthScore gets the whole cluster health, the lower number the better
+	ClusterHealthScore() int
+	// SchemaSyncIgnored return if the config IgnoreStartupSchemaSync is enabled
+	SchemaSyncIgnored() bool
+	// SkipSchemaRepair return if the config SkipSchemaRepair is enabled
+	SkipSchemaRepair() bool
+}
+
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
@@ -193,7 +219,7 @@ func (s *State) AllHostnames() []string {
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// AllNames node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
@@ -247,7 +273,7 @@ func (s *State) SortCandidates(nodes []string) []string {
 	return s.delegate.sortCandidates(nodes)
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// NodeCount node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
 	return s.list.NumMembers()
 }
@@ -257,10 +283,12 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
+// ClusterHealthScore gets the whole cluster health, the lower number the better
 func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
 
+// NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {

@@ -22,17 +22,18 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type Parser struct {
-	clusterState clusterState
+	clusterState cluster.Selector
 	configParser VectorConfigParser
 	validator    validator
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
+func NewParser(cs cluster.Selector, vCfg VectorConfigParser, v validator) *Parser {
 	return &Parser{
 		clusterState: cs,
 		configParser: vCfg,
