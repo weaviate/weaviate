@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest && !race
-// +build integrationTest,!race
-
 package hnsw
 
 import (
@@ -259,6 +256,21 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				require.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
+			}
+		}
+	})
+
+	t.Run("verify that the loaded index has no duplicated connections", func(t *testing.T) {
+		for _, node := range index.nodes {
+			if node == nil {
+				continue
+			}
+			for _, conns := range node.connections {
+				for slot, x := range conns {
+					for _, comparaTo := range conns[slot+1:] {
+						assert.NotEqual(t, x, comparaTo)
+					}
+				}
 			}
 		}
 	})
