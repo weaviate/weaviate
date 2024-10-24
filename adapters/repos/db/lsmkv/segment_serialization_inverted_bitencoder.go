@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"encoding/binary"
 	"math/bits"
-	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
@@ -183,39 +182,46 @@ func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uin
 		return deltas // Error handling: insufficient input or output space
 	}
 
-	deltas[0] = bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(&packed[0])))
+	// Read the first delta using BigEndian to handle byte order explicitly
+	deltas[0] = binary.BigEndian.Uint64(packed[0:8])
 
-	// Read bitsNeeded
-	bitsNeeded := int(packed[8] >> 2 & 0x3F)
-	bitOffset := 6
-
-	ptr := uintptr(unsafe.Pointer(&packed[8]))
-	wordOffset := bitOffset >> 6 // Divide by 64 to get the word offset
-	bitOffset &= 63              // Modulo 64 to get the bit offset within the word
-
-	// Read only if we haven't read the word before
-	word1 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr(wordOffset*8))))
-	word2 := bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr((wordOffset+1)*8))))
-	combined := uint64(0)
-	mask1 := uint64(64 - bitsNeeded)
-	mask2 := uint64((1 << bitsNeeded) - 1)
-
-	for i := 1; i < deltasCount; i++ {
-		combined = word1<<bitOffset | word2>>(64-bitOffset)
-		// Mask off the desired number of bits
-		deltas[i] = combined >> mask1 & mask2
-		bitOffset += bitsNeeded
-
-		// Check if we need to read the next word
-		if bitOffset >= 64 {
-			word1 = word2
-			word2 = bits.ReverseBytes64(*(*uint64)(unsafe.Pointer(ptr + uintptr((wordOffset+2)*8))))
-			bitOffset -= 64
-			wordOffset++
-		}
-		wordOffset += bitOffset >> 6
-		bitOffset &= 63
+	// Read bitsNeeded (6 bits starting from bit 2 of packed[8])
+	bitsNeeded := int((packed[8] >> 2) & 0x3F)
+	if bitsNeeded == 0 || bitsNeeded > 64 {
+		// Handle invalid bitsNeeded
+		return deltas
 	}
+
+	// Starting bit position after reading bitsNeeded
+	bitPos := 6
+	bytePos := 8 // Start from packed[8]
+
+	// Initialize the bit buffer with the remaining bits in packed[8], if any
+	bitsLeft := 8 - bitPos
+	bitBuffer := uint64(packed[bytePos] & ((1 << bitsLeft) - 1))
+
+	bytePos++
+
+	// Precompute the mask for bitsNeeded bits
+	bitsMask := uint64((1 << bitsNeeded) - 1)
+
+	// Read the deltas
+	for i := 1; i < deltasCount; i++ {
+		// Ensure we have enough bits in the buffer
+		for bitsLeft < bitsNeeded {
+			if bytePos >= len(packed) {
+				// Handle insufficient data
+				return deltas
+			}
+			bitBuffer = (bitBuffer << 8) | uint64(packed[bytePos])
+			bitsLeft += 8
+			bytePos++
+		}
+		// Extract bitsNeeded bits from the buffer
+		bitsLeft -= bitsNeeded
+		deltas[i] = (bitBuffer >> bitsLeft) & bitsMask
+	}
+
 	return deltas
 }
 
