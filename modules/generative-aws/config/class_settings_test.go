@@ -36,6 +36,18 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr           error
 	}{
 		{
+			name: "default settings",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{},
+			},
+			wantService:       "bedrock",
+			wantRegion:        "",
+			wantModel:         "",
+			wantMaxTokenCount: 8192,
+			wantTemperature:   0,
+			wantTopP:          1,
+		},
+		{
 			name: "happy flow - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{

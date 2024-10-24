@@ -12,6 +12,7 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,10 +46,11 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 			},
 		}
 		tests := []struct {
-			name             string
-			generativeModel  string
-			frequencyPenalty *float64
-			presencePenalty  *float64
+			name               string
+			generativeModel    string
+			frequencyPenalty   *float64
+			presencePenalty    *float64
+			absentModuleConfig bool
 		}{
 			{
 				name:             "chat-bison",
@@ -108,14 +110,23 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				name:            "gemini-1.0-pro",
 				generativeModel: "gemini-1.0-pro",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "gemini-1.0-pro",
+				absentModuleConfig: true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					generativeGoogle: map[string]interface{}{
-						"projectId": gcpProject,
-						"modelId":   tt.generativeModel,
-					},
+				if tt.absentModuleConfig {
+					t.Log("skipping adding module config configuration to class")
+				} else {
+					class.ModuleConfig = map[string]interface{}{
+						generativeGoogle: map[string]interface{}{
+							"projectId": gcpProject,
+							"modelId":   tt.generativeModel,
+						},
+					}
 				}
 				// create schema
 				helper.CreateClass(t, class)
@@ -136,29 +147,40 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 					}
 				})
 				// generative task
-				t.Run("create a tweet", func(t *testing.T) {
-					planets.CreateTweetTest(t, class.Class)
-				})
+				if tt.absentModuleConfig {
+					t.Log("skipping create tweet tests with default values as e2e tests rely on specific GCP settings")
+				} else {
+					t.Run("create a tweet", func(t *testing.T) {
+						planets.CreateTweetTest(t, class.Class)
+					})
+					t.Run("create a tweet using grpc", func(t *testing.T) {
+						planets.CreateTweetTestGRPC(t, class.Class)
+					})
+				}
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "google:{topP:0.1 topK:40}"
+					if tt.absentModuleConfig {
+						params = fmt.Sprintf("google:{topP:0.1 topK:40 projectId:\"%s\" model:\"%s\"}", gcpProject, tt.generativeModel)
+					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet using grpc", func(t *testing.T) {
-					planets.CreateTweetTestGRPC(t, class.Class)
-				})
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					params := &pb.GenerativeProvider_Google{
-						Google: &pb.GenerativeGoogle{
-							MaxTokens:        grpchelper.ToPtr(int64(256)),
-							Model:            grpchelper.ToPtr(tt.generativeModel),
-							Temperature:      grpchelper.ToPtr(0.5),
-							TopK:             grpchelper.ToPtr(int64(40)),
-							TopP:             grpchelper.ToPtr(0.1),
-							FrequencyPenalty: tt.frequencyPenalty,
-							PresencePenalty:  tt.presencePenalty,
-						},
+					google := &pb.GenerativeGoogle{
+						MaxTokens:        grpchelper.ToPtr(int64(256)),
+						Model:            grpchelper.ToPtr(tt.generativeModel),
+						Temperature:      grpchelper.ToPtr(0.5),
+						TopK:             grpchelper.ToPtr(int64(40)),
+						TopP:             grpchelper.ToPtr(0.1),
+						FrequencyPenalty: tt.frequencyPenalty,
+						PresencePenalty:  tt.presencePenalty,
 					}
-					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
+					if tt.absentModuleConfig {
+						google.ProjectId = &gcpProject
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+						ReturnMetadata: true,
+						Kind:           &pb.GenerativeProvider_Google{Google: google},
+					})
 				})
 			})
 		}

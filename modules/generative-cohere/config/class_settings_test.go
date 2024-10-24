@@ -32,7 +32,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr           error
 	}{
 		{
-			name: "default settings",
+			name: "all empty",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},

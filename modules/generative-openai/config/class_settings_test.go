@@ -37,7 +37,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantApiVersion       string
 	}{
 		{
-			name: "Happy flow",
+			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
