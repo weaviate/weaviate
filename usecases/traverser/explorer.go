@@ -474,6 +474,8 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			if params.AdditionalProperties.Distance {
 				additionalProperties["distance"] = res.Dist
 			}
+			// Add the query_vector to the additional properties
+			additionalProperties["query_vector"] = searchVector
 		}
 
 		if params.AdditionalProperties.ID {
