@@ -63,11 +63,11 @@ func (s *segment) getDocCount(key []byte) uint64 {
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, []*terms.DocPointerWithScore, error) {
 	var buf []byte
 	if s.mmapContents {
-		buf = s.contents[node.Start : node.Start+uint64(8+16*terms.ENCODE_AS_FULL_BYTES)]
+		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
 	} else {
 		// read first 8 bytes to get
-		buf := make([]byte, 8+16*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+16*terms.ENCODE_AS_FULL_BYTES)})
+		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
+		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
 		if err != nil {
 			return nil, 0, nil, err
 		}
@@ -123,7 +123,7 @@ func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([
 	if s.mmapContents {
 		buf = s.contents[offsetStart:offsetEnd]
 	} else {
-		buf := make([]byte, offsetEnd-offsetStart)
+		buf = make([]byte, offsetEnd-offsetStart)
 		r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
 		if err != nil {
 			return nil, err
@@ -199,6 +199,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64)
 
 func (s *SegmentBlockMax) reset() error {
 	var err error
+
+	s.segment.GetPropertyLenghts()
 
 	s.blockEntries, s.docCount, s.blockData, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
@@ -328,7 +330,8 @@ func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config sche
 
 	id := pair.Id
 	freq := float64(pair.Frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
+	propLength := s.segment.propertyLenghts[pair.Id]
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(propLength)/averagePropLength))
 
 	s.blockDataIdx++
 	if s.blockDataIdx >= s.blockDataSize {

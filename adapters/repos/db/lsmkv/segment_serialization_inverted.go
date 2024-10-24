@@ -130,7 +130,7 @@ func encodeBlocks(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockDat
 
 func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 	tombstones := sroar.NewBitmap()
-	buffer := make([]byte, 8+16*len(mapPairs))
+	buffer := make([]byte, 8+12*len(mapPairs))
 	offset := 0
 	binary.LittleEndian.PutUint64(buffer, uint64(len(mapPairs)))
 	offset += 8
@@ -141,7 +141,7 @@ func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 		}
 		copy(buffer[offset:offset+8], mapPairs[i].Key)
 		copy(buffer[offset+8:offset+12], mapPairs[i].Value)
-		offset += 16
+		offset += 12
 	}
 	return buffer[:offset], tombstones
 }
@@ -196,7 +196,7 @@ func decodeAndConvertFromBlocksTest(data []byte, encodeSingleSeparate int) ([]Ma
 			key := make([]byte, 8)
 			copy(key, data[offset:offset+8])
 			value := make([]byte, 8)
-			copy(value, data[offset+8:offset+16])
+			copy(value, data[offset+8:offset+12])
 			values = append(values, MapPair{
 				Key:   key,
 				Value: value,
@@ -279,9 +279,8 @@ func convertFixedLengthFromMemory(data []byte, blockSize int) []*terms.DocPointe
 	i := 0
 	for offset < len(data) {
 		values[i] = &terms.DocPointerWithScore{
-			Id:         binary.BigEndian.Uint64(data[offset : offset+8]),
-			Frequency:  math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
-			PropLength: math.Float32frombits(binary.LittleEndian.Uint32(data[offset+12 : offset+16])),
+			Id:        binary.BigEndian.Uint64(data[offset : offset+8]),
+			Frequency: math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
 		}
 		offset += 16
 	}

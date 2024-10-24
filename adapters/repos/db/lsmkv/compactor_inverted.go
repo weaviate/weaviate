@@ -380,16 +380,17 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 }
 
 func (c *compactorInverted) computeTombstonesAndPropLenghts() (*sroar.Bitmap, map[uint64]uint32) {
+	maps.Copy(c.propertyLenghtsToClean, c.propertyLenghtsToWrite)
+
 	if c.cleanupTombstones { // no tombstones to write
-		return sroar.NewBitmap(), c.propertyLenghtsToWrite
+		return sroar.NewBitmap(), c.propertyLenghtsToClean
 	}
 	if c.tombstonesToWrite == nil {
-		return c.tombstonesToClean, c.propertyLenghtsToWrite
+		return c.tombstonesToClean, c.propertyLenghtsToClean
 	}
 	if c.tombstonesToClean == nil {
-		return c.tombstonesToWrite, c.propertyLenghtsToWrite
+		return c.tombstonesToWrite, c.propertyLenghtsToClean
 	}
 
-	maps.Copy(c.propertyLenghtsToClean, c.propertyLenghtsToWrite)
 	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean), c.propertyLenghtsToClean
 }
