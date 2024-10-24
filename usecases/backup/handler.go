@@ -76,18 +76,6 @@ type Handler struct {
 	backends   BackupBackendProvider
 }
 
-func (h *Handler) GetBackUpper() *backupper {
-	return h.backupper
-}
-
-func (h *Handler) GetRestorer() *restorer {
-	return h.restorer
-}
-
-func (h *Handler) GetBackends() BackupBackendProvider {
-	return h.backends
-}
-
 func NewHandler(
 	logger logrus.FieldLogger,
 	authorizer authorization.Authorizer,
