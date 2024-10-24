@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -119,7 +120,7 @@ type Handler struct {
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
-	clusterState            clusterState
+	clusterState            cluster.Selector
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
@@ -134,7 +135,7 @@ func NewHandler(
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
-	moduleConfig ModuleConfig, clusterState clusterState,
+	moduleConfig ModuleConfig, clusterState cluster.Selector,
 	scaleoutManager scaleOut,
 ) (Handler, error) {
 	handler := Handler{

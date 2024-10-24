@@ -38,7 +38,7 @@ type Manager struct {
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
 	config       config.Config
-	clusterState clusterState
+	clusterState cluster.Selector
 
 	sync.RWMutex
 	// The handler is responsible for well-defined tasks and should be decoupled from the manager.
@@ -185,22 +185,6 @@ type ClassPayload struct {
 	Error         error
 }
 
-type clusterState interface {
-	cluster.NodeSelector
-	// Hostnames initializes a broadcast
-	Hostnames() []string
-
-	// AllNames initializes shard distribution across nodes
-	AllNames() []string
-	NodeCount() int
-
-	// ClusterHealthScore gets the whole cluster health, the lower number the better
-	ClusterHealthScore() int
-
-	SchemaSyncIgnored() bool
-	SkipSchemaRepair() bool
-}
-
 type scaleOut interface {
 	SetSchemaReader(sr scaler.SchemaReader)
 	Scale(ctx context.Context, className string,
@@ -215,7 +199,7 @@ func NewManager(validator validator,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
-	moduleConfig ModuleConfig, clusterState clusterState,
+	moduleConfig ModuleConfig, clusterState cluster.Selector,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(

@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -566,12 +567,13 @@ func discoverNodes2Port(appState *state.State) (m map[string]int, err error) {
 	// adjust raft join configuration only if the config doesn't match memberlist
 	if len(configuredRAFTJoin) <= 1 && len(configuredRAFTJoin) != len(exNodesInMemeberlist) {
 		for _, n := range exNodesInMemeberlist {
-			if n == appState.Cluster.LocalName() {
+			if slices.Contains(appState.ServerConfig.Config.Raft.Join, n) {
 				continue
 			}
 			m[n] = config.DefaultRaftInternalPort
 			appState.ServerConfig.Config.Raft.Join = append(appState.ServerConfig.Config.Raft.Join, n)
 			appState.Logger.WithFields(logrus.Fields{
+				"action":    "config_adjust",
 				"node_name": n,
 				"port":      config.DefaultRaftInternalPort,
 			}).Warn("adjust raft join config")
@@ -1350,7 +1352,7 @@ func telemetryEnabled(state *state.State) bool {
 }
 
 type membership struct {
-	*cluster.State
+	cluster.Selector
 	raft *rCluster.Service
 }
 
