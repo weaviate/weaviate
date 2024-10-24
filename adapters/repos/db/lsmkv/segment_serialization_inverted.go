@@ -48,15 +48,14 @@ func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 func encodeBlock(nodes []MapPair) *terms.BlockData {
 	docIds := make([]uint64, len(nodes))
 	termFreqs := make([]uint64, len(nodes))
-	propLengths := make([]uint64, len(nodes))
 
 	for i, n := range nodes {
 		docIds[i] = binary.BigEndian.Uint64(n.Key)
 		termFreqs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[0:4])))
-		propLengths[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[4:8])))
+		// propLengths[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[4:8])))
 	}
 
-	packed := packedEncode(docIds, termFreqs, propLengths)
+	packed := packedEncode(docIds, termFreqs)
 
 	return packed
 }
@@ -141,7 +140,7 @@ func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 			tombstones.Set(id)
 		}
 		copy(buffer[offset:offset+8], mapPairs[i].Key)
-		copy(buffer[offset+8:offset+16], mapPairs[i].Value)
+		copy(buffer[offset+8:offset+12], mapPairs[i].Value)
 		offset += 16
 	}
 	return buffer[:offset], tombstones
@@ -221,19 +220,19 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 		}
 		blockSizeInt := int(blockSize)
 
-		docIds, tfs, propLengths := packedDecode(encodedBlocks[i], blockSizeInt)
+		docIds, tfs := packedDecode(encodedBlocks[i], blockSizeInt)
 
 		for j := 0; j < blockSizeInt; j++ {
 			docId := docIds[j]
 			tf := float32(tfs[j])
-			pl := float32(propLengths[j])
+			// pl := float32(propLengths[j])
 
 			key := make([]byte, 8)
 			binary.BigEndian.PutUint64(key, docId)
 
 			value := make([]byte, 8)
 			binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
-			binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
+			// binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
 
 			out = append(out, MapPair{
 				Key:   key,
@@ -247,17 +246,17 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.DocPointerWithScore {
 	out := make([]*terms.DocPointerWithScore, blockSize)
 
-	docIds, tfs, propLengths := packedDecode(encodedBlock, blockSize)
+	docIds, tfs := packedDecode(encodedBlock, blockSize)
 
 	for j := 0; j < blockSize; j++ {
 		docId := docIds[j]
 		tf := float32(tfs[j])
-		pl := float32(propLengths[j])
+		// pl := float32(propLengths[j])
 
 		out[j] = &terms.DocPointerWithScore{
-			Id:         docId,
-			Frequency:  tf,
-			PropLength: pl,
+			Id:        docId,
+			Frequency: tf,
+			// PropLength: pl,
 		}
 	}
 
@@ -270,7 +269,7 @@ func convertFromBlockReusable(encodedBlock *terms.BlockData, blockSize int, out 
 	for j := 0; j < blockSize; j++ {
 		out[j].Id = decoded.DocIds[j]
 		out[j].Frequency = float32(decoded.Tfs[j])
-		out[j].PropLength = float32(decoded.PropLenghts[j])
+		// out[j].PropLength = float32(decoded.PropLenghts[j])
 	}
 }
 

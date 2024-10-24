@@ -48,45 +48,38 @@ func DecodeBlockEntry(data []byte) *BlockEntry {
 }
 
 type BlockDataDecoded struct {
-	DocIds      []uint64
-	Tfs         []uint64
-	PropLenghts []uint64
+	DocIds []uint64
+	Tfs    []uint64
 }
 
 type BlockData struct {
-	DocIds      []byte
-	Tfs         []byte
-	PropLenghts []byte
+	DocIds []byte
+	Tfs    []byte
 }
 
 func (b *BlockData) Size() int {
-	return 2*3 + len(b.DocIds) + len(b.Tfs) + len(b.PropLenghts)
+	return 2*2 + len(b.DocIds) + len(b.Tfs)
 }
 
 func (b *BlockData) Encode() []byte {
-	out := make([]byte, len(b.DocIds)+len(b.Tfs)+len(b.PropLenghts)+6)
+	out := make([]byte, len(b.DocIds)+len(b.Tfs)+4)
 	offset := 0
 	// write the lengths of the slices
 	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.DocIds)))
 	offset += 2
 	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.Tfs)))
 	offset += 2
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.PropLenghts)))
-	offset += 2
 
 	offset += copy(out[offset:], b.DocIds)
 	offset += copy(out[offset:], b.Tfs)
-	offset += copy(out[offset:], b.PropLenghts)
 	return out
 }
 
 func DecodeBlockData(data []byte) *BlockData {
 	docIdsLen := binary.LittleEndian.Uint16(data)
 	termFreqsLen := binary.LittleEndian.Uint16(data[2:])
-	propLengthsLen := binary.LittleEndian.Uint16(data[4:])
 	return &BlockData{
-		DocIds:      data[6 : 6+docIdsLen],
-		Tfs:         data[6+docIdsLen : 6+docIdsLen+termFreqsLen],
-		PropLenghts: data[6+docIdsLen+termFreqsLen : 6+docIdsLen+termFreqsLen+propLengthsLen],
+		DocIds: data[4 : 4+docIdsLen],
+		Tfs:    data[4+docIdsLen : 4+docIdsLen+termFreqsLen],
 	}
 }

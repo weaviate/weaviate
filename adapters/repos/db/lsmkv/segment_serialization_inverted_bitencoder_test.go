@@ -24,8 +24,8 @@ import (
 
 var BLOCK_SIZE_TEST = 128
 
-func baselineEncode(docIds, termFreqs, propLengths []uint64) []byte {
-	buffer := make([]byte, len(docIds)*20)
+func baselineEncode(docIds, termFreqs []uint64) []byte {
+	buffer := make([]byte, len(docIds)*16)
 	offset := 0
 	for i := range docIds {
 		binary.LittleEndian.PutUint16(buffer[offset:], 8)
@@ -36,19 +36,17 @@ func baselineEncode(docIds, termFreqs, propLengths []uint64) []byte {
 		offset += 2
 		binary.LittleEndian.PutUint32(buffer[offset:], math.Float32bits(float32(termFreqs[i])))
 		offset += 4
-		binary.LittleEndian.PutUint32(buffer[offset:], math.Float32bits(float32(propLengths[i])))
-		offset += 4
+
 	}
 	return buffer
 }
 
-func baselineDecodeReusable(values []byte, docIds []uint64, termFreqs, propLengths []float32) {
+func baselineDecodeReusable(values []byte, docIds []uint64, termFreqs []float32) {
 	offset := 0
 	for offset < len(values) {
-		docIds[offset/20] = binary.BigEndian.Uint64(values[offset+2:])
-		termFreqs[offset/20] = math.Float32frombits(binary.LittleEndian.Uint32(values[offset+12:]))
-		propLengths[offset/20] = math.Float32frombits(binary.LittleEndian.Uint32(values[offset+16:]))
-		offset += 20
+		docIds[offset/16] = binary.BigEndian.Uint64(values[offset+2:])
+		termFreqs[offset/16] = math.Float32frombits(binary.LittleEndian.Uint32(values[offset+12:]))
+		offset += 16
 	}
 }
 
@@ -63,12 +61,11 @@ func varintEncodeOne(numbers []uint64) []byte {
 	return buf
 }
 
-func varintEncode(docIds, termFreqs, propLengths []uint64) []byte {
+func varintEncode(docIds, termFreqs []uint64) []byte {
 	docIdsBuf := varintEncodeOne(deltaEncode(docIds))
 	termFreqsBuf := varintEncodeOne(termFreqs)
-	propLengthsBuf := varintEncodeOne(propLengths)
 
-	buffer := make([]byte, len(docIdsBuf)+len(termFreqsBuf)+len(propLengthsBuf)+6)
+	buffer := make([]byte, len(docIdsBuf)+len(termFreqsBuf)+4)
 	offset := 0
 	binary.LittleEndian.PutUint16(buffer[offset:], uint16(len(docIdsBuf)))
 	offset += 2
@@ -78,13 +75,10 @@ func varintEncode(docIds, termFreqs, propLengths []uint64) []byte {
 	offset += 2
 	copy(buffer[offset:], termFreqsBuf)
 	offset += len(termFreqsBuf)
-	binary.LittleEndian.PutUint16(buffer[offset:], uint16(len(propLengthsBuf)))
-	offset += 2
-	copy(buffer[offset:], propLengthsBuf)
 	return buffer
 }
 
-func varintDecodeReusable(values []byte, docIds, termFreqs, propLengths []uint64) {
+func varintDecodeReusable(values []byte, docIds, termFreqs []uint64) {
 	offset := 0
 	docIdsLen := binary.LittleEndian.Uint16(values)
 	offset += 2
@@ -104,20 +98,12 @@ func varintDecodeReusable(values []byte, docIds, termFreqs, propLengths []uint64
 		termFreqs[i] = num
 		offset += n
 	}
-	propLengthsLen := binary.LittleEndian.Uint16(values[offset:])
-	offset += 2
-	for i := 0; i < int(propLengthsLen); i++ {
-		num, n := binary.Uvarint(values[offset:])
-		propLengths[i] = num
-		offset += n
-	}
 }
 
 func TestBaseline(t *testing.T) {
 	// Example input values
 	docIds := make([]uint64, BLOCK_SIZE_TEST)
 	termFreqs := make([]uint64, BLOCK_SIZE_TEST)
-	propLengths := make([]uint64, BLOCK_SIZE_TEST)
 
 	timeBaseline := 0
 	timePacked := 0
@@ -126,14 +112,14 @@ func TestBaseline(t *testing.T) {
 	sizePacked := 0
 
 	blockDataDecode := &terms.BlockDataDecoded{
-		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
-		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
-		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+		DocIds: make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:    make([]uint64, BLOCK_SIZE_TEST),
+		// PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
 	}
 
 	DocIds := make([]uint64, BLOCK_SIZE_TEST)
 	Tfs := make([]float32, BLOCK_SIZE_TEST)
-	PropLenghts := make([]float32, BLOCK_SIZE_TEST)
+
 	// do 1000 iterations
 	for j := 0; j < 100; j++ {
 
@@ -141,20 +127,19 @@ func TestBaseline(t *testing.T) {
 			docIds[i] = uint64(100 + i)
 			// round to nearest integer
 			termFreqs[i] = uint64(math.Round(rand.Float64()*10)) + 1
-			propLengths[i] = uint64(math.Round(rand.Float64()*100)) + 1
 		}
 
 		// Baseline encoding
-		encoded := baselineEncode(docIds, termFreqs, propLengths)
+		encoded := baselineEncode(docIds, termFreqs)
 		startTime := time.Now()
 
-		baselineDecodeReusable(encoded, DocIds, Tfs, PropLenghts)
+		baselineDecodeReusable(encoded, DocIds, Tfs)
 		stopTime := time.Now()
 
 		timeBaseline += int(stopTime.Sub(startTime))
 
 		// Packed encoding
-		encoded2 := packedEncode(docIds, termFreqs, propLengths)
+		encoded2 := packedEncode(docIds, termFreqs)
 
 		startTime = time.Now()
 
@@ -169,11 +154,9 @@ func TestBaseline(t *testing.T) {
 		for i := range docIds {
 			assert.Equal(t, docIds[i], DocIds[i])
 			assert.Equal(t, termFreqs[i], uint64(Tfs[i]))
-			assert.Equal(t, propLengths[i], uint64(PropLenghts[i]))
 
 			assert.Equal(t, docIds[i], blockDataDecode.DocIds[i])
 			assert.Equal(t, termFreqs[i], blockDataDecode.Tfs[i])
-			assert.Equal(t, propLengths[i], blockDataDecode.PropLenghts[i])
 		}
 	}
 
@@ -194,14 +177,12 @@ func TestVarint(t *testing.T) {
 	sizePacked := 0
 
 	blockDataDecode := &terms.BlockDataDecoded{
-		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
-		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
-		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+		DocIds: make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:    make([]uint64, BLOCK_SIZE_TEST),
 	}
 	blockDataVarint := &terms.BlockDataDecoded{
-		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
-		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
-		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+		DocIds: make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:    make([]uint64, BLOCK_SIZE_TEST),
 	}
 
 	// do 1000 iterations
@@ -215,16 +196,16 @@ func TestVarint(t *testing.T) {
 		}
 
 		// Baseline encoding
-		encoded := varintEncode(docIds, termFreqs, propLengths)
+		encoded := varintEncode(docIds, termFreqs)
 		startTime := time.Now()
 
-		varintDecodeReusable(encoded, blockDataVarint.DocIds, blockDataVarint.Tfs, blockDataVarint.PropLenghts)
+		varintDecodeReusable(encoded, blockDataVarint.DocIds, blockDataVarint.Tfs)
 		stopTime := time.Now()
 
 		timeBaseline += int(stopTime.Sub(startTime))
 
 		// Packed encoding
-		encoded2 := packedEncode(docIds, termFreqs, propLengths)
+		encoded2 := packedEncode(docIds, termFreqs)
 
 		startTime = time.Now()
 
@@ -239,11 +220,9 @@ func TestVarint(t *testing.T) {
 		for i := range docIds {
 			assert.Equal(t, docIds[i], blockDataVarint.DocIds[i])
 			assert.Equal(t, termFreqs[i], blockDataVarint.Tfs[i])
-			assert.Equal(t, propLengths[i], blockDataVarint.PropLenghts[i])
 
 			assert.Equal(t, docIds[i], blockDataDecode.DocIds[i])
 			assert.Equal(t, termFreqs[i], blockDataDecode.Tfs[i])
-			assert.Equal(t, propLengths[i], blockDataDecode.PropLenghts[i])
 		}
 	}
 
@@ -255,7 +234,6 @@ func BenchmarkBits(m *testing.B) {
 	// Example input values
 	docIds := make([]uint64, BLOCK_SIZE_TEST)
 	termFreqs := make([]uint64, BLOCK_SIZE_TEST)
-	propLengths := make([]uint64, BLOCK_SIZE_TEST)
 
 	timeBaseline := 0.0
 	timePacked := 0.0
@@ -264,14 +242,12 @@ func BenchmarkBits(m *testing.B) {
 	sizePacked := 0
 
 	blockDataDecode := &terms.BlockDataDecoded{
-		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
-		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
-		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+		DocIds: make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:    make([]uint64, BLOCK_SIZE_TEST),
 	}
 
 	DocIds := make([]uint64, BLOCK_SIZE_TEST)
 	Tfs := make([]float32, BLOCK_SIZE_TEST)
-	PropLenghts := make([]float32, BLOCK_SIZE_TEST)
 	iterations := 100000
 	// do 1000 iterations
 	for j := 0; j < iterations; j++ {
@@ -280,20 +256,19 @@ func BenchmarkBits(m *testing.B) {
 			docIds[i] = uint64(100 + i)
 			// round to nearest integer
 			termFreqs[i] = uint64(math.Round(rand.Float64()*10)) + 1
-			propLengths[i] = uint64(math.Round(rand.Float64()*100)) + 1
 		}
 
 		// Baseline encoding
-		encoded := baselineEncode(docIds, termFreqs, propLengths)
+		encoded := baselineEncode(docIds, termFreqs)
 		startTime := time.Now()
 
-		baselineDecodeReusable(encoded, DocIds, Tfs, PropLenghts)
+		baselineDecodeReusable(encoded, DocIds, Tfs)
 		stopTime := time.Now()
 
 		timeBaseline += stopTime.Sub(startTime).Seconds()
 
 		// Packed encoding
-		encoded2 := packedEncode(docIds, termFreqs, propLengths)
+		encoded2 := packedEncode(docIds, termFreqs)
 
 		startTime = time.Now()
 
@@ -308,11 +283,9 @@ func BenchmarkBits(m *testing.B) {
 		for i := range docIds {
 			assert.Equal(m, docIds[i], DocIds[i])
 			assert.Equal(m, termFreqs[i], uint64(Tfs[i]))
-			assert.Equal(m, propLengths[i], uint64(PropLenghts[i]))
 
 			assert.Equal(m, docIds[i], blockDataDecode.DocIds[i])
 			assert.Equal(m, termFreqs[i], blockDataDecode.Tfs[i])
-			assert.Equal(m, propLengths[i], blockDataDecode.PropLenghts[i])
 		}
 	}
 
@@ -324,21 +297,18 @@ func BenchmarkDecoder(b *testing.B) {
 	// Example input values
 	docIds := make([]uint64, BLOCK_SIZE_TEST)
 	termFreqs := make([]uint64, BLOCK_SIZE_TEST)
-	propLengths := make([]uint64, BLOCK_SIZE_TEST)
 
 	for i := range docIds {
 		docIds[i] = uint64(100 + i)
 		// round to nearest integer
 		termFreqs[i] = uint64(math.Round(rand.Float64()*10)) + 1
-		propLengths[i] = uint64(math.Round(rand.Float64()*10)) + 1
 	}
 
 	buffer := &terms.BlockDataDecoded{
-		DocIds:      make([]uint64, BLOCK_SIZE_TEST),
-		Tfs:         make([]uint64, BLOCK_SIZE_TEST),
-		PropLenghts: make([]uint64, BLOCK_SIZE_TEST),
+		DocIds: make([]uint64, BLOCK_SIZE_TEST),
+		Tfs:    make([]uint64, BLOCK_SIZE_TEST),
 	}
-	encoded2 := packedEncode(docIds, termFreqs, propLengths)
+	encoded2 := packedEncode(docIds, termFreqs)
 
 	iterations := 40000000
 	b.ResetTimer()

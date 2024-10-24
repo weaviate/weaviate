@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"io"
 	"os"
@@ -58,6 +59,9 @@ type segment struct {
 
 	tombstones       *sroar.Bitmap
 	tombstonesLoaded bool
+
+	propertyLenghts       map[uint64]uint32
+	propertyLenghtsLoaded bool
 
 	invertedKeyLength   uint16
 	invertedValueLength uint16
@@ -336,4 +340,36 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 	s.tombstones = bitmap
 	s.tombstonesLoaded = true
 	return s.tombstones, nil
+}
+
+func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("property only supported for inverted strategy")
+	}
+
+	if s.propertyLenghtsLoaded {
+		return s.propertyLenghts, nil
+	}
+
+	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
+	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
+	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
+	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+bitmapSize : s.dataStartPos+keyLengths+8+bitmapSize+8])
+
+	if propertyLenghtsSize == 0 {
+		s.propertyLenghtsLoaded = true
+		return nil, nil
+	}
+
+	propertyLenghtsStart := s.dataStartPos + keyLengths + bitmapSize + 8 + 8
+	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
+
+	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
+	err := e.Decode(&s.propertyLenghts)
+	if err != nil {
+		return nil, fmt.Errorf("decode property lenghts: %w", err)
+	}
+
+	s.propertyLenghtsLoaded = true
+	return s.propertyLenghts, nil
 }
