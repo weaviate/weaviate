@@ -55,6 +55,7 @@ func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string
 	path := t.schemaPrefix + "/" + collection + "/tenants"
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
+	// temp hack to get working on dev cluster
 	req, err := http.NewRequest("GET", u, nil)
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("METADATA_API_KEY")))
 	resp, err := t.client.Do(req)
