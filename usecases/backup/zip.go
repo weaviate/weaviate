@@ -155,7 +155,7 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
-		return written, fmt.Errorf("write header %s: %w", relPath, err)
+		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)

@@ -13,7 +13,6 @@ package query
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/sirupsen/logrus"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
@@ -83,7 +82,6 @@ func requestFromProto(req *protocol.SearchRequest, getClass func(string) *models
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("clause: %+v\n", filter)
 		sr.Filters = &filters.LocalFilter{Root: &filter}
 	}
 	return sr, nil

@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
-	"fmt"
 	"math/rand"
 	"reflect"
 	"sync"
@@ -91,7 +90,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 		}
 
 		if len(missingKeys) > 0 {
-			fmt.Printf("missing keys: %v\n", missingKeys)
+			t.Logf("missing keys: %v\n", missingKeys)
 		}
 		assert.Equal(t, amount, correct)
 	})

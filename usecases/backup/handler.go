@@ -135,6 +135,12 @@ type BackupRequest struct {
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
 	NodeMapping map[string]string
+
+	// Override bucket (optional) - replaces environement variable for one call
+	Bucket string
+
+	// Override path (optional) - replaces environement variable for one call
+	Path string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -165,7 +171,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		if err = store.Initialize(ctx); err != nil {
+		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
@@ -253,7 +259,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 
 func validateID(backupID string) error {
 	if !regExpID.MatchString(backupID) {
-		return fmt.Errorf("invalid backup id: allowed characters are lowercase, 0-9, _, -")
+		return fmt.Errorf("invalid backup id: '%v' allowed characters are lowercase, 0-9, _, -", backupID)
 	}
 	return nil
 }
@@ -263,7 +269,7 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id string
 	if err != nil {
 		return nodeStore{}, err
 	}
-	return nodeStore{objStore{b: caps, BasePath: fmt.Sprintf("%s/%s", id, node)}}, nil
+	return nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node)}}, nil
 }
 
 // basePath of the backup

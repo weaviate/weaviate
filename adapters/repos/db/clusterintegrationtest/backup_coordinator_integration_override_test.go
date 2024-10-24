@@ -27,16 +27,16 @@ import (
 	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-var backend *fakeBackupBackend
-
-func TestDistributedBackups(t *testing.T) {
+func TestDistributedBackupsOverride(t *testing.T) {
 	var (
-		dirName  = setupDirectory(t)
-		rnd      = getRandomSeed()
-		numObjs  = 100
-		numNodes = 3
-		backupID = "new-backup"
-		nodes    []*node
+		dirName        = setupDirectory(t)
+		rnd            = getRandomSeed()
+		numObjs        = 100
+		numNodes       = 3
+		backupID       = "new-backup"
+		nodes          []*node
+		overrideBucket = "testbucketoverride"
+		overridePath   = "testBucketPathOverride"
 	)
 
 	t.Run("setup", func(t *testing.T) {
@@ -146,7 +146,7 @@ func TestDistributedBackups(t *testing.T) {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("backup deadline exceeded")
 					}
-					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "fake-backend", backupID, "", "")
+					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "fake-backend", backupID, overrideBucket, overridePath)
 					assert.Nil(t, err, "expected nil err, got: %s", err)
 					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break
@@ -183,7 +183,7 @@ func TestDistributedBackups(t *testing.T) {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("restore deadline exceeded")
 					}
-					resp, err := node.scheduler.RestorationStatus(ctx, &models.Principal{}, "fake-backend", backupID, "", "")
+					resp, err := node.scheduler.RestorationStatus(ctx, &models.Principal{}, "fake-backend", backupID, overrideBucket, overridePath)
 					assert.Nil(t, err, "expected nil err, got: %s", err)
 					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break

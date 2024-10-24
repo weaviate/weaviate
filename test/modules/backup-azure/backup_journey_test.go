@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -30,19 +31,32 @@ const (
 	envAzureStorageConnectionString = "AZURE_STORAGE_CONNECTION_STRING"
 	connectionString                = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 
-	azureBackupJourneyClassName          = "AzureBackup"
-	azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node"
-	azureBackupJourneyBackupIDCluster    = "azure-backup-cluster"
-	azureBackupJourneyContainerName      = "backups"
+	azureBackupJourneyClassName = "AzureBackup"
 )
 
 func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
+	backupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		backupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func backupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	azureBackupJourneyContainerName := containerName
+	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
+	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node"
+	if override {
+		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-override"
+		azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node-override"
+	}
+
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+		t.Logf("BACKUP_AZURE_CONTAINER old test is set to %s", os.Getenv("BACKUP_AZURE_CONTAINER"))
 
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
@@ -55,12 +69,13 @@ func Test_BackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+
 		// defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil, override, overrideBucket, overridePath)
 		})
 
 		require.Nil(t, compose.Terminate(ctx))
@@ -86,7 +101,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+				azureBackupJourneyBackupIDCluster, nil, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 
 		require.Nil(t, compose.Terminate(ctx))

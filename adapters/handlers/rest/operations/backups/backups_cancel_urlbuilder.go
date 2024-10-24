@@ -28,6 +28,9 @@ type BackupsCancelURL struct {
 	Backend string
 	ID      string
 
+	Bucket *string
+	Path   *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -73,6 +76,26 @@ func (o *BackupsCancelURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var bucketQ string
+	if o.Bucket != nil {
+		bucketQ = *o.Bucket
+	}
+	if bucketQ != "" {
+		qs.Set("bucket", bucketQ)
+	}
+
+	var pathQ string
+	if o.Path != nil {
+		pathQ = *o.Path
+	}
+	if pathQ != "" {
+		qs.Set("path", pathQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

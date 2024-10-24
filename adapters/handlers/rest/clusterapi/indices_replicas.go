@@ -266,7 +266,6 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regxIncreaseRepFactor.FindStringSubmatch(r.URL.Path)
-		fmt.Printf("path: %v, args: %+v", r.URL.Path, args)
 		if len(args) != 2 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return

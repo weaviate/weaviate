@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors bool) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors, override bool, overrideName, overridePath string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -60,7 +60,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		return vectors
 	}
 
-	backupID := "backup-1_named_vectors" + strconv.FormatBool(namedVectors)
+	backupID := "backup-1_named_vectors_" + strconv.FormatBool(namedVectors)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
@@ -113,6 +113,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 					CPUPercentage:    80,
 					ChunkSize:        512,
 					CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
+					Bucket:           overrideName,
+					Path:             overridePath,
 				},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
@@ -127,13 +129,24 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
 			WithBackend(backend).
-			WithID(backupID)
+			WithID(backupID).
+			WithBucket(&overrideName).
+			WithPath(&overridePath)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
+			t.Logf("Backup create response: %+v\n", resp)
+
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
+			t.Logf("Backup create response meta: %+v\n", meta)
+
+			if err != nil {
+				t.Logf("failed to get backup status: %+v", err)
+			}
+
+			t.Logf("backup status: %+v\n", meta)
 			switch *meta.Status {
 			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return
@@ -167,6 +180,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	t.Run("invalid restore request", func(t *testing.T) {
 		resp, err := helper.RestoreBackup(t, &models.RestoreConfig{
 			CPUPercentage: 180,
+			Bucket:        overrideName,
+			Path:          overridePath,
 		}, booksClass.Class, backend, backupID, map[string]string{})
 
 		helper.AssertRequestFail(t, resp, err, func() {
@@ -181,6 +196,11 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			WithID(backupID).
 			WithBody(&models.BackupRestoreRequest{
 				Include: []string{booksClass.Class},
+				Config: &models.RestoreConfig{
+					CPUPercentage: 80,
+					Bucket:        overrideName,
+					Path:          overridePath,
+				},
 			})
 		resp, err := helper.Client(t).Backups.BackupsRestore(params, nil)
 		helper.AssertRequestOk(t, resp, err, func() {
@@ -192,7 +212,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	t.Run("verify that restore process is completed", func(t *testing.T) {
 		params := backups.NewBackupsRestoreStatusParams().
 			WithBackend(backend).
-			WithID(backupID)
+			WithID(backupID).
+			WithBucket(&overrideName).
+			WithPath(&overridePath)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsRestoreStatus(params, nil)
 			require.Nil(t, err)
