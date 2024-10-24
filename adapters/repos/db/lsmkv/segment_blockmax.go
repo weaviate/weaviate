@@ -61,16 +61,21 @@ func (s *segment) getDocCount(key []byte) uint64 {
 }
 
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, []*terms.DocPointerWithScore, error) {
-	// read first 8 bytes to get
-	buf := make([]byte, 8+16*terms.ENCODE_AS_FULL_BYTES)
-	r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+16*terms.ENCODE_AS_FULL_BYTES)})
-	if err != nil {
-		return nil, 0, nil, err
-	}
+	var buf []byte
+	if s.mmapContents {
+		buf = s.contents[node.Start : node.Start+uint64(8+16*terms.ENCODE_AS_FULL_BYTES)]
+	} else {
+		// read first 8 bytes to get
+		buf := make([]byte, 8+16*terms.ENCODE_AS_FULL_BYTES)
+		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+16*terms.ENCODE_AS_FULL_BYTES)})
+		if err != nil {
+			return nil, 0, nil, err
+		}
 
-	_, err = r.Read(buf)
-	if err != nil {
-		return nil, 0, nil, err
+		_, err = r.Read(buf)
+		if err != nil {
+			return nil, 0, nil, err
+		}
 	}
 
 	docCount := binary.LittleEndian.Uint64(buf)
@@ -90,15 +95,19 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
 	entries := make([]*terms.BlockEntry, blockCount)
-	r, err = s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
-	if err != nil {
-		return nil, 0, nil, err
-	}
+	if s.mmapContents {
+		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
+	} else {
+		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
+		if err != nil {
+			return nil, 0, nil, err
+		}
 
-	buf = make([]byte, blockCount*20)
-	_, err = r.Read(buf)
-	if err != nil {
-		return nil, 0, nil, err
+		buf = make([]byte, blockCount*20)
+		_, err = r.Read(buf)
+		if err != nil {
+			return nil, 0, nil, err
+		}
 	}
 
 	for i := 0; i < int(blockCount); i++ {
@@ -109,18 +118,22 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 }
 
 func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([]*terms.DocPointerWithScore, error) {
-	// read first 8 bytes to get
-	buf := make([]byte, offsetEnd-offsetStart)
-	r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
-	if err != nil {
-		return nil, err
-	}
+	var buf []byte
 
-	_, err = r.Read(buf)
-	if err != nil {
-		return nil, err
-	}
+	if s.mmapContents {
+		buf = s.contents[offsetStart:offsetEnd]
+	} else {
+		buf := make([]byte, offsetEnd-offsetStart)
+		r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
+		if err != nil {
+			return nil, err
+		}
 
+		_, err = r.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+	}
 	blockData := terms.DecodeBlockData(buf)
 	results := convertFromBlock(blockData, blockSize)
 
