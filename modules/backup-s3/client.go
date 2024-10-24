@@ -69,30 +69,18 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 	return &s3Client{client, config, logger, dataPath, bucket, path, creds, region}, nil
 }
 
-func tempClient(currentClient *s3Client, overrideBucket, overridePath string, ctx context.Context) (*s3Client, error) {
-	AwsAccessKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-ACCESS-KEY")
+func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
+	xAwsAccessKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-ACCESS-KEY")
 	xAwsSecretKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-SECRET-KEY")
 	xAwsSessionToken := modulecomponents.GetValueFromContext(ctx, "X-AWS-SESSION-TOKEN")
-	if overrideBucket != "" {
-		config := currentClient.config
-		creds := currentClient.creds
-		if AwsAccessKey != "" && xAwsSecretKey != "" {
-			creds = credentials.NewStaticV4(AwsAccessKey, xAwsSecretKey, xAwsSessionToken)
-		}
-
-		client, err := minio.New(config.Endpoint, &minio.Options{
-			Creds:  creds,
-			Region: currentClient.region,
-			Secure: config.UseSSL,
+	if xAwsAccessKey != "" && xAwsSecretKey != "" && xAwsSessionToken != "" {
+		return minio.New(s.config.Endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(xAwsAccessKey, xAwsSecretKey, xAwsSessionToken),
+			Region: s.region,
+			Secure: s.config.UseSSL,
 		})
-		if err != nil {
-			return nil, errors.Wrap(err, "create minio client")
-		}
-		return &s3Client{client, config, currentClient.logger, currentClient.dataPath, overrideBucket, overridePath, creds, currentClient.region}, nil
-	} else if AwsAccessKey != "" || xAwsSecretKey != "" || xAwsSessionToken != "" {
-		return &s3Client{currentClient.client, currentClient.config, currentClient.logger, currentClient.dataPath, currentClient.bucket, currentClient.path, credentials.NewStaticV4(AwsAccessKey, xAwsSecretKey, xAwsSessionToken), currentClient.region}, nil
 	}
-	return currentClient, nil
+	return s.client, nil
 }
 
 func (s *s3Client) makeObjectName(parts ...string) string {
@@ -116,7 +104,7 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "GetObject")
 	}
@@ -135,7 +123,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
 	}
 
-	obj, err := client.client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
+	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", remotePath))
 	}
@@ -157,7 +145,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to create temporary client")
 	}
@@ -176,7 +164,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 		bucket = overrideBucket
 	}
 
-	_, err = client.client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
+	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
 			errors.Wrapf(err, "put object %s:%s", bucket, remotePath))
@@ -190,7 +178,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to create temporary client")
 	}
@@ -203,7 +191,7 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 
 	objectName := s.makeObjectName(backupID, key)
 	opt := minio.RemoveObjectOptions{}
-	if err := client.client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
+	if err := client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
 	}
 
@@ -212,7 +200,7 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 
 // WriteFile downloads contents of an object to a local file destPath
 func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return errors.Wrap(err, "WriteToFile")
 	}
@@ -226,7 +214,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 		bucket = overrideBucket
 	}
 
-	err = client.client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
+	err = client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("s3.FGetObject %q %q: %w", destPath, remotePath, err)
 	}
@@ -242,7 +230,7 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, ove
 
 func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "GetObject")
 	}
@@ -261,7 +249,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 		bucket = overrideBucket
 	}
 
-	info, err := client.client.PutObject(ctx, bucket, remotePath, r, -1, opt)
+	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
 	if err != nil {
 		return info.Size, fmt.Errorf("write object %q", remotePath)
 	}
@@ -275,7 +263,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 
 func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	client, err := tempClient(s, overrideBucket, overridePath, ctx)
+	client, err := s.getClient(ctx)
 	if err != nil {
 		return -1, errors.Wrap(err, "GetObject")
 	}
@@ -290,7 +278,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 		bucket = overrideBucket
 	}
 
-	obj, err := client.client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
+	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {
 		return 0, fmt.Errorf("get object %q: %w", remotePath, err)
 	}
