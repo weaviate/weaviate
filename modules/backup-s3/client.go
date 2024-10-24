@@ -199,7 +199,7 @@ func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, ove
 func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return errors.Wrap(err, "WriteToFile")
+		return errors.Wrap(err, "write to file: cannot get client")
 	}
 	remotePath := s.makeObjectName(backupID, key)
 	if overridePath != "" {
@@ -229,7 +229,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	defer r.Close()
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return -1, errors.Wrap(err, "GetObject")
+		return -1, errors.Wrap(err, " write: cannot get client")
 	}
 	remotePath := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{
