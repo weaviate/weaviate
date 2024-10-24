@@ -14,101 +14,144 @@ package hnsw
 import (
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func writeStateTo(state *DeserializationResult, w io.Writer) error {
+const checkpointChunkSize = 100_000
+
+// returns checkpoints which can be used as parallelizatio hints
+func writeStateTo(state *DeserializationResult, w io.Writer) ([]int, error) {
 	// version
+	offset := 0
 	if err := writeByte(w, 0); err != nil {
-		return err
+		return nil, err
 	}
+	offset += writeByteSize
 
 	if err := writeUint64(w, state.Entrypoint); err != nil {
-		return err
+		return nil, err
 	}
+	offset += writeUint64Size
 
 	if err := writeUint16(w, state.Level); err != nil {
-		return err
+		return nil, err
 	}
+	offset += writeUint16Size
 
 	if err := writeBool(w, state.Compressed); err != nil {
-		return err
+		return nil, err
 	}
+	offset += writeByteSize
 
 	if state.Compressed {
 		if err := writeUint16(w, state.PQData.Ks); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeUint16Size
+
 		if err := writeUint16(w, state.PQData.M); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeUint16Size
+
 		if err := writeUint16(w, state.PQData.Dimensions); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeUint16Size
+
 		if err := writeByte(w, byte(state.PQData.EncoderType)); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeByteSize
+
 		if err := writeByte(w, state.PQData.EncoderDistribution); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeByteSize
+
 		if err := writeBool(w, state.PQData.UseBitsEncoding); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeByteSize
 
 		for _, encoder := range state.PQData.Encoders {
-			if _, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
-				return err
+			if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
+				return nil, err
+			} else {
+				offset += n
 			}
 		}
 	}
 
 	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
-		return err
+		return nil, err
 	}
+	offset += writeUint32Size
+
+	var checkpoints []int
+	checkpoints = append(checkpoints, offset) // start at the very first node
+
+	nonNilNodes := 0
 
 	for _, n := range state.Nodes {
 		if n == nil {
 			// nil node
 			if err := writeByte(w, 0); err != nil {
-				return err
+				return nil, err
 			}
+			offset += writeByteSize
 			continue
+		}
+
+		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
+			checkpoints = append(checkpoints, offset)
 		}
 
 		_, hasATombstone := state.Tombstones[n.id]
 		if hasATombstone {
 			if err := writeByte(w, 1); err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			if err := writeByte(w, 2); err != nil {
-				return err
+				return nil, err
 			}
 		}
+		offset += writeByteSize
 
 		if err := writeUint32(w, uint32(n.level)); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeUint32Size
 
 		if err := writeUint32(w, uint32(len(n.connections))); err != nil {
-			return err
+			return nil, err
 		}
+		offset += writeUint32Size
+
 		for _, ls := range n.connections {
 			if err := writeUint32(w, uint32(len(ls))); err != nil {
-				return err
+				return nil, err
 			}
+			offset += writeUint32Size
+
 			for _, c := range ls {
 				if err := writeUint64(w, c); err != nil {
-					return err
+					return nil, err
 				}
+				offset += writeUint64Size
 			}
 		}
+
+		nonNilNodes++
 	}
 
-	return nil
+	return checkpoints, nil
 }
 
 func readStateFrom(r io.Reader) (*DeserializationResult, error) {
@@ -283,4 +326,34 @@ func readStateFrom(r io.Reader) (*DeserializationResult, error) {
 	}
 
 	return res, nil
+}
+
+func writeCheckpoints(fileName string, checkpoints []int) error {
+	checkpointFile, err := os.OpenFile(fmt.Sprintf("%s", fileName),
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return fmt.Errorf("open new checkpoint file for writing: %w", err)
+	}
+	defer checkpointFile.Close()
+
+	// 0-4: checksum
+	// 8+: checkpoints (8 bytes each)
+	buffer := make([]byte, 4+8+len(checkpoints)*8)
+	offset := 4
+
+	for _, cp := range checkpoints {
+		binary.LittleEndian.PutUint64(buffer[offset:offset+8], uint64(cp))
+		offset += 8
+	}
+
+	checksum := crc32.ChecksumIEEE(buffer[4:])
+	binary.LittleEndian.PutUint32(buffer[0:4], checksum)
+
+	_, err = checkpointFile.Write(buffer)
+	if err != nil {
+		return fmt.Errorf("write checkpoint file: %w", err)
+	}
+
+	err = checkpointFile.Sync()
+	return err
 }

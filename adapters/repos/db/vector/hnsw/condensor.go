@@ -146,36 +146,46 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
+const writeUint64Size = 8
+
 func writeUint64(w io.Writer, in uint64) error {
-	var b [8]byte
+	var b [writeUint64Size]byte
 	binary.LittleEndian.PutUint64(b[:], in)
 	_, err := w.Write(b[:])
 	return err
 }
 
+const writeUint32Size = 4
+
 func writeUint32(w io.Writer, in uint32) error {
-	var b [4]byte
+	var b [writeUint32Size]byte
 	binary.LittleEndian.PutUint32(b[:], in)
 	_, err := w.Write(b[:])
 	return err
 }
 
+const writeUint16Size = 2
+
 func writeUint16(w io.Writer, in uint16) error {
-	var b [2]byte
+	var b [writeUint16Size]byte
 	binary.LittleEndian.PutUint16(b[:], in)
 	_, err := w.Write(b[:])
 	return err
 }
 
+const writeByteSize = 1
+
 func writeByte(w io.Writer, in byte) error {
-	var b [1]byte
+	var b [writeByteSize]byte
 	b[0] = in
 	_, err := w.Write(b[:])
 	return err
 }
 
+const writeBoolSize = 1
+
 func writeBool(w io.Writer, in bool) error {
-	var b [1]byte
+	var b [writeBoolSize]byte
 	if in {
 		b[0] = 1
 	}
@@ -183,11 +193,17 @@ func writeBool(w io.Writer, in bool) error {
 	return err
 }
 
+const writeCommitTypeSize = 1
+
 func writeCommitType(w io.Writer, in HnswCommitType) error {
-	var b [1]byte
+	var b [writeCommitTypeSize]byte
 	b[0] = byte(in)
 	_, err := w.Write(b[:])
 	return err
+}
+
+func writeUint64SliceSize(in []uint64) int {
+	return len(in) * writeUint64Size
 }
 
 func writeUint64Slice(w io.Writer, in []uint64) error {

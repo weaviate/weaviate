@@ -122,6 +122,7 @@ func (h *hnsw) restoreFromDisk() error {
 		snapshotFileName := snapshotFileName(fileNames[len(fileNames)-1])
 
 		tmpSnapshotFileName := fmt.Sprintf("%s.tmp", snapshotFileName)
+		checkPointsFileName := fmt.Sprintf("%s.checkpoints", snapshotFileName)
 
 		snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
@@ -131,7 +132,7 @@ func (h *hnsw) restoreFromDisk() error {
 
 		w := bufio.NewWriter(snap)
 
-		err = writeStateTo(state, w)
+		checkpoints, err := writeStateTo(state, w)
 		if err != nil {
 			return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
 		}
@@ -150,6 +151,8 @@ func (h *hnsw) restoreFromDisk() error {
 		if err != nil {
 			return errors.Wrapf(err, "close snapshot file %q", tmpSnapshotFileName)
 		}
+
+		writeCheckpoints(checkPointsFileName, checkpoints)
 
 		err = os.Rename(tmpSnapshotFileName, snapshotFileName)
 		if err != nil {
