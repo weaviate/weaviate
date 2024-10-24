@@ -38,13 +38,13 @@ const (
 
 func (s *Shard) Dimensions(ctx context.Context) int {
 	keyLen := 4
-	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) (int, int) {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			dimLength := binary.LittleEndian.Uint32(k)
-			return int(dimLength) * len(v)
+			return int(dimLength) * len(v), int(dimLength)
 		}
-		return 0
+		return 0, 0
 	})
 	return sum
 }
@@ -52,27 +52,27 @@ func (s *Shard) Dimensions(ctx context.Context) int {
 func (s *Shard) DimensionsForVec(ctx context.Context, vecName string) int {
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, _ := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) (int, int) {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-			return int(dimLength) * len(v)
+			return int(dimLength) * len(v), int(dimLength)
 		}
-		return 0
+		return 0, 0
 	})
 	return sum
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, segments int) int {
 	keyLen := 4
-	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) (int, int) {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			if dimLength := binary.LittleEndian.Uint32(k); dimLength > 0 {
-				return len(v)
+				return len(v), int(dimLength)
 			}
 		}
-		return 0
+		return 0, 0
 	})
 
 	return sum * correctEmptySegments(segments, dimensions)
@@ -81,20 +81,20 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, segments int) int {
 func (s *Shard) QuantizedDimensionsForVec(ctx context.Context, segments int, vecName string) int {
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
+	sum, dimensions := s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) (int, int) {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			if dimLength := binary.LittleEndian.Uint32(k[nameLen:]); dimLength > 0 {
-				return len(v)
+				return len(v), int(dimLength)
 			}
 		}
-		return 0
+		return 0, 0
 	})
 
 	return sum * correctEmptySegments(segments, dimensions)
 }
 
-func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v []lsmkv.MapPair) int) (sum int, dimensions int) {
+func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0, 0
@@ -103,14 +103,12 @@ func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v [
 	c := b.MapCursor()
 	defer c.Close()
 
-	sum = 0
-	dimForKey := 0
 	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		dimForKey = calcEntry(k, v)
-		sum += dimForKey
-		if dimensions == 0 && dimForKey > 0 {
-			dimensions = dimForKey
+		size, dim := calcEntry(k, v)
+		if dimensions == 0 && dim > 0 {
+			dimensions = dim
 		}
+		sum += size
 	}
 
 	return sum, dimensions
