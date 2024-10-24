@@ -31,6 +31,9 @@ import (
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
+
 	efConstruction := 64
 	ef := 32
 	maxNeighbors := 32

@@ -16,6 +16,7 @@ package hnsw
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +31,8 @@ import (
 
 func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	ctx := context.Background()
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
 
 	efConstruction := 64
 	ef := 32
