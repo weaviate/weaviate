@@ -84,12 +84,9 @@ func DecodeBlockData(data []byte) *BlockData {
 	docIdsLen := binary.LittleEndian.Uint16(data)
 	termFreqsLen := binary.LittleEndian.Uint16(data[2:])
 	propLengthsLen := binary.LittleEndian.Uint16(data[4:])
-	docIds := data[6 : 6+docIdsLen]
-	termFreqs := data[6+docIdsLen : 6+docIdsLen+termFreqsLen]
-	propLengths := data[6+docIdsLen+termFreqsLen : 6+docIdsLen+termFreqsLen+propLengthsLen]
 	return &BlockData{
-		DocIds:      docIds,
-		Tfs:         termFreqs,
-		PropLenghts: propLengths,
+		DocIds:      data[6 : 6+docIdsLen],
+		Tfs:         data[6+docIdsLen : 6+docIdsLen+termFreqsLen],
+		PropLenghts: data[6+docIdsLen+termFreqsLen : 6+docIdsLen+termFreqsLen+propLengthsLen],
 	}
 }
