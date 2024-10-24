@@ -34,9 +34,6 @@ type s3Client struct {
 	config   *clientConfig
 	logger   logrus.FieldLogger
 	dataPath string
-	bucket   string
-	path     string
-	creds    *credentials.Credentials
 	region   string
 }
 
@@ -66,7 +63,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &s3Client{client, config, logger, dataPath, bucket, path, creds, region}, nil
+	return &s3Client{client, config, logger, dataPath,  region}, nil
 }
 
 func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
