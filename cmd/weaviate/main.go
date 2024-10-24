@@ -66,6 +66,7 @@ func main() {
 		log = log.WithField("target", "querier")
 		s3module := modsloads3.New()
 		s3module.DataPath = opts.Query.DataPath
+		s3module.Bucket = opts.Query.S3URL
 		s3module.Endpoint = opts.Query.S3Endpoint
 
 		// This functionality is already in `go-client` of weaviate.
