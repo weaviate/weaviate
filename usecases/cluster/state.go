@@ -40,13 +40,39 @@ type NodeSelector interface {
 	NodeHostname(name string) (string, bool)
 }
 
+type Selector interface {
+	NodeSelector
+	// Hostnames for all live members, except self. Use AllHostnames to include
+	// self, prefixes the data port.
+	Hostnames() []string
+	// AllHostnames for live members, including self.
+	AllHostnames() []string
+	// AllNames node names (not their hostnames!) for live members, including self.
+	AllNames() []string
+	// NodeCount node names (not their hostnames!) for live members, including self.
+	NodeCount() int
+	// NodeAddress is used to resolve the node name into an ip address without the port
+	NodeAddress(id string) string
+	// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+	// maintenance mode (which means it should return an error for all data requests).
+	MaintenanceModeEnabled() bool
+	// NodeInfo return node info from memberlist delegate
+	NodeInfo(node string) (NodeInfo, bool)
+	// ClusterHealthScore gets the whole cluster health, the lower number the better
+	ClusterHealthScore() int
+	// SchemaSyncIgnored return if the config IgnoreStartupSchemaSync is enabled
+	SchemaSyncIgnored() bool
+	// SkipSchemaRepair return if the config SkipSchemaRepair is enabled
+	SkipSchemaRepair() bool
+}
+
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock                sync.RWMutex
+	list                    *memberlist.Memberlist
+	metaDataOnlyVotersNodes map[string]struct{}
+	delegate                delegate
 }
 
 type Config struct {
@@ -85,13 +111,13 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, metaDataOnlyVotersNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
-		config:          userConfig,
-		nonStorageNodes: nonStorageNodes,
+		config:                  userConfig,
+		metaDataOnlyVotersNodes: metaDataOnlyVotersNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
@@ -193,7 +219,7 @@ func (s *State) AllHostnames() []string {
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// AllNames node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
@@ -207,7 +233,7 @@ func (s *State) AllNames() []string {
 
 // StorageNodes returns all nodes except non storage nodes
 func (s *State) storageNodes() []string {
-	if len(s.nonStorageNodes) == 0 {
+	if len(s.metaDataOnlyVotersNodes) == 0 {
 		return s.AllNames()
 	}
 	members := s.list.Members()
@@ -215,7 +241,7 @@ func (s *State) storageNodes() []string {
 	n := 0
 	for _, m := range members {
 		name := m.Name
-		if _, ok := s.nonStorageNodes[name]; !ok {
+		if _, ok := s.metaDataOnlyVotersNodes[name]; !ok {
 			out[n] = m.Name
 			n++
 		}
@@ -231,10 +257,10 @@ func (s *State) StorageCandidates() []string {
 }
 
 // NonStorageNodes return nodes from member list which
-// they are configured not to be voter only
+// they are configured to be voter only
 func (s *State) NonStorageNodes() []string {
 	nonStorage := []string{}
-	for name := range s.nonStorageNodes {
+	for name := range s.metaDataOnlyVotersNodes {
 		nonStorage = append(nonStorage, name)
 	}
 
@@ -247,7 +273,7 @@ func (s *State) SortCandidates(nodes []string) []string {
 	return s.delegate.sortCandidates(nodes)
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// NodeCount node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
 	return s.list.NumMembers()
 }
@@ -257,10 +283,12 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
+// ClusterHealthScore gets the whole cluster health, the lower number the better
 func (s *State) ClusterHealthScore() int {
 	return s.list.GetHealthScore()
 }
 
+// NodeHostname return hosts address for a specific node name
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
