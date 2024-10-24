@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -39,6 +40,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, scheme schema.Schema
 		params.Output = "minimal"
 	}
 
+	params.DeletionTime = time.UnixMilli(req.DeletionTimeUnixMilli)
 	params.DryRun = req.DryRun
 
 	if req.Filters == nil {

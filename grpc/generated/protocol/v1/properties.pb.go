@@ -71,7 +71,6 @@ type Value struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Kind:
-	//
 	//	*Value_NumberValue
 	//	*Value_StringValue
 	//	*Value_BoolValue
@@ -207,7 +206,7 @@ func (x *Value) GetNullValue() structpb.NullValue {
 	if x, ok := x.GetKind().(*Value_NullValue); ok {
 		return x.NullValue
 	}
-	return structpb.NullValue(0)
+	return structpb.NullValue_NULL_VALUE
 }
 
 type isValue_Kind interface {

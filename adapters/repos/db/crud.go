@@ -47,14 +47,14 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 
 // DeleteObject from of a specific class giving its ID
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenant string,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl, tenant)
+	err := idx.deleteObject(ctx, id, deletionTime, repl, tenant)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
