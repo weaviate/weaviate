@@ -59,7 +59,14 @@ body:
         - Multi-Node Cluster
     validations:
       required: true
-
+  
+  - type: input
+    id: setup_node_count
+    attributes:
+      label: Nodes count
+      description: How many nodes ?
+    validations:
+      required: false
 
   - type: checkboxes
     id: terms
