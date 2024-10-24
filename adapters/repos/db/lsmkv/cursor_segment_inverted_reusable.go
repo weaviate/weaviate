@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -80,8 +81,8 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 			return err
 		}
 		docCount := binary.LittleEndian.Uint64(buffer[:8])
-		end := uint64(24)
-		if docCount > 1 {
+		end := uint64(20)
+		if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
 			end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
 		}
 		offset.end = offset.start + end + 4

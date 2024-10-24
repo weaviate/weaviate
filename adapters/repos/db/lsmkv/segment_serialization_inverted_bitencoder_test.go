@@ -367,7 +367,6 @@ func TestMapList(m *testing.T) {
 func TestMultipleMapLists(m *testing.T) {
 	postingListSizeRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 10000)
 	termFreqRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 100)
-	postlingListLenRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 1000)
 
 	numberCollections := 10000
 
@@ -393,11 +392,9 @@ func TestMultipleMapLists(m *testing.T) {
 			binary.BigEndian.PutUint64(key, docId)
 
 			tf := float32(termFreqRand.Uint64()) + 1
-			pl := float32(postlingListLenRand.Uint64()) + 1
 
 			value := make([]byte, 8)
 			binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
-			binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
 
 			mapList[i] = MapPair{
 				Key:   key,
