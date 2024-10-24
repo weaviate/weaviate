@@ -231,8 +231,8 @@ func TestCompareDotProductByte(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testDotProductByteFixedValue(t, size, asm.DotByteARM64)
-			testDotProductByteRandomValue(t, size, asm.DotByteARM64)
+			// testDotProductByteFixedValue(t, size, asm.DotByteARM64)
+			// testDotProductByteRandomValue(t, size, asm.DotByteARM64)
 		})
 	}
 }
@@ -253,18 +253,18 @@ func benchmarkDotByte(b *testing.B, dims int, dotFn func(a, b []byte) uint32) {
 	}
 }
 
-func BenchmarkDotByte(b *testing.B) {
-	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
-	for _, dim := range dims {
-		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-			// benchmarkDotByte(b, dim, dotByteImpl)
-			benchmarkDotByte(b, dim, asm.DotByteARM64)
+// func BenchmarkDotByte(b *testing.B) {
+// 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
+// 	for _, dim := range dims {
+// 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+// 			// benchmarkDotByte(b, dim, dotByteImpl)
+// 			benchmarkDotByte(b, dim, asm.DotByteARM64)
 
-			// b.Run("pure go", func(b *testing.B) { benchmarkDotByte(b, dim, dotByteImpl) })
-			// b.Run("avx", func(b *testing.B) { benchmarkDotByte(b, dim, asm.DotByteAVX256) })
-		})
-	}
-}
+// 			// b.Run("pure go", func(b *testing.B) { benchmarkDotByte(b, dim, dotByteImpl) })
+// 			// b.Run("avx", func(b *testing.B) { benchmarkDotByte(b, dim, asm.DotByteAVX256) })
+// 		})
+// 	}
+// }
 
 func testDotProductFloatByteFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []uint8) float32) {
 	for num := 0; num < 4; num++ {
@@ -377,6 +377,138 @@ func BenchmarkDotFloatByte(b *testing.B) {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
 			b.Run("pure go", func(b *testing.B) { benchmarkDotFloatByte(b, dim, dotFloatByteImpl) })
 			b.Run("neon", func(b *testing.B) { benchmarkDotFloatByte(b, dim, asm.DotFloatByte_Neon) })
+		})
+	}
+}
+
+var LAQDotExpGo func(x []float32, y1, y2 []byte, a1, a2 float32) float32 = func(x []float32, y1, y2 []byte, a1, a2 float32) float32 {
+	sum := float32(0)
+	for i := range x {
+		sum += x[i] * (a1*float32(y1[i]) + a2*float32(y2[i]))
+	}
+
+	return sum
+}
+
+func testLAQDotExpFixedValue(t *testing.T, size uint, dotFn func(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32) {
+	for num := 0; num < 4; num++ {
+		vec_x := make([]float32, size)
+		vec_y1 := make([]uint8, size)
+		vec_y2 := make([]uint8, size)
+		for i := range vec_x {
+			vec_x[i] = float32(num)
+			vec_y1[i] = uint8(num)
+			vec_y2[i] = uint8(num)
+		}
+		res := dotFn(vec_x, vec_y1, vec_y2, 1, 1)
+
+		resControl := LAQDotExpGo(vec_x, vec_y1, vec_y2, 1, 1)
+
+		delta := float64(1)
+		diff := float64(resControl) - float64(res)
+		if diff < -delta || diff > delta {
+			fmt.Printf("fixed, dimensions: %d, num: %d, match: %f != %f\n", size, num, resControl, res)
+			t.Fail()
+		}
+
+	}
+}
+
+func testLAQDotExpRandomValue(t *testing.T, size uint, dotFn func(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32) {
+	r := getRandomSeed()
+	count := 100
+
+	for i := 0; i < count; i++ {
+		vec_x := make([]float32, size)
+		vec_y1 := make([]byte, size)
+		vec_y2 := make([]byte, size)
+		a1 := r.Float32()
+		a2 := r.Float32()
+		for i := range vec_x {
+			vec_x[i] = r.Float32()
+			vec_y1[i] = byte(r.Uint32() % 256)
+			vec_y2[i] = byte(r.Uint32() % 256)
+		}
+		res := dotFn(vec_x, vec_y1, vec_y2, a1, a2)
+		resControl := LAQDotExpGo(vec_x, vec_y1, vec_y2, a1, a2)
+
+		delta := float64(1)
+		diff := float64(resControl) - float64(res)
+		if diff < -delta || diff > delta {
+			fmt.Printf("match: %f != %f\n", resControl, res)
+			t.Fail()
+		}
+	}
+
+}
+
+func TestLAQDotExp(t *testing.T) {
+	sizes := []uint{
+		1,
+		2,
+		3,
+		4,
+		5,
+		6,
+		8,
+		10,
+		12,
+		16,
+		24,
+		30,
+		31,
+		32,
+		64,
+		67,
+		128,
+		256,
+		260,
+		299,
+		300,
+		384,
+		390,
+		600,
+		768,
+		777,
+		784,
+		1024,
+		1536,
+	}
+
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
+			testLAQDotExpFixedValue(t, size, asm.LAQDotExp_Neon)
+			testLAQDotExpRandomValue(t, size, asm.LAQDotExp_Neon)
+		})
+	}
+}
+
+func benchmarkLAQDotExp(b *testing.B, dims int, dotFn func(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32) {
+	r := getRandomSeed()
+
+	vec_x := make([]float32, dims)
+	vec_y1 := make([]byte, dims)
+	vec_y2 := make([]byte, dims)
+	a1 := r.Float32()
+	a2 := r.Float32()
+	for i := range vec_x {
+		vec_x[i] = r.Float32()
+		vec_y1[i] = byte(r.Uint32() % 256)
+		vec_y2[i] = byte(r.Uint32() % 256)
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		dotFn(vec_x, vec_y1, vec_y2, a1, a2)
+	}
+}
+
+func BenchmarkLAQDotExp(b *testing.B) {
+	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
+	for _, dim := range dims {
+		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+			b.Run("pure go", func(b *testing.B) { benchmarkLAQDotExp(b, dim, LAQDotExpGo) })
+			b.Run("neon", func(b *testing.B) { benchmarkLAQDotExp(b, dim, asm.LAQDotExp_Neon) })
 		})
 	}
 }

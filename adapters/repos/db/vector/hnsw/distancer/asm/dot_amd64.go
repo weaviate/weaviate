@@ -13,6 +13,8 @@ package asm
 
 //go:generate goat ../c/dot_avx256_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 //go:generate goat ../c/dot_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+//go:generate goat ../c/dot_float_byte_avx256.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+//go:generate goat ../c/laq_dot_exp_avx256_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 
 import (
 	"unsafe"
@@ -95,4 +97,22 @@ func DotFloatByteAVX256(x []float32, y []uint8) float32 {
 		unsafe.Pointer(&l))
 
 	return res
+}
+
+func LAQDotExpAVX256(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32 {
+
+	l := len(x)
+
+	laq_dot_exp_avx256(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y1)),
+		unsafe.Pointer(unsafe.SliceData(y2)),
+		unsafe.Pointer(&a1),
+		// we use this argument to pass in a2 and get the return pointer, as goat
+		// does not support more than 6 arguments
+		unsafe.Pointer(&a2),
+		unsafe.Pointer(&l),
+	)
+
+	return a2
 }
