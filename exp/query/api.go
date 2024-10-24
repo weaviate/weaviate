@@ -121,7 +121,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
+	ensureStart := time.Now()
 	store, localPath, err := a.EnsureLSM(ctx, req.Collection, req.Tenant, false)
+	ensureDuration := time.Since(ensureStart)
+	a.log.WithField("ensureDuration", ensureDuration).Warn("ensure duration")
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +139,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	// TODO(kavi): Hanle where we support both nearText && Filters in the query
 	if len(req.NearText) != 0 {
 		// do vector search
+		vectorSearchStart := time.Now()
 		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), limit)
+		vectorSearchDuration := time.Since(vectorSearchStart)
+		a.log.WithField("vectorSearchDuration", vectorSearchDuration).Warn("vector search duration")
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +161,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	if req.Filters != nil {
+		propertyFilterStart := time.Now()
 		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Class, req.Tenant, req.Filters, limit)
+		propertyFilterDuration := time.Since(propertyFilterStart)
+		a.log.WithField("propertyFilterDuration", propertyFilterDuration).Warn("property filter duration")
 		if err != nil {
 			return nil, fmt.Errorf("failed to do filter search: %w", err)
 		}
@@ -168,6 +177,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	// return all objects upto `limit`
+	resultObjectsStart := time.Now()
 	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM); err != nil {
 		return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
 	}
@@ -181,6 +191,8 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}); err != nil && !errors.Is(err, errLimitReached) {
 		return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 	}
+	resultObjectsDuration := time.Since(resultObjectsStart)
+	a.log.WithField("resultObjectsDuration", resultObjectsDuration).Warn("result objects duration")
 
 	return &resp, nil
 }

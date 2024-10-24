@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -54,7 +55,9 @@ func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string
 	path := t.schemaPrefix + "/" + collection + "/tenants"
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
-	resp, err := t.client.Get(u)
+	req, err := http.NewRequest("GET", u, nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("METADATA_API_KEY")))
+	resp, err := t.client.Do(req)
 	if err != nil {
 		return "", err
 	}
