@@ -225,28 +225,24 @@ func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uin
 	return deltas
 }
 
-func packedEncode(docIds, termFreqs, propLengths []uint64) *terms.BlockData {
+func packedEncode(docIds, termFreqs []uint64) *terms.BlockData {
 	docIdsDeltas := deltaEncode(docIds)
 	docIdsPacked := packDeltas(docIdsDeltas)
 	termFreqsPacked := packDeltas(termFreqs)
-	propLengthsPacked := packDeltas(propLengths)
 
 	return &terms.BlockData{
-		DocIds:      docIdsPacked,
-		Tfs:         termFreqsPacked,
-		PropLenghts: propLengthsPacked,
+		DocIds: docIdsPacked,
+		Tfs:    termFreqsPacked,
 	}
 }
 
-func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64, []uint64) {
+func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64) {
 	docIds := deltaDecode(unpackDeltas(values.DocIds, numValues))
 	termFreqs := unpackDeltas(values.Tfs, numValues)
-	propLengths := unpackDeltas(values.PropLenghts, numValues)
-	return docIds, termFreqs, propLengths
+	return docIds, termFreqs
 }
 
 func packedDecodeReusable(values *terms.BlockData, numValues int, output *terms.BlockDataDecoded) {
 	deltaDecode(unpackDeltasReusable(values.DocIds, numValues, output.DocIds))
 	unpackDeltasReusable(values.Tfs, numValues, output.Tfs)
-	unpackDeltasReusable(values.PropLenghts, numValues, output.PropLenghts)
 }

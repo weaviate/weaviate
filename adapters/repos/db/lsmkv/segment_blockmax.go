@@ -212,9 +212,8 @@ func (s *SegmentBlockMax) reset() error {
 		}
 		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
 		s.blockDataDecoded = &terms.BlockDataDecoded{
-			DocIds:      make([]uint64, terms.BLOCK_SIZE),
-			Tfs:         make([]uint64, terms.BLOCK_SIZE),
-			PropLenghts: make([]uint64, terms.BLOCK_SIZE),
+			DocIds: make([]uint64, terms.BLOCK_SIZE),
+			Tfs:    make([]uint64, terms.BLOCK_SIZE),
 		}
 	}
 

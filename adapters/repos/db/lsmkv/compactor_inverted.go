@@ -15,7 +15,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"io"
+	"maps"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -46,6 +48,9 @@ type compactorInverted struct {
 	tombstonesToWrite *sroar.Bitmap
 	tombstonesToClean *sroar.Bitmap
 
+	propertyLenghtsToWrite map[uint64]uint32
+	propertyLenghtsToClean map[uint64]uint32
+
 	keysLen uint64
 }
 
@@ -75,7 +80,7 @@ func (c *compactorInverted) do() error {
 
 	c.offset = segmentindex.HeaderSize
 
-	kis, tombstones, err := c.writeKeys()
+	kis, tombstones, propertyLengths, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
@@ -84,6 +89,11 @@ func (c *compactorInverted) do() error {
 	tombstoneSize, err := c.writeTombstones(tombstones)
 	if err != nil {
 		return errors.Wrap(err, "write tombstones")
+	}
+
+	propertyLengthsSize, err := c.writePropertyLengths(propertyLengths)
+	if err != nil {
+		return errors.Wrap(err, "write property lenghts")
 	}
 
 	if err := c.writeIndices(kis); err != nil {
@@ -95,9 +105,9 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	var dataEnd uint64 = segmentindex.HeaderSize + 8 + 8 + uint64(tombstoneSize)
+	var dataEnd uint64 = segmentindex.HeaderSize + 8 + 8 + uint64(tombstoneSize) + uint64(propertyLengthsSize)
 	if len(kis) > 0 {
-		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + uint64(tombstoneSize)
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + 8 + uint64(tombstoneSize) + uint64(propertyLengthsSize)
 	}
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
 		dataEnd); err != nil {
@@ -143,12 +153,37 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer), nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
+	b := new(bytes.Buffer)
+
+	e := gob.NewEncoder(b)
+
+	// Encoding the map
+	err := e.Encode(propLengths)
+	if err != nil {
+		return 0, err
+	}
+
+	buf := make([]byte, 8)
+
+	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	if _, err := c.bufw.Write(buf); err != nil {
+		return 0, err
+	}
+
+	if _, err := c.bufw.Write(b.Bytes()); err != nil {
+		return 0, err
+	}
+
+	return b.Len(), nil
+}
+
+func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[uint64]uint32, error) {
 	// placeholder for the keys length
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, 0)
 	if _, err := c.bufw.Write(buf); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	c.offset += 8
@@ -160,12 +195,22 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 
 	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "get tombstones")
+		return nil, nil, nil, errors.Wrap(err, "get tombstones")
 	}
 
 	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "get tombstones")
+		return nil, nil, nil, errors.Wrap(err, "get tombstones")
+	}
+
+	c.propertyLenghtsToWrite, err = c.c1.segment.GetPropertyLenghts()
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "get property lengths")
+	}
+
+	c.propertyLenghtsToClean, err = c.c2.segment.GetPropertyLenghts()
+	if err != nil {
+		return nil, nil, nil, errors.Wrap(err, "get property lengths")
 	}
 
 	// the (dummy) header was already written, this is our initial offset
@@ -189,13 +234,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 			mergedPairs, err := sim.
 				doKeepTombstonesReusable()
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 
 			if values, skip := c.cleanupValues(mergedPairs); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key2, values)
 				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (equal keys)")
+					return nil, nil, nil, errors.Wrap(err, "write individual node (equal keys)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -212,7 +257,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key1, values)
 				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
+					return nil, nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -223,7 +268,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 			// key 2 is smaller
 			ki, err := c.writeIndividualNode(c.offset, key2, value2)
 			if err != nil {
-				return nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
+				return nil, nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
 			}
 
 			c.offset = ki.ValueEnd
@@ -232,9 +277,9 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 			key2, value2, _ = c.c2.next()
 		}
 	}
-	tombstones := c.computeTombstones()
+	tombstones, propLengths := c.computeTombstonesAndPropLenghts()
 
-	return kis, tombstones, nil
+	return kis, tombstones, propLengths, nil
 }
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
@@ -334,15 +379,17 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	return values[:last], false
 }
 
-func (c *compactorInverted) computeTombstones() *sroar.Bitmap {
+func (c *compactorInverted) computeTombstonesAndPropLenghts() (*sroar.Bitmap, map[uint64]uint32) {
 	if c.cleanupTombstones { // no tombstones to write
-		return sroar.NewBitmap()
+		return sroar.NewBitmap(), c.propertyLenghtsToWrite
 	}
 	if c.tombstonesToWrite == nil {
-		return c.tombstonesToClean
+		return c.tombstonesToClean, c.propertyLenghtsToWrite
 	}
 	if c.tombstonesToClean == nil {
-		return c.tombstonesToWrite
+		return c.tombstonesToWrite, c.propertyLenghtsToWrite
 	}
-	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean)
+
+	maps.Copy(c.propertyLenghtsToClean, c.propertyLenghtsToWrite)
+	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean), c.propertyLenghtsToClean
 }

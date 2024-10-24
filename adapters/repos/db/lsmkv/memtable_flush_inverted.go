@@ -13,8 +13,11 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"io"
+	"math"
 	"os"
 
 	"github.com/weaviate/sroar"
@@ -35,6 +38,8 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	actuallyWrittenKeys := make(map[string]struct{})
 	tombstones := roaringset.NewBitmap()
 
+	docIdsLengths := make(map[uint64]uint32)
+
 	for i, mapNode := range flatA {
 		flat[i] = &binarySearchNodeMap{
 			key:    mapNode.key,
@@ -42,12 +47,14 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		}
 
 		for j := range mapNode.values {
+			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
 			if !mapNode.values[j].Tombstone {
+				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
 				flat[i].values = append(flat[i].values, mapNode.values[j])
 				actuallyWritten++
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
+				docIdsLengths[docId] = uint32(fieldLength)
 			} else {
-				docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
 				tombstones.Set(docId)
 			}
 		}
@@ -75,8 +82,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	totalWritten := headerSize
 
 	buf := make([]byte, 8)
-	keysLen := 0
-	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
@@ -122,7 +127,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		}
 	}
 
-	keysLen = totalWritten - (16 + 8)
+	keysLen := totalWritten - (16 + 8)
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
 	if _, err := f.Write(buf); err != nil {
@@ -134,6 +139,28 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		return nil, nil, err
 	}
 	totalWritten += len(tombstoneBuffer)
+
+	b := new(bytes.Buffer)
+
+	e := gob.NewEncoder(b)
+
+	// Encoding the map
+	err = e.Encode(docIdsLengths)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+	totalWritten += 8
+
+	if _, err := f.Write(b.Bytes()); err != nil {
+		return nil, nil, err
+	}
+
+	totalWritten += b.Len()
 
 	if err := f.Flush(); err != nil {
 		return nil, nil, err
