@@ -49,6 +49,18 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Weaviate Setup
+      description: What type of Weaviate setup are you using?
+      options:
+        - Single Node
+        - Multi-Node Cluster
+    validations:
+      required: true
+
+
   - type: checkboxes
     id: terms
     attributes:
