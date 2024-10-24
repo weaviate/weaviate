@@ -141,18 +141,24 @@ func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([
 }
 
 func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd uint64, buf []byte, documents []*terms.DocPointerWithScore, decoded *terms.BlockDataDecoded) error {
-	r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
-	if err != nil {
-		return err
-	}
+	if s.mmapContents {
+		blockData := terms.DecodeBlockData(s.contents[offsetStart:offsetEnd])
+		convertFromBlockReusable(blockData, blockSize, documents, decoded)
+		return nil
+	} else {
 
-	_, err = r.Read(buf)
-	if err != nil {
-		return err
-	}
+		r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
+		if err != nil {
+			return err
+		}
 
-	blockData := terms.DecodeBlockData(buf[:offsetEnd-offsetStart])
-	convertFromBlockReusable(blockData, blockSize, documents, decoded)
+		_, err = r.Read(buf)
+		if err != nil {
+			return err
+		}
+		blockData := terms.DecodeBlockData(buf[:offsetEnd-offsetStart])
+		convertFromBlockReusable(blockData, blockSize, documents, decoded)
+	}
 
 	return nil
 }
