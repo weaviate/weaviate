@@ -67,7 +67,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/tailor-inc/graphql v0.4.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/weaviate/fgprof v0.0.0-20240724124431-aab99fd9c876
+	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
