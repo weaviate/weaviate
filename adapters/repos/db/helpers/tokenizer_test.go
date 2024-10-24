@@ -82,6 +82,33 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
 	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
+
+	// Kagome tokenizer for Japanese
+	t.Setenv("ENABLE_TOKENIZER_KAGOME_JA", "true")
+	_ = initializeKagomeTokenizerJa()
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeJa, `春の夜の夢はうつつよりもかなしき
+	夏の夜の夢はうつつに似たり
+	秋の夜の夢はうつつを超え
+	冬の夜の夢は心に響く
+
+	山のあなたに小さな村が見える
+	川の音が静かに耳に届く
+	風が木々を通り抜ける音
+	星空の下、すべてが平和である`)
+	assert.Equal(t, []string{"春", "の", "夜", "の", "夢", "は", "うつつ", "より", "も", "かなしき", "\n\t", "夏", "の", "夜", "の", "夢", "は", "うつつ", "に", "似", "たり", "\n\t", "秋", "の", "夜", "の", "夢", "は", "うつつ", "を", "超え", "\n\t", "冬", "の", "夜", "の", "夢", "は", "心", "に", "響く", "\n\n\t", "山", "の", "あなた", "に", "小さな", "村", "が", "見える", "\n\t", "川", "の", "音", "が", "静か", "に", "耳", "に", "届く", "\n\t", "風", "が", "木々", "を", "通り抜ける", "音", "\n\t", "星空", "の", "下", "、", "すべて", "が", "平和", "で", "ある"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "素早い茶色の狐が怠けた犬を飛び越えた")
+	assert.Equal(t, []string{"素早い", "茶色", "の", "狐", "が", "怠け", "た", "犬", "を", "飛び越え", "た"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "すばやいちゃいろのきつねがなまけたいぬをとびこえた")
+	assert.Equal(t, []string{"すばやい", "ちゃ", "いろ", "の", "きつね", "が", "なまけ", "た", "いぬ", "を", "とびこえ", "た"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "スバヤイチャイロノキツネガナマケタイヌヲトビコエタ")
+	assert.Equal(t, []string{"スバ", "ヤイ", "チャイ", "ロノキツネガナマケタイヌヲトビコエタ"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "The quick brown fox jumps over the lazy dog")
+	assert.Equal(t, []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 }
 
 func TestTokenize(t *testing.T) {
