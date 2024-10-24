@@ -71,6 +71,8 @@ COPY --from=experimental_server_builder /weaviate /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=experimental_server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
 RUN apk add --no-cache --upgrade bc ca-certificates openssl
+RUN apk add go
+RUN GOBIN=/mygo go install github.com/peak/s5cmd/v2@master
 RUN mkdir ./modules
 CMD [ "--monitoring.metrics_namespace", "weaviate"]
 

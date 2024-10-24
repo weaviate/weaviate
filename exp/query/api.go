@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"regexp"
 	"strings"
@@ -412,9 +413,22 @@ func (a *API) EnsureLSM(
 				"nodeName":            nodeName,
 				"localTenantTimePath": localTenantTimePath,
 			}).Debug("starting download to path")
-			if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+			cmdStrs := []string{
+				"/mygo/s5cmd",
+				"cp",
+				fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", a.offload.Concurrency)),
+				fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
+				fmt.Sprintf("%s/", localTenantTimePath),
+			}
+			cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
+			o, err := cmd.CombinedOutput()
+			a.log.Warnf("s5cmd output: %s, %v", string(o), err)
+			if err != nil {
 				return nil, "", err
 			}
+			// if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+			// 	return nil, "", err
+			// }
 		}
 	}
 
