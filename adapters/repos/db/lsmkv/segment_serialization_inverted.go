@@ -20,6 +20,13 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/config"
+)
+
+var (
+	defaultBM25k1            = config.DefaultBM25k1
+	defaultBM25b             = config.DefaultBM25b
+	defaultAveragePropLength = float32(40.0)
 )
 
 func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
@@ -70,13 +77,25 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 		if end > len(values) {
 			end = len(values)
 		}
+		maxImpact := float32(0)
+
+		for j := start; j < end; j++ {
+			tf := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4]))
+			pl := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8]))
+			impact := tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*pl/defaultAveragePropLength))
+
+			if impact > maxImpact {
+				maxImpact = impact
+			}
+		}
 
 		maxId := binary.BigEndian.Uint64(nodes[end-1].Key)
 		blockDataEncoded[i] = encodeBlock(values[start:end])
 
 		blockMetadata[i] = &terms.BlockEntry{
-			MaxId:  maxId,
-			Offset: offset,
+			MaxId:     maxId,
+			Offset:    offset,
+			MaxImpact: maxImpact,
 		}
 
 		offset += uint64(blockDataEncoded[i].Size())

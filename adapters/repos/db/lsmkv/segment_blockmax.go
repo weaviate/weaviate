@@ -81,7 +81,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 		entries[0] = &terms.BlockEntry{
 			Offset:    0,
 			MaxId:     data[len(data)-1].Id,
-			MaxImpact: 0,
+			MaxImpact: data[0].Frequency / (data[0].Frequency + defaultBM25k1*(1-defaultBM25b+defaultBM25b*data[0].PropLength/defaultAveragePropLength)),
 		}
 
 		return entries, docCount, data, nil
@@ -220,6 +220,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 	}
 
 	if s.blockEntryIdx >= len(s.blockEntries) {
+		s.idPointer = math.MaxUint64
 		s.exhausted = true
 		return nil
 	}
@@ -254,6 +255,7 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 	}
 
 	if s.blockData == nil {
+		s.idPointer = math.MaxUint64
 		s.exhausted = true
 		return
 	}
@@ -266,6 +268,7 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 	}
 
 	if s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId {
+		s.idPointer = math.MaxUint64
 		s.exhausted = true
 		return
 	}
