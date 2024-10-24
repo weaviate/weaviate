@@ -43,7 +43,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
-	if cfg.PQ.Enabled || cfg.SQ.Enabled {
+	if cfg.PQ.Enabled || cfg.SQ.Enabled || cfg.LASQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
