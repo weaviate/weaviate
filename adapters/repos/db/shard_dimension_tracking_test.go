@@ -407,7 +407,6 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	type testConfig struct {
 		name            string
 		className       string
-		classConfig     func() *models.Class
 		vectorConfig    func() *enthnsw.UserConfig
 		expectedDims    float64
 		expectedSegs    float64
