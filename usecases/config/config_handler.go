@@ -207,9 +207,10 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port     int    `json:"port" yaml:"port"`
-	CertFile string `json:"certFile" yaml:"certFile"`
-	KeyFile  string `json:"keyFile" yaml:"keyFile"`
+	Port       int    `json:"port" yaml:"port"`
+	CertFile   string `json:"certFile" yaml:"certFile"`
+	KeyFile    string `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
 }
 
 type Profiling struct {
