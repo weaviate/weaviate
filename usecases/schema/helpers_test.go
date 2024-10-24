@@ -24,8 +24,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -41,10 +41,13 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
+	selector := mocks.NewSelector(t)
+	selector.On("NodeCount").Return(1).Maybe()
+	selector.On("LocalName").Return("node1").Maybe()
 	handler, err := NewHandler(
 		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, selector, &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
@@ -61,7 +64,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, mocks.NewSelector(t), &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, metaHandler
 }

@@ -1333,7 +1333,9 @@ func Test_UpdateClass(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			store := NewFakeStore()
+			selcetor := mocks.NewSelector(t)
+			selcetor.On("NodeCount").Return(1).Maybe()
+			store := NewFakeStore(t, selcetor)
 			t.Run(test.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
@@ -1361,6 +1363,7 @@ func Test_UpdateClass(t *testing.T) {
 					assert.Contains(t, err.Error(), test.expectedError.Error())
 				}
 			})
+			selcetor.AssertExpectations(t)
 		}
 	})
 }
