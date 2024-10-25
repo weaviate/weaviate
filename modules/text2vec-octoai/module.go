@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-octoai/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-octoai/clients"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-octoai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-octoai/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
@@ -115,7 +114,7 @@ func (m *OctoAIModule) RootHandler() http.Handler {
 func (m *OctoAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
+	return nil, nil, errors.New("OctoAI is permanently shut down")
 }
 
 func (m *OctoAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
@@ -123,8 +122,11 @@ func (m *OctoAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *OctoAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
-	return vecs, nil, errs
+	errs := make(map[int]error)
+	for i := range objs {
+		errs[i] = errors.New("OctoAI is permanently shut down")
+	}
+	return nil, nil, errs
 }
 
 func (m *OctoAIModule) MetaInfo() (map[string]interface{}, error) {
@@ -138,7 +140,7 @@ func (m *OctoAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *OctoAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, cfg)
+	return nil, errors.New("OctoAI is permanently shut down")
 }
 
 // verify we implement the modules.Module interface
