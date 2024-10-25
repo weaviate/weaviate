@@ -718,7 +718,7 @@ func (index *flat) PostStartup() {
 	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
 	// this slice dynamically should be quite cheap compared to other operations
 	// involved here, e.g. disk reads.
-	vecs := make([]BQVecAndID, 0, 10_000)
+	vecs := make([]compressionhelpers.VecAndID[uint64], 0, 10_000)
 	maxID := uint64(0)
 
 	before := time.Now()
@@ -726,7 +726,8 @@ func (index *flat) PostStartup() {
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
-	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), index.logger)
+	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
+		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
 	channel := it.IterateAll()
 	if channel == nil {
 		return // nothing to do
@@ -738,8 +739,8 @@ func (index *flat) PostStartup() {
 	count := 0
 	for i := range vecs {
 		count++
-		if vecs[i].id > maxID {
-			maxID = vecs[i].id
+		if vecs[i].Id > maxID {
+			maxID = vecs[i].Id
 		}
 	}
 
@@ -749,7 +750,7 @@ func (index *flat) PostStartup() {
 
 	index.bqCache.SetSizeAndGrowNoLock(maxID)
 	for _, vec := range vecs {
-		index.bqCache.PreloadNoLock(vec.id, vec.vec)
+		index.bqCache.PreloadNoLock(vec.Id, vec.Vec)
 	}
 
 	took := time.Since(before)

@@ -27,6 +27,12 @@ type quantizer[T byte | uint64] interface {
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
+
+	// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
+	// instead of allocating a new slice you can pass in a buffer to use. It will
+	// slice something off of that buffer. If the buffer is too small, it will
+	// allocate a new buffer.
+	FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]T) []T
 	ExposeFields() PQData
 }
 
@@ -72,12 +78,49 @@ func (bq *BinaryQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
 	return slice
 }
 
+// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
+// instead of allocating a new slice you can pass in a buffer to use. It will
+// slice something off of that buffer. If the buffer is too small, it will
+// allocate a new buffer.
+func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+
+	if len(*buffer) < l {
+		*buffer = make([]uint64, 1000*l)
+	}
+
+	// take from end so we can address the start of the buffer
+	slice := (*buffer)[len(*buffer)-l:]
+	*buffer = (*buffer)[:len(*buffer)-l]
+
+	for i := range slice {
+		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
+	}
+	return slice
+}
+
 func (pq *ProductQuantizer) CompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
 func (pq *ProductQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
+}
+
+func (pq *ProductQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
+	if len(*buffer) < len(compressed) {
+		*buffer = make([]byte, len(compressed)*1000)
+	}
+
+	// take from end so we can address the start of the buffer
+	out := (*buffer)[len(*buffer)-len(compressed):]
+	copy(out, compressed)
+	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
+
+	return out
 }
 
 type BQDistancer struct {
