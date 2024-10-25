@@ -53,45 +53,7 @@ const (
 	maxQueryObjectsLimit = 10
 )
 
-var AllS3Paths = []string{
-	"question/weaviate-tenant/weaviate-0/indexcount",
-	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729837630405825141.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729837630405825141.db",
-	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729837648411797698.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837630406079555.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837630406079555.cna",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837630406079555.db",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837630406079555.secondary.0.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837630406079555.secondary.1.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729837648397971678.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729837630406390125.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729837630406390125.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729837648409158034.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729837630405990137.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729837630405990137.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729837648392274042.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729837630406082591.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729837630406082591.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729837648414965208.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729837630406359290.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729837630406359290.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729837648406330205.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729837630406483236.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729837630406483236.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729837648420713035.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729837630406202147.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729837630406202147.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729837648403506239.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729837630406289785.bloom",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729837630406289785.db",
-	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729837648417857538.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/vectors/segment-1729837630406668021.db",
-	"question/weaviate-tenant/weaviate-0/lsm/vectors/segment-1729837648395251671.wal",
-	"question/weaviate-tenant/weaviate-0/lsm/vectors_compressed/segment-1729837630406765629.db",
-	"question/weaviate-tenant/weaviate-0/lsm/vectors_compressed/segment-1729837648423609656.wal",
-	"question/weaviate-tenant/weaviate-0/proplengths",
-	"question/weaviate-tenant/weaviate-0/version",
-}
+var AllS3Paths = []string{}
 
 var (
 	ErrInvalidTenant = errors.New("invalid tenant status")
@@ -462,8 +424,8 @@ func (a *API) EnsureLSM(
 			}).Debug("starting download to path")
 
 			memcacheClientStart := time.Now()
-			mc := memcache.New("mymemcached:11211") // localhost for test
-			memcacheClientDuration := time.Since(memcacheClientStart)
+			mc := memcache.New("mymemcached:11211")                   // localhost for test
+			memcacheClientDuration := time.Since(memcacheClientStart) // 800us in first test
 			a.log.WithField("memcacheClientDuration", memcacheClientDuration).Warn("memcache client duration")
 			memcacheGetStart := time.Now()
 			m, err := mc.GetMulti(AllS3Paths)

@@ -142,7 +142,19 @@ func main() {
 			log.Fatalf("unable to load SDK config, %v", err)
 		}
 		s3Client := s3.NewFromConfig(awsCfg)
-		for _, key := range query.AllS3Paths {
+		listOutput, err := s3Client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
+			Bucket: aws.String(bucket),
+			Prefix: aws.String("question/weaviate-tenant/weaviate-0"),
+		})
+		if err != nil {
+			log.Fatalf("unable to list objects, %v", err)
+		}
+		keys := []string{}
+		for _, object := range listOutput.Contents {
+			keys = append(keys, *object.Key)
+		}
+		query.AllS3Paths = keys // fun global
+		for _, key := range keys {
 			// Download the object
 			objBytes, err := downloadS3Object(s3Client, bucket, key)
 			if err != nil {
