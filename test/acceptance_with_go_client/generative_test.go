@@ -96,3 +96,54 @@ func TestGenerative(t *testing.T) {
 		require.True(t, strings.Contains(returnString, "{\"first\":\"three\",\"second\":\"four\"}"), "got &v", returnString)
 	})
 }
+
+func TestGenerativeUpdate(t *testing.T) {
+	ctx := context.Background()
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	className := "LionsAreKittyCats"
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	classCreator := c.Schema().ClassCreator()
+	class := models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "first",
+				DataType: []string{string(schema.DataTypeText)},
+			},
+		},
+		ModuleConfig: map[string]interface{}{
+			"generative-doesnotexist": map[string]interface{}{},
+		},
+	}
+
+	require.Nil(t, classCreator.WithClass(&class).Do(ctx))
+	uids := []string{uuid.New().String(), uuid.New().String()}
+	_, err = c.Data().Creator().WithClassName(className).WithProperties(
+		map[string]interface{}{"first": "one"},
+	).WithID(uids[0]).Do(ctx)
+	require.Nil(t, err)
+
+	_, err = c.Data().Creator().WithClassName(className).WithProperties(
+		map[string]interface{}{"first": "three"},
+	).WithID(uids[1]).Do(ctx)
+	require.Nil(t, err)
+
+	gs := graphql.NewGenerativeSearch().SingleResult("Input: {first}")
+
+	fields := graphql.Field{
+		Name: "_additional{id}",
+	}
+	res, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, res.Errors)
+
+	class.ModuleConfig = map[string]interface{}{"generative-dummy": map[string]interface{}{}}
+	require.NoError(t, c.Schema().ClassUpdater().WithClass(&class).Do(ctx))
+
+	res, err = c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
+	require.NoError(t, err)
+	require.Nil(t, res.Errors)
+}
