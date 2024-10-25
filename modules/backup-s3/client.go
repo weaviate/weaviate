@@ -262,7 +262,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	defer w.Close()
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return -1, errors.Wrap(err, "GetObject")
+		return -1, errors.Wrap(err, "read: cannot get client")
 	}
 	remotePath := s.makeObjectName(backupID, key)
 
