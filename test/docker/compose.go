@@ -106,9 +106,6 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
-	withOctoAIVectorizer          bool
-	withOctoAIGenerative          bool
-	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
 }
 
@@ -502,9 +499,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withGoogleApiKey != "" {
 		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
-	}
-	if d.withOctoAIApiKey != "" {
-		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)
