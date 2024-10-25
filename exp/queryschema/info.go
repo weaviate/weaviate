@@ -94,7 +94,10 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 	path := path.Join(t.schemaPrefix, collection)
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
-	resp, err := t.client.Get(u)
+	// temp hack to get working on dev cluster
+	req, err := http.NewRequest("GET", u, nil)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("METADATA_API_KEY")))
+	resp, err := t.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
