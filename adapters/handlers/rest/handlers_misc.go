@@ -50,10 +50,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 		}
 
 		res := &models.Meta{
-			Hostname:       serverConfig.GetHostAddress(),
-			Version:        config.ServerVersion,
-			Modules:        metaInfos,
-			GrpcMaxMsgSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
+			Hostname:           serverConfig.GetHostAddress(),
+			Version:            config.ServerVersion,
+			Modules:            metaInfos,
+			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
 		}
 		metricRequestsTotal.logOk("")
 		return meta.NewMetaGetOK().WithPayload(res)

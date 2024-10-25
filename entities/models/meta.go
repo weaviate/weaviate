@@ -29,7 +29,7 @@ import (
 type Meta struct {
 
 	// Max message size for GRPC connection in bytes
-	GrpcMaxMsgSize int64 `json:"grpc_max_msg_size,omitempty"`
+	GrpcMaxMessageSize int64 `json:"grpcMaxMessageSize,omitempty"`
 
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
