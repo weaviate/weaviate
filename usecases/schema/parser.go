@@ -289,6 +289,7 @@ func (m *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	}
 
 	hasGenerativeUpdate := false
+	hasRerankerUpdate := false
 	for module := range updatedModConf {
 		if strings.Contains(module, "generative") {
 			if hasGenerativeUpdate {
@@ -298,11 +299,19 @@ func (m *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
+		if strings.Contains(module, "reranker") {
+			if hasRerankerUpdate {
+				return fmt.Errorf("updated moduleconfig has multiple reranker modules: %v", updatedModConf)
+			}
+			hasRerankerUpdate = true
+			continue
+		}
+
 		if initialModConf != nil && reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
 			continue
 		}
 
-		return fmt.Errorf("can only update generative module configs. Got: %v", module)
+		return fmt.Errorf("can only update generative and Class module configs. Got: %v", module)
 	}
 
 	if initial.ModuleConfig == nil {
@@ -318,6 +327,15 @@ func (m *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		// clear out old generative module
 		for module := range initialModConf {
 			if strings.Contains(module, "generative") {
+				delete(initialModConf, module)
+			}
+		}
+	}
+
+	if hasRerankerUpdate {
+		// clear out old reranker module
+		for module := range initialModConf {
+			if strings.Contains(module, "reranker") {
 				delete(initialModConf, module)
 			}
 		}
