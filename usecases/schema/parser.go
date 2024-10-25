@@ -214,6 +214,10 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
+	if err := p.validateModuleConfigsParityAndImmutables(class, update); err != nil {
+		return nil, err
+	}
+
 	// run target vectors validation first, as it will reject classes
 	// where legacy vector was changed to target vectors and vice versa
 	if err := validateVectorConfigsParityAndImmutables(class, update); err != nil {
@@ -262,6 +266,68 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 
 func hasTargetVectors(class *models.Class) bool {
 	return len(class.VectorConfig) > 0
+}
+
+func (m *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class) error {
+	if updated.ModuleConfig == nil || reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
+		return nil
+	}
+
+	updatedModConf, ok := updated.ModuleConfig.(map[string]any)
+	if !ok {
+		return fmt.Errorf("module config for %s is not a map, got %v", updated.ModuleConfig, updated.ModuleConfig)
+	}
+
+	updatedModConf, err := m.moduleConfig(updatedModConf)
+	if err != nil {
+		return err
+	}
+
+	var initialModConf map[string]any
+	if initial.ModuleConfig != nil {
+		initialModConf, _ = initial.ModuleConfig.(map[string]any)
+	}
+
+	hasGenerativeUpdate := false
+	for module := range updatedModConf {
+		if strings.Contains(module, "generative") {
+			if hasGenerativeUpdate {
+				return fmt.Errorf("updated moduleconfig has multiple generative modules: %v", updatedModConf)
+			}
+			hasGenerativeUpdate = true
+			continue
+		}
+
+		if initialModConf != nil && reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
+			continue
+		}
+
+		return fmt.Errorf("can only update generative module configs. Got: %v", module)
+	}
+
+	if initial.ModuleConfig == nil {
+		initial.ModuleConfig = updatedModConf
+		return nil
+	}
+
+	if _, ok := initial.ModuleConfig.(map[string]any); !ok {
+		initial.ModuleConfig = updatedModConf
+		return nil
+	}
+	if hasGenerativeUpdate {
+		// clear out old generative module
+		for module := range initialModConf {
+			if strings.Contains(module, "generative") {
+				delete(initialModConf, module)
+			}
+		}
+	}
+
+	for module := range updatedModConf {
+		initialModConf[module] = updatedModConf[module]
+	}
+	updated.ModuleConfig = initialModConf
+	return nil
 }
 
 func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
