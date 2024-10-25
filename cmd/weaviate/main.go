@@ -14,7 +14,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -137,7 +137,7 @@ func main() {
 		mc := memcache.New("mymemcached:11211")
 		bucket := opts.Query.S3URL
 		// Initialize AWS S3 client
-		awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("your-region"))
+		awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("eu-central-1"))
 		if err != nil {
 			log.Fatalf("unable to load SDK config, %v", err)
 		}
@@ -189,7 +189,7 @@ func downloadS3Object(client *s3.Client, bucket, key string) ([]byte, error) {
 	defer output.Body.Close()
 
 	// Read the object data
-	data, err := ioutil.ReadAll(output.Body)
+	data, err := io.ReadAll(output.Body)
 	if err != nil {
 		return nil, err
 	}
