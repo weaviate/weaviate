@@ -134,7 +134,7 @@ func main() {
 			}
 		}, log)
 
-		mc := memcache.New("mymemcached:11211")
+		mc := memcache.New("mymemcached:11211") // localhost for test
 		bucket := opts.Query.S3URL
 		// Initialize AWS S3 client
 		awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("eu-central-1"))
