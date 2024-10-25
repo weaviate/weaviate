@@ -13,7 +13,7 @@ package clients
 
 func (v *octoai) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "Generative Search - OctoAI",
+		"name":              "Generative Search - OctoAI (deprecated)",
 		"documentationHref": "https://octo.ai/docs/text-gen-solution/getting-started",
 	}, nil
 }

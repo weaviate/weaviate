@@ -39,12 +39,11 @@ message GenerativeProvider {
     GenerativeCohere cohere = 5;
     GenerativeDummy dummy = 6;
     GenerativeMistral mistral = 7;
-    GenerativeOctoAI octoai = 8;
-    GenerativeOllama ollama = 9;
-    GenerativeOpenAI openai = 10;
-    GenerativeGoogle google = 11;
-    GenerativeDatabricks databricks = 12;
-    GenerativeFriendliAI friendliai = 13;
+    GenerativeOllama ollama = 8;
+    GenerativeOpenAI openai = 9;
+    GenerativeGoogle google = 10;
+    GenerativeDatabricks databricks = 11;
+    GenerativeFriendliAI friendliai = 12;
   }
 }
 
@@ -95,15 +94,6 @@ message GenerativeMistral{
   optional string model = 3;
   optional double temperature = 4;
   optional double top_p = 5;
-}
-
-message GenerativeOctoAI{
-  optional string base_url = 1;
-  optional int64 max_tokens = 2;
-  optional string model = 3;
-  optional int64 n = 4;
-  optional double temperature = 5;
-  optional double top_p = 6;
 }
 
 message GenerativeOllama{
@@ -214,15 +204,6 @@ message GenerativeMistralMetadata {
   optional Usage usage = 1;
 }
 
-message GenerativeOctoAIMetadata {
-  message Usage {
-    optional int64 prompt_tokens = 1;
-    optional int64 completion_tokens = 2;
-    optional int64 total_tokens = 3;
-  }
-  optional Usage usage = 1;
-}
-
 message GenerativeOllamaMetadata {
 }
 
@@ -282,12 +263,11 @@ message GenerativeMetadata {
     GenerativeCohereMetadata cohere = 4;
     GenerativeDummyMetadata dummy = 5;
     GenerativeMistralMetadata mistral = 6;
-    GenerativeOctoAIMetadata octoai = 7;
-    GenerativeOllamaMetadata ollama = 8;
-    GenerativeOpenAIMetadata openai = 9;
-    GenerativeGoogleMetadata google = 10;
-    GenerativeDatabricksMetadata databricks = 11;
-    GenerativeFriendliAIMetadata friendliai = 12;
+    GenerativeOllamaMetadata ollama = 7;
+    GenerativeOpenAIMetadata openai = 8;
+    GenerativeGoogleMetadata google = 9;
+    GenerativeDatabricksMetadata databricks = 10;
+    GenerativeFriendliAIMetadata friendliai = 11;
   }
 }
 
