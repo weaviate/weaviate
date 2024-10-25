@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"regexp"
 	"strings"
@@ -40,7 +41,6 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 const (
@@ -121,7 +121,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
+	ensureStart := time.Now()
 	store, localPath, err := a.EnsureLSM(ctx, req.Collection, req.Tenant, false)
+	ensureDuration := time.Since(ensureStart)
+	a.log.WithField("ensureDuration", ensureDuration).Warn("ensure duration")
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +139,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	// TODO(kavi): Hanle where we support both nearText && Filters in the query
 	if len(req.NearText) != 0 {
 		// do vector search
+		vectorSearchStart := time.Now()
 		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), limit)
+		vectorSearchDuration := time.Since(vectorSearchStart)
+		a.log.WithField("vectorSearchDuration", vectorSearchDuration).Warn("vector search duration")
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +161,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	if req.Filters != nil {
+		propertyFilterStart := time.Now()
 		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Class, req.Tenant, req.Filters, limit)
+		propertyFilterDuration := time.Since(propertyFilterStart)
+		a.log.WithField("propertyFilterDuration", propertyFilterDuration).Warn("property filter duration")
 		if err != nil {
 			return nil, fmt.Errorf("failed to do filter search: %w", err)
 		}
@@ -168,6 +177,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	// return all objects upto `limit`
+	resultObjectsStart := time.Now()
 	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM); err != nil {
 		return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
 	}
@@ -181,6 +191,8 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}); err != nil && !errors.Is(err, errLimitReached) {
 		return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 	}
+	resultObjectsDuration := time.Since(resultObjectsStart)
+	a.log.WithField("resultObjectsDuration", resultObjectsDuration).Warn("result objects duration")
 
 	return &resp, nil
 }
@@ -253,9 +265,13 @@ func (a *API) vectorSearch(
 	threshold float32,
 	limit int,
 ) ([]*storobj.Object, []float32, error) {
-	vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+	// vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+	// }
+	vectors := []float32{}
+	for i := 0; i < 300; i++ {
+		vectors = append(vectors, float32(i)/500.0)
 	}
 
 	// TODO(kavi): Assuming BQ compression is enabled. Make it generic.
@@ -400,9 +416,22 @@ func (a *API) EnsureLSM(
 				"nodeName":            nodeName,
 				"localTenantTimePath": localTenantTimePath,
 			}).Debug("starting download to path")
-			if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+			cmdStrs := []string{
+				"/mygo/s5cmd",
+				"cp",
+				fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", a.offload.Concurrency)),
+				fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
+				fmt.Sprintf("%s/", localTenantTimePath),
+			}
+			cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
+			o, err := cmd.CombinedOutput()
+			a.log.Warnf("s5cmd output: %s, %v", string(o), err)
+			if err != nil {
 				return nil, "", err
 			}
+			// if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+			// 	return nil, "", err
+			// }
 		}
 	}
 
