@@ -56,6 +56,12 @@ func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float3
 	return 0, errors.Errorf("Distance not supported yet %s", sq.distancer)
 }
 
+// FromCompressedBytesWithSubsliceBuffer([]byte, *[]byte) []byte
+func (sq *ScalarQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
+	// TODO: This method should be implemented before merging this PR
+	return compressed
+}
+
 func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQuantizer {
 	if len(data) == 0 {
 		return nil
