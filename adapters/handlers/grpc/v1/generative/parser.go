@@ -23,7 +23,6 @@ import (
 	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
-	octoaiParams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -106,9 +105,6 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Mistral:
 				options = p.mistral(query.GetMistral())
 				providerName = mistralParams.Name
-			case *pb.GenerativeProvider_Octoai:
-				options = p.octoai(query.GetOctoai())
-				providerName = octoaiParams.Name
 			case *pb.GenerativeProvider_Ollama:
 				options = p.ollama(query.GetOllama())
 				providerName = ollamaParams.Name
@@ -221,22 +217,6 @@ func (p *Parser) mistral(in *pb.GenerativeMistral) map[string]any {
 			MaxTokens:   p.int64ToInt(in.MaxTokens),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
-			TopP:        in.TopP,
-		},
-	}
-}
-
-func (p *Parser) octoai(in *pb.GenerativeOctoAI) map[string]any {
-	if in == nil {
-		return nil
-	}
-	return map[string]any{
-		octoaiParams.Name: octoaiParams.Params{
-			BaseURL:     in.GetBaseUrl(),
-			Model:       in.GetModel(),
-			MaxTokens:   p.int64ToInt(in.MaxTokens),
-			Temperature: in.Temperature,
-			N:           p.int64ToInt(in.N),
 			TopP:        in.TopP,
 		},
 	}
