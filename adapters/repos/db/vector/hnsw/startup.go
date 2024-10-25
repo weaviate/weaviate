@@ -59,7 +59,7 @@ func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 
-	state, stateTimestamp, lastSnapshotPath, err := getLastSnapshot(h.rootPath, h.id)
+	state, stateTimestamp, lastSnapshotPath, err := getLastSnapshot(h.rootPath, h.id, h.logger)
 	if err != nil {
 		return errors.Wrap(err, "get last snapshot")
 	}

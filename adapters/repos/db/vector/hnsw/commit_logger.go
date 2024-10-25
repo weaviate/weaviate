@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -172,7 +171,7 @@ func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, er
 	return out, nil
 }
 
-func getLastSnapshot(rootPath, name string) (snap *DeserializationResult, ts int64, snapPath string, err error) {
+func getLastSnapshot(rootPath, name string, logger logrus.FieldLogger) (snap *DeserializationResult, ts int64, snapPath string, err error) {
 	dir := commitLogDirectory(rootPath, name)
 	err = os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
@@ -213,9 +212,12 @@ func getLastSnapshot(rootPath, name string) (snap *DeserializationResult, ts int
 			}
 			defer snapFile.Close()
 
-			r := bufio.NewReader(snapFile)
+			checkpoints, err := readCheckpoints(snapPath)
+			if err != nil {
+				return nil, 0, "", errors.Wrapf(err, "read checkpoints file for snapshot %q", snapPath)
+			}
 
-			snap, err = readStateFrom(r)
+			snap, err = readStateFrom(snapFile, 8, checkpoints, logger)
 			if err != nil {
 				return nil, 0, "", errors.Wrapf(err, "read snapshot file %q", snapPath)
 			}
@@ -286,6 +288,10 @@ func removeTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 		}
 
 		if strings.HasSuffix(info.Name(), ".snapshot") {
+			continue
+		}
+
+		if strings.HasSuffix(info.Name(), ".snapshot.checkpoints") {
 			continue
 		}
 

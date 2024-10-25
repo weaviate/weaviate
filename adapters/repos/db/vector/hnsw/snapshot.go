@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
@@ -19,13 +20,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const checkpointChunkSize = 100_000
 
 // returns checkpoints which can be used as parallelizatio hints
-func writeStateTo(state *DeserializationResult, w io.Writer) ([]int, error) {
+func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, error) {
 	// version
 	offset := 0
 	if err := writeByte(w, 0); err != nil {
@@ -93,12 +96,13 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]int, error) {
 	}
 	offset += writeUint32Size
 
-	var checkpoints []int
-	checkpoints = append(checkpoints, offset) // start at the very first node
+	var checkpoints []Checkpoint
+	// start at the very first node
+	checkpoints = append(checkpoints, Checkpoint{ID: 0, Pos: uint64(offset)})
 
 	nonNilNodes := 0
 
-	for _, n := range state.Nodes {
+	for i, n := range state.Nodes {
 		if n == nil {
 			// nil node
 			if err := writeByte(w, 0); err != nil {
@@ -109,7 +113,7 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]int, error) {
 		}
 
 		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
-			checkpoints = append(checkpoints, offset)
+			checkpoints = append(checkpoints, Checkpoint{ID: uint64(i), Pos: uint64(offset)})
 		}
 
 		_, hasATombstone := state.Tombstones[n.id]
@@ -151,16 +155,23 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]int, error) {
 		nonNilNodes++
 	}
 
+	// note that we are not adding an end checkpoint, so the implicit contract
+	// here is that the reader must read from the last checkpoint to EOF.
 	return checkpoints, nil
 }
 
-func readStateFrom(r io.Reader) (*DeserializationResult, error) {
+func readStateFrom(f *os.File, concurrency int, checkpoints []Checkpoint,
+	logger logrus.FieldLogger,
+) (*DeserializationResult, error) {
 	res := &DeserializationResult{
 		NodesDeleted:      make(map[uint64]struct{}),
 		Tombstones:        make(map[uint64]struct{}),
 		TombstonesDeleted: make(map[uint64]struct{}),
 		LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 	}
+
+	// start with a single-threaded reader until we make it the nodes section
+	r := bufio.NewReader(f)
 
 	var b [8]byte
 
@@ -267,68 +278,112 @@ func readStateFrom(r io.Reader) (*DeserializationResult, error) {
 
 	res.Nodes = make([]*vertex, nodesCount)
 
-	for i := 0; i < nodesCount; i++ {
-		_, err = io.ReadFull(r, b[:1]) // node existence
-		if err != nil {
-			return nil, errors.Wrapf(err, "read node existence")
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(concurrency)
+	for cpPos, cp := range checkpoints {
+		start := int(cp.Pos)
+		var end int
+		if cpPos != len(checkpoints)-1 {
+			end = int(checkpoints[cpPos+1].Pos)
+		} else {
+			st, err := f.Stat()
+			if err != nil {
+				return nil, errors.Wrapf(err, "get file stat")
+			}
+
+			end = int(st.Size())
 		}
-		if b[0] == 0 {
-			// nil node
-			continue
-		}
+		fmt.Printf("loading checkpoint %d to %d\n", start, end)
 
-		n := &vertex{id: uint64(i + 1)}
+		eg.Go(func() error {
+			var b [8]byte
+			var read int
 
-		if b[0] == 1 {
-			res.Tombstones[n.id] = struct{}{}
-		} else if b[0] != 2 {
-			return nil, fmt.Errorf("unsupported node existence state")
-		}
+			nodeOffset := cp.ID
+			sr := io.NewSectionReader(f, int64(start), int64(end-start))
+			r := bufio.NewReader(sr)
 
-		_, err = io.ReadFull(r, b[:4]) // level
-		if err != nil {
-			return nil, errors.Wrapf(err, "read node level")
-		}
-		n.level = int(binary.LittleEndian.Uint32(b[:4]))
-
-		_, err = io.ReadFull(r, b[:4]) // connections count
-		if err != nil {
-			return nil, errors.Wrapf(err, "read node connections count")
-		}
-		connCount := int(binary.LittleEndian.Uint32(b[:4]))
-
-		if connCount > 0 {
-			n.connections = make([][]uint64, connCount)
-
-			for l := 0; l < connCount; l++ {
-				_, err = io.ReadFull(r, b[:4]) // connections count at level
+			for read < end-start {
+				n, err := io.ReadFull(r, b[:1]) // node existence
 				if err != nil {
-					return nil, errors.Wrapf(err, "read node connections count at level")
+					return errors.Wrapf(err, "read node existence")
 				}
-				connCountAtLevel := int(binary.LittleEndian.Uint32(b[:4]))
+				read += n
+				if b[0] == 0 {
+					// nil node
+					nodeOffset++
+					continue
+				}
 
-				if connCountAtLevel > 0 {
-					n.connections[l] = make([]uint64, connCountAtLevel)
+				node := &vertex{id: nodeOffset}
 
-					for c := 0; c < connCountAtLevel; c++ {
-						_, err = io.ReadFull(r, b[:8]) // connection at level
+				if b[0] == 1 {
+					res.Tombstones[node.id] = struct{}{}
+				} else if b[0] != 2 {
+					return fmt.Errorf("unsupported node existence state")
+				}
+
+				n, err = io.ReadFull(r, b[:4]) // level
+				if err != nil {
+					return errors.Wrapf(err, "read node level")
+				}
+				read += n
+				node.level = int(binary.LittleEndian.Uint32(b[:4]))
+
+				n, err = io.ReadFull(r, b[:4]) // connections count
+				if err != nil {
+					return errors.Wrapf(err, "read node connections count")
+				}
+				read += n
+				connCount := int(binary.LittleEndian.Uint32(b[:4]))
+
+				if connCount > 0 {
+					node.connections = make([][]uint64, connCount)
+
+					for l := 0; l < connCount; l++ {
+						n, err = io.ReadFull(r, b[:4]) // connections count at level
 						if err != nil {
-							return nil, errors.Wrapf(err, "read node connection at level")
+							return errors.Wrapf(err, "read node connections count at level")
 						}
-						n.connections[l][c] = binary.LittleEndian.Uint64(b[:8])
+						read += n
+						connCountAtLevel := int(binary.LittleEndian.Uint32(b[:4]))
+
+						if connCountAtLevel > 0 {
+							node.connections[l] = make([]uint64, connCountAtLevel)
+
+							for c := 0; c < connCountAtLevel; c++ {
+								n, err = io.ReadFull(r, b[:8]) // connection at level
+								if err != nil {
+									return errors.Wrapf(err, "read node connection at level")
+								}
+								node.connections[l][c] = binary.LittleEndian.Uint64(b[:8])
+								read += n
+							}
+						}
+
 					}
 				}
 
+				res.Nodes[nodeOffset] = node
+				nodeOffset++
 			}
-		}
 
-		res.Nodes[i] = n
+			return nil
+		})
+	}
+
+	for i := 0; i < nodesCount; i++ {
 	}
 
 	return res, nil
 }
 
-func writeCheckpoints(fileName string, checkpoints []int) error {
+type Checkpoint struct {
+	ID  uint64
+	Pos uint64
+}
+
+func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 	checkpointFile, err := os.OpenFile(fmt.Sprintf("%s", fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -337,12 +392,14 @@ func writeCheckpoints(fileName string, checkpoints []int) error {
 	defer checkpointFile.Close()
 
 	// 0-4: checksum
-	// 8+: checkpoints (8 bytes each)
-	buffer := make([]byte, 4+8+len(checkpoints)*8)
+	// 4+: checkpoints (16 bytes each)
+	buffer := make([]byte, 4+len(checkpoints)*16)
 	offset := 4
 
 	for _, cp := range checkpoints {
-		binary.LittleEndian.PutUint64(buffer[offset:offset+8], uint64(cp))
+		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.ID)
+		offset += 8
+		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.Pos)
 		offset += 8
 	}
 
@@ -356,4 +413,31 @@ func writeCheckpoints(fileName string, checkpoints []int) error {
 
 	err = checkpointFile.Sync()
 	return err
+}
+
+func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err error) {
+	cpfn := snapshotFileName + ".checkpoints"
+	cpFile, err := os.Open(cpfn)
+	if err != nil {
+		return nil, err
+	}
+	buf, err := io.ReadAll(cpFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) < 4 {
+		return nil, fmt.Errorf("corrupted checkpoint file %q", cpfn)
+	}
+	checksum := binary.LittleEndian.Uint32(buf[0:4])
+	actualChecksum := crc32.ChecksumIEEE(buf[4:])
+	if checksum != actualChecksum {
+		return nil, fmt.Errorf("corrupted checkpoint file %q, checksum mismatch", cpfn)
+	}
+	checkpoints = make([]Checkpoint, 0, len(buf[4:])/16)
+	for i := 4; i < len(buf); i += 16 {
+		id := binary.LittleEndian.Uint64(buf[i : i+8])
+		pos := binary.LittleEndian.Uint64(buf[i+8 : i+16])
+		checkpoints = append(checkpoints, Checkpoint{ID: id, Pos: pos})
+	}
+	return checkpoints, nil
 }
