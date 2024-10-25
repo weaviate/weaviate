@@ -25,9 +25,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
+	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -77,7 +77,6 @@ func TestGetAnswer(t *testing.T) {
 				Choices: []choice{{
 					FinishReason: "test",
 					Index:        0,
-					Logprobs:     "",
 					Text:         "John",
 				}},
 				Error: nil,
@@ -147,29 +146,29 @@ func TestGetAnswer(t *testing.T) {
 	})
 
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
-		settings := &fakeClassSettings{
-			baseURL: "http://default-url.com",
+		params := openaiparams.Params{
+			BaseURL: "http://default-url.com",
 		}
 		c := New("openAIApiKey", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.buildOpenAIUrl(ctxWithValue, settings)
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, params)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat/completions", buildURL)
 
-		buildURL, err = c.buildOpenAIUrl(context.TODO(), settings)
+		buildURL, err = c.buildOpenAIUrl(context.TODO(), params)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
 	})
 
 	t.Run("when X-Azure-DeploymentId is passed", func(t *testing.T) {
-		settings := &fakeClassSettings{
-			isAzure:      true,
-			resourceName: "classResourceName",
-			deploymentID: "classDeploymentId",
-			apiVersion:   "2024-02-01",
+		params := openaiparams.Params{
+			IsAzure:      true,
+			ResourceName: "classResourceName",
+			DeploymentID: "classDeploymentId",
+			ApiVersion:   "2024-02-01",
 		}
 		c := New("", "", "", 0, nullLogger())
 
@@ -178,7 +177,7 @@ func TestGetAnswer(t *testing.T) {
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Azure-Resource-Name", []string{"headerResourceName"})
 
-		buildURL, err := c.buildOpenAIUrl(ctxWithValue, settings)
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, params)
 		require.NoError(t, err)
 		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/chat/completions?api-version=2024-02-01", buildURL)
 	})
@@ -275,80 +274,4 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 
 func ptString(in string) *string {
 	return &in
-}
-
-type fakeClassSettings struct {
-	isLegacy             bool
-	model                string
-	maxTokens            float64
-	temperature          float64
-	frequencyPenalty     float64
-	presencePenalty      float64
-	topP                 float64
-	resourceName         string
-	deploymentID         string
-	isAzure              bool
-	baseURL              string
-	apiVersion           string
-	isThirdPartyProvider bool
-}
-
-func (s *fakeClassSettings) IsLegacy() bool {
-	return s.isLegacy
-}
-
-func (s *fakeClassSettings) Model() string {
-	return s.model
-}
-
-func (s *fakeClassSettings) MaxTokens() float64 {
-	return s.maxTokens
-}
-
-func (s *fakeClassSettings) Temperature() float64 {
-	return s.temperature
-}
-
-func (s *fakeClassSettings) FrequencyPenalty() float64 {
-	return s.frequencyPenalty
-}
-
-func (s *fakeClassSettings) PresencePenalty() float64 {
-	return s.presencePenalty
-}
-
-func (s *fakeClassSettings) IsThirdPartyProvider() bool {
-	return s.isThirdPartyProvider
-}
-
-func (s *fakeClassSettings) TopP() float64 {
-	return s.topP
-}
-
-func (s *fakeClassSettings) ResourceName() string {
-	return s.resourceName
-}
-
-func (s *fakeClassSettings) DeploymentID() string {
-	return s.deploymentID
-}
-
-func (s *fakeClassSettings) IsAzure() bool {
-	return s.isAzure
-}
-
-func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
-	return 0
-}
-
-func (s *fakeClassSettings) Validate(class *models.Class) error {
-	return nil
-}
-
-func (s *fakeClassSettings) BaseURL() string {
-	return s.baseURL
-}
-
-func (s *fakeClassSettings) ApiVersion() string {
-	return s.apiVersion
 }
