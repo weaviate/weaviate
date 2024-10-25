@@ -475,7 +475,7 @@
           "description": "Module-specific meta information",
           "type": "object"
         },
-        "grpc_max_msg_size": {
+        "grpcMaxMessageSize": {
           "description": "Max message size for GRPC connection in bytes",
           "type": "integer"
         }
