@@ -461,18 +461,39 @@ func (a *API) EnsureLSM(
 				"memcachedDownloadPath": memcachedDownloadPath,
 			}).Debug("starting download to path")
 
+			memcacheClientStart := time.Now()
 			mc := memcache.New("mymemcached:11211") // localhost for test
+			memcacheClientDuration := time.Since(memcacheClientStart)
+			a.log.WithField("memcacheClientDuration", memcacheClientDuration).Warn("memcache client duration")
+			memcacheGetStart := time.Now()
 			m, err := mc.GetMulti(AllS3Paths)
+			memcacheGetDuration := time.Since(memcacheGetStart)
+			a.log.WithField("memcacheGetDuration", memcacheGetDuration).Warn("memcache get duration")
 			if err != nil {
 				a.log.WithError(err).Fatal("failed to get item from mem")
 			}
+			if len(AllS3Paths) != len(m) {
+				a.log.WithFields(logrus.Fields{
+					"expected": AllS3Paths,
+					"actual":   m,
+				}).Fatal("failed to get all expected items from memcached")
+			}
 			// TODO write in parallel
+			writeStart := time.Now()
 			for key, item := range m {
-				fileSuffix := strings.TrimPrefix("question/weaviate-tenant/weaviate-0/", key)
-				if err := os.WriteFile(path.Join(memcachedDownloadPath, fileSuffix), item.Value, 0644); err != nil {
+				fileSuffix := strings.TrimPrefix(key, "question/weaviate-tenant/weaviate-0/")
+				filePath := path.Join(memcachedDownloadPath, fileSuffix)
+				ma := path.Dir(filePath)
+				err = os.MkdirAll(ma, 0755)
+				if err != nil {
+					a.log.WithError(err).Fatal("failed to create dir")
+				}
+				if err := os.WriteFile(filePath, item.Value, 0644); err != nil {
 					a.log.WithError(err).Fatal("failed to write item to file")
 				}
 			}
+			writeDuration := time.Since(writeStart)
+			a.log.WithField("writeDuration", writeDuration).Warn("write duration")
 
 			// cmdStrs := []string{
 			// 	"/mygo/s5cmd",
