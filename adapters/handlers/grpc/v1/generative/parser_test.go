@@ -21,6 +21,8 @@ import (
 	anyscale "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	aws "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohere "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	databricks "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	octoai "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
@@ -366,8 +368,13 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Aws{
 								Aws: &pb.GenerativeAWS{
-									Model:       makeStrPtr("model"),
-									Temperature: makeFloat64Ptr(0.5),
+									Service:       makeStrPtr("service"),
+									Region:        makeStrPtr("region"),
+									Endpoint:      makeStrPtr("endpoint"),
+									TargetModel:   makeStrPtr("targetModel"),
+									TargetVariant: makeStrPtr("targetVariant"),
+									Model:         makeStrPtr("model"),
+									Temperature:   makeFloat64Ptr(0.5),
 								},
 							},
 						},
@@ -378,8 +385,13 @@ func Test_RequestParser(t *testing.T) {
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
 					"aws": aws.Params{
-						Model:       "model",
-						Temperature: makeFloat64Ptr(0.5),
+						Service:       "service",
+						Region:        "region",
+						Endpoint:      "endpoint",
+						TargetModel:   "targetModel",
+						TargetVariant: "targetVariant",
+						Model:         "model",
+						Temperature:   makeFloat64Ptr(0.5),
 					},
 				},
 			},
@@ -738,6 +750,11 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Openai{
 								Openai: &pb.GenerativeOpenAI{
+									BaseUrl:          makeStrPtr("baseURL"),
+									ApiVersion:       makeStrPtr("apiVersion"),
+									ResourceName:     makeStrPtr("resourceName"),
+									DeploymentId:     makeStrPtr("deploymentId"),
+									IsAzure:          makeBoolPtr(true),
 									MaxTokens:        makeInt64Ptr(10),
 									Model:            "model",
 									Temperature:      makeFloat64Ptr(0.5),
@@ -748,8 +765,6 @@ func Test_RequestParser(t *testing.T) {
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
-									LogProbs:    makeBoolPtr(true),
-									TopLogProbs: makeInt64Ptr(5),
 								},
 							},
 						},
@@ -760,6 +775,11 @@ func Test_RequestParser(t *testing.T) {
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
 					"openai": openai.Params{
+						BaseURL:          "baseURL",
+						ApiVersion:       "apiVersion",
+						ResourceName:     "resourceName",
+						DeploymentID:     "deploymentId",
+						IsAzure:          true,
 						MaxTokens:        makeIntPtr(10),
 						Model:            "model",
 						Temperature:      makeFloat64Ptr(0.5),
@@ -768,8 +788,6 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
 						Stop:             []string{"stop"},
-						Logprobs:         makeBoolPtr(true),
-						TopLogprobs:      makeIntPtr(5),
 					},
 				},
 			},
@@ -852,6 +870,170 @@ func Test_RequestParser(t *testing.T) {
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
 						StopSequences:    []string{"stop"},
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic databricks",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Databricks{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic databricks",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Databricks{
+								Databricks: &pb.GenerativeDatabricks{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"databricks": databricks.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic databricks",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Databricks{
+								Databricks: &pb.GenerativeDatabricks{
+									Endpoint:         makeStrPtr("endpoint"),
+									Model:            makeStrPtr("model"),
+									FrequencyPenalty: makeFloat64Ptr(0.5),
+									LogProbs:         makeBoolPtr(true),
+									TopLogProbs:      makeInt64Ptr(1),
+									MaxTokens:        makeInt64Ptr(10),
+									N:                makeInt64Ptr(5),
+									PresencePenalty:  makeFloat64Ptr(0.5),
+									Stop: &pb.TextArray{
+										Values: []string{"stop"},
+									},
+									Temperature: makeFloat64Ptr(0.5),
+									TopP:        makeFloat64Ptr(0.5),
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"databricks": databricks.Params{
+						Endpoint:         "endpoint",
+						Model:            "model",
+						FrequencyPenalty: makeFloat64Ptr(0.5),
+						Logprobs:         makeBoolPtr(true),
+						TopLogprobs:      makeIntPtr(1),
+						MaxTokens:        makeIntPtr(10),
+						N:                makeIntPtr(5),
+						PresencePenalty:  makeFloat64Ptr(0.5),
+						Stop:             []string{"stop"},
+						Temperature:      makeFloat64Ptr(0.5),
+						TopP:             makeFloat64Ptr(0.5),
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; nil dynamic friendli",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Friendliai{},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt:  makeStrPtr("prompt"),
+				Options: nil,
+			},
+		},
+		{
+			name:       "generative search; single response; empty dynamic friendli",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Friendliai{
+								Friendliai: &pb.GenerativeFriendliAI{},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"friendliai": friendliai.Params{},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic friendli",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Friendliai{
+								Friendliai: &pb.GenerativeFriendliAI{
+									BaseUrl:     makeStrPtr("baseURL"),
+									Model:       makeStrPtr("model"),
+									MaxTokens:   makeInt64Ptr(10),
+									Temperature: makeFloat64Ptr(0.5),
+									N:           makeInt64Ptr(5),
+									TopP:        makeFloat64Ptr(0.5),
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"friendliai": friendliai.Params{
+						BaseURL:     "baseURL",
+						Model:       "model",
+						MaxTokens:   makeIntPtr(10),
+						N:           makeIntPtr(5),
+						Temperature: makeFloat64Ptr(0.5),
+						TopP:        makeFloat64Ptr(0.5),
 					},
 				},
 			},

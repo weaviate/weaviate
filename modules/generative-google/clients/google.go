@@ -170,17 +170,16 @@ func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(settings.ApiEndpoint())
+	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(params.ApiEndpoint)
 	modelID := params.Model
-	if settings.EndpointID() != "" {
-		modelID = settings.EndpointID()
+	if params.EndpointID != "" {
+		modelID = params.EndpointID
 	}
 
-	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, settings.ApiEndpoint(), settings.ProjectID(), modelID, settings.Region())
+	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, params.ApiEndpoint, params.ProjectID, modelID, params.Region)
 	input := v.getPayload(useGenerativeAIEndpoint, prompt, params)
 
 	body, err := json.Marshal(input)
@@ -256,8 +255,23 @@ func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{})
 		params = p
 	}
 
+	if params.ApiEndpoint == "" {
+		params.ApiEndpoint = settings.ApiEndpoint()
+	}
+	if params.ProjectID == "" {
+		params.ProjectID = settings.ProjectID()
+	}
+	if params.EndpointID == "" {
+		params.EndpointID = settings.EndpointID()
+	}
+	if params.Region == "" {
+		params.Region = settings.Region()
+	}
 	if params.Model == "" {
-		model := settings.ModelID()
+		model := settings.Model()
+		if model == "" {
+			model = settings.ModelID()
+		}
 		params.Model = model
 	}
 	if params.Temperature == nil {

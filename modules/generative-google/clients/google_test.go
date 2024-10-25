@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -62,12 +63,13 @@ func TestGetAnswer(t *testing.T) {
 			logger: nullLogger(),
 		}
 
+		params := googleparams.Params{ApiEndpoint: server.URL}
 		textProperties := []map[string]string{{"prop": "My name is john"}}
 		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
+		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", params, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
