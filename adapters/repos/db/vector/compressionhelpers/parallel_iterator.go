@@ -62,8 +62,6 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	}
 
 	stopTracking := cpi.startTracking()
-	defer func() {
-	}()
 
 	// We need one fewer seed than our desired parallel factor, that is because
 	// we will add one routine that starts with cursor.First() and reads to the
