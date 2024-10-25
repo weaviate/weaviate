@@ -134,51 +134,49 @@ func main() {
 			}
 		}, log)
 
-		mc := memcache.New("mymemcached:11211") // localhost for test
-		bucket := opts.Query.S3URL
-		// Initialize AWS S3 client
-		awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("eu-central-1"))
-		if err != nil {
-			log.Fatalf("unable to load SDK config, %v", err)
-		}
-		s3Client := s3.NewFromConfig(awsCfg)
-		listOutput, err := s3Client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
-			Bucket: aws.String(bucket),
-			Prefix: aws.String("question/weaviate-tenant/weaviate-0"),
-		})
-		if err != nil {
-			log.Fatalf("unable to list objects, %v", err)
-		}
-		keys := []string{}
-		for _, object := range listOutput.Contents {
-			keys = append(keys, *object.Key)
-		}
-		query.AllS3Paths = keys // fun global
-		for _, key := range keys {
-			// Download the object
-			objBytes, err := downloadS3Object(s3Client, bucket, key)
+		if opts.Query.S3OrMemcached == "memcached" {
+			mc := memcache.New("mymemcached:11211") // localhost for test
+			bucket := opts.Query.S3URL
+			// Initialize AWS S3 client
+			awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("eu-central-1"))
 			if err != nil {
-				log.Printf("failed to download object %s: %v", key, err)
-				continue
+				log.Fatalf("unable to load SDK config, %v", err)
 			}
-
-			// Store object in Memcached
-			err = mc.Set(&memcache.Item{
-				Key:   key,
-				Value: objBytes,
+			s3Client := s3.NewFromConfig(awsCfg)
+			listOutput, err := s3Client.ListObjectsV2(context.TODO(), &s3.ListObjectsV2Input{
+				Bucket: aws.String(bucket),
+				Prefix: aws.String("question/weaviate-tenant/weaviate-0"),
 			})
 			if err != nil {
-				log.Printf("failed to save object to Memcached %s: %v", key, err)
-				continue
+				log.Fatalf("unable to list objects, %v", err)
+			}
+			keys := []string{}
+			for _, object := range listOutput.Contents {
+				keys = append(keys, *object.Key)
+			}
+			query.AllS3Paths = keys // fun global
+			for _, key := range keys {
+				// Download the object
+				objBytes, err := downloadS3Object(s3Client, bucket, key)
+				if err != nil {
+					log.Printf("failed to download object %s: %v", key, err)
+					continue
+				}
+
+				// Store object in Memcached
+				err = mc.Set(&memcache.Item{
+					Key:   key,
+					Value: objBytes,
+				})
+				if err != nil {
+					log.Printf("failed to save object to Memcached %s: %v", key, err)
+					continue
+				}
+
+				fmt.Printf("Successfully saved %s to Memcached\n", key)
 			}
 
-			fmt.Printf("Successfully saved %s to Memcached\n", key)
 		}
-		err = mc.Set(&memcache.Item{Key: "foo", Value: []byte("my value")})
-		if err != nil {
-			log.WithError(err).Fatal("failed to set item in memcache")
-		}
-
 		// serve /metrics
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())

@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"sync"
@@ -359,7 +360,7 @@ func (a *API) EnsureLSM(
 	// we'll unecessarily download the same tenant multiple times. If multiple calls to download
 	// get the same microseconds value from the system, there could be issues.
 	// I think the easiest way to fix this would be to serialize downloads per tenant.
-	// currentLocalTime := time.Now().UnixMicro()
+	currentLocalTime := time.Now().UnixMicro()
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
@@ -390,29 +391,31 @@ func (a *API) EnsureLSM(
 		}
 	}
 
-	memcachedDownloadPath := path.Join(
-		a.offload.DataPath,
-		"question",
-		"weaviate-tenant",
-	)
 	// base collection path
-	// localBaseCollectionPath := path.Join(
-	// 	a.offload.DataPath,
-	// 	strings.ToLower(collection),
-	// )
-	// // the path we will download to
-	// localTenantTimePath := path.Join(
-	// 	localBaseCollectionPath,
-	// 	strings.ToLower(tenant),
-	// 	fmt.Sprintf("%d", currentLocalTime),
-	// )
+	localBaseCollectionPath := path.Join(
+		a.offload.DataPath,
+		strings.ToLower(collection),
+	)
+	// the path we will download to
+	localTenantTimePath := path.Join(
+		localBaseCollectionPath,
+		strings.ToLower(tenant),
+		fmt.Sprintf("%d", currentLocalTime),
+	)
+	if a.config.S3OrMemcached == "memcached" {
+		localTenantTimePath = path.Join(
+			a.offload.DataPath,
+			"question",
+			"weaviate-tenant",
+		)
+	}
 	// // the path we will return
 	localLsmPath := path.Join(
-		memcachedDownloadPath,
+		localTenantTimePath,
 		defaultLSMRoot,
 	)
 	if proceedWithDownload {
-		_, err := os.Stat(memcachedDownloadPath)
+		_, err := os.Stat(localTenantTimePath)
 		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
 			// src - s3://<collection>/<tenant>/<node>/
 			// dst (local) - <data-path/<collection>/<tenant>/timestamp
@@ -420,59 +423,61 @@ func (a *API) EnsureLSM(
 				"collection":            collection,
 				"tenant":                tenant,
 				"nodeName":              nodeName,
-				"memcachedDownloadPath": memcachedDownloadPath,
+				"memcachedDownloadPath": localTenantTimePath,
 			}).Debug("starting download to path")
 
-			memcacheClientStart := time.Now()
-			mc := memcache.New("mymemcached:11211")                   // localhost for test
-			memcacheClientDuration := time.Since(memcacheClientStart) // 800us in first test
-			a.log.WithField("memcacheClientDuration", memcacheClientDuration).Warn("memcache client duration")
-			memcacheGetStart := time.Now()
-			m, err := mc.GetMulti(AllS3Paths)
-			memcacheGetDuration := time.Since(memcacheGetStart)
-			a.log.WithField("memcacheGetDuration", memcacheGetDuration).Warn("memcache get duration")
-			if err != nil {
-				a.log.WithError(err).Fatal("failed to get item from mem")
-			}
-			if len(AllS3Paths) != len(m) {
-				a.log.WithFields(logrus.Fields{
-					"expected": AllS3Paths,
-					"actual":   m,
-				}).Fatal("failed to get all expected items from memcached")
-			}
-			// TODO write in parallel
-			writeStart := time.Now()
-			for key, item := range m {
-				fileSuffix := strings.TrimPrefix(key, "question/weaviate-tenant/weaviate-0/")
-				filePath := path.Join(memcachedDownloadPath, fileSuffix)
-				ma := path.Dir(filePath)
-				err = os.MkdirAll(ma, 0755)
+			if a.config.S3OrMemcached == "memcached" {
+				memcacheClientStart := time.Now()
+				mc := memcache.New("mymemcached:11211")                   // localhost for test
+				memcacheClientDuration := time.Since(memcacheClientStart) // 800us in first test
+				a.log.WithField("memcacheClientDuration", memcacheClientDuration).Warn("memcache client duration")
+				memcacheGetStart := time.Now()
+				m, err := mc.GetMulti(AllS3Paths)
+				memcacheGetDuration := time.Since(memcacheGetStart)
+				a.log.WithField("memcacheGetDuration", memcacheGetDuration).Warn("memcache get duration")
 				if err != nil {
-					a.log.WithError(err).Fatal("failed to create dir")
+					a.log.WithError(err).Fatal("failed to get item from mem")
 				}
-				if err := os.WriteFile(filePath, item.Value, 0644); err != nil {
-					a.log.WithError(err).Fatal("failed to write item to file")
+				if len(AllS3Paths) != len(m) {
+					a.log.WithFields(logrus.Fields{
+						"expected": AllS3Paths,
+						"actual":   m,
+					}).Fatal("failed to get all expected items from memcached")
+				}
+				// TODO write in parallel
+				writeStart := time.Now()
+				for key, item := range m {
+					fileSuffix := strings.TrimPrefix(key, "question/weaviate-tenant/weaviate-0/")
+					filePath := path.Join(localTenantTimePath, fileSuffix)
+					ma := path.Dir(filePath)
+					err = os.MkdirAll(ma, 0755)
+					if err != nil {
+						a.log.WithError(err).Fatal("failed to create dir")
+					}
+					if err := os.WriteFile(filePath, item.Value, 0644); err != nil {
+						a.log.WithError(err).Fatal("failed to write item to file")
+					}
+				}
+				writeDuration := time.Since(writeStart)
+				a.log.WithField("writeDuration", writeDuration).Warn("write duration")
+			} else {
+				cmdStrs := []string{
+					"/mygo/s5cmd",
+					"cp",
+					fmt.Sprintf("--concurrency=25"),
+					fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
+					fmt.Sprintf("%s/", localTenantTimePath),
+				}
+				cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
+				o, err := cmd.CombinedOutput()
+				a.log.Warnf("s5cmd output: %s, %v", string(o), err)
+				if err != nil {
+					return nil, "", err
+				}
+				if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+					return nil, "", err
 				}
 			}
-			writeDuration := time.Since(writeStart)
-			a.log.WithField("writeDuration", writeDuration).Warn("write duration")
-
-			// cmdStrs := []string{
-			// 	"/mygo/s5cmd",
-			// 	"cp",
-			// 	fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", a.offload.Concurrency)),
-			// 	fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
-			// 	fmt.Sprintf("%s/", localTenantTimePath),
-			// }
-			// cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
-			// o, err := cmd.CombinedOutput()
-			// a.log.Warnf("s5cmd output: %s, %v", string(o), err)
-			// if err != nil {
-			// 	return nil, "", err
-			// }
-			// if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
-			// 	return nil, "", err
-			// }
 		}
 	}
 
@@ -481,7 +486,7 @@ func (a *API) EnsureLSM(
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
 	// remember to store the tenant root dir in tenantLsmkvStore, not the lsm path
-	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: memcachedDownloadPath}); ok {
+	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: localTenantTimePath}); ok {
 		// when we replace or evict an lsmkvStore, we need to shut it down.
 		// I'm assuming lsmkvStore has internal locks which prevent this shutdown call
 		// from cancelling searches running at the same time.
