@@ -242,9 +242,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 		vecs = append(vecs, v...)
 	}
 
-	count := 0
 	for i := range vecs {
-		count++
 		if vecs[i].Id > maxID {
 			maxID = vecs[i].Id
 		}
@@ -259,7 +257,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	took := time.Since(before)
 	compressor.logger.WithFields(logrus.Fields{
 		"action": "hnsw_compressed_vector_cache_prefill",
-		"count":  count,
+		"count":  len(vecs),
 		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache")
