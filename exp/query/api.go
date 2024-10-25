@@ -397,7 +397,7 @@ func (a *API) EnsureLSM(
 	// we'll unecessarily download the same tenant multiple times. If multiple calls to download
 	// get the same microseconds value from the system, there could be issues.
 	// I think the easiest way to fix this would be to serialize downloads per tenant.
-	currentLocalTime := time.Now().UnixMicro()
+	// currentLocalTime := time.Now().UnixMicro()
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
@@ -498,7 +498,7 @@ func (a *API) EnsureLSM(
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
 	// remember to store the tenant root dir in tenantLsmkvStore, not the lsm path
-	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: localTenantTimePath}); ok {
+	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: memcachedDownloadPath}); ok {
 		// when we replace or evict an lsmkvStore, we need to shut it down.
 		// I'm assuming lsmkvStore has internal locks which prevent this shutdown call
 		// from cancelling searches running at the same time.
