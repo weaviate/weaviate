@@ -450,6 +450,7 @@ func (a *API) EnsureLSM(
 				memcacheGetTotal := time.Duration(0)
 				memcacheWriteTotal := time.Duration(0)
 				for _, chunk := range chunks {
+					// TODO retries?
 					memcacheGetStart := time.Now()
 					m, err := mc.GetMulti(chunk)
 					memcacheGetDuration := time.Since(memcacheGetStart)
@@ -493,13 +494,13 @@ func (a *API) EnsureLSM(
 				}
 				cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
 				o, err := cmd.CombinedOutput()
-				a.log.Warnf("s5cmd output: %s, %v", string(o), err)
 				if err != nil {
+					a.log.Warnf("s5cmd output: %s, %v", string(o), err)
 					return nil, "", err
 				}
-				if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
-					return nil, "", err
-				}
+				// if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
+				// 	return nil, "", err
+				// }
 			}
 		}
 	}
