@@ -75,6 +75,7 @@ type API struct {
 	// the tenantLsmkvStore value is updated if new tenant data versions are downloaded.
 	// Note that tenantLsmkvStore.localTenantPath points to the root of the tenant dir,
 	// not the lsm subdir.
+	// NOTE hacking to test perf of reloading lsmkv from disk every request
 	cachedTenantLsmkvStores sync.Map
 
 	vectorizer text2vecbase.TextVectorizer
@@ -365,6 +366,18 @@ func (a *API) EnsureLSM(
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
+	if a.config.AlwaysReloadLsmkvFromDisk && !doUpdateTenantIfExistsLocally {
+		lsmkvPath, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
+		if tenantIsCachedLocally {
+			lsmkvPathStr := lsmkvPath.(string)
+			lsmkvStore, err := lsmkv.New(lsmkvPathStr, lsmkvPathStr, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+			if err != nil {
+				a.log.WithField("path", lsmkvPathStr).WithError(err).Warn("failed to reload lsmkv from disk")
+				return nil, "", err
+			}
+			return lsmkvStore, lsmkvPathStr, nil
+		}
+	}
 	proceedWithDownload := false
 	if doUpdateTenantIfExistsLocally {
 		if tenantIsCachedLocally {
@@ -509,24 +522,29 @@ func (a *API) EnsureLSM(
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
-	// remember to store the tenant root dir in tenantLsmkvStore, not the lsm path
-	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: localTenantTimePath}); ok {
-		// when we replace or evict an lsmkvStore, we need to shut it down.
-		// I'm assuming lsmkvStore has internal locks which prevent this shutdown call
-		// from cancelling searches running at the same time.
-		// I'm also assuming once Shutdown returns we don't need the old files on disk anymore.
-		oldTenantLsmkvStore := oldTenantLsmkvStoreAny.(tenantLsmkvStore)
-		oldTenantLsmkvStore.s.Shutdown(ctx)
 
-		// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
-		// NOTE if MatchString is too slow, we could use a simpler check like strings.HasPrefix without the timestamp
-		// if matched, err := regexp.MatchString(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant),
-		// 	oldTenantLsmkvStore.localTenantPath); matched && err == nil {
+	if a.config.AlwaysReloadLsmkvFromDisk {
+		a.cachedTenantLsmkvStores.Store(tenant, localLsmPath)
+	} else {
+		// remember to store the tenant root dir in tenantLsmkvStore, not the lsm path
+		if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: localTenantTimePath}); ok {
+			// when we replace or evict an lsmkvStore, we need to shut it down.
+			// I'm assuming lsmkvStore has internal locks which prevent this shutdown call
+			// from cancelling searches running at the same time.
+			// I'm also assuming once Shutdown returns we don't need the old files on disk anymore.
+			oldTenantLsmkvStore := oldTenantLsmkvStoreAny.(tenantLsmkvStore)
+			oldTenantLsmkvStore.s.Shutdown(ctx)
 
-		// 	dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
-		// 	a.log.WithField("dirToRemove", dirToRemove).Debugf("removing old tenant dir")
-		// 	os.RemoveAll(dirToRemove)
-		// }
+			// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
+			// NOTE if MatchString is too slow, we could use a simpler check like strings.HasPrefix without the timestamp
+			// if matched, err := regexp.MatchString(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant),
+			// 	oldTenantLsmkvStore.localTenantPath); matched && err == nil {
+
+			// 	dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
+			// 	a.log.WithField("dirToRemove", dirToRemove).Debugf("removing old tenant dir")
+			// 	os.RemoveAll(dirToRemove)
+			// }
+		}
 	}
 	return store, localLsmPath, nil
 }

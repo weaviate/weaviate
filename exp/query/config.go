@@ -36,4 +36,6 @@ type Config struct {
 	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state."`
 
 	S3OrMemcached string `long:"s3-or-memcached" description:"s3 or memcached" default:"s3"`
+
+	AlwaysReloadLsmkvFromDisk bool `long:"always-reload-lsmkv-from-disk" description:"dont store the lsmkv in memory, always reload from disk"`
 }
