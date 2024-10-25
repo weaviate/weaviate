@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -431,35 +432,57 @@ func (a *API) EnsureLSM(
 				mc := memcache.New("mymemcached:11211")                   // localhost for test
 				memcacheClientDuration := time.Since(memcacheClientStart) // 800us in first test
 				a.log.WithField("memcacheClientDuration", memcacheClientDuration).Warn("memcache client duration")
-				memcacheGetStart := time.Now()
-				m, err := mc.GetMulti(AllS3Paths)
-				memcacheGetDuration := time.Since(memcacheGetStart)
-				a.log.WithField("memcacheGetDuration", memcacheGetDuration).Warn("memcache get duration")
+
+				var chunks [][]string
+				chunkSize, err := strconv.Atoi(os.Getenv("MEMCACHE_CHUNK_SIZE"))
 				if err != nil {
-					a.log.WithError(err).Fatal("failed to get item from mem")
+					a.log.WithError(err).Fatal("failed to get MEMCACHE_CHUNK_SIZE")
 				}
-				if len(AllS3Paths) != len(m) {
-					a.log.WithFields(logrus.Fields{
-						"expected": AllS3Paths,
-						"actual":   m,
-					}).Fatal("failed to get all expected items from memcached")
+				for i := 0; i < len(AllS3Paths); i += chunkSize {
+					end := i + chunkSize
+					if end > len(AllS3Paths) {
+						end = len(AllS3Paths)
+					}
+
+					chunks = append(chunks, AllS3Paths[i:end])
 				}
-				// TODO write in parallel
-				writeStart := time.Now()
-				for key, item := range m {
-					fileSuffix := strings.TrimPrefix(key, "question/weaviate-tenant/weaviate-0/")
-					filePath := path.Join(localTenantTimePath, fileSuffix)
-					ma := path.Dir(filePath)
-					err = os.MkdirAll(ma, 0755)
+
+				memcacheGetTotal := time.Duration(0)
+				memcacheWriteTotal := time.Duration(0)
+				for _, chunk := range chunks {
+					memcacheGetStart := time.Now()
+					m, err := mc.GetMulti(chunk)
+					memcacheGetDuration := time.Since(memcacheGetStart)
+					memcacheGetTotal += memcacheGetDuration
 					if err != nil {
-						a.log.WithError(err).Fatal("failed to create dir")
+						// time="2024-10-25T17:23:36Z" level=fatal msg="failed to get item from mem" app=weaviate error="read tcp 10.0.140.148:43840->172.20.189.87:11211: i/o timeout" target=querier
+						a.log.WithError(err).Fatal("failed to get item from mem")
 					}
-					if err := os.WriteFile(filePath, item.Value, 0644); err != nil {
-						a.log.WithError(err).Fatal("failed to write item to file")
+					if len(chunk) != len(m) {
+						a.log.WithFields(logrus.Fields{
+							"expected": chunk,
+							"actual":   m,
+						}).Fatal("failed to get all expected items from memcached")
 					}
+					// TODO write in parallel
+					writeStart := time.Now()
+					for key, item := range m {
+						fileSuffix := strings.TrimPrefix(key, "question/weaviate-tenant/weaviate-0/")
+						filePath := path.Join(localTenantTimePath, fileSuffix)
+						ma := path.Dir(filePath)
+						err = os.MkdirAll(ma, 0755)
+						if err != nil {
+							a.log.WithError(err).Fatal("failed to create dir")
+						}
+						if err := os.WriteFile(filePath, item.Value, 0644); err != nil {
+							a.log.WithError(err).Fatal("failed to write item to file")
+						}
+					}
+					writeDuration := time.Since(writeStart)
+					memcacheWriteTotal += writeDuration
 				}
-				writeDuration := time.Since(writeStart)
-				a.log.WithField("writeDuration", writeDuration).Warn("write duration")
+				a.log.WithField("memcacheGetDuration", memcacheGetTotal).Warn("memcache get duration")
+				a.log.WithField("writeDuration", memcacheWriteTotal).Warn("write duration")
 			} else {
 				cmdStrs := []string{
 					"/mygo/s5cmd",
