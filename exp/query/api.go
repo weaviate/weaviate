@@ -18,13 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -416,19 +416,29 @@ func (a *API) EnsureLSM(
 				"nodeName":            nodeName,
 				"localTenantTimePath": localTenantTimePath,
 			}).Debug("starting download to path")
-			cmdStrs := []string{
-				"/mygo/s5cmd",
-				"cp",
-				fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", a.offload.Concurrency)),
-				fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
-				fmt.Sprintf("%s/", localTenantTimePath),
-			}
-			cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
-			o, err := cmd.CombinedOutput()
-			a.log.Warnf("s5cmd output: %s, %v", string(o), err)
+
+			mc := memcache.New("mymemcached:11211")
+			m, err := mc.GetMulti([]string{"foo"})
 			if err != nil {
-				return nil, "", err
+				a.log.WithError(err).Fatal("failed to get item from mem")
 			}
+			for key, item := range m {
+				fmt.Printf("key: %s, value: %s\n", key, item.Value)
+			}
+
+			// cmdStrs := []string{
+			// 	"/mygo/s5cmd",
+			// 	"cp",
+			// 	fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", a.offload.Concurrency)),
+			// 	fmt.Sprintf("s3://%s/%s/%s/%s/*", a.offload.Bucket, strings.ToLower(collection), tenant, nodeName),
+			// 	fmt.Sprintf("%s/", localTenantTimePath),
+			// }
+			// cmd := exec.Command(cmdStrs[0], cmdStrs[1:]...)
+			// o, err := cmd.CombinedOutput()
+			// a.log.Warnf("s5cmd output: %s, %v", string(o), err)
+			// if err != nil {
+			// 	return nil, "", err
+			// }
 			// if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
 			// 	return nil, "", err
 			// }

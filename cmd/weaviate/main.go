@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -128,12 +129,17 @@ func main() {
 			}
 		}, log)
 
+		mc := memcache.New("mymemcached:11211")
+		err = mc.Set(&memcache.Item{Key: "foo", Value: []byte("my value")})
+		if err != nil {
+			log.WithError(err).Fatal("failed to set item in memcache")
+		}
+
 		// serve /metrics
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
 		log.WithField("addr", opts.Monitoring.Port).Info("starting /metrics server over http")
 		http.ListenAndServe(fmt.Sprintf(":%d", opts.Monitoring.Port), mux)
-
 	default:
 		log.Fatal("--target empty or unknown")
 	}
