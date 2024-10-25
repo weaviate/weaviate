@@ -40,6 +40,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+
+	"net/http/pprof"
+	_ "net/http/pprof"
 )
 
 const (
@@ -181,6 +184,20 @@ func main() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
 		log.WithField("addr", opts.Monitoring.Port).Info("starting /metrics server over http")
+
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+		mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+		mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+
+		go func() {
+			log.Println(http.ListenAndServe("localhost:9876", nil))
+		}()
+
 		http.ListenAndServe(fmt.Sprintf(":%d", opts.Monitoring.Port), mux)
 	default:
 		log.Fatal("--target empty or unknown")

@@ -293,6 +293,7 @@ func (a *API) vectorSearch(
 		BQ: bq,
 	}, store)
 	if err != nil {
+		// TODO this errors if only storing path
 		return nil, nil, fmt.Errorf("failed to initialize index: %w", err)
 	}
 	defer index.Shutdown(ctx)
@@ -370,7 +371,10 @@ func (a *API) EnsureLSM(
 		lsmkvPath, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
 		if tenantIsCachedLocally {
 			lsmkvPathStr := lsmkvPath.(string)
+			lsmkvNewStart := time.Now()
 			lsmkvStore, err := lsmkv.New(lsmkvPathStr, lsmkvPathStr, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+			lsmkvNewDuration := time.Since(lsmkvNewStart)
+			a.log.WithField("lsmkvNewDuration", lsmkvNewDuration).Warn("lsmkv new duration1")
 			if err != nil {
 				a.log.WithField("path", lsmkvPathStr).WithError(err).Warn("failed to reload lsmkv from disk")
 				return nil, "", err
@@ -518,7 +522,10 @@ func (a *API) EnsureLSM(
 		}
 	}
 
+	lsmkvNewStart2 := time.Now()
 	store, err := lsmkv.New(localLsmPath, localLsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	lsmkvNewDuration2 := time.Since(lsmkvNewStart2)
+	a.log.WithField("lsmkvNewDuration", lsmkvNewDuration2).Warn("lsmkv new duration2")
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
