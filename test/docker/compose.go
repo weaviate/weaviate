@@ -30,6 +30,7 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
@@ -41,6 +42,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -106,6 +108,9 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
+	withOctoAIVectorizer          bool
+	withOctoAIGenerative          bool
+	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
 }
 
@@ -148,6 +153,13 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 func (d *Compose) WithText2VecOllama() *Compose {
 	d.withOllamaVectorizer = true
 	d.enableModules = append(d.enableModules, modollama.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecOctoAI(apiKey string) *Compose {
+	d.withOctoAIApiKey = apiKey
+	d.withOctoAIVectorizer = true
+	d.enableModules = append(d.enableModules, modoctoai.Name)
 	return d
 }
 
@@ -295,6 +307,13 @@ func (d *Compose) WithGenerativeAnyscale() *Compose {
 func (d *Compose) WithGenerativeOllama() *Compose {
 	d.withOllamaGenerative = true
 	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOctoAI(apiKey string) *Compose {
+	d.withOctoAIApiKey = apiKey
+	d.withOctoAIGenerative = true
+	d.enableModules = append(d.enableModules, modgenerativeoctoai.Name)
 	return d
 }
 
@@ -499,6 +518,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withGoogleApiKey != "" {
 		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
+	}
+	if d.withOctoAIApiKey != "" {
+		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)
