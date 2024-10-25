@@ -14,7 +14,6 @@ package clients
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"time"
 
 	"github.com/pkg/errors"
@@ -22,8 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
-
-var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type octoai struct {
 	apiKey     string
