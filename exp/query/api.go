@@ -41,7 +41,6 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 const (
@@ -266,9 +265,13 @@ func (a *API) vectorSearch(
 	threshold float32,
 	limit int,
 ) ([]*storobj.Object, []float32, error) {
-	vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+	// vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+	// }
+	vectors := []float32{}
+	for i := 0; i < 300; i++ {
+		vectors = append(vectors, float32(i)/500.0)
 	}
 
 	// TODO(kavi): Assuming BQ compression is enabled. Make it generic.
