@@ -269,9 +269,9 @@ func (a *API) vectorSearch(
 	// if err != nil {
 	// 	return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
 	// }
-	vectors := []float32{}
-	for i := 0; i < 300; i++ {
-		vectors = append(vectors, float32(i)/500.0)
+	vectors := []float32{0.11}
+	for i := 0; i < 299; i++ {
+		vectors = append(vectors, 0.1)
 	}
 
 	// TODO(kavi): Assuming BQ compression is enabled. Make it generic.
