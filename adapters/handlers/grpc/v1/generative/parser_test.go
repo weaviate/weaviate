@@ -25,7 +25,6 @@ import (
 	friendliai "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
-	octoai "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -549,82 +548,6 @@ func Test_RequestParser(t *testing.T) {
 						MaxTokens:   makeIntPtr(10),
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
-						TopP:        makeFloat64Ptr(0.5),
-					},
-				},
-			},
-		},
-		{
-			name:       "generative search; single response; nil dynamic octoai",
-			uses127Api: true,
-			in: &pb.GenerativeSearch{
-				Single: &pb.GenerativeSearch_Single{
-					Prompt: "prompt",
-					Queries: []*pb.GenerativeProvider{
-						{
-							Kind: &pb.GenerativeProvider_Octoai{},
-						},
-					},
-				},
-			},
-			expected: &generate.Params{
-				Prompt:  makeStrPtr("prompt"),
-				Options: nil,
-			},
-		},
-		{
-			name:       "generative search; single response; empty dynamic octoai",
-			uses127Api: true,
-			in: &pb.GenerativeSearch{
-				Single: &pb.GenerativeSearch_Single{
-					Prompt: "prompt",
-					Queries: []*pb.GenerativeProvider{
-						{
-							Kind: &pb.GenerativeProvider_Octoai{
-								Octoai: &pb.GenerativeOctoAI{},
-							},
-						},
-					},
-				},
-			},
-			expected: &generate.Params{
-				Prompt: makeStrPtr("prompt"),
-				Options: map[string]any{
-					"octoai": octoai.Params{},
-				},
-			},
-		},
-		{
-			name:       "generative search; single response; full dynamic octoai",
-			uses127Api: true,
-			in: &pb.GenerativeSearch{
-				Single: &pb.GenerativeSearch_Single{
-					Prompt: "prompt",
-					Queries: []*pb.GenerativeProvider{
-						{
-							Kind: &pb.GenerativeProvider_Octoai{
-								Octoai: &pb.GenerativeOctoAI{
-									BaseUrl:     makeStrPtr("url"),
-									MaxTokens:   makeInt64Ptr(10),
-									Model:       makeStrPtr("model"),
-									Temperature: makeFloat64Ptr(0.5),
-									N:           makeInt64Ptr(5),
-									TopP:        makeFloat64Ptr(0.5),
-								},
-							},
-						},
-					},
-				},
-			},
-			expected: &generate.Params{
-				Prompt: makeStrPtr("prompt"),
-				Options: map[string]any{
-					"octoai": octoai.Params{
-						BaseURL:     "url",
-						MaxTokens:   makeIntPtr(10),
-						Model:       "model",
-						Temperature: makeFloat64Ptr(0.5),
-						N:           makeIntPtr(5),
 						TopP:        makeFloat64Ptr(0.5),
 					},
 				},
