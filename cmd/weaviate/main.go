@@ -12,11 +12,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/bradfitz/gomemcache/memcache"
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
@@ -130,6 +135,33 @@ func main() {
 		}, log)
 
 		mc := memcache.New("mymemcached:11211")
+		bucket := opts.Query.S3URL
+		// Initialize AWS S3 client
+		awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion("your-region"))
+		if err != nil {
+			log.Fatalf("unable to load SDK config, %v", err)
+		}
+		s3Client := s3.NewFromConfig(awsCfg)
+		for _, key := range query.AllS3Paths {
+			// Download the object
+			objBytes, err := downloadS3Object(s3Client, bucket, key)
+			if err != nil {
+				log.Printf("failed to download object %s: %v", key, err)
+				continue
+			}
+
+			// Store object in Memcached
+			err = mc.Set(&memcache.Item{
+				Key:   key,
+				Value: objBytes,
+			})
+			if err != nil {
+				log.Printf("failed to save object to Memcached %s: %v", key, err)
+				continue
+			}
+
+			fmt.Printf("Successfully saved %s to Memcached\n", key)
+		}
 		err = mc.Set(&memcache.Item{Key: "foo", Value: []byte("my value")})
 		if err != nil {
 			log.WithError(err).Fatal("failed to set item in memcache")
@@ -143,6 +175,25 @@ func main() {
 	default:
 		log.Fatal("--target empty or unknown")
 	}
+}
+
+func downloadS3Object(client *s3.Client, bucket, key string) ([]byte, error) {
+	// Get the object from S3
+	output, err := client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer output.Body.Close()
+
+	// Read the object data
+	data, err := ioutil.ReadAll(output.Body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // Options represents Command line options passed to weaviate binary

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +52,46 @@ const (
 
 	maxQueryObjectsLimit = 10
 )
+
+var AllS3Paths = []string{
+	"question/weaviate-tenant/weaviate-0/indexcount",
+	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729831684952974019.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729831684952974019.db",
+	"question/weaviate-tenant/weaviate-0/lsm/dimensions/segment-1729831691298352148.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831684953145874.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831684953145874.cna",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831684953145874.db",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831684953145874.secondary.0.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831684953145874.secondary.1.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/objects/segment-1729831691301730954.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729831684953564545.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729831684953564545.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property__id/segment-1729831691314416616.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729831684953508915.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729831684953508915.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer/segment-1729831691289161697.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729831684953594666.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729831684953594666.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_answer_searchable/segment-1729831691292279665.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729831684953378331.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729831684953378331.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category/segment-1729831691311403911.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729831684953467873.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729831684953467873.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_category_searchable/segment-1729831691282648307.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729831684953316162.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729831684953316162.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question/segment-1729831691307945819.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729831684953413236.bloom",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729831684953413236.db",
+	"question/weaviate-tenant/weaviate-0/lsm/property_question_searchable/segment-1729831691317628926.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/vectors/segment-1729831684953794139.db",
+	"question/weaviate-tenant/weaviate-0/lsm/vectors/segment-1729831691286345740.wal",
+	"question/weaviate-tenant/weaviate-0/lsm/vectors_compressed/segment-1729831684953871512.db",
+	"question/weaviate-tenant/weaviate-0/lsm/vectors_compressed/segment-1729831691295472258.wal",
+	"question/weaviate-tenant/weaviate-0/proplengths",
+	"question/weaviate-tenant/weaviate-0/version",
+}
 
 var (
 	ErrInvalidTenant = errors.New("invalid tenant status")
@@ -389,41 +428,50 @@ func (a *API) EnsureLSM(
 		}
 	}
 
-	// base collection path
-	localBaseCollectionPath := path.Join(
+	memcachedDownloadPath := path.Join(
 		a.offload.DataPath,
-		strings.ToLower(collection),
+		"question",
+		"weaviate-tenant",
 	)
-	// the path we will download to
-	localTenantTimePath := path.Join(
-		localBaseCollectionPath,
-		strings.ToLower(tenant),
-		fmt.Sprintf("%d", currentLocalTime),
-	)
-	// the path we will return
+	// base collection path
+	// localBaseCollectionPath := path.Join(
+	// 	a.offload.DataPath,
+	// 	strings.ToLower(collection),
+	// )
+	// // the path we will download to
+	// localTenantTimePath := path.Join(
+	// 	localBaseCollectionPath,
+	// 	strings.ToLower(tenant),
+	// 	fmt.Sprintf("%d", currentLocalTime),
+	// )
+	// // the path we will return
 	localLsmPath := path.Join(
-		localTenantTimePath,
+		memcachedDownloadPath,
 		defaultLSMRoot,
 	)
 	if proceedWithDownload {
-		_, err := os.Stat(localTenantTimePath)
+		_, err := os.Stat(memcachedDownloadPath)
 		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
 			// src - s3://<collection>/<tenant>/<node>/
 			// dst (local) - <data-path/<collection>/<tenant>/timestamp
 			a.log.WithFields(logrus.Fields{
-				"collection":          collection,
-				"tenant":              tenant,
-				"nodeName":            nodeName,
-				"localTenantTimePath": localTenantTimePath,
+				"collection":            collection,
+				"tenant":                tenant,
+				"nodeName":              nodeName,
+				"memcachedDownloadPath": memcachedDownloadPath,
 			}).Debug("starting download to path")
 
 			mc := memcache.New("mymemcached:11211")
-			m, err := mc.GetMulti([]string{"foo"})
+			m, err := mc.GetMulti(AllS3Paths)
 			if err != nil {
 				a.log.WithError(err).Fatal("failed to get item from mem")
 			}
+			// TODO write in parallel
 			for key, item := range m {
-				fmt.Printf("key: %s, value: %s\n", key, item.Value)
+				fileSuffix := strings.TrimPrefix("question/weaviate-tenant/weaviate-0/", key)
+				if err := os.WriteFile(path.Join(memcachedDownloadPath, fileSuffix), item.Value, 0644); err != nil {
+					a.log.WithError(err).Fatal("failed to write item to file")
+				}
 			}
 
 			// cmdStrs := []string{
@@ -460,13 +508,13 @@ func (a *API) EnsureLSM(
 
 		// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
 		// NOTE if MatchString is too slow, we could use a simpler check like strings.HasPrefix without the timestamp
-		if matched, err := regexp.MatchString(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant),
-			oldTenantLsmkvStore.localTenantPath); matched && err == nil {
+		// if matched, err := regexp.MatchString(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant),
+		// 	oldTenantLsmkvStore.localTenantPath); matched && err == nil {
 
-			dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
-			a.log.WithField("dirToRemove", dirToRemove).Debugf("removing old tenant dir")
-			os.RemoveAll(dirToRemove)
-		}
+		// 	dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
+		// 	a.log.WithField("dirToRemove", dirToRemove).Debugf("removing old tenant dir")
+		// 	os.RemoveAll(dirToRemove)
+		// }
 	}
 	return store, localLsmPath, nil
 }
