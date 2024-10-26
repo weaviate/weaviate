@@ -81,7 +81,7 @@ type BatchObject struct {
 	Uuid string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/batch.proto.
+	// Deprecated: Do not use.
 	Vector      []float32               `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"` // deprecated, will be removed
 	Properties  *BatchObject_Properties `protobuf:"bytes,3,opt,name=properties,proto3" json:"properties,omitempty"`
 	Collection  string                  `protobuf:"bytes,4,opt,name=collection,proto3" json:"collection,omitempty"`
@@ -130,7 +130,7 @@ func (x *BatchObject) GetUuid() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/batch.proto.
+// Deprecated: Do not use.
 func (x *BatchObject) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
