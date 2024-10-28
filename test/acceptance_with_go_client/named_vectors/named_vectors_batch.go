@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package named_vectors_tests
+package named_vectors
 
 import (
 	"context"
