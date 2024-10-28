@@ -339,7 +339,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	if hasGenerativeUpdate {
 		// clear out old generative module
 		for module := range initialModConf {
-			if strings.Contains(module, "generative") {
+			if p.modules.IsGenerative(module) {
 				delete(initialModConf, module)
 			}
 		}
@@ -348,7 +348,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	if hasRerankerUpdate {
 		// clear out old reranker module
 		for module := range initialModConf {
-			if strings.Contains(module, "reranker") {
+			if p.modules.IsReranker(module) {
 				delete(initialModConf, module)
 			}
 		}
