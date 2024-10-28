@@ -175,6 +175,9 @@ type hnsw struct {
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
+
+	vectorDocIDMap map[uint64]uint64
+	docIDVectorMap map[uint64][]uint64
 }
 
 type CommitLogger interface {
@@ -286,6 +289,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+		vectorDocIDMap:           make(map[uint64]uint64),
+		docIDVectorMap:           make(map[uint64][]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -729,6 +734,18 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+// normalize multiple vectors
+func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		normalized := make([][]float32, len(vecs))
+		for i, vec := range vecs {
+			normalized[i] = distancer.Normalize(vec)
+		}
+		return normalized
+	}
+	return vecs
 }
 
 func IsHNSWIndex(index any) bool {

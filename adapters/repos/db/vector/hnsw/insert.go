@@ -105,6 +105,74 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
+func (h *hnsw) AddMultiVectorBatch(ctx context.Context, ids []uint64, docIDs []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(ids) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes does not match")
+	}
+	if len(ids) == 0 {
+		return errors.Errorf("insertBatch called with empty lists")
+	}
+	h.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+	})
+	levels := make([]int, len(ids))
+	maxId := uint64(0)
+	for i, id := range ids {
+		if maxId < id {
+			maxId = id
+		}
+		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+	}
+	h.RLock()
+	if maxId >= uint64(len(h.nodes)) {
+		h.RUnlock()
+		h.Lock()
+		if maxId >= uint64(len(h.nodes)) {
+			err := h.growIndexToAccomodateNode(maxId, h.logger)
+			if err != nil {
+				h.Unlock()
+				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
+			}
+		}
+		h.Unlock()
+	} else {
+		h.RUnlock()
+	}
+
+	for i := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		vector := vectors[i]
+		node := &vertex{
+			id:    ids[i],
+			level: levels[i],
+		}
+		globalBefore := time.Now()
+		if len(vector) == 0 {
+			return errors.Errorf("insert called with nil-vector")
+		}
+
+		h.metrics.InsertVector()
+
+		vector = h.normalizeVec(vector)
+		err := h.addOne(vector, node)
+		if err != nil {
+			return err
+		}
+		h.Lock()
+		h.vectorDocIDMap[ids[i]] = docIDs[i]
+		h.docIDVectorMap[docIDs[i]] = append(h.docIDVectorMap[docIDs[i]], ids[i])
+		h.Unlock()
+		h.insertMetrics.total(globalBefore)
+	}
+	return nil
+}
+
 func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
@@ -225,6 +293,10 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	return h.AddBatch(context.TODO(), []uint64{id}, [][]float32{vector})
+}
+
+func (h *hnsw) AddMulti(id uint64, docID uint64, vector []float32) error {
+	return h.AddMultiVectorBatch(context.TODO(), []uint64{id}, []uint64{docID}, [][]float32{vector})
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
