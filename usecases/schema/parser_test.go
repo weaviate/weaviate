@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
 	cs := fakes.NewFakeClusterState()
-	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{})
+	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{})
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
 	vic := enthnsw.NewDefaultUserConfig()
@@ -135,4 +136,14 @@ func TestParser(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeModulesProvider struct{}
+
+func (m fakeModulesProvider) IsReranker(name string) bool {
+	return strings.Contains(name, "reranker")
+}
+
+func (m fakeModulesProvider) IsGenerative(name string) bool {
+	return strings.Contains(name, "generative")
 }
