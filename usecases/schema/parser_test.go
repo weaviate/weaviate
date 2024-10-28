@@ -19,14 +19,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 const hnswT = vectorindex.VectorIndexTypeHNSW
 
 func TestParser(t *testing.T) {
-	cs := fakes.NewFakeClusterState()
+	cs := mocks.NewSelector(t)
+	cs.On("NodeCount").Return(1)
 	p := NewParser(cs, dummyParseVectorConfig, fakeValidator{}, fakeModulesProvider{})
 
 	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
