@@ -349,7 +349,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy, &out)
+		groupBy, err := extractGroupBy(req.GroupBy, &out, class)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -371,21 +371,42 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
 
-	groupOut := &searchparams.GroupBy{
-		Property:        groupIn.Path[0],
-		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
-		Groups:          int(groupIn.NumberOfGroups),
-	}
+	groupByProp := groupIn.Path[0]
 
 	// add the property in case it was not requested as return prop - otherwise it is not resolved
-	if out.Properties.FindProperty(groupOut.Property) == nil {
-		out.Properties = append(out.Properties, search.SelectProperty{Name: groupOut.Property, IsPrimitive: true})
+	if out.Properties.FindProperty(groupByProp) == nil {
+		dataType, err := schema.GetPropertyDataType(class, groupByProp)
+		if err != nil || dataType == nil {
+			return nil, err
+		}
+		isPrimitive := true
+		if *dataType == schema.DataTypeCRef {
+			isPrimitive = false
+		}
+		out.Properties = append(out.Properties, search.SelectProperty{Name: groupByProp, IsPrimitive: isPrimitive})
 	}
+
+	var additionalGroupProperties []search.SelectProperty
+	for _, prop := range out.Properties {
+		additionalGroupHitProp := search.SelectProperty{Name: prop.Name}
+		additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, prop.Refs...)
+		additionalGroupHitProp.IsPrimitive = prop.IsPrimitive
+		additionalGroupHitProp.IsObject = prop.IsObject
+		additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+	}
+
+	groupOut := &searchparams.GroupBy{
+		Property:        groupByProp,
+		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
+		Groups:          int(groupIn.NumberOfGroups),
+		Properties:      additionalGroupProperties,
+	}
+
 	out.AdditionalProperties.NoProps = false
 
 	return groupOut, nil

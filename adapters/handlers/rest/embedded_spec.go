@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-rc.0"
+    "version": "1.27.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4205,6 +4205,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -4728,7 +4732,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -5469,7 +5474,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-rc.0"
+    "version": "1.27.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -9910,6 +9915,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -10451,7 +10460,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -75,6 +76,8 @@ type State struct {
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+
+	MetadataServer *metadata.Server
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

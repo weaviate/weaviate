@@ -539,7 +539,7 @@ func (h *Handler) validateProperty(
 		}
 
 		if existingPropertyNames[strings.ToLower(property.Name)] {
-			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", class.Class, property.Name)
 		}
 
 		// Validate data type of property.
@@ -660,6 +660,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			case models.PropertyTokenizationKagomeKr:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable")
 				}
 				return nil
 			}

@@ -479,6 +479,10 @@
         "modules": {
           "description": "Module-specific meta information",
           "type": "object"
+        },
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
         }
       },
       "type": "object"
@@ -762,7 +766,8 @@
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         },
         "nestedProperties": {
@@ -2187,7 +2192,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.27.0-rc.0"
+    "version": "1.27.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

@@ -27,10 +27,13 @@ import (
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
-	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftPort         = 8300
+	DefaultRaftInternalPort = 8301
+	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
+	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
+	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
+	// on a single node cluster.
+	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 )
@@ -200,6 +203,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = parsed
 	} else {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
+	}
+
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
+		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
+		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
@@ -384,6 +395,13 @@ func FromEnv(config *Config) error {
 	}
 
 	if err := parsePositiveInt(
+		"GRPC_MAX_MESSAGE_SIZE",
+		func(val int) { config.GRPC.MaxMsgSize = val },
+		DefaultGRPCMaxMsgSize,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveInt(
 		"GRPC_PORT",
 		func(val int) { config.GRPC.Port = val },
 		DefaultGRPCPort,
@@ -413,7 +431,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
+	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
 
@@ -431,6 +449,22 @@ func FromEnv(config *Config) error {
 	config.Sentry, err = sentry.InitSentryConfig()
 	if err != nil {
 		return fmt.Errorf("parse sentry config from env: %w", err)
+	}
+
+	config.MetadataServer.Enabled = false
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_METADATA_SERVER_ENABLED")) {
+		config.MetadataServer.Enabled = true
+	}
+	config.MetadataServer.GrpcListenAddress = DefaultMetadataServerGrpcListenAddress
+	if v := os.Getenv("EXPERIMENTAL_METADATA_SERVER_GRPC_LISTEN_ADDRESS"); v != "" {
+		config.MetadataServer.GrpcListenAddress = v
+	}
+	if err := parsePositiveInt(
+		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
+		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
+		DefaultMetadataServerDataEventsChannelCapacity,
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -618,20 +652,39 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
-func parsePositiveInt(varName string, cb func(val int), defaultValue int) error {
-	if v := os.Getenv(varName); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as int: %w", varName, err)
-		} else if asInt <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0", varName)
+func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
 		}
+		return nil
+	}, cb)
+}
 
-		cb(asInt)
-	} else {
-		cb(defaultValue)
+func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val < 0 {
+			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+	var err error
+	asInt := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asInt, err = strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if err = verify(asInt); err != nil {
+			return err
+		}
 	}
 
+	cb(asInt)
 	return nil
 }
 
@@ -650,6 +703,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
+	DefaultGRPCMaxMsgSize                      = math.MaxInt32 // 2 GB
 	DefaultMinimumReplicationFactor            = 1
 )
 

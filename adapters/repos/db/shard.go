@@ -69,6 +69,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status // Return the shard status
 	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
+	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
@@ -119,7 +120,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() bool
+	isReadOnly() error
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -204,7 +205,7 @@ type Shard struct {
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
 
-	status              storagestate.Status
+	status              ShardStatus
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 
@@ -619,12 +620,17 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
+func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
+	return lsmkv.WithSegmentsCleanupInterval(
+		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
+}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
+	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -635,10 +641,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
+	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 

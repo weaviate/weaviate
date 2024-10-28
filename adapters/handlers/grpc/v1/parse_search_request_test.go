@@ -584,7 +584,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -654,7 +654,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -1367,22 +1367,44 @@ func TestGRPCRequest(t *testing.T) {
 			error: true,
 		},
 		{
-			name: "group by",
+			name: "group by normal prop",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
 				NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: &pb.PropertiesRequest{},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true, IsObject: false}},
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
 					Group:   true,
 				},
 				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
-				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name", Properties: search.SelectProperties{{Name: "name", IsPrimitive: true, IsObject: false}}},
+			},
+			error: false,
+		},
+		{
+			name: "group by ref prop",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: &pb.PropertiesRequest{},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}},
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
 			},
 			error: false,
 		},
