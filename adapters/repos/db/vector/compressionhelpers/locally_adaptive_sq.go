@@ -26,9 +26,12 @@ const (
 type LaScalarQuantizer struct {
 	distancer distancer.Provider
 	dims      int
-	means     []float32
+	means     []byte
+	fMeans    []float32
 	normMu    float32
 	normMu2   float32
+	a         float32
+	b         float32
 }
 
 type LASQData struct {
@@ -48,34 +51,113 @@ func NewLocallyAdaptiveScalarQuantizer(data [][]float32, distance distancer.Prov
 	mu2 := float32(0)
 	for i := range data[0] {
 		means[i] /= float32(len(data))
-		mu += means[i]
-		mu2 += means[i] * means[i]
+	}
+	b := means[0]
+	a := float32(0)
+	var codes []byte
+	if distance.Type() != "l2-squared" {
+		for _, x := range means {
+			if x < b {
+				a += b - x
+				b = x
+			} else if x-b > a {
+				a = x - b
+			}
+		}
+		codes = encodeMeans(means, a, b)
+		am := allMeans(codes, a, b)
+		for _, x := range am {
+			mu += x
+			mu2 += x * x
+		}
 	}
 	return &LaScalarQuantizer{
 		distancer: distance,
 		dims:      dims,
-		means:     means,
+		means:     codes,
 		normMu:    mu,
 		normMu2:   mu2,
+		a:         a,
+		b:         b,
+		fMeans:    means,
 	}
+}
+
+func encodeMean(x, a, b float32) byte {
+	if x < b {
+		return 0
+	} else if x-b > a {
+		return byte(codesLasq)
+	} else {
+		return byte(math.Floor(float64((x - b) * codesLasq / a)))
+	}
+}
+
+func encodeMeans(means []float32, a, b float32) []byte {
+	codes := make([]byte, len(means))
+	for i := range means {
+		codes[i] = encodeMean(means[i], a, b)
+	}
+	return codes
 }
 
 func RestoreLocallyAdaptiveScalarQuantizer(dimensions uint16, means []float32, distance distancer.Provider) (*LaScalarQuantizer, error) {
 	if int(dimensions) != len(means) {
 		return nil, errors.New("mismatching dimensions and means len")
 	}
+	mu := float32(0)
+	mu2 := float32(0)
+	b := means[0]
+	a := float32(0)
+	var codes []byte
+	if distance.Type() != "l2-squared" {
+		for _, x := range means {
+			if x < b {
+				a += b - x
+				b = x
+			} else if x-b > a {
+				a = x - b
+			}
+		}
+		codes = encodeMeans(means, a, b)
+		am := allMeans(codes, a, b)
+		for _, x := range am {
+			mu += x
+			mu2 += x * x
+		}
+	}
 	lasq := &LaScalarQuantizer{
 		distancer: distance,
 		dims:      int(dimensions),
-		means:     means,
+		means:     codes,
+		normMu:    mu,
+		normMu2:   mu2,
+		a:         a,
+		b:         b,
+		fMeans:    means,
 	}
 	return lasq, nil
+}
+
+func (lasq *LaScalarQuantizer) meanFor(i int) float32 {
+	if lasq.distancer.Type() == "l2-squared" {
+		return lasq.fMeans[i]
+	}
+	return float32(lasq.means[i])*lasq.a/codesLasq + lasq.b
+}
+
+func allMeans(means []byte, a, b float32) []float32 {
+	m := make([]float32, len(means))
+	for i := range means {
+		m[i] = float32(means[i])*a/codesLasq + b
+	}
+	return m
 }
 
 func (lasq *LaScalarQuantizer) Encode(vec []float32) []byte {
 	min, max := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 	for i, x := range vec {
-		corrected := x - lasq.means[i]
+		corrected := x - lasq.meanFor(i)
 		if min > corrected {
 			min = corrected
 		}
@@ -88,7 +170,7 @@ func (lasq *LaScalarQuantizer) Encode(vec []float32) []byte {
 	var sum uint32 = 0
 	var sum2 uint32 = 0
 	for i := 0; i < len(vec); i++ {
-		code[i] = codeFor(vec[i]-lasq.means[i], max-min, min, codesLasq)
+		code[i] = codeFor(vec[i]-lasq.meanFor(i), max-min, min, codesLasq)
 		sum += uint32(code[i])
 		sum2 += uint32(code[i]) * uint32(code[i])
 	}
@@ -104,7 +186,7 @@ func (lasq *LaScalarQuantizer) Decode(x []byte) []float32 {
 	ax := (lasq.upperBound(x) - bx) / codesLasq
 	correctedX := make([]float32, lasq.dims)
 	for i := 0; i < lasq.dims; i++ {
-		correctedX[i] = float32(x[i])*ax + bx + lasq.means[i]
+		correctedX[i] = float32(x[i])*ax + bx + lasq.meanFor(i)
 	}
 	return correctedX
 }
@@ -125,16 +207,28 @@ func (lasq *LaScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (fl
 	normY := float32(lasq.norm(y))
 	normY2 := float32(lasq.norm2(y))
 	bDiff := bx - by
-	switch lasq.distancer.Type() {
-	case "l2-squared":
+	dType := lasq.distancer.Type()
+	if dType == "l2-squared" {
 		return ax2*normX2 + ay2*normY2 + 2*ax*bDiff*normX - 2*ay*bDiff*normY - 2*ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + float32(lasq.dims)*bDiff*bDiff, nil
-	case "dot":
-		return -(ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + LAQDotExpImpl(lasq.means, x[:lasq.dims], y[:lasq.dims], ax, ay)), nil
-	case "cosine-dot":
-		return 1 - (ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + LAQDotExpImpl(lasq.means, x[:lasq.dims], y[:lasq.dims], ax, ay)), nil
+	} else if dType == "dot" || dType == "cosine-dot" {
+		dot := -(ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + lasq.b*ax*normX + lasq.b*ay*normY + lasq.a/codesLasq*ax*float32(dotByteImpl(x[:lasq.dims], lasq.means)) + lasq.a/codesLasq*ay*float32(dotByteImpl(y[:lasq.dims], lasq.means)))
+		if dType == "dot" {
+			return dot, nil
+		}
+		return 1 + dot, nil
 	}
 	return 0, errors.Errorf("Distance not supported yet %s", lasq.distancer)
 }
+
+/*
+func LAQDotExpImpl23(lasq *LaScalarQuantizer, means []byte, x, y []byte, ax, ay float32) float32 {
+	sum := float32(0)
+	for i := range x {
+		sum += lasq.a*ax*float32(x[i]) + lasq.a*ay*float32(y[i]) +
+	}
+
+	return sum
+}*/
 
 func (lasq *LaScalarQuantizer) lowerBound(code []byte) float32 {
 	return math.Float32frombits(binary.BigEndian.Uint32(code[lasq.dims+4:]))
@@ -165,7 +259,7 @@ func (sq *LaScalarQuantizer) NewDistancer(a []float32) *LASQDistancer {
 	meanProd := float32(0)
 	for i, xi := range a {
 		sum += xi
-		meanProd += xi * sq.means[i]
+		meanProd += xi * sq.meanFor(i)
 	}
 	return &LASQDistancer{
 		x:          a,
