@@ -248,7 +248,7 @@ func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilit
 }
 
 func (p *Provider) IsGenerative(modName string) bool {
-	for _, mod := range p.registered {
+	for _, mod := range p.GetAll() {
 		if mod.Name() == modName {
 			return mod.Type() == modulecapabilities.Text2TextGenerative
 		}
@@ -257,7 +257,7 @@ func (p *Provider) IsGenerative(modName string) bool {
 }
 
 func (p *Provider) IsReranker(modName string) bool {
-	for _, mod := range p.registered {
+	for _, mod := range p.GetAll() {
 		if mod.Name() == modName {
 			return mod.Type() == modulecapabilities.Text2TextReranker
 		}
