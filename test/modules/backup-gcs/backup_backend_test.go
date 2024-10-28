@@ -125,10 +125,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 				expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 				assert.Equal(t, expected, dest)
 			} else {
-
 				expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, overridePath, backupID)
-				fmt.Printf("expected: %s\n", expected)
-				fmt.Printf("dest: %s\n", dest)
 				assert.Equal(t, expected, dest)
 			}
 		})
