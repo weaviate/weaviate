@@ -131,7 +131,8 @@ func TestGenerativeUpdate(t *testing.T) {
 	fields := graphql.Field{Name: "_additional{id}"}
 	res, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, res.Errors)
+	// no API key set => error returned
+	require.NotNil(t, res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["error"])
 
 	class.ModuleConfig = map[string]interface{}{"generative-dummy": map[string]interface{}{}}
 	require.NoError(t, c.Schema().ClassUpdater().WithClass(&class).Do(ctx))
