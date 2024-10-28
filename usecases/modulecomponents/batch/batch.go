@@ -230,7 +230,6 @@ func (b *Batch) batchWorker() {
 			time.Sleep(100 * time.Millisecond)
 			repeats++
 		}
-
 	}
 }
 
