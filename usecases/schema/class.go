@@ -794,10 +794,6 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		return err
 	}
 
-	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return fmt.Errorf("module config is immutable")
-	}
-
 	for k, v := range updated.VectorConfig {
 		if _, ok := initial.VectorConfig[k]; !ok {
 			return fmt.Errorf("vector config is immutable")
