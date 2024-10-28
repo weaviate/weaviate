@@ -115,7 +115,7 @@ func TestGenerativeUpdate(t *testing.T) {
 			},
 		},
 		ModuleConfig: map[string]interface{}{
-			"generative-mistral": map[string]interface{}{},
+			"generative-dummy": map[string]interface{}{"first": "second"},
 		},
 	}
 
@@ -131,13 +131,21 @@ func TestGenerativeUpdate(t *testing.T) {
 	fields := graphql.Field{Name: "_additional{id}"}
 	res, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 	require.NoError(t, err)
-	// no API key set => error returned
-	require.NotNil(t, res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["error"])
+	singelResults := res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["singleResult"]
+	require.NotNil(t, singelResults)
+	require.Contains(t, singelResults, "first")
+	require.Contains(t, singelResults, "second")
 
-	class.ModuleConfig = map[string]interface{}{"generative-dummy": map[string]interface{}{}}
+	class.ModuleConfig = map[string]interface{}{"generative-dummy": map[string]interface{}{"third": "fourth"}}
 	require.NoError(t, c.Schema().ClassUpdater().WithClass(&class).Do(ctx))
 
 	res, err = c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 	require.NoError(t, err)
 	require.Nil(t, res.Errors)
+	singelResults2 := res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["singleResult"]
+	require.NotNil(t, singelResults2)
+	require.Contains(t, singelResults2, "third")
+	require.Contains(t, singelResults2, "fourth")
+	require.NotContains(t, singelResults2, "first")
+	require.NotContains(t, singelResults2, "second")
 }
