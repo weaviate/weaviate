@@ -230,8 +230,6 @@ func (b *Batch) batchWorker() {
 			time.Sleep(100 * time.Millisecond)
 			repeats++
 		}
-		fmt.Println("Send batch with", len(job.texts), "objects for ", b.label)
-
 	}
 }
 
