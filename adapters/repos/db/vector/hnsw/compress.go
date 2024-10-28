@@ -36,7 +36,7 @@ func (h *hnsw) calculateOptimalSegments(dims int) int {
 }
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
-	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.LASQ.Enabled {
 		return nil
 	}
 

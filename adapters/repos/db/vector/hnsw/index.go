@@ -164,6 +164,7 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	lasqConfig ent.LASQConfig
 
 	compressActionLock *sync.RWMutex
 	className          string

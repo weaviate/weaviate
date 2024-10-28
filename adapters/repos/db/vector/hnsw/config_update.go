@@ -100,7 +100,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.LASQ.Enabled {
 		callback()
 		return nil
 	}
@@ -108,6 +108,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
+	h.lasqConfig = parsed.LASQ
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -145,9 +146,10 @@ func (h *hnsw) compressThenCallback(callback func()) {
 	defer callback()
 
 	uc := ent.UserConfig{
-		PQ: h.pqConfig,
-		BQ: h.bqConfig,
-		SQ: h.sqConfig,
+		PQ:   h.pqConfig,
+		BQ:   h.bqConfig,
+		SQ:   h.sqConfig,
+		LASQ: h.lasqConfig,
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)
