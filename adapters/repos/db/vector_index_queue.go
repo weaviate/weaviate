@@ -12,9 +12,10 @@
 package db
 
 import (
-	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -72,7 +73,6 @@ func NewVectorIndexQueue(
 			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				idx: index,
-				dec: queue.NewMsgPackDecoder(),
 			},
 		},
 	)
@@ -92,8 +92,7 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 	iq.index.RLock()
 	defer iq.index.RUnlock()
 
-	r := queue.NewRecord()
-	defer r.Release()
+	var buf []byte
 
 	for i, v := range vectors {
 		// ensure the vector is not empty
@@ -115,16 +114,19 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 			}
 		}
 
-		r.Reset()
+		buf = buf[:0]
 
 		// write the operation first
-		r.EncodeUint8(vectorIndexQueueInsertOp)
+		buf = append(buf, vectorIndexQueueInsertOp)
 		// write the id
-		r.EncodeUint(v.ID)
+		buf = binary.BigEndian.AppendUint64(buf, v.ID)
 		// write the vector
-		r.EncodeFloat32Array(v.Vector)
+		buf = binary.BigEndian.AppendUint16(buf, uint16(len(v.Vector)))
+		for _, v := range v.Vector {
+			buf = binary.BigEndian.AppendUint32(buf, math.Float32bits(v))
+		}
 
-		err = iq.DiskQueue.Push(r.Bytes())
+		err = iq.DiskQueue.Push(buf)
 		if err != nil {
 			return errors.Wrap(err, "failed to push record to queue")
 		}
@@ -134,17 +136,16 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
-	r := queue.NewRecord()
-	defer r.Release()
+	var buf []byte
 
 	for _, id := range ids {
-		r.Reset()
+		buf = buf[:0]
 		// write the operation
-		r.EncodeUint8(vectorIndexQueueDeleteOp)
+		buf = append(buf, vectorIndexQueueDeleteOp)
 		// write the id
-		r.EncodeUint(id)
+		buf = binary.BigEndian.AppendUint64(buf, id)
 
-		err := iq.DiskQueue.Push(r.Bytes())
+		err := iq.DiskQueue.Push(buf)
 		if err != nil {
 			return errors.Wrap(err, "failed to push record to queue")
 		}
@@ -229,27 +230,28 @@ func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
 
 type vectorIndexQueueDecoder struct {
 	idx VectorIndex
-	dec *queue.MsgPackDecoder
 }
 
 func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
-	v.dec.Reset(bytes.NewReader(data))
-
-	op, err := v.dec.DecodeUint8()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to decode operation")
-	}
+	op := data[0]
+	data = data[1:]
 
 	switch op {
 	case vectorIndexQueueInsertOp:
-		id, err := v.dec.DecodeUint()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode id")
-		}
+		// decode id
+		id := binary.BigEndian.Uint64(data)
+		data = data[8:]
 
-		vec, err := v.dec.DecodeFloat32Array()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode vector")
+		// decode array size on 2 bytes
+		alen := binary.BigEndian.Uint16(data)
+		data = data[2:]
+
+		// decode vector
+		vec := make([]float32, alen)
+		for i := 0; i < int(alen); i++ {
+			bits := binary.BigEndian.Uint32(data)
+			vec[i] = math.Float32frombits(bits)
+			data = data[4:]
 		}
 
 		return &Task{
@@ -259,10 +261,8 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			idx:    v.idx,
 		}, nil
 	case vectorIndexQueueDeleteOp:
-		id, err := v.dec.DecodeUint()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to decode id")
-		}
+		// decode id
+		id := binary.BigEndian.Uint64(data)
 
 		return &Task{
 			op:  op,
