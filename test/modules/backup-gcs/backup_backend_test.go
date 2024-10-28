@@ -88,7 +88,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 		err := gcs.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
-			t.Run("access permissions", func(t *testing.T) {
+		t.Run("access permissions", func(t *testing.T) {
 			err := gcs.Initialize(testCtx, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err)
 		})
