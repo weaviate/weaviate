@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package named_vectors_singlenode_tests
+package named_vectors_cluster_test
 
 import (
 	"context"
