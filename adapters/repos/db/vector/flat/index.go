@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	cache_paged "github.com/weaviate/weaviate/adapters/repos/db/vector/cache/paged"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -67,7 +67,7 @@ type flat struct {
 	pool      *pools
 
 	compression          string
-	bqCache              cache.Cache[uint64]
+	bqCache              *cache_paged.ShardedLockCache[uint64]
 	count                uint64
 	concurrentCacheReads int
 }
@@ -104,7 +104,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
-		index.bqCache = cache.NewShardedUInt64LockCache(
+		index.bqCache = cache_paged.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
@@ -558,20 +558,30 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
-	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
+	for id < uint64(all) && (allow == nil || id <= allowMax) {
 		if allow == nil || allow.Contains(id) {
-			vec, err := index.bqCache.Get(context.Background(), id)
-			if err != nil {
-				return err
+
+			vecs, errs, _, end := index.bqCache.GetAllInCurrentLock(context.Background(), id)
+
+			// vec, err := index.bqCache.Get(context.Background(), id)
+
+			for i, vec := range vecs {
+				err := errs[i]
+				if err != nil {
+					return err
+				}
+				if len(vec) == 0 {
+					continue
+				}
+				distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+				if err != nil {
+					return err
+				}
+				index.insertToHeap(heap, limit, id, distance)
+
 			}
-			if len(vec) == 0 {
-				continue
-			}
-			distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-			if err != nil {
-				return err
-			}
-			index.insertToHeap(heap, limit, id, distance)
+
+			id = end
 		}
 	}
 	return nil
