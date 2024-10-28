@@ -100,11 +100,28 @@ func BenchmarkLASQDotSpeed(b *testing.B) {
 	}
 }
 
+func BenchmarkSQDotSpeed(b *testing.B) {
+	vSize := 100_000
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	lasq := compressionhelpers.NewScalarQuantizer(data, distancer.NewCosineDistanceProvider())
+	compressed := make([][]byte, vSize)
+	for i := 0; i < vSize; i++ {
+		compressed[i] = lasq.Encode(data[i])
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		i0 := i * 100 % vSize
+		i1 := i % vSize
+		lasq.DistanceBetweenCompressedVectors(compressed[i0], compressed[i1])
+	}
+}
+
 func BenchmarkFloatDotSpeed(b *testing.B) {
 	vSize := 100_000
 	dims := 1536
 	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
-	l2Dist := distancer.NewDotProductProvider()
+	l2Dist := distancer.NewCosineDistanceProvider()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		i0 := i * 100 % vSize
@@ -128,11 +145,26 @@ func BenchmarkLASQDotSpeedNoFetching(b *testing.B) {
 	}
 }
 
+func BenchmarkSQDotSpeedNoFetching(b *testing.B) {
+	vSize := 100_000
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	lasq := compressionhelpers.NewScalarQuantizer(data, distancer.NewCosineDistanceProvider())
+	compressed := make([][]byte, vSize)
+	for i := 0; i < vSize; i++ {
+		compressed[i] = lasq.Encode(data[i])
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lasq.DistanceBetweenCompressedVectors(compressed[0], compressed[1])
+	}
+}
+
 func BenchmarkFloatDotSpeedNoFetching(b *testing.B) {
 	vSize := 100_000
 	dims := 1536
 	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
-	l2Dist := distancer.NewDotProductProvider()
+	l2Dist := distancer.NewCosineDistanceProvider()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		l2Dist.SingleDist(data[0], data[1])
