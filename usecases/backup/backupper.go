@@ -168,7 +168,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
-		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path}
 		if err := provider.all(ctx, req.Classes, &result, req.Bucket, req.Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err

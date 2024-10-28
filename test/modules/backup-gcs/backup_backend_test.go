@@ -35,7 +35,6 @@ import (
 
 func Test_GcsBackend_Start(t *testing.T) {
 	gCSBackend_Backup(t, "", "")
-	time.Sleep(5 * time.Second)
 
 	gCSBackend_Backup(t, "testbucketoverride", "testBucketPathOverride")
 }
@@ -89,7 +88,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 		err := gcs.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
-		t.Run("access permissions", func(t *testing.T) {
+			t.Run("access permissions", func(t *testing.T) {
 			err := gcs.Initialize(testCtx, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err)
 		})
@@ -126,7 +125,10 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 				expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 				assert.Equal(t, expected, dest)
 			} else {
+
 				expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, overridePath, backupID)
+				fmt.Printf("expected: %s\n", expected)
+				fmt.Printf("dest: %s\n", dest)
 				assert.Equal(t, expected, dest)
 			}
 		})
