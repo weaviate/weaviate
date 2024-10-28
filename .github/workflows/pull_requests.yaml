@@ -309,7 +309,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors", "--acceptance-lsmkv"]
+        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
