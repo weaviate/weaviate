@@ -682,7 +682,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
-	DefaultGRPCMaxMsgSize                      = math.MaxInt32 // 2 GB
+	DefaultGRPCMaxMsgSize                      = 10 * 1024 * 1024
 	DefaultMinimumReplicationFactor            = 1
 )
 
