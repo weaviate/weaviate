@@ -247,6 +247,24 @@ func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilit
 	return i == 1
 }
 
+func (p *Provider) IsGenerative(modName string) bool {
+	for _, mod := range p.registered {
+		if mod.Name() == modName {
+			return mod.Type() == modulecapabilities.Text2TextGenerative
+		}
+	}
+	return false
+}
+
+func (p *Provider) IsReranker(modName string) bool {
+	for _, mod := range p.registered {
+		if mod.Name() == modName {
+			return mod.Type() == modulecapabilities.Text2TextReranker
+		}
+	}
+	return false
+}
+
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,

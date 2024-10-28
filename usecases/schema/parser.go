@@ -26,17 +26,24 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
+type modulesProvider interface {
+	IsGenerative(string) bool
+	IsReranker(string) bool
+}
+
 type Parser struct {
 	clusterState clusterState
 	configParser VectorConfigParser
 	validator    validator
+	modules      modulesProvider
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
 	return &Parser{
 		clusterState: cs,
 		configParser: vCfg,
 		validator:    v,
+		modules:      modules,
 	}
 }
 
@@ -296,7 +303,8 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	hasGenerativeUpdate := false
 	hasRerankerUpdate := false
 	for module := range updatedModConf {
-		if strings.Contains(module, "generative") {
+
+		if p.modules.IsGenerative(module) {
 			if hasGenerativeUpdate {
 				return fmt.Errorf("updated moduleconfig has multiple generative modules: %v", updatedModConf)
 			}
@@ -304,7 +312,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if strings.Contains(module, "reranker") {
+		if p.modules.IsReranker(module) {
 			if hasRerankerUpdate {
 				return fmt.Errorf("updated moduleconfig has multiple reranker modules: %v", updatedModConf)
 			}
