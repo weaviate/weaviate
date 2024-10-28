@@ -115,7 +115,7 @@ func TestGenerativeUpdate(t *testing.T) {
 			},
 		},
 		ModuleConfig: map[string]interface{}{
-			"generative-doesnotexist": map[string]interface{}{},
+			"generative-mistral": map[string]interface{}{},
 		},
 	}
 
@@ -126,16 +126,9 @@ func TestGenerativeUpdate(t *testing.T) {
 	).WithID(uids[0]).Do(ctx)
 	require.Nil(t, err)
 
-	_, err = c.Data().Creator().WithClassName(className).WithProperties(
-		map[string]interface{}{"first": "three"},
-	).WithID(uids[1]).Do(ctx)
-	require.Nil(t, err)
-
 	gs := graphql.NewGenerativeSearch().SingleResult("Input: {first}")
 
-	fields := graphql.Field{
-		Name: "_additional{id}",
-	}
+	fields := graphql.Field{Name: "_additional{id}"}
 	res, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, res.Errors)

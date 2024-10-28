@@ -311,7 +311,7 @@ func (m *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		return fmt.Errorf("can only update generative and Class module configs. Got: %v", module)
+		return fmt.Errorf("can only update generative and reranker module configs. Got: %v", module)
 	}
 
 	if initial.ModuleConfig == nil {
