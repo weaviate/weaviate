@@ -220,16 +220,6 @@ func (lasq *LaScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (fl
 	return 0, errors.Errorf("Distance not supported yet %s", lasq.distancer)
 }
 
-/*
-func LAQDotExpImpl23(lasq *LaScalarQuantizer, means []byte, x, y []byte, ax, ay float32) float32 {
-	sum := float32(0)
-	for i := range x {
-		sum += lasq.a*ax*float32(x[i]) + lasq.a*ay*float32(y[i]) +
-	}
-
-	return sum
-}*/
-
 func (lasq *LaScalarQuantizer) lowerBound(code []byte) float32 {
 	return math.Float32frombits(binary.BigEndian.Uint32(code[lasq.dims+4:]))
 }
