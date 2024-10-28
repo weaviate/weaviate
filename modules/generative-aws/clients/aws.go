@@ -88,9 +88,8 @@ func (v *awsClient) GenerateAllResults(ctx context.Context, textProperties []map
 }
 
 func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
-	service := settings.Service()
 	params := v.getParameters(cfg, options)
+	service := params.Service
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	accessKey, err := v.getAwsAccessKey(ctx)
@@ -122,10 +121,10 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		var path string
 		var err error
 
-		region := settings.Region()
-		endpoint := settings.Endpoint()
-		targetModel := settings.TargetModel()
-		targetVariant := settings.TargetVariant()
+		region := params.Region
+		endpoint := params.Endpoint
+		targetModel := params.TargetModel
+		targetVariant := params.TargetVariant
 
 		endpointUrl = v.buildSagemakerUrlFn(service, region, endpoint)
 		host = "runtime." + service + "." + region + ".amazonaws.com"
@@ -200,9 +199,23 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params = p
 	}
 
+	if params.Service == "" {
+		params.Service = settings.Service()
+	}
+	if params.Region == "" {
+		params.Region = settings.Region()
+	}
+	if params.Endpoint == "" {
+		params.Endpoint = settings.Endpoint()
+	}
+	if params.TargetModel == "" {
+		params.TargetModel = settings.TargetModel()
+	}
+	if params.TargetVariant == "" {
+		params.TargetVariant = settings.TargetVariant()
+	}
 	if params.Model == "" {
-		model := settings.Model()
-		params.Model = model
+		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature(service, params.Model)
@@ -220,9 +233,8 @@ func (v *awsClient) sendBedrockRequest(
 	cfg moduletools.ClassConfig,
 	debugInformation *modulecapabilities.GenerateDebugInformation,
 ) (*modulecapabilities.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
 	model := params.Model
-	region := settings.Region()
+	region := params.Region
 	req, err := v.createRequestBody(prompt, params, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request for model %s: %w", model, err)

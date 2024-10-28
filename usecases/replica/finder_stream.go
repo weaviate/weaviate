@@ -276,7 +276,15 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		// set consistency flag
 		for i, n := range sum {
-			if x := res[i]; x != nil && n == maxCount { // if consistent
+			if n == maxCount { // if consistent
+				x := res[i]
+
+				if x == nil {
+					// object was fetched but deleted during repair phase
+					batch.Data[batch.Index[i]].IsConsistent = false
+					continue
+				}
+
 				prev := batch.Data[batch.Index[i]]
 				x.BelongsToShard = prev.BelongsToShard
 				x.BelongsToNode = prev.BelongsToNode

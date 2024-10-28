@@ -390,6 +390,13 @@ func FromEnv(config *Config) error {
 	}
 
 	if err := parsePositiveInt(
+		"GRPC_MAX_MESSAGE_SIZE",
+		func(val int) { config.GRPC.MaxMsgSize = val },
+		DefaultGRPCMaxMsgSize,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveInt(
 		"GRPC_PORT",
 		func(val int) { config.GRPC.Port = val },
 		DefaultGRPCPort,
@@ -627,7 +634,7 @@ func (c *Config) parseMemtableConfig() error {
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
 	return parseInt(envName, defaultValue, func(val int) error {
 		if val <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0", envName)
+			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
 		}
 		return nil
 	}, cb)
@@ -675,6 +682,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
+	DefaultGRPCMaxMsgSize                      = 10 * 1024 * 1024
 	DefaultMinimumReplicationFactor            = 1
 )
 

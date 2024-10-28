@@ -4257,6 +4257,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -10026,6 +10030,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
