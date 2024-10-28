@@ -564,6 +564,7 @@ type IndexConfig struct {
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
+	VisitedListPoolMaxSize         int
 	ReplicationFactor              *atomic.Int64
 	DeletionStrategy               string
 	AvoidMMap                      bool

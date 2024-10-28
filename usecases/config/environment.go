@@ -217,6 +217,15 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if err := parseInt(
+		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
+		DefaultHNSWVisitedListPoolSize,
+		func(size int) error { return nil },
+		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+	); err != nil {
+		return err
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err

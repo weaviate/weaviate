@@ -173,6 +173,8 @@ type hnsw struct {
 	allocChecker memwatch.AllocChecker
 
 	tombstoneCleanupRunning atomic.Bool
+
+	visitedListPoolMaxSize int
 }
 
 type CommitLogger interface {
@@ -281,6 +283,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+		visitedListPoolMaxSize:   cfg.VisitedListPoolMaxSize,
 	}
 
 	if uc.BQ.Enabled {
