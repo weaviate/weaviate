@@ -22,14 +22,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-type fakeBatchClient struct {
+type fakeBatchClientWithRL struct {
 	defaultResetRate int
 	defaultRPM       int
 	defaultTPM       int
 	rateLimit        *modulecomponents.RateLimits
 }
 
-func (c *fakeBatchClient) Vectorize(ctx context.Context,
+func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	if c.defaultResetRate == 0 {
@@ -90,11 +90,58 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	}, c.rateLimit, reqError
 }
 
-func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+func (c *fakeBatchClientWithRL) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{RemainingTokens: c.defaultTPM, RemainingRequests: c.defaultRPM, LimitTokens: c.defaultTPM, LimitRequests: c.defaultRPM, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 
-func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+func (c *fakeBatchClientWithRL) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
+type fakeBatchClientWithoutRL struct {
+	defaultResetRate int
+	defaultRPM       int
+	defaultTPM       int
+}
+
+func (c *fakeBatchClientWithoutRL) Vectorize(ctx context.Context,
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	if c.defaultResetRate == 0 {
+		c.defaultResetRate = 60
+	}
+
+	var reqError error
+
+	vectors := make([][]float32, len(text))
+	errors := make([]error, len(text))
+	for i := range text {
+		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
+			errors[i] = fmt.Errorf(text[i][6:])
+			continue
+		}
+
+		if reqErr := len("ReqError "); len(text[i]) >= reqErr && text[i][:reqErr] == "ReqError " {
+			reqError = fmt.Errorf("%v", strings.Split(text[i][reqErr:], " ")[0])
+		} else if len(text[i]) >= len("wait ") && text[i][:5] == "wait " {
+			wait, _ := strconv.Atoi(text[i][5:])
+			time.Sleep(time.Duration(wait) * time.Millisecond)
+		}
+		vectors[i] = []float32{0, 1, 2, 3}
+	}
+	return &modulecomponents.VectorizationResult{
+		Vector:     vectors,
+		Dimensions: 4,
+		Text:       text,
+		Errors:     errors,
+	}, nil, reqError
+}
+
+func (c *fakeBatchClientWithoutRL) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{RemainingTokens: c.defaultTPM, RemainingRequests: c.defaultRPM, LimitTokens: c.defaultTPM, LimitRequests: c.defaultRPM, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+}
+
+func (c *fakeBatchClientWithoutRL) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
 

@@ -312,14 +312,16 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			}
 		}
 
-		// if a single object is larger than the current token limit we need to wait until the token limit refreshes
-		// enough to be able to handle the object.
-		// This assumes that the tokenLimit refreshes linearly which is true for openAI, but needs to be checked for
-		// other providers
-		if len(texts) == 0 && time.Until(rateLimit.ResetTokens) > 0 {
+		// if a single object is larger than the current token limit it will fail all tests above. Then we need to either
+		//   - wait until the token limit refreshes. This assumes that the tokenLimit refreshes linearly which is true
+		//     for openAI, but needs to be checked for other providers
+		//   - send it anyway and let the provider fail it
+		if len(texts) == 0 {
 			fractionOfTotalLimit := float64(job.tokens[objCounter]) / float64(rateLimit.LimitTokens)
 			sleepTime := time.Duration(fractionOfTotalLimit * float64(time.Until(rateLimit.ResetTokens)))
-			if time.Since(job.startTime)+sleepTime < b.maxBatchTime && !concurrentBatch {
+			// Only sleep if values are reasonable, e.g. for the token counter is lower than the limit token and we do
+			// not blow up the sleep time
+			if sleepTime > 0 && fractionOfTotalLimit < 1 && time.Since(job.startTime)+sleepTime < b.maxBatchTime && !concurrentBatch {
 				time.Sleep(sleepTime)
 				rateLimit.RemainingTokens += int(float64(rateLimit.LimitTokens) * fractionOfTotalLimit)
 				continue // try again after tokens have hopefully refreshed
