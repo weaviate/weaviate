@@ -60,9 +60,35 @@ type inputType string
 const (
 	searchDocument inputType = "document"
 	searchQuery    inputType = "query"
-	defaultRPM               = 300 // https://docs.voyageai.com/docs/rate-limits
-	defaultTPM               = 1000000
 )
+
+type voyageRLModel struct {
+	TokenLimit   int
+	RequestLimit int
+}
+
+type voyageRL struct {
+	rateLimitPerModel map[string]voyageRLModel
+}
+
+func newRL() voyageRL {
+	// from https://docs.voyageai.com/docs/rate-limits
+	return voyageRL{
+		rateLimitPerModel: map[string]voyageRLModel{
+			"voyage-3":      {TokenLimit: 2_000_000, RequestLimit: 1000},
+			"voyage-3-lite": {TokenLimit: 4_000_000, RequestLimit: 1000},
+			"default":       {TokenLimit: 1_000_000, RequestLimit: 1000},
+		},
+	}
+}
+
+func (r voyageRL) getLimitForModel(model string) voyageRLModel {
+	rl, ok := r.rateLimitPerModel[model]
+	if !ok {
+		return r.rateLimitPerModel["default"]
+	}
+	return rl
+}
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
@@ -191,7 +217,10 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassCon
 }
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Voyageai", defaultRPM, defaultTPM)
+	config := v.getVectorizationConfig(cfg)
+	rl := newRL()
+	modelRL := rl.getLimitForModel(config.Model)
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Voyageai", modelRL.RequestLimit, modelRL.TokenLimit)
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
