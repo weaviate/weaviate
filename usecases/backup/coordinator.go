@@ -322,7 +322,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 
-	//Dump call stack to see where the error is coming from
+	// Dump call stack to see where the error is coming from
 	debug.PrintStack()
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)

@@ -46,10 +46,6 @@ type BackupRestoreStatusResponse struct {
 	// phase of backup restoration process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
 	Status *string `json:"status,omitempty"`
-
-	OverrideBucket string `json:"bucket,omitempty"`
-
-	OverridePath string `json:"overridePath,omitempty"`
 }
 
 // Validate validates this backup restore status response

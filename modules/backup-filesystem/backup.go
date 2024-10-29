@@ -187,7 +187,6 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-
 	var sourcePath string
 	var err error
 	if overridePath != "" {

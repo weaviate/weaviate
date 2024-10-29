@@ -141,7 +141,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	schema, err := s.fetchSchema(ctx, req.Backend,req.Bucket, req.Path, meta)
+	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}

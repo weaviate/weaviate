@@ -29,13 +29,12 @@ const (
 )
 
 type reqState struct {
-	Starttime time.Time
-	ID        string
-	Status    backup.Status
-	Path      string
+	Starttime      time.Time
+	ID             string
+	Status         backup.Status
+	Path           string
 	OverrideBucket string
-	OverridePath string
-
+	OverridePath   string
 }
 
 type backupStat struct {
