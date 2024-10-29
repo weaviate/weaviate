@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	DefaultRPM = 100 * 60 // from https://jina.ai/embeddings/
-	DefaultTPM = 10000000 // no token limit used
+	DefaultRPM = 500 // from https://jina.ai/embeddings/
+	DefaultTPM = 1_000_000
 )
 
 type (
@@ -261,10 +261,9 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 		limits.LimitRequests = rpm
 		limits.LastOverwrite = time.Now()
 
-		// high dummy values
 		limits.RemainingTokens = DefaultTPM
 		limits.LimitTokens = DefaultTPM
-		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
 	}
 
 	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
