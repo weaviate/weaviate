@@ -80,3 +80,16 @@ type VectorizationResult struct {
 	Vector     [][]float32
 	Errors     []error
 }
+
+type Usage struct {
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
+}
+
+func GetTotalTokens(usage *Usage) int {
+	if usage == nil {
+		return -1
+	}
+	return usage.TotalTokens
+}
