@@ -240,13 +240,11 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	}
 	strStatus := string(status.Status)
 	payload := models.BackupRestoreStatusResponse{
-		Status:         &strStatus,
-		ID:             params.ID,
-		Path:           status.Path,
-		Backend:        params.Backend,
-		Error:          status.Err,
-		OverrideBucket: overrideBucket,
-		OverridePath:   overridePath,
+		Status:  &strStatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
+		Error:   status.Err,
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
