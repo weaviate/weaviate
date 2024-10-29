@@ -251,10 +251,6 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	// use an unlimited context here as a cleanup job has no defined runtime. It
-	// can take days in the most extreme case. aborting is still possible via the
-	// cyclemanager's shouldAbort callback.
-	ctx := context.Background()
 	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
 		return false, errors.New("tombstone cleanup already running")
 	}
@@ -307,12 +303,12 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.metrics.StartTombstoneCycle()
 
 	executed = true
-	if ok, err := h.reassignNeighborsOf(ctx, deleteList, breakCleanUpTombstonedNodes); err != nil {
+	if ok, err := h.reassignNeighborsOf(h.shutdownCtx, deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
-	h.reassignNeighbor(ctx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	h.reassignNeighbor(h.shutdownCtx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -418,13 +414,8 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	size := len(h.nodes)
 	h.RUnlock()
 
-	// TODO: Those two contexts can probably be merged into one. We could pass
-	// in the h.shutdownCtx at the very top of the callstack and then just use
-	// this as the only one. The motivation for keeping the separate is to
-	// guarantee we're not changing existing behavior, but this probably adds
-	// more complexity than is really required.
-	g, shutdownContext := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
-	shutdownContext, cancel := context.WithCancel(shutdownContext)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch := make(chan uint64)
 	var cancelled atomic.Bool
@@ -438,7 +429,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					return nil
 				}
 				select {
-				case <-shutdownContext.Done():
+				case <-ctx.Done():
 					return nil
 				case deletedID, ok := <-ch:
 					if !ok {
@@ -488,7 +479,7 @@ LOOP:
 				}).
 					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
 			}
-		case <-shutdownContext.Done():
+		case <-ctx.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
 			// now valid to wait for a cancelation – even if a panic occurs.
