@@ -94,7 +94,53 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &fakeBatchClient{} // has state
+			client := &fakeBatchClientWithRL{} // has state
+
+			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+			deadline := time.Now().Add(10 * time.Second)
+			if tt.deadline != 0 {
+				deadline = time.Now().Add(tt.deadline)
+			}
+
+			texts, tokenCounts := generateTokens(tt.objects)
+
+			ctx, cancl := context.WithDeadline(context.Background(), deadline)
+			vecs, errs := v.SubmitBatchAndWait(ctx, cfg, tt.skip, tokenCounts, texts)
+
+			require.Len(t, errs, len(tt.wantErrors))
+			require.Len(t, vecs, len(tt.objects))
+
+			for i := range tt.objects {
+				if tt.wantErrors[i] != nil {
+					require.Equal(t, tt.wantErrors[i], errs[i])
+				} else if tt.skip[i] {
+					require.Nil(t, vecs[i])
+				} else {
+					require.NotNil(t, vecs[i])
+				}
+			}
+			cancl()
+		})
+	}
+}
+
+func TestBatchNoRLreturn(t *testing.T) {
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	logger, _ := test.NewNullLogger()
+	cases := []struct {
+		name       string
+		objects    []*models.Object
+		skip       []bool
+		wantErrors map[int]error
+		deadline   time.Duration
+		resetRate  int
+		tokenLimit int
+	}{
+		{name: "low reset time - dont deadlock", objects: []*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "more tokens than TL"}}}, skip: []bool{false}, resetRate: 0, tokenLimit: 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeBatchClientWithoutRL{defaultResetRate: tt.resetRate, defaultTPM: tt.tokenLimit} // has state
 
 			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
@@ -125,7 +171,7 @@ func TestBatch(t *testing.T) {
 }
 
 func TestBatchMultiple(t *testing.T) {
-	client := &fakeBatchClient{}
+	client := &fakeBatchClientWithRL{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
@@ -163,7 +209,7 @@ func TestBatchMultiple(t *testing.T) {
 }
 
 func TestBatchTimeouts(t *testing.T) {
-	client := &fakeBatchClient{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
@@ -196,7 +242,7 @@ func TestBatchTimeouts(t *testing.T) {
 }
 
 func TestBatchRequestLimit(t *testing.T) {
-	client := &fakeBatchClient{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
 	logger, _ := test.NewNullLogger()
