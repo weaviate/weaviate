@@ -269,7 +269,8 @@ func nodeBackend(node string, provider BackupBackendProvider, backend, id string
 	if err != nil {
 		return nodeStore{}, err
 	}
-	return nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node)}}, nil
+	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node)}}
+	return ns, nil
 }
 
 // basePath of the backup
