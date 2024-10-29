@@ -36,6 +36,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
 	distancer := distancer.NewL2SquaredProvider()
 	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
 
 	uc := ent.UserConfig{}
 	uc.MaxConnections = maxNeighbors
@@ -72,7 +73,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
-		return index.Add(uint64(id), vectors[id])
+		return index.Add(ctx, uint64(id), vectors[id])
 	}))
 
 	cfg := ent.PQConfig{
