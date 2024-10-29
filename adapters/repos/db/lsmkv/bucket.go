@@ -1244,13 +1244,21 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 	hasTombstones := false
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	allPropLengths := make([]map[uint64]uint32, len(segmentsDisk))
+
 	for i, segment := range segmentsDisk {
 		if segment.strategy == segmentindex.StrategyInverted {
 			tombstones, err := segment.GetTombstones()
 			if err != nil {
 				return nil, err
 			}
+			propLengths, err := segment.GetPropertyLenghts()
+			if err != nil {
+				return nil, err
+			}
+
 			allTombstones[i] = tombstones
+			allPropLengths[i] = propLengths
 			hasTombstones = true
 		}
 	}
@@ -1281,10 +1289,11 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost); err != nil {
+				docId := binary.BigEndian.Uint64(v.value[:8])
+				propLen := allPropLengths[i][docId]
+				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}
-				docId := segmentDecoded[j].Id
 				// check if there are any tombstones between the i and len(disk) segments
 				for _, tombstones := range allTombstones[i+1:] {
 					if tombstones != nil && tombstones.Contains(docId) {

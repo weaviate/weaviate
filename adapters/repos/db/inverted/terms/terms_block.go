@@ -83,3 +83,10 @@ func DecodeBlockData(data []byte) *BlockData {
 		Tfs:    data[4+docIdsLen : 4+docIdsLen+termFreqsLen],
 	}
 }
+
+func DecodeBlockDataReusable(data []byte, out *BlockData) {
+	docIdsLen := binary.LittleEndian.Uint16(data)
+	termFreqsLen := binary.LittleEndian.Uint16(data[2:])
+	out.DocIds = data[4 : 4+docIdsLen]
+	out.Tfs = data[4+docIdsLen : 4+docIdsLen+termFreqsLen]
+}

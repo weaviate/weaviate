@@ -365,11 +365,14 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
 
 	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
-	err := e.Decode(&s.propertyLenghts)
+
+	propLenghts := map[uint64]uint32{}
+	err := e.Decode(&propLenghts)
 	if err != nil {
 		return nil, fmt.Errorf("decode property lenghts: %w", err)
 	}
 
 	s.propertyLenghtsLoaded = true
+	s.propertyLenghts = propLenghts
 	return s.propertyLenghts, nil
 }

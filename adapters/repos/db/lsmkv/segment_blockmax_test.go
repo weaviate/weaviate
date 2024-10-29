@@ -19,16 +19,17 @@ import (
 )
 
 func TestSerializeAndParseInvertedNodeTest(t *testing.T) {
-	seg, err := newSegment("/Users/amourao/code/weaviate/weaviate/data-weaviate-0/fiqa/CDg41dTD5QYH/lsm/property_text_searchable/segment-1728597278780046000.db", nil,
+	seg, err := newSegment("/Users/amourao/code/weaviate/weaviate/data-weaviate-0/msmarco/6Jx2gaSLtsnd/lsm/property_text_searchable/segment-1729794337023372000.db", nil,
 		nil, nil, false, false, false, true)
 	if err != nil {
 		t.Fatalf("error creating segment: %v", err)
 	}
 
-	sbm := NewSegmentBlockMax(seg, []byte("test"), 0, 1)
+	sbm := NewSegmentBlockMax(seg, []byte("and"), 0, 1)
 
 	sbm.AdvanceAtLeast(100)
-	id, score, pair := sbm.ScoreAndAdvance(1, schema.BM25Config{K1: 1.2, B: 0.75})
+	id, score, pair := sbm.Score(1, schema.BM25Config{K1: 1.2, B: 0.75})
+	sbm.Advance()
 	fmt.Println(id, score, pair)
 	sbm.AdvanceAtLeast(16000)
 	sbm.AdvanceAtLeast(160000000)

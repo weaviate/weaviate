@@ -177,6 +177,54 @@ func unpackDeltas(packed []byte, deltasCount int) []uint64 {
 	return deltas
 }
 
+func unpackDeltasReusableDelta(packed []byte, deltasCount int, deltas []uint64) []uint64 {
+	if len(packed) < 8 || len(deltas) < deltasCount {
+		return deltas // Error handling: insufficient input or output space
+	}
+
+	// Read the first delta using BigEndian to handle byte order explicitly
+	deltas[0] = binary.BigEndian.Uint64(packed[0:8])
+
+	// Read bitsNeeded (6 bits starting from bit 2 of packed[8])
+	bitsNeeded := int((packed[8] >> 2) & 0x3F)
+	if bitsNeeded == 0 || bitsNeeded > 64 {
+		// Handle invalid bitsNeeded
+		return deltas
+	}
+
+	// Starting bit position after reading bitsNeeded
+	bitPos := 6
+	bytePos := 8 // Start from packed[8]
+
+	// Initialize the bit buffer with the remaining bits in packed[8], if any
+	bitsLeft := 8 - bitPos
+	bitBuffer := uint64(packed[bytePos] & ((1 << bitsLeft) - 1))
+
+	bytePos++
+
+	// Precompute the mask for bitsNeeded bits
+	bitsMask := uint64((1 << bitsNeeded) - 1)
+
+	// Read the deltas
+	for i := 1; i < deltasCount; i++ {
+		// Ensure we have enough bits in the buffer
+		for bitsLeft < bitsNeeded {
+			if bytePos >= len(packed) {
+				// Handle insufficient data
+				return deltas
+			}
+			bitBuffer = (bitBuffer << 8) | uint64(packed[bytePos])
+			bitsLeft += 8
+			bytePos++
+		}
+		// Extract bitsNeeded bits from the buffer
+		bitsLeft -= bitsNeeded
+		deltas[i] = (bitBuffer>>bitsLeft)&bitsMask + deltas[i-1]
+	}
+
+	return deltas
+}
+
 func unpackDeltasReusable(packed []byte, deltasCount int, deltas []uint64) []uint64 {
 	if len(packed) < 8 || len(deltas) < deltasCount {
 		return deltas // Error handling: insufficient input or output space
@@ -243,6 +291,6 @@ func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64) {
 }
 
 func packedDecodeReusable(values *terms.BlockData, numValues int, output *terms.BlockDataDecoded) {
-	deltaDecode(unpackDeltasReusable(values.DocIds, numValues, output.DocIds))
+	unpackDeltasReusableDelta(values.DocIds, numValues, output.DocIds)
 	unpackDeltasReusable(values.Tfs, numValues, output.Tfs)
 }

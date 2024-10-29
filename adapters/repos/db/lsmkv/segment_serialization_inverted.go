@@ -263,28 +263,27 @@ func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.Doc
 	return out
 }
 
-func convertFromBlockReusable(encodedBlock *terms.BlockData, blockSize int, out []*terms.DocPointerWithScore, decoded *terms.BlockDataDecoded) {
-	packedDecodeReusable(encodedBlock, blockSize, decoded)
-
-	for j := 0; j < blockSize; j++ {
-		out[j].Id = decoded.DocIds[j]
-		out[j].Frequency = float32(decoded.Tfs[j])
-		// out[j].PropLength = float32(decoded.PropLenghts[j])
+func convertFromBlockReusable(encodedBlock *terms.BlockData, blockSize int, decoded *terms.BlockDataDecoded, docIdOnly bool) {
+	if docIdOnly {
+		deltaDecode(unpackDeltasReusable(encodedBlock.DocIds, blockSize, decoded.DocIds))
+	} else {
+		unpackDeltasReusable(encodedBlock.Tfs, blockSize, decoded.Tfs)
 	}
 }
 
-func convertFixedLengthFromMemory(data []byte, blockSize int) []*terms.DocPointerWithScore {
-	values := make([]*terms.DocPointerWithScore, blockSize)
+func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDecoded {
+	out := &terms.BlockDataDecoded{
+		DocIds: make([]uint64, blockSize),
+		Tfs:    make([]uint64, blockSize),
+	}
 	offset := 8
 	i := 0
 	for offset < len(data) {
-		values[i] = &terms.DocPointerWithScore{
-			Id:        binary.BigEndian.Uint64(data[offset : offset+8]),
-			Frequency: math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
-		}
+		out.DocIds[i] = binary.BigEndian.Uint64(data[offset : offset+8])
+		out.Tfs[i] = uint64(binary.LittleEndian.Uint32(data[offset+8 : offset+12]))
 		offset += 16
 	}
-	return values
+	return out
 }
 
 // a single node of strategy "inverted"

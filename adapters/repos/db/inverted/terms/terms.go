@@ -42,8 +42,10 @@ func (d *DocPointerWithScore) FromBytes(in []byte, boost float32) error {
 	return d.FromKeyVal(key, value, boost)
 }
 
-func (d *DocPointerWithScore) FromBytesInverted(in []byte, boost float32) error {
-	return d.FromKeyVal(in[0:8], in[8:], boost)
+func (d *DocPointerWithScore) FromBytesInverted(in []byte, boost float32, propLen float32) error {
+	d.FromKeyVal(in[0:8], in[8:], boost)
+	d.PropLength = propLen
+	return nil
 }
 
 func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, boost float32) error {
@@ -183,7 +185,11 @@ type TermInterface interface {
 	Count() int
 	QueryTermIndex() int
 	AdvanceAtLeast(minID uint64)
-	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore)
+	AdvanceAtLeastShallow(minID uint64)
+	Advance()
+	Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore)
+	CurrentBlockImpact() float32
+	CurrentBlockMaxId() uint64
 }
 
 type Term struct {
@@ -206,13 +212,15 @@ func NewTerm(queryTerm string, queryTermIndex int) *Term {
 	}
 }
 
-func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore) {
-	id := t.idPointer
+func (t *Term) Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore) {
 	pair := t.Data[t.posPointer]
 	freq := float64(pair.Frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
 
-	// advance
+	return t.idPointer, tf * t.idf, &pair
+}
+
+func (t *Term) Advance() {
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.Data)) {
 		t.exhausted = true
@@ -220,8 +228,6 @@ func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	} else {
 		t.idPointer = t.Data[t.posPointer].Id
 	}
-
-	return id, tf * t.idf, &pair
 }
 
 func (t *Term) AdvanceAtLeast(minID uint64) {
@@ -234,6 +240,10 @@ func (t *Term) AdvanceAtLeast(minID uint64) {
 		}
 		t.idPointer = t.Data[t.posPointer].Id
 	}
+}
+
+func (t *Term) AdvanceAtLeastShallow(minID uint64) {
+	t.AdvanceAtLeast(minID)
 }
 
 func (t *Term) Count() int {
@@ -276,6 +286,14 @@ func (t *Term) SetIdPointer(idPointer uint64) {
 	t.idPointer = idPointer
 }
 
+func (t *Term) CurrentBlockImpact() float32 {
+	return float32(t.idf)
+}
+
+func (t *Term) CurrentBlockMaxId() uint64 {
+	return t.idPointer
+}
+
 type Terms struct {
 	T     []TermInterface
 	Count int
@@ -299,20 +317,12 @@ func (t *Terms) Pivot(minScore float64) bool {
 		return false
 	}
 
-	t.AdvanceAllAtLeast(minID)
+	t.AdvanceAllAtLeast(minID, pivotPoint)
 
-	// we don't need to sort the entire list, just the first pivotPoint elements
-	t.PartialSort()
 	return false
 }
 
-func (t *Terms) AdvanceAllAtLeast(minID uint64) {
-	for i := range t.T {
-		t.T[i].AdvanceAtLeast(minID)
-	}
-}
-
-func (t *Terms) FindMinID(minScore float64) (uint64, int, bool) {
+func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
 
 	for i, term := range t.T {
@@ -322,6 +332,50 @@ func (t *Terms) FindMinID(minScore float64) (uint64, int, bool) {
 		cumScore += term.Idf()
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
+		}
+	}
+
+	return 0, 0, true
+}
+
+func (t *Terms) PivotWand(minScore float64) bool {
+	minID, pivotPoint, abort := t.FindMinIDWand(minScore)
+	if abort {
+		return true
+	}
+	if pivotPoint == 0 {
+		return false
+	}
+
+	t.AdvanceAllAtLeast(minID, len(t.T)-1)
+
+	// we don't need to sort the entire list, just the first pivotPoint elements
+	t.SortFirst()
+
+	return false
+}
+
+func (t *Terms) AdvanceAllAtLeast(minID uint64, pivot int) {
+	for i := range t.T[:pivot] {
+		t.T[i].AdvanceAtLeast(minID)
+	}
+}
+
+func (t *Terms) FindMinID(minScore float64) (uint64, int, bool) {
+	cumScore := float64(0)
+	for i, term := range t.T {
+		if term.Exhausted() {
+			continue
+		}
+		cumScore += float64(term.CurrentBlockImpact())
+		if cumScore >= minScore {
+			// find if there is another term with the same id
+			for j := i + 1; j < len(t.T); j++ {
+				if t.T[j].IdPointer() != term.IdPointer() {
+					return t.T[j-1].IdPointer(), j - 1, false
+				}
+			}
+			return t.T[len(t.T)-1].IdPointer(), len(t.T) - 1, false
 		}
 	}
 
@@ -362,14 +416,15 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 			continue
 		}
 		term := t.T[i]
-		_, score, docInfo := term.ScoreAndAdvance(averagePropLength, config)
+		_, score, docInfo := term.Score(averagePropLength, config)
+		term.Advance()
 		if additionalExplanations {
 			docInfos[term.QueryTermIndex()] = docInfo
 		}
 		cumScore += score
 	}
 
-	t.FullSort()
+	// t.FullSort()
 	return id, cumScore, docInfos
 }
 
@@ -386,11 +441,11 @@ func (t *Terms) Swap(i, j int) {
 	t.T[i], t.T[j] = t.T[j], t.T[i]
 }
 
-func (t *Terms) FullSort() {
+func (t *Terms) SortFull() {
 	sort.Sort(t)
 }
 
-func (t *Terms) PartialSort() {
+func (t *Terms) SortFirst() {
 	min := uint64(0)
 	minIndex := -1
 	for i := 0; i < len(t.T); i++ {
@@ -402,4 +457,29 @@ func (t *Terms) PartialSort() {
 	if minIndex > 0 {
 		t.T[0], t.T[minIndex] = t.T[minIndex], t.T[0]
 	}
+}
+
+func (t *Terms) SortPartial(nextList int) {
+	for i := nextList + 1; i < len(t.T); i++ {
+		if t.T[i].IdPointer() <= t.T[i-1].IdPointer() {
+			// swap
+			t.T[i], t.T[i-1] = t.T[i-1], t.T[i]
+		} else {
+			break
+		}
+	}
+}
+
+func (t *Terms) GetBlockUpperBound(pivot int, pivotId uint64) float32 {
+	blockMaxScore := float32(0)
+	for i := 0; i < pivot+1; i++ {
+		if t.T[i].Exhausted() {
+			continue
+		}
+		if t.T[i].CurrentBlockMaxId() < pivotId {
+			t.T[i].AdvanceAtLeastShallow(pivotId)
+		}
+		blockMaxScore += t.T[i].CurrentBlockImpact()
+	}
+	return blockMaxScore
 }

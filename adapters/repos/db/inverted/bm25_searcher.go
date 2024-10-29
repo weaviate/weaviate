@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -93,7 +94,15 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
-	objs, scores, err := b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
+	var objs []*storobj.Object
+	var scores []float32
+	var err error
+
+	if os.Getenv("USE_WAND_DISK") == "true" {
+		objs, scores, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
+	} else {
+		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
+	}
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -265,7 +274,31 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	topKHeap := b.doWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+
+	metrics.QueryCount++
+	for _, result3 := range combinedTerms.T {
+		if result3 != nil {
+			m, ok := result3.(*lsmkv.SegmentBlockMax)
+			if !ok {
+				continue
+			}
+			metrics.BlockCountAdded += m.Metrics.BlockCountAdded
+			metrics.BlockCountTotal += m.Metrics.BlockCountTotal
+			metrics.BlockCountExamined += m.Metrics.BlockCountExamined
+			metrics.DocCountAdded += m.Metrics.DocCountAdded
+			metrics.DocCountTotal += m.Metrics.DocCountTotal
+			metrics.DocCountExamined += m.Metrics.DocCountExamined
+			metrics.LastAddedBlock = m.Metrics.LastAddedBlock
+
+		}
+	}
+
+	if metrics.QueryCount%100 == 0 {
+		b.logger.Error("BlockMax metrics", "BlockCountTotal ", metrics.BlockCountTotal/metrics.QueryCount, " BlockCountExamined ", metrics.BlockCountExamined/metrics.QueryCount, " BlockCountAdded ", metrics.BlockCountAdded/metrics.QueryCount, " DocCountTotal ", metrics.DocCountTotal/metrics.QueryCount, " DocCountExamined ", metrics.DocCountExamined/metrics.QueryCount, " DocCountAdded ", metrics.DocCountAdded/metrics.QueryCount)
+		metrics = lsmkv.BlockMetrics{}
+	}
+
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allRequests, additional)
 }
 
@@ -352,28 +385,111 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
+func (b *BM25Searcher) doBlockMaxWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
+) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
+	// averagePropLength = 40
+	topKHeap := priorityqueue.NewMin[[]*terms.DocPointerWithScore](limit)
+	worstDist := float64(-10000) // tf score can be negative
+
+	results.SortFull()
+	for {
+		if results.CompletelyExhausted() {
+			return topKHeap
+		}
+
+		pivotID, pivotPoint, notFoundPivot := results.FindMinID(worstDist)
+		if notFoundPivot {
+			return topKHeap
+		}
+
+		upperBound := results.GetBlockUpperBound(pivotPoint, pivotID)
+
+		if topKHeap.ShouldEnqueue(upperBound, limit) {
+			if pivotID == results.T[0].IdPointer() {
+				score := float32(0.0)
+				for _, term := range results.T {
+					if term.IdPointer() != pivotID {
+						break
+					}
+					_, s, _ := term.Score(averagePropLength, b.config)
+					score += float32(s)
+					upperBound -= term.CurrentBlockImpact() - float32(s)
+					if !topKHeap.ShouldEnqueue(upperBound, limit) {
+						break
+					}
+				}
+				for _, term := range results.T {
+					if term.IdPointer() != pivotID {
+						break
+					}
+					term.Advance()
+				}
+
+				topKHeap.InsertAndPop(pivotID, float64(score), limit, &worstDist, nil)
+
+				results.SortFull()
+			} else {
+				nextList := pivotPoint
+				for results.T[nextList].IdPointer() == pivotID {
+					nextList--
+				}
+				results.T[nextList].AdvanceAtLeast(pivotID)
+
+				results.SortPartial(nextList)
+
+			}
+		} else {
+			nextList := pivotPoint
+			maxWeight := results.T[nextList].CurrentBlockImpact()
+
+			for i := 0; i < pivotPoint; i++ {
+				if results.T[i].CurrentBlockImpact() > maxWeight {
+					nextList = i
+					maxWeight = results.T[i].CurrentBlockImpact()
+				}
+			}
+
+			next := uint64(999999999999999)
+
+			for i := 0; i < pivotPoint; i++ {
+				if results.T[i].CurrentBlockMaxId() < next {
+					next = results.T[i].CurrentBlockMaxId()
+				}
+			}
+
+			next += 1
+
+			if pivotPoint+1 < len(results.T) && results.T[pivotPoint+1].IdPointer() < next {
+				next = results.T[pivotPoint+1].IdPointer()
+			}
+
+			if next <= pivotID {
+				next = pivotID + 1
+			}
+			results.T[nextList].AdvanceAtLeast(next)
+
+			results.SortPartial(nextList)
+
+		}
+
+	}
+}
+
+func (b *BM25Searcher) doWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMin[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
-	results.FullSort()
+	results.SortFull()
 	for {
-		if results.CompletelyExhausted() || results.Pivot(worstDist) {
+
+		if results.CompletelyExhausted() || results.PivotWand(worstDist) {
 			return topKHeap
 		}
 
 		id, score, additional := results.ScoreNext(averagePropLength, b.config, additionalExplanations)
-
-		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
-			topKHeap.InsertWithValue(id, float32(score), additional)
-			for topKHeap.Len() > limit {
-				topKHeap.Pop()
-			}
-			// only update the worst distance when the queue is full, otherwise results can be missing if the first
-			// entry that is checked already has a very high score
-			if topKHeap.Len() >= limit {
-				worstDist = float64(topKHeap.Top().Dist)
-			}
+		results.SortFull()
+		if topKHeap.ShouldEnqueue(float32(score), limit) {
+			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)
 		}
 	}
 }
