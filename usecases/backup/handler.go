@@ -159,7 +159,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			}
 		}
 	}
-	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
 		return ret
@@ -264,12 +264,12 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (nodeStore, error) {
+func nodeBackend(node string, provider BackupBackendProvider, backend, id, bucket, path string) (nodeStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
 		return nodeStore{}, err
 	}
-	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node)}}
+	ns := nodeStore{objectStore{backend: caps, backupId: fmt.Sprintf("%s/%s", id, node), bucket: bucket, path: path}}
 	return ns, nil
 }
 

@@ -186,7 +186,15 @@ func (m *Module) Write(ctx context.Context, backupID, key, overrideBucket, overr
 
 func (m *Module) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	sourcePath, err := m.getObjectPath(ctx, m.backupsPath, backupID, key)
+
+
+	var sourcePath string
+	var err error
+	if overridePath != "" {
+		sourcePath, err = m.getObjectPath(ctx, overridePath, backupID, key)
+	} else {
+		sourcePath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("source path %s/%s: %w", backupID, key, err)
 	}

@@ -160,7 +160,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		s := newFakeScheduler(nil).scheduler()
-		s.backupper.lastOp.reqStat = reqStat{
+		s.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
 			ID:        id,
 			Status:    backup.Transferring,
@@ -244,7 +244,7 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		s := newFakeScheduler(nil).scheduler()
-		s.restorer.lastOp.reqStat = reqStat{
+		s.restorer.lastOp.reqState = reqState{
 			Starttime: starTime,
 			ID:        id,
 			Status:    backup.Transferring,

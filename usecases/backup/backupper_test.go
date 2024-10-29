@@ -67,7 +67,7 @@ func TestBackupStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		m := createManager(nil, nil, nil, nil)
-		m.backupper.lastOp.reqStat = reqStat{
+		m.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
 			ID:        id,
 			Status:    backup.Transferring,
@@ -145,7 +145,7 @@ func TestBackupOnStatus(t *testing.T) {
 
 	t.Run("ActiveState", func(t *testing.T) {
 		m := createManager(nil, nil, nil, nil)
-		m.backupper.lastOp.reqStat = reqStat{
+		m.backupper.lastOp.reqState = reqState{
 			Starttime: starTime,
 			ID:        id,
 			Status:    backup.Transferring,

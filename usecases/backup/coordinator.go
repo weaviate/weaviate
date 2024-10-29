@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -165,7 +166,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path)); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -233,7 +234,7 @@ func (c *coordinator) Restore(
 ) error {
 	req.Method = OpRestore
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path)); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
 
@@ -321,6 +322,8 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 
+	//Dump call stack to see where the error is coming from
+	debug.PrintStack()
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {

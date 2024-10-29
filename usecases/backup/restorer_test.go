@@ -84,7 +84,7 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
 	// active state
-	m.restorer.lastOp.reqStat = reqStat{
+	m.restorer.lastOp.reqState = reqState{
 		Starttime: starTime,
 		ID:        id,
 		Status:    backup.Transferring,
@@ -655,7 +655,7 @@ func TestRestoreOnStatus(t *testing.T) {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
 	// active state
-	m.restorer.lastOp.reqStat = reqStat{
+	m.restorer.lastOp.reqState = reqState{
 		Starttime: starTime,
 		ID:        id,
 		Status:    backup.Transferring,

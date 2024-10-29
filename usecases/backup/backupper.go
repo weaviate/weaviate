@@ -91,7 +91,7 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 	}, nil
 }
 
-func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, error) {
+func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState, error) {
 	// check if backup is still active
 	st := b.lastOp.get()
 	if st.ID == req.ID {
@@ -99,21 +99,21 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}
 
 	// The backup might have been already created.
-	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID)
+	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
-		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
+		return reqState{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
 	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
-		return reqStat{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
+		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
 	}
 	if err != nil || meta.Error != "" {
-		return reqStat{}, errors.New(meta.Error)
+		return reqState{}, errors.New(meta.Error)
 	}
 
-	return reqStat{
+	return reqState{
 		Starttime: meta.StartedAt,
 		ID:        req.ID,
 		Path:      store.HomeDir(store.bucket, store.path),
@@ -138,7 +138,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path)); prevID != "" {
+	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()

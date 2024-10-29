@@ -147,8 +147,12 @@ func (b *backups) Status() http.Handler {
 		}
 
 		params := r.URL.Query()
-		req.Bucket = params.Get("bucket")
-		req.Path = params.Get("path")
+		if params.Get("bucket") != "" {
+			req.Bucket = params.Get("bucket")
+		}
+		if params.Get("path") != "" {
+			req.Path = params.Get("path")
+		}
 
 		resp := b.manager.OnStatus(r.Context(), &req)
 		b, err := json.Marshal(&resp)

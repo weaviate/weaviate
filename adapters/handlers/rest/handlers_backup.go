@@ -245,6 +245,8 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		Path:    status.Path,
 		Backend: params.Backend,
 		Error:   status.Err,
+		OverrideBucket: overrideBucket,
+		OverridePath:   overridePath,
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)

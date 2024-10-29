@@ -77,7 +77,7 @@ func (r *restorer) restore(
 	destPath := store.HomeDir(req.Bucket, req.Path)
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, destPath); prevID != "" {
+	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
@@ -217,7 +217,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
 	if meta.Status != string(backup.Success) {
-		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
 	if err := meta.Validate(meta.Version > version1); err != nil {

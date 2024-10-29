@@ -141,7 +141,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	schema, err := s.fetchSchema(ctx, req.Backend, meta)
+	schema, err := s.fetchSchema(ctx, req.Backend,req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -366,7 +366,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
 	if meta.Status != backup.Success {
-		return nil, fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)
 	}
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
@@ -399,10 +399,12 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 func (s *Scheduler) fetchSchema(
 	ctx context.Context,
 	backend string,
+	overrideBucket string,
+	overridePath string,
 	req *backup.DistributedBackupDescriptor,
 ) ([]backup.ClassDescriptor, error) {
 	f := func(node string) ([]backup.ClassDescriptor, error) {
-		store, err := nodeBackend(node, s.backends, backend, req.ID)
+		store, err := nodeBackend(node, s.backends, backend, req.ID, overrideBucket, overridePath)
 		if err != nil {
 			return nil, err
 		}

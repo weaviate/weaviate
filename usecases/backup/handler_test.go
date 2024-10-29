@@ -26,7 +26,7 @@ import (
 // helper methods
 func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -58,7 +58,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
