@@ -418,6 +418,11 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	size := len(h.nodes)
 	h.RUnlock()
 
+	// TODO: Those two contexts can probably be merged into one. We could pass
+	// in the h.shutdownCtx at the very top of the callstack and then just use
+	// this as the only one. The motivation for keeping the separate is to
+	// guarantee we're not changing existing behavior, but this probably adds
+	// more complexity than is really required.
 	g, shutdownContext := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	shutdownContext, cancel := context.WithCancel(shutdownContext)
 	defer cancel()

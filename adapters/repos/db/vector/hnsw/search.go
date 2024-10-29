@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -215,6 +216,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
 
 	for candidates.Len() > 0 {
+		time.Sleep(1 * time.Second)
 		if ctx.Err() != nil {
 			h.pools.visitedListsLock.RLock()
 			h.pools.visitedLists.Return(visited)
