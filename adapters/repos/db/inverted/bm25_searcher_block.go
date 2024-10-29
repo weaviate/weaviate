@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,12 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
 
-type termListBlockRequest struct {
-	terms               []string
-	duplicateTextBoosts []int
-	propertyName        string
-	propertyBoost       float32
-}
+var metrics = lsmkv.BlockMetrics{}
 
 func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, ctx context.Context) ([][]terms.TermInterface, error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
@@ -174,7 +170,7 @@ func (b *BM25Searcher) wandBlock(
 					T: result2,
 				}
 
-				topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				topKHeap := b.doBlockMaxWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
 
 				allObjects[i][j] = objects
@@ -189,6 +185,30 @@ func (b *BM25Searcher) wandBlock(
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	metrics.QueryCount++
+	for _, result := range allResults {
+		for _, result2 := range result {
+			for _, result3 := range result2 {
+				if result3 != nil {
+					m := result3.(*lsmkv.SegmentBlockMax)
+					metrics.BlockCountAdded += m.Metrics.BlockCountAdded
+					metrics.BlockCountTotal += m.Metrics.BlockCountTotal
+					metrics.BlockCountExamined += m.Metrics.BlockCountExamined
+					metrics.DocCountAdded += m.Metrics.DocCountAdded
+					metrics.DocCountTotal += m.Metrics.DocCountTotal
+					metrics.DocCountExamined += m.Metrics.DocCountExamined
+					metrics.LastAddedBlock = m.Metrics.LastAddedBlock
+
+				}
+			}
+		}
+	}
+
+	if metrics.QueryCount%100 == 0 {
+		b.logger.Error("BlockMax metrics", "BlockCountTotal ", metrics.BlockCountTotal/metrics.QueryCount, " BlockCountExamined ", metrics.BlockCountExamined/metrics.QueryCount, " BlockCountAdded ", metrics.BlockCountAdded/metrics.QueryCount, " DocCountTotal ", metrics.DocCountTotal/metrics.QueryCount, " DocCountExamined ", metrics.DocCountExamined/metrics.QueryCount, " DocCountAdded ", metrics.DocCountAdded/metrics.QueryCount)
+		metrics = lsmkv.BlockMetrics{}
 	}
 
 	objects, scores := b.combineResults(allObjects, allScores, limit)

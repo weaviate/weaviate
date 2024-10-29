@@ -60,7 +60,7 @@ func (s *segment) getDocCount(key []byte) uint64 {
 	return binary.LittleEndian.Uint64(buffer)
 }
 
-func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, []*terms.DocPointerWithScore, error) {
+func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.mmapContents {
 		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
@@ -83,10 +83,12 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
+		propLength := s.propertyLenghts[data.DocIds[0]]
+		tf := float32(data.Tfs[0])
 		entries[0] = &terms.BlockEntry{
 			Offset:    0,
-			MaxId:     data[len(data)-1].Id,
-			MaxImpact: data[0].Frequency / (data[0].Frequency + defaultBM25k1*(1-defaultBM25b+defaultBM25b*data[0].PropLength/defaultAveragePropLength)),
+			MaxId:     data.DocIds[len(data.DocIds)-1],
+			MaxImpact: tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*float32(propLength)/defaultAveragePropLength)),
 		}
 
 		return entries, docCount, data, nil
@@ -117,33 +119,9 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	return entries, docCount, nil, nil
 }
 
-func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([]*terms.DocPointerWithScore, error) {
-	var buf []byte
-
+func (s *segment) loadBlockDataReusable(offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
 	if s.mmapContents {
-		buf = s.contents[offsetStart:offsetEnd]
-	} else {
-		buf = make([]byte, offsetEnd-offsetStart)
-		r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = r.Read(buf)
-		if err != nil {
-			return nil, err
-		}
-	}
-	blockData := terms.DecodeBlockData(buf)
-	results := convertFromBlock(blockData, blockSize)
-
-	return results, nil
-}
-
-func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd uint64, buf []byte, documents []*terms.DocPointerWithScore, decoded *terms.BlockDataDecoded) error {
-	if s.mmapContents {
-		blockData := terms.DecodeBlockData(s.contents[offsetStart:offsetEnd])
-		convertFromBlockReusable(blockData, blockSize, documents, decoded)
+		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
 		return nil
 	} else {
 
@@ -156,11 +134,28 @@ func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd ui
 		if err != nil {
 			return err
 		}
-		blockData := terms.DecodeBlockData(buf[:offsetEnd-offsetStart])
-		convertFromBlockReusable(blockData, blockSize, documents, decoded)
+		terms.DecodeBlockDataReusable(buf[:offsetEnd-offsetStart], encoded)
 	}
-
 	return nil
+}
+
+func decodeDocIdsReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
+	unpackDeltasReusableDelta(encoded.DocIds, blockSize, decoded.DocIds)
+}
+
+func decodeTfReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
+	unpackDeltasReusable(encoded.Tfs, blockSize, decoded.Tfs)
+}
+
+type BlockMetrics struct {
+	BlockCountTotal    uint64
+	BlockCountExamined uint64
+	BlockCountAdded    uint64
+	DocCountTotal      uint64
+	DocCountExamined   uint64
+	DocCountAdded      uint64
+	QueryCount         uint64
+	LastAddedBlock     int
 }
 
 type SegmentBlockMax struct {
@@ -170,16 +165,19 @@ type SegmentBlockMax struct {
 	blockEntries         []*terms.BlockEntry
 	blockEntryIdx        int
 	blockDataBuffer      []byte
+	blockDataEncoded     *terms.BlockData
 	blockDataDecoded     *terms.BlockDataDecoded
-	blockData            []*terms.DocPointerWithScore
-	blockDataSize        int
 	blockDataIdx         int
+	blockDataSize        int
 	blockDataStartOffset uint64
 	blockDataEndOffset   uint64
 	idPointer            uint64
 	idf                  float64
 	exhausted            bool
+	decoded              bool
+	freqDecoded          bool
 	queryTermIndex       int
+	Metrics              BlockMetrics
 }
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64) *SegmentBlockMax {
@@ -199,6 +197,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64)
 	}
 
 	output.decodeBlock()
+	output.decoded = true
 
 	return output
 }
@@ -208,27 +207,27 @@ func (s *SegmentBlockMax) reset() error {
 
 	s.segment.GetPropertyLenghts()
 
-	s.blockEntries, s.docCount, s.blockData, err = s.segment.loadBlockEntries(s.node)
+	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err
 	}
 
-	if s.blockData == nil {
-		s.blockData = make([]*terms.DocPointerWithScore, terms.BLOCK_SIZE)
-		for i := range s.blockData {
-			s.blockData[i] = &terms.DocPointerWithScore{}
-		}
+	if s.blockDataDecoded == nil {
 		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
 		s.blockDataDecoded = &terms.BlockDataDecoded{
 			DocIds: make([]uint64, terms.BLOCK_SIZE),
 			Tfs:    make([]uint64, terms.BLOCK_SIZE),
 		}
+		s.blockDataEncoded = &terms.BlockData{}
 	}
 
 	s.blockEntryIdx = 0
 	s.blockDataIdx = 0
 	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
 	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
+
+	s.Metrics.BlockCountTotal += uint64(len(s.blockEntries))
+	s.Metrics.DocCountTotal += s.docCount
 
 	return nil
 }
@@ -246,8 +245,11 @@ func (s *SegmentBlockMax) decodeBlock() error {
 	}
 
 	if s.docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
-		s.idPointer = s.blockData[0].Id
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 		s.blockDataSize = int(s.docCount)
+		s.freqDecoded = true
+		s.Metrics.BlockCountExamined++
+		s.Metrics.DocCountExamined += uint64(len(s.blockDataDecoded.DocIds))
 		return nil
 	}
 
@@ -260,12 +262,16 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
 
-	err = s.segment.loadBlockDataReusable(s.blockDataSize, startOffset, endOffset, s.blockDataBuffer, s.blockData, s.blockDataDecoded)
+	err = s.segment.loadBlockDataReusable(startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
 	if err != nil {
 		return err
 	}
 
-	s.idPointer = s.blockData[0].Id
+	decodeDocIdsReusable(s.blockDataSize, s.blockDataEncoded, s.blockDataDecoded)
+	s.Metrics.BlockCountExamined++
+	s.Metrics.DocCountExamined += uint64(len(s.blockDataDecoded.DocIds))
+	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+	s.freqDecoded = false
 	return nil
 }
 
@@ -274,11 +280,12 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		return
 	}
 
-	if s.blockData == nil {
-		s.idPointer = math.MaxUint64
-		s.exhausted = true
+	if !s.decoded {
+		s.decodeBlock()
+		s.decoded = true
 		return
 	}
+
 	advanced := false
 
 	for docId > s.blockEntries[s.blockEntryIdx].MaxId && s.blockEntryIdx < len(s.blockEntries)-1 {
@@ -299,12 +306,27 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 
 	for docId > s.idPointer && s.blockDataIdx < s.blockDataSize-1 {
 		s.blockDataIdx++
-		s.idPointer = s.blockData[s.blockDataIdx].Id
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
 }
 
-func (s *SegmentBlockMax) Next() (terms.DocPointerWithScore, error) {
-	return terms.DocPointerWithScore{}, nil
+func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
+	if s.exhausted {
+		return
+	}
+
+	for docId > s.blockEntries[s.blockEntryIdx].MaxId && s.blockEntryIdx < len(s.blockEntries)-1 {
+		s.blockEntryIdx++
+		s.blockDataIdx = 0
+		s.decoded = false
+		s.freqDecoded = false
+	}
+
+	if s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId {
+		s.idPointer = math.MaxUint64
+		s.exhausted = true
+		return
+	}
 }
 
 func (s *SegmentBlockMax) Idf() float64 {
@@ -327,29 +349,57 @@ func (s *SegmentBlockMax) QueryTermIndex() int {
 	return s.queryTermIndex
 }
 
-func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, *terms.DocPointerWithScore) {
+func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
 	}
 
-	pair := s.blockData[s.blockDataIdx]
+	if !s.freqDecoded {
+		decodeTfReusable(s.blockDataSize, s.blockDataEncoded, s.blockDataDecoded)
+		s.freqDecoded = true
+	}
 
-	id := pair.Id
-	freq := float64(pair.Frequency)
-	propLength := s.segment.propertyLenghts[pair.Id]
+	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
+	propLength := s.segment.propertyLenghts[s.blockDataDecoded.DocIds[s.blockDataIdx]]
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(propLength)/averagePropLength))
+	s.Metrics.DocCountAdded++
+	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
+		s.Metrics.BlockCountAdded++
+		s.Metrics.LastAddedBlock = s.blockEntryIdx
+	}
+
+	return s.idPointer, tf * s.idf, nil
+}
+
+func (s *SegmentBlockMax) Advance() {
+	if s.exhausted {
+		return
+	}
+
+	if !s.decoded {
+		s.decodeBlock()
+		s.decoded = true
+		return
+
+	}
 
 	s.blockDataIdx++
 	if s.blockDataIdx >= s.blockDataSize {
-		s.blockDataIdx = 0
 		s.blockEntryIdx++
+		s.blockDataIdx = 0
 		s.decodeBlock()
+		if s.exhausted {
+			s.idPointer = math.MaxUint64
+			return
+		}
 	}
-	if s.exhausted {
-		s.idPointer = math.MaxUint64
-	} else {
-		s.idPointer = s.blockData[s.blockDataIdx].Id
-	}
+	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+}
 
-	return id, tf * s.idf, nil
+func (s *SegmentBlockMax) CurrentBlockImpact() float32 {
+	return s.blockEntries[s.blockEntryIdx].MaxImpact * float32(s.idf)
+}
+
+func (s *SegmentBlockMax) CurrentBlockMaxId() uint64 {
+	return s.blockEntries[s.blockEntryIdx].MaxId
 }

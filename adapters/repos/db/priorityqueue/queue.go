@@ -49,6 +49,22 @@ func NewMax[T supportedValueType](capacity int) *Queue[T] {
 	}
 }
 
+func (q *Queue[T]) ShouldEnqueue(distance float32, limit int) bool {
+	return q.Len() < limit || q.Top().Dist < distance
+}
+
+func (q *Queue[T]) InsertAndPop(id uint64, score float64, limit int, worstDist *float64, val T) {
+	q.InsertWithValue(id, float32(score), val)
+	for q.Len() > limit {
+		q.Pop()
+	}
+	// only update the worst distance when the queue is full, otherwise results can be missing if the first
+	// entry that is checked already has a very high score
+	if q.Len() >= limit {
+		*worstDist = float64(q.Top().Dist)
+	}
+}
+
 // Pop removes the next item in the queue and returns it
 func (q *Queue[T]) Pop() Item[T] {
 	out := q.items[0]
