@@ -283,7 +283,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
-    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors/named_vectors_singlenode_tests'); do
+    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
       if ! go test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
@@ -296,7 +296,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
-    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors/named_vectors_cluster_tests'); do
+    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
       if ! go test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
