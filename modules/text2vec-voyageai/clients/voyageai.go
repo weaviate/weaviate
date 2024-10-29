@@ -45,6 +45,7 @@ type embeddingsResponse struct {
 	Data   []embeddingsDataResponse `json:"data,omitempty"`
 	Model  string                   `json:"model,omitempty"`
 	Detail string                   `json:"detail,omitempty"`
+	Usage  *modulecomponents.Usage  `json:"usage,omitempty"`
 }
 
 type vectorizer struct {
@@ -75,22 +76,23 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
-	return res, nil, err
+	res, usage, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	return res, nil, usage, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	res, _, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	return res, err
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model string, truncate bool, baseURL string, inputType inputType,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, int, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Input:      input,
 		Model:      model,
@@ -98,47 +100,47 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		InputType:  inputType,
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+		return nil, 0, errors.Wrapf(err, "marshal body")
 	}
 
 	url := v.getVoyageAIUrl(ctx, baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, 0, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "VoyageAI API Key")
+		return nil, 0, errors.Wrapf(err, "VoyageAI API Key")
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, 0, errors.Wrap(err, "read response body")
 	}
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 {
 		if resBody.Detail != "" {
 			errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "connection to VoyageAI failed with status: %d error: %v")
-			return nil, errors.Errorf(errorMessage)
+			return nil, 0, errors.Errorf(errorMessage)
 		}
 		errorMessage := getErrorMessage(res.StatusCode, "", "connection to VoyageAI failed with status: %d")
-		return nil, errors.Errorf(errorMessage)
+		return nil, 0, errors.Errorf(errorMessage)
 	}
 
 	if len(resBody.Data) == 0 || len(resBody.Data[0].Embeddings) == 0 {
-		return nil, errors.Errorf("empty embeddings response")
+		return nil, 0, errors.Errorf("empty embeddings response")
 	}
 
 	vectors := make([][]float32, len(resBody.Data))
@@ -150,7 +152,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		Text:       input,
 		Dimensions: len(resBody.Data[0].Embeddings),
 		Vector:     vectors,
-	}, nil
+	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
 func (v *vectorizer) getVoyageAIUrl(ctx context.Context, baseURL string) string {
@@ -224,3 +226,7 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		BaseURL:  settings.BaseURL(),
 	}
 }
+
+func (v *vectorizer) HasTokenLimit() bool { return true }
+
+func (v *vectorizer) ReturnsRateLimit() bool { return false }

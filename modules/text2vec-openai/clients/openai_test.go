@@ -127,7 +127,7 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -144,7 +144,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -161,7 +161,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			fakeClassConfig{})
 
 		require.NotNil(t, err)
@@ -180,7 +180,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			fakeClassConfig{})
 
 		require.NotNil(t, err)
@@ -204,7 +204,7 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.Nil(t, err)
@@ -222,7 +222,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -241,7 +241,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{""})
 
-		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.NotNil(t, err)
