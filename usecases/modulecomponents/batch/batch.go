@@ -145,6 +145,8 @@ func (b *Batch) batchWorker() {
 		startProcessingTime := time.Now()
 
 		// check if we already have rate limits for the current api key and reuse them if possible
+		// Note that the rateLimit is a pointer and should only be updated in place and not replaced with a new object
+		//  as otherwise any changes are lost
 		rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
 		if !ok {
 			rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
@@ -245,7 +247,9 @@ rateLimitLoop:
 	for {
 		select {
 		case rateLimitEntry := <-b.rateLimitChannel:
-			rateLimits[rateLimitEntry.apiKeyHash] = rateLimitEntry.rateLimit
+			old := rateLimits[rateLimitEntry.apiKeyHash]
+			old.UpdateWithRateLimit(rateLimitEntry.rateLimit)
+			rateLimits[rateLimitEntry.apiKeyHash] = old
 		default:
 			break rateLimitLoop
 		}
@@ -427,12 +431,7 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		}
 	}
 	if rateLimitNew != nil {
-		rateLimit.LimitRequests = rateLimitNew.LimitRequests
-		rateLimit.LimitTokens = rateLimitNew.LimitTokens
-		rateLimit.ResetRequests = rateLimitNew.ResetRequests
-		rateLimit.ResetTokens = rateLimitNew.ResetTokens
-		rateLimit.RemainingRequests = rateLimitNew.RemainingRequests
-		rateLimit.RemainingTokens = rateLimitNew.RemainingTokens
+		rateLimit.UpdateWithRateLimit(rateLimitNew)
 		b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}
 	} else {
 		rateLimit.ResetAfterRequestFunction(tokensInCurrentBatch)
