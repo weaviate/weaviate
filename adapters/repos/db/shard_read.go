@@ -325,7 +325,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	beforeVector := time.Now()
 	if limit < 0 {
 		ids, dists, err = queue.SearchByVectorDistance(
-			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+			ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
 			// This should normally not fail. A failure here could indicate that more
 			// attention is required, for example because data is corrupted. That's
@@ -336,7 +336,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 			return nil, nil, err
 		}
 	} else {
-		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = queue.SearchByVector(ctx, searchVector, limit, allowList)
 		if err != nil {
 			// This should normally not fail. A failure here could indicate that more
 			// attention is required, for example because data is corrupted. That's
