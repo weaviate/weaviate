@@ -418,8 +418,8 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 	size := len(h.nodes)
 	h.RUnlock()
 
-	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
-	ctx, cancel := context.WithCancel(ctx)
+	g, shutdownContext := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
+	shutdownContext, cancel := context.WithCancel(shutdownContext)
 	defer cancel()
 	ch := make(chan uint64)
 	var cancelled atomic.Bool
@@ -433,7 +433,7 @@ func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.Allow
 					return nil
 				}
 				select {
-				case <-ctx.Done():
+				case <-shutdownContext.Done():
 					return nil
 				case deletedID, ok := <-ch:
 					if !ok {
@@ -483,7 +483,7 @@ LOOP:
 				}).
 					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
 			}
-		case <-ctx.Done():
+		case <-shutdownContext.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
 			// now valid to wait for a cancelation – even if a panic occurs.
