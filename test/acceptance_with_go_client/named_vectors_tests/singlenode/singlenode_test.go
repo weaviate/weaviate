@@ -15,11 +15,11 @@ import (
 	"context"
 	"testing"
 
+	test_suits "acceptance_tests_with_client/named_vectors_tests/test_suits"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
-	named_vectors_tests_util "acceptance_tests_with_client/named_vectors_tests"
 )
-
 
 func TestNamedVectors_SingleNode(t *testing.T) {
 	ctx := context.Background()
@@ -29,8 +29,8 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", named_vectors_tests_util.AllTests(endpoint))
-	t.Run("legacy tests", named_vectors_tests_util.AllLegacyTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
@@ -41,8 +41,8 @@ func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", named_vectors_tests_util.AllTests(endpoint))
-	t.Run("legacy tests", named_vectors_tests_util.AllLegacyTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_Restart(t *testing.T) {
@@ -52,18 +52,18 @@ func TestNamedVectors_SingleNode_Restart(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	t.Run("restart", named_vectors_tests_util.TestRestart(compose))
+	t.Run("restart", test_suits.TestRestart(compose))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
-	compose, err = named_vectors_tests_util.ComposeModules().
+	compose, err = test_suits.ComposeModules().
 		WithWeaviate().
 		Start(ctx)
 	return
 }
 
 func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
-	compose, err = named_vectors_tests_util.ComposeModules().
+	compose, err = test_suits.ComposeModules().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviate().
 		Start(ctx)
