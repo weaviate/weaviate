@@ -151,19 +151,19 @@ func (f *fakeScaleOutManager) SetSchemaReader(sr scaler.SchemaReader) {
 
 type fakeValidator struct{}
 
-func (f *fakeValidator) ValidateVectorIndexConfigUpdate(
+func (f fakeValidator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
 
-func (f *fakeValidator) ValidateInvertedIndexConfigUpdate(
+func (f fakeValidator) ValidateInvertedIndexConfigUpdate(
 	old, updated *models.InvertedIndexConfig,
 ) error {
 	return nil
 }
 
-func (*fakeValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
+func (fakeValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
