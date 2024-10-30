@@ -186,13 +186,13 @@ func calcCPUs(cpuString string) (int, error) {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
-	appState := startupRoutine(ctx, options)
-
 	build.Version = parseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
 	// config.ServerVersion is deprecated: It's there to be backward compatible
 	// use build.Version instead.
 	config.ServerVersion = build.Version
+
+	appState := startupRoutine(ctx, options)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity = tenantactivity.NewHandler()
@@ -788,22 +788,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 // Defaults to log level info and json format
 func logger() *logrus.Logger {
 	logger := logrus.New()
-	logger.SetFormatter(&WeaviateTextFormatter{
-		build.Revision,
-		build.Version,
-		config.ServerVersion,
-		goruntime.Version(),
-		&logrus.TextFormatter{},
-	})
+	logger.SetFormatter(NewWeaviateTextFormatter())
 
 	if os.Getenv("LOG_FORMAT") != "text" {
-		logger.SetFormatter(&WeaviateJSONFormatter{
-			build.Revision,
-			build.Version,
-			config.ServerVersion,
-			goruntime.Version(),
-			&logrus.JSONFormatter{},
-		})
+		logger.SetFormatter(NewWeaviateJSONFormatter())
 	}
 	switch os.Getenv("LOG_LEVEL") {
 	case "panic":

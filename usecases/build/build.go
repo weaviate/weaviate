@@ -41,6 +41,10 @@ var (
 	GoVersion string
 )
 
+func init() {
+	GoVersion = runtime.Version()
+}
+
 const (
 	AppName = "weaviate"
 )
@@ -51,5 +55,5 @@ func SetPrometheusBuildInfo() {
 	version.Branch = Branch
 	version.BuildUser = BuildUser
 	version.BuildDate = BuildDate
-	version.GoVersion = runtime.Version()
+	version.GoVersion = GoVersion
 }
