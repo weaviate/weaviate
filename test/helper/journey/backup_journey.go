@@ -112,8 +112,9 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 					require.NotNil(t, resp.Payload)
 					require.NotNil(t, resp.Payload.Status)
 					assert.Equal(t, backupID, resp.Payload.ID)
-					assert.Equal(t, className, resp.Payload.Classes[0])
-					assert.Equal()
+					assert.Equal(t, backend, resp.Payload.Backend)
+					assert.Contains(t, resp.Payload.Path, overrideBucket)
+					assert.Contains(t, resp.Payload.Path, overridePath)
 				})
 
 				if *resp.Payload.Status == string(backup.Success) {
@@ -129,6 +130,10 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
 			require.NotNil(t, statusResp.Payload.Status)
+			assert.Equal(t, backupID, resp.Payload.ID)
+			assert.Equal(t, backend, resp.Payload.Backend)
+			assert.Contains(t, resp.Payload.Path, overrideBucket)
+			assert.Contains(t, resp.Payload.Path, overridePath)
 		})
 
 		require.Equal(t, *statusResp.Payload.Status,
@@ -149,8 +154,12 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		}
 
 		t.Logf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
-		_, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
+		resp, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
+		assert.Equal(t, backupID, resp.Payload.ID)
+		assert.Equal(t, backend, resp.Payload.Backend)
+		assert.Contains(t, resp.Payload.Path, overrideBucket)
+		assert.Contains(t, resp.Payload.Path, overridePath)
 
 		// wait for restore success
 		ticker := time.NewTicker(90 * time.Second)
@@ -165,6 +174,10 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 					require.NotNil(t, resp)
 					require.NotNil(t, resp.Payload)
 					require.NotNil(t, resp.Payload.Status)
+					assert.Equal(t, backupID, resp.Payload.ID)
+					assert.Equal(t, backend, resp.Payload.Backend)
+					assert.Contains(t, resp.Payload.Path, overrideBucket)
+					assert.Contains(t, resp.Payload.Path, overridePath)
 				})
 
 				if *resp.Payload.Status == string(backup.Success) {
@@ -179,6 +192,10 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
 			require.NotNil(t, statusResp.Payload.Status)
+			assert.Equal(t, backupID, resp.Payload.ID)
+			assert.Equal(t, backend, resp.Payload.Backend)
+			assert.Contains(t, resp.Payload.Path, overrideBucket)
+			assert.Contains(t, resp.Payload.Path, overridePath)
 		})
 
 		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
