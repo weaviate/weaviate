@@ -88,11 +88,19 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	}
 	c.rateLimit.LastOverwrite = time.Now()
 	return &modulecomponents.VectorizationResult{
-		Vector:     vectors,
-		Dimensions: 4,
-		Text:       text,
-		Errors:     errors,
-	}, c.rateLimit, reqError
+			Vector:     vectors,
+			Dimensions: 4,
+			Text:       text,
+			Errors:     errors,
+		}, &modulecomponents.RateLimits{
+			LastOverwrite:     c.rateLimit.LastOverwrite,
+			RemainingTokens:   c.rateLimit.RemainingTokens,
+			RemainingRequests: c.rateLimit.RemainingRequests,
+			LimitTokens:       c.rateLimit.LimitTokens,
+			ResetTokens:       c.rateLimit.ResetTokens,
+			ResetRequests:     c.rateLimit.ResetRequests,
+			LimitRequests:     c.rateLimit.LimitRequests,
+		}, reqError
 }
 
 func (c *fakeBatchClientWithRL) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
