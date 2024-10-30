@@ -89,7 +89,7 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 ) (*ent.VectorizationResult, error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if resBody.Error != "" {
