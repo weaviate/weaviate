@@ -15,9 +15,10 @@ import (
 	"context"
 	"testing"
 
+	test_suits "acceptance_tests_with_client/named_vectors_tests/test_suits"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
-	named_vectors_tests_util "acceptance_tests_with_client/named_vectors_tests"
 )
 
 func TestNamedVectors_Cluster(t *testing.T) {
@@ -28,8 +29,8 @@ func TestNamedVectors_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", named_vectors_tests_util.AllTests(endpoint))
-	t.Run("legacy tests", named_vectors_tests_util.AllLegacyTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
 func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
@@ -40,19 +41,19 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", named_vectors_tests_util.AllTests(endpoint))
-	t.Run("legacy tests", named_vectors_tests_util.AllLegacyTests(endpoint))
+	t.Run("tests", test_suits.AllTests(endpoint))
+	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
-	compose, err = named_vectors_tests_util.ComposeModules().
+	compose, err = test_suits.ComposeModules().
 		WithWeaviateCluster().
 		Start(ctx)
 	return
 }
 
 func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
-	compose, err = named_vectors_tests_util.ComposeModules().
+	compose, err = test_suits.ComposeModules().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateCluster().
 		Start(ctx)
