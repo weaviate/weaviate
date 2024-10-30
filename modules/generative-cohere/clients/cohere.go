@@ -113,7 +113,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 {
