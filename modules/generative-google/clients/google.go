@@ -230,7 +230,7 @@ func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -305,7 +305,7 @@ func (v *google) getDebugInformation(debug bool, prompt string) *modulecapabilit
 func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateContentResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
@@ -334,7 +334,7 @@ func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte, 
 func (v *google) parseResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
