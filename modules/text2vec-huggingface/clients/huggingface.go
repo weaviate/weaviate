@@ -195,7 +195,7 @@ func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, []error, error
 		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
 			var embBert embeddingBert
 			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-				return nil, nil, errors.Wrap(err, "unmarshal response body")
+				return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 			}
 
 			if len(embBert) == 1 && len(embBert[0]) > 0 {

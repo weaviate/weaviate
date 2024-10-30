@@ -41,6 +41,8 @@ type Config struct {
 	// metadata for monitoring
 	ShardName string
 	ClassName string
+
+	VisitedListPoolMaxSize int
 }
 
 func (c Config) Validate() error {

@@ -156,9 +156,9 @@ type ShardLike interface {
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
-	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
-	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
-	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
+	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
+	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
+	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
