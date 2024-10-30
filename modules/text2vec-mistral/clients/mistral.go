@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -51,12 +53,15 @@ type vectorizer struct {
 	apiKey     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
+	// Mistral has a requests per second limit, but tokens limits are per minute. As all other vectorizers have
+	// a per minute limit we will handle this special behaviour in here and not add it to the shared logic
+	rateLimiterPerSecond *rate.Limiter
 }
 
 // info from mistral devs
 const (
 	defaultRPM = 300 // 5 req per second
-	defaultTPM = 2000000
+	defaultTPM = 20_000_000
 )
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
@@ -71,6 +76,13 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+	if v.rateLimiterPerSecond != nil {
+		err := v.rateLimiterPerSecond.Wait(ctx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+	}
+
 	config := v.getVectorizationConfig(cfg)
 	res, usage, err := v.vectorize(ctx, input, config.Model, config.BaseURL)
 	return res, nil, usage, err
@@ -176,6 +188,10 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassCon
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Mistral", defaultRPM, defaultTPM)
+	rps := rpm / 60
+	// use a bit less than theoretically possible to not run into the rate limit
+	v.rateLimiterPerSecond = rate.NewLimiter(rate.Limit(rps)-1.5, max(rps-3, 1))
+
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {

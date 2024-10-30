@@ -455,7 +455,6 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		}
 		rateLimit.ResetAfterRequestFunction(tokensInCurrentBatch)
 	}
-
 	return tokensUsed, err
 }
 
