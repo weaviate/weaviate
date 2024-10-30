@@ -26,24 +26,24 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) findAndConnectNeighbors(node *vertex,
+func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, false)
 
-	return nfc.Do()
+	return nfc.Do(ctx)
 }
 
-func (h *hnsw) reconnectNeighboursOf(node *vertex,
+func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, true)
 
-	return nfc.Do()
+	return nfc.Do(ctx)
 }
 
 type neighborFinderConnector struct {
@@ -79,9 +79,9 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	}
 }
 
-func (n *neighborFinderConnector) Do() error {
+func (n *neighborFinderConnector) Do(ctx context.Context) error {
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
-		err := n.doAtLevel(level)
+		err := n.doAtLevel(ctx, level)
 		if err != nil {
 			return errors.Wrapf(err, "at level %d", level)
 		}
@@ -192,7 +192,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	return nil
 }
 
-func (n *neighborFinderConnector) doAtLevel(level int) error {
+func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) error {
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
@@ -247,7 +247,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		eps.Insert(n.entryPointID, n.entryPointDist)
 		var err error
 
-		results, err = n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
 			level, nil, n.distancer)
 		if err != nil {
 			return errors.Wrapf(err, "search layer at level %d", level)
