@@ -281,7 +281,7 @@ func (a *API) vectorSearch(
 	// Currently `SearchByVectorDistance` api takes limit via `newSearchByDistParams(maxLimit)` which caller
 	// don't have control too.
 	certainty := 1 - threshold
-	matched_ids, distance, err := index.SearchByVectorDistance(vectors, certainty, int64(limit), nil)
+	matched_ids, distance, err := index.SearchByVectorDistance(ctx, vectors, certainty, int64(limit), nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to search by vector: %w", err)
 	}
