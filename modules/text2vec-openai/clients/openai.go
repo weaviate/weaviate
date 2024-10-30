@@ -178,7 +178,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, errors.Wrap(err, "unmarshal response body")
+		return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
