@@ -94,7 +94,6 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
-	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -843,7 +842,7 @@ func registerModules(appState *state.State) error {
 		modhuggingface.Name,
 		modjinaai.Name,
 		modmistral.Name,
-		modoctoai.Name,
+		modtext2vecoctoai.Name,
 		modopenai.Name,
 		modvoyageai.Name,
 	}
