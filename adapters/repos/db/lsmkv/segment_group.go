@@ -232,7 +232,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
 			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete file already marked for deletion %q: %w", entry.Name(), err)
+				// don't abort if the delete fails, we can still continue (albeit
+				// without freeing disk space that should have been freed)
+				sg.logger.WithError(err).WithFields(logrus.Fields{
+					"action": "lsm_segment_init_deleted_previously_marked_files",
+					"file":   entry.Name(),
+				}).Error("failed to delete file already marked for deletion")
 			}
 			continue
 

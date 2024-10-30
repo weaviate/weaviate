@@ -334,7 +334,18 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
 
-	return sg.deleteOldSegmentsNonBlocking(oldL, oldR)
+	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
+		// don't abort if the delete fails, we can still continue (albeit
+		// without freeing disk space that should have been freed). The
+		// compaction itself was successful.
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  oldL.path,
+			"file_right": oldL.path,
+		}).Error("failed to delete file already marked for deletion")
+	}
+
+	return nil
 }
 
 const replaceSegmentWarnThreshold = 300 * time.Millisecond
