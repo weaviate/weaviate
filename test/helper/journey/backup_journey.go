@@ -88,6 +88,11 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 
 		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
+		assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
+		assert.Equal(t, cfg.Path, resp.Payload.Path)
+		assert.Equal(t, backupID, resp.Payload.ID)
+		assert.Equal(t, className, resp.Payload.Classes[0])
+		assert.Nil(t, resp.Payload.Error)
 
 		// wait for create success
 		ticker := time.NewTicker(90 * time.Second)
