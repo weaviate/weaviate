@@ -13,6 +13,8 @@ package queue
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -23,7 +25,6 @@ import (
 )
 
 func TestScheduler(t *testing.T) {
-	logger := newTestLogger(t)
 	t.Run("start and close", func(t *testing.T) {
 		s := makeScheduler(t)
 		s.Start()
@@ -54,11 +55,9 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		ch, e := streamExecutor()
-		q, err := New(s, logger, "test", t.TempDir(), e)
-		require.NoError(t, err)
+		q := makeQueue(t, s, e)
 
-		err = q.Push(1, 100, 200, 300)
-		require.NoError(t, err)
+		pushMany(t, q, 1, 100, 200, 300)
 
 		require.EqualValues(t, 100, <-ch)
 		require.EqualValues(t, 200, <-ch)
@@ -66,8 +65,7 @@ func TestScheduler(t *testing.T) {
 
 		s.PauseQueue(q.ID())
 
-		err = q.Push(1, 400, 500, 600)
-		require.NoError(t, err)
+		pushMany(t, q, 1, 400, 500, 600)
 
 		select {
 		case <-ch:
@@ -81,7 +79,7 @@ func TestScheduler(t *testing.T) {
 		require.EqualValues(t, 500, <-ch)
 		require.EqualValues(t, 600, <-ch)
 
-		err = q.Close()
+		err := q.Close()
 		require.NoError(t, err)
 	})
 
@@ -90,12 +88,9 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		ch, e := streamExecutor()
-		dir := t.TempDir()
-		q, err := New(s, logger, "test", dir, e)
-		require.NoError(t, err)
+		q := makeQueue(t, s, e)
 
-		err = q.Push(1, 100, 200, 300)
-		require.NoError(t, err)
+		pushMany(t, q, 1, 100, 200, 300)
 
 		res := make([]uint64, 3)
 		res[0] = <-ch
@@ -106,7 +101,7 @@ func TestScheduler(t *testing.T) {
 
 		time.Sleep(100 * time.Millisecond)
 
-		entries, err := os.ReadDir(dir)
+		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 0)
 
@@ -119,11 +114,9 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		ch, e := streamExecutor()
-		dir := t.TempDir()
-		q, err := New(s, logger, "test", dir, e)
-		require.NoError(t, err)
+		q := makeQueue(t, s, e)
 		// override chunk size for testing
-		q.enc.chunkSize = 9000
+		q.chunkSize = 9000
 
 		// consume the channel in a separate goroutine
 		var res []uint64
@@ -139,8 +132,7 @@ func TestScheduler(t *testing.T) {
 				batch = append(batch, uint64(i*1000+j))
 			}
 
-			err = q.Push(1, batch...)
-			require.NoError(t, err)
+			pushMany(t, q, 1, batch...)
 		}
 
 		for i := 0; i < 10; i++ {
@@ -158,7 +150,7 @@ func TestScheduler(t *testing.T) {
 			require.EqualValues(t, i, res[i])
 		}
 
-		entries, err := os.ReadDir(dir)
+		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 0)
 
@@ -172,20 +164,17 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		_, e := streamExecutor()
-		dir := t.TempDir()
-		q, err := New(s, logger, "test", dir, e)
-		require.NoError(t, err)
+		q := makeQueue(t, s, e)
 		// override chunk size for testing
-		q.enc.chunkSize = 90
+		q.chunkSize = 90
 
 		var batch []uint64
 		for i := 0; i < 11; i++ {
 			batch = append(batch, uint64(i))
 		}
-		err = q.Push(1, batch...)
-		require.NoError(t, err)
+		pushMany(t, q, 1, batch...)
 
-		entries, err := os.ReadDir(dir)
+		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 		require.NotEqual(t, "chunk.bin.partial", entries[0].Name())
@@ -201,18 +190,15 @@ func TestScheduler(t *testing.T) {
 		s.Start()
 
 		ch, e := streamExecutor()
-		dir := t.TempDir()
-		q, err := New(s, logger, "test", dir, e)
-		require.NoError(t, err)
+		q := makeQueue(t, s, e)
 
 		var batch []uint64
 		for i := 0; i < 10; i++ {
 			batch = append(batch, uint64(i))
 		}
-		err = q.Push(1, batch...)
-		require.NoError(t, err)
+		pushMany(t, q, 1, batch...)
 
-		entries, err := os.ReadDir(dir)
+		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 		require.Equal(t, "chunk.bin.partial", entries[0].Name())
@@ -241,35 +227,108 @@ func makeScheduler(t *testing.T, workers ...int) *Scheduler {
 
 	return NewScheduler(SchedulerOptions{
 		Logger:           logger,
-		Workers:          makeWorkers(t, logger, w),
+		Workers:          w,
 		ScheduleInterval: 50 * time.Millisecond,
 		StaleTimeout:     500 * time.Millisecond,
 	})
 }
 
-func makeWorkers(t *testing.T, logger logrus.FieldLogger, n int) []chan Batch {
+func makeQueueSize(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize uint64) *DiskQueue {
 	t.Helper()
 
-	chans := make([]chan Batch, n)
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
 
-	for i := range chans {
-		w, ch := NewWorker(logger, 1*time.Second)
-		chans[i] = ch
+	dir := t.TempDir()
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          dir,
+		TaskDecoder:  decoder,
+		StaleTimeout: 500 * time.Millisecond,
+		ChunkSize:    chunkSize,
+	})
+	require.NoError(t, err)
 
-		go w.Run()
-	}
+	s.RegisterQueue(q)
 
-	return chans
+	return q
 }
 
-func streamExecutor() (chan uint64, TaskExecutor) {
+func makeQueue(t *testing.T, s *Scheduler, decoder TaskDecoder) *DiskQueue {
+	return makeQueueSize(t, s, decoder, 0)
+}
+
+func makeRecord(op uint8, id uint64) []byte {
+	buf := make([]byte, 9)
+	buf[0] = op
+	binary.BigEndian.PutUint64(buf[1:], id)
+	return buf
+}
+
+func pushMany(t testing.TB, q *DiskQueue, op uint8, ids ...uint64) {
+	for _, id := range ids {
+		err := q.Push(makeRecord(op, id))
+		require.NoError(t, err)
+	}
+
+	err := q.Flush()
+	require.NoError(t, err)
+}
+
+func streamExecutor() (chan uint64, *mockTaskDecoder) {
 	ch := make(chan uint64)
 
-	return ch, TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
-		for _, key := range keys {
-			ch <- key
-		}
+	return ch, &mockTaskDecoder{
+		execFn: func(ctx context.Context, t *mockTask) error {
+			ch <- t.key
+			return nil
+		},
+	}
+}
 
-		return nil
-	})
+func discardExecutor() *mockTaskDecoder {
+	return &mockTaskDecoder{
+		execFn: func(ctx context.Context, t *mockTask) error {
+			return nil
+		},
+	}
+}
+
+type mockTaskDecoder struct {
+	execFn func(context.Context, *mockTask) error
+}
+
+func (m *mockTaskDecoder) DecodeTask(data []byte) (Task, error) {
+	t := mockTask{
+		op:  data[0],
+		key: binary.BigEndian.Uint64(data[1:]),
+	}
+
+	fmt.Println("Decoded task", t.op, t.key)
+
+	t.execFn = func(ctx context.Context) error {
+		return m.execFn(ctx, &t)
+	}
+
+	return &t, nil
+}
+
+type mockTask struct {
+	op     uint8
+	key    uint64
+	execFn func(context.Context) error
+}
+
+func (m *mockTask) Op() uint8 {
+	return m.op
+}
+
+func (m *mockTask) Key() uint64 {
+	return m.key
+}
+
+func (m *mockTask) Execute(ctx context.Context) error {
+	return m.execFn(ctx)
 }
