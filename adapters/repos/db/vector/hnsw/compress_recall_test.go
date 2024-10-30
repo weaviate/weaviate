@@ -42,6 +42,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 }
 
 func Test_NoRaceCompressionRecall(t *testing.T) {
+	ctx := context.Background()
 	path := t.TempDir()
 
 	efConstruction := 64
@@ -100,7 +101,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		init := time.Now()
 		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
-			index.Add(id, vectors[id])
+			index.Add(ctx, id, vectors[id])
 		})
 		before = time.Now()
 		fmt.Println("Start compressing...")
@@ -123,7 +124,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			var querying time.Duration = 0
 			compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 				before = time.Now()
-				results, _, _ := index.SearchByVector(queries[i], k, nil)
+				results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
 				querying += time.Since(before)
 				retrieved += k
 				relevant += testinghelpers.MatchesInLists(truths[i], results)
