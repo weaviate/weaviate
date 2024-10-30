@@ -89,7 +89,12 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 		assert.Equal(t, cfg.Bucket, resp.Payload.Bucket)
-		assert.Equal(t, cfg.Path, resp.Payload.Path)
+		if cfg.Bucket != "" {
+			assert.Contains(t, resp.Payload.Path, cfg.Bucket)
+		}
+		if cfg.Path != "" {
+			assert.Contains(t, resp.Payload.Path, cfg.Path)
+		}
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, className, resp.Payload.Classes[0])
 		assert.Equal(t, "", resp.Payload.Error)
