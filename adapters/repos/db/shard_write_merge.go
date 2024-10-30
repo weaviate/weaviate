@@ -75,17 +75,17 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range obj.Vectors {
-			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
 	} else {
-		if err := s.updateVectorIndex(obj.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(obj, status); err != nil {
+	if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
