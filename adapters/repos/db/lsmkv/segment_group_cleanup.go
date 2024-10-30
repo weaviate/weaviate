@@ -529,13 +529,30 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
 
+	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, precomputedFiles)
+	if err != nil {
+		return nil, fmt.Errorf("replace segment (blocking): %w", err)
+	}
+
+	if err := sg.deleteOldSegmentsNonBlocking(oldSegment); err != nil {
+		return nil, fmt.Errorf("delete old segments (non-blocking): %w", err)
+	}
+
+	return newSegment, nil
+}
+
+func (sg *SegmentGroup) replaceSegmentBlocking(
+	segmentIdx int, oldSegment *segment, precomputedFiles []string,
+) (*segment, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
+
+	start := time.Now()
 
 	if err := oldSegment.close(); err != nil {
 		return nil, fmt.Errorf("close disk segment %q: %w", oldSegment.path, err)
 	}
-	if err := oldSegment.drop(); err != nil {
+	if err := oldSegment.markForDeletion(); err != nil {
 		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
 	}
 	if err := fsync(sg.dir); err != nil {
@@ -565,5 +582,27 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	}
 
 	sg.segments[segmentIdx] = newSegment
+
+	sg.observeReplaceDuration(start, segmentIdx, oldSegment, newSegment)
 	return newSegment, nil
+}
+
+func (sg *SegmentGroup) observeReplaceDuration(
+	start time.Time, segmentIdx int, oldSegment, newSegment *segment,
+) {
+	// observe duration - warn if it took too long
+	took := time.Since(start)
+	fields := sg.logger.WithFields(logrus.Fields{
+		"action":        "lsm_replace_segment_blocking",
+		"segment_index": segmentIdx,
+		"path_old":      oldSegment.path,
+		"path_new":      newSegment.path,
+		"took":          took,
+	})
+	msg := fmt.Sprintf("replacing segment took %s", took)
+	if took > replaceSegmentWarnThreshold {
+		fields.Warn(msg)
+	} else {
+		fields.Debugf(msg)
+	}
 }

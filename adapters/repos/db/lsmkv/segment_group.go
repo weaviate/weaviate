@@ -200,7 +200,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = rightSegment.drop()
+			err = rightSegment.dropImmediately()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
