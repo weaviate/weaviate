@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -27,11 +28,15 @@ type fakeBatchClientWithRL struct {
 	defaultRPM       int
 	defaultTPM       int
 	rateLimit        *modulecomponents.RateLimits
+	sync.Mutex
 }
 
 func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	c.Lock()
+	defer c.Unlock()
+
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
