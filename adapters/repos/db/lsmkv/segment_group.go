@@ -229,6 +229,15 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	for _, entry := range list {
+		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
+			// marked for deletion, but never actually deleted. Delete now.
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("delete file already marked for deletion %q: %w", entry.Name(), err)
+			}
+			continue
+
+		}
+
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
