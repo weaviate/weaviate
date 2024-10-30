@@ -648,19 +648,19 @@ func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Buc
 	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }
 
-func (l *LazyLoadShard) updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error {
+func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
 	l.mustLoad()
-	return l.shard.updatePropertySpecificIndices(object, status)
+	return l.shard.updatePropertySpecificIndices(ctx, object, status)
 }
 
-func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error {
+func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error {
 	l.mustLoad()
-	return l.shard.updateVectorIndexIgnoreDelete(vector, status)
+	return l.shard.updateVectorIndexIgnoreDelete(ctx, vector, status)
 }
 
-func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error {
+func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error {
 	l.mustLoad()
-	return l.shard.updateVectorIndexesIgnoreDelete(vectors, status)
+	return l.shard.updateVectorIndexesIgnoreDelete(ctx, vectors, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {
