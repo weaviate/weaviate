@@ -341,7 +341,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.logger.WithError(err).WithFields(logrus.Fields{
 			"action":     "lsm_replace_compacted_segments_delete_files",
 			"file_left":  oldL.path,
-			"file_right": oldL.path,
+			"file_right": oldR.path,
 		}).Error("failed to delete file already marked for deletion")
 	}
 
