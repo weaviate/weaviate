@@ -93,6 +93,7 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 		assert.Equal(t, backupID, resp.Payload.ID)
 		assert.Equal(t, className, resp.Payload.Classes[0])
 		assert.Nil(t, resp.Payload.Error)
+		assert.Equal(t, string(backup.Started), *resp.Payload.Status)
 
 		// wait for create success
 		ticker := time.NewTicker(90 * time.Second)
@@ -110,6 +111,9 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 					require.NotNil(t, resp)
 					require.NotNil(t, resp.Payload)
 					require.NotNil(t, resp.Payload.Status)
+					assert.Equal(t, backupID, resp.Payload.ID)
+					assert.Equal(t, className, resp.Payload.Classes[0])
+					assert.Equal()
 				})
 
 				if *resp.Payload.Status == string(backup.Success) {
