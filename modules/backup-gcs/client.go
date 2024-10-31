@@ -101,7 +101,7 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) string {
 	if overridePath == "" && overrideBucket == "" {
 		return "gs://" + path.Join(g.config.Bucket,
-			              g.makeObjectName("",[]string{backupID}))
+			g.makeObjectName("", []string{backupID}))
 	} else {
 		return "gs://" + path.Join(overrideBucket,
 			g.makeObjectName(overridePath, []string{backupID}))

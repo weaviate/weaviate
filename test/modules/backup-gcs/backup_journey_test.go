@@ -39,11 +39,11 @@ const (
 
 func Test_BackupJourney(t *testing.T) {
 	tests := []struct {
-		name            string
-		overrideBucket  bool
-		bucket          string
-		bucketOverride  string
-		pathOverride    string
+		name           string
+		overrideBucket bool
+		bucket         string
+		bucketOverride string
+		pathOverride   string
 	}{
 		{
 			name:           "default backup",

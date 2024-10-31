@@ -112,7 +112,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			ID:      req.ID,
 			Backend: req.Backend,
 			Status:  &status,
-			Path:    st.Path,  //The HomeDir, not the override path
+			Path:    st.Path, // The HomeDir, not the override path
 			Bucket:  st.OverrideBucket,
 		}, nil
 	}

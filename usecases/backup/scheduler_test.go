@@ -94,6 +94,8 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      "",
 			Include: []string{cls},
+			Bucket:  overrideBucket,
+			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -103,6 +105,7 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      "A*:",
 			Include: []string{cls},
+			Bucket:  overrideBucket,
 		})
 		assert.NotNil(t, err)
 	})

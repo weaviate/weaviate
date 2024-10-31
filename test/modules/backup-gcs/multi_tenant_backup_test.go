@@ -62,10 +62,10 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 			multiTenantBackupJourneyStart(
 				t,
 				ctx,
-				tt.override,            // Apply override if true
-				tt.bucket,              // Primary bucket name
-				tt.overrideBucket,      // Override bucket name, if set
-				tt.overrideBucketPath,  // Override path, if set
+				tt.override,           // Apply override if true
+				tt.bucket,             // Primary bucket name
+				tt.overrideBucket,     // Override bucket name, if set
+				tt.overrideBucketPath, // Override path, if set
 			)
 		})
 	}
