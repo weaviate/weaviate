@@ -445,3 +445,48 @@ func Test_getModelString(t *testing.T) {
 		}
 	})
 }
+
+func TestPickDefaultModelVersion(t *testing.T) {
+	t.Run("ada with text", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "text")
+		assert.Equal(t, "002", version)
+	})
+
+	t.Run("ada with code", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "code")
+		assert.Equal(t, "001", version)
+	})
+
+	t.Run("with curie", func(t *testing.T) {
+		version := PickDefaultModelVersion("curie", "text")
+		assert.Equal(t, "001", version)
+	})
+}
+
+func TestClassSettings(t *testing.T) {
+	type testCase struct {
+		expectedBaseURL string
+		cfg             moduletools.ClassConfig
+	}
+	tests := []testCase{
+		{
+			cfg: fakeClassConfig{
+				classConfig: make(map[string]interface{}),
+			},
+			expectedBaseURL: DefaultBaseURL,
+		},
+		{
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL": "https://proxy.weaviate.dev",
+				},
+			},
+			expectedBaseURL: "https://proxy.weaviate.dev",
+		},
+	}
+
+	for _, tt := range tests {
+		ic := NewClassSettings(tt.cfg)
+		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
+	}
+}
