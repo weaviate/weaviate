@@ -601,10 +601,11 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 				res.Pop()
 			}
 		} else {
+			h.metrics.TrackRescoreError()
 			h.logger.
 				WithField("action", "rescore").
 				WithError(err).
-				Warnf("could not rescore node %d", id)
+				Debugf("could not rescore node %d", id)
 		}
 	}
 }

@@ -40,6 +40,7 @@ type Metrics struct {
 	tombstoneStart                prometheus.Gauge
 	tombstoneEnd                  prometheus.Gauge
 	tombstoneProgress             prometheus.Gauge
+	rescoreErrors                 prometheus.Counter
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -160,6 +161,11 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	rescoreErrors := prom.VectorRescoreErrors.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	return &Metrics{
 		enabled:                       true,
 		tombstones:                    tombstones,
@@ -182,6 +188,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneStart:                tombstoneStart,
 		tombstoneEnd:                  tombstoneEnd,
 		tombstoneProgress:             tombstoneProgress,
+		rescoreErrors:                 rescoreErrors,
 	}
 }
 
@@ -305,6 +312,14 @@ func (m *Metrics) DeleteVector() {
 	}
 
 	m.delete.Inc()
+}
+
+func (m *Metrics) TrackRescoreError() {
+	if !m.enabled {
+		return
+	}
+
+	m.rescoreErrors.Inc()
 }
 
 func (m *Metrics) SetSize(size int) {
