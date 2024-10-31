@@ -14,6 +14,8 @@ package text2vecbase
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/modules/text2vec-mistral/ent"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -22,9 +24,7 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-type tokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
-
-func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc tokenizerFuncType) *BatchVectorizer {
+func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer {
 	vec := &BatchVectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
@@ -57,7 +57,9 @@ func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg
 
 func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([][]float32, map[int]error) {
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
+	icheck := ent.NewClassSettings(cfg)
+
+	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, icheck, icheck.Model(), v.objectVectorizer)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
