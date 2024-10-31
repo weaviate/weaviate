@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package named_vectors_tests
+package test_suits
 
 import (
 	"context"
@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func allLegacyTests(endpoint string) func(t *testing.T) {
+func AllLegacyTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("[legacy vector] schema validation", testLegacySchemaValidation(endpoint))
 		t.Run("[legacy vector] create schema", testLegacyCreateSchema(endpoint))

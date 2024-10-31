@@ -25,7 +25,8 @@ function main() {
   run_module_except_offload_tests=false
   run_cleanup=false
   run_acceptance_go_client_only_fast=false
-  run_acceptance_go_client_named_vectors=false
+  run_acceptance_go_client_named_vectors_single_node=false
+  run_acceptance_go_client_named_vectors_cluster=false
   run_acceptance_lsmkv=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -38,7 +39,8 @@ function main() {
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
           --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast=true;;
-          --acceptance-go-client-named-vectors|-agnv) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors=true;;
+          --acceptance-go-client-named-vectors-single-node|-agnv) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors_single_node=true;;
+          --acceptance-go-client-named-vectors-cluster|-agnv) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_named_vectors_cluster=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
@@ -105,7 +107,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $only_acceptance
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -127,7 +129,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $run_all_tests || $only_acceptance 
+    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance 
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -236,9 +238,13 @@ function run_acceptance_tests() {
   echo "running acceptance go client only fast"
     run_acceptance_go_client_only_fast "$@"
   fi
-  if $run_acceptance_go_client_named_vectors || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
-  echo "running acceptance go client named vectors"
-    run_acceptance_go_client_named_vectors "$@"
+  if $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client named vectors for single node"
+    run_acceptance_go_client_named_vectors_single_node "$@"
+  fi
+  if $run_acceptance_go_client_named_vectors_cluster || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client named vectors for cluster"
+    run_acceptance_go_client_named_vectors_cluster "$@"
   fi
 }
 
@@ -278,11 +284,12 @@ function run_acceptance_go_client_only_fast() {
     done
     cd -
 }
-function run_acceptance_go_client_named_vectors() {
+
+function run_acceptance_go_client_named_vectors_single_node() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
-    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests'); do
+    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
       if ! go test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
@@ -290,6 +297,20 @@ function run_acceptance_go_client_named_vectors() {
     done
     cd -
 }
+
+function run_acceptance_go_client_named_vectors_cluster() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+    # tests with go client are in a separate package with its own dependencies to isolate them
+    cd 'test/acceptance_with_go_client'
+    for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
+      if ! go test -timeout=15m -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    cd -
+}
+
 function run_acceptance_graphql_tests() {
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -count 1 -race "$pkg"; then
