@@ -12,6 +12,7 @@
 package flat
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -59,6 +60,7 @@ func createTestVectors(n int) [][]float32 {
 }
 
 func TestFlatIndexIterate(t *testing.T) {
+	ctx := context.Background()
 	t.Run("should not run callback on empty index", func(t *testing.T) {
 		index := createTestIndex(t)
 		index.Iterate(func(id uint64) bool {
@@ -71,7 +73,7 @@ func TestFlatIndexIterate(t *testing.T) {
 		testVectors := createTestVectors(10)
 		index := createTestIndex(t)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
@@ -89,7 +91,7 @@ func TestFlatIndexIterate(t *testing.T) {
 		testVectors := createTestVectors(10)
 		index := createTestIndex(t)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
