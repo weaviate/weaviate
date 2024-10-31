@@ -28,7 +28,7 @@ type fakeBatchClient struct {
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -61,7 +61,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, rateLimit, nil
+	}, rateLimit, 0, nil
 }
 
 func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
@@ -82,6 +82,10 @@ func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.Cla
 	return [32]byte{}
 }
 
+func (v *fakeBatchClient) HasTokenLimit() bool { return false }
+
+func (v *fakeBatchClient) ReturnsRateLimit() bool { return false }
+
 type fakeClient struct {
 	lastInput  []string
 	lastConfig moduletools.ClassConfig
@@ -89,14 +93,14 @@ type fakeClient struct {
 
 func (c *fakeClient) Vectorize(ctx context.Context,
 	text []string, config moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	c.lastInput = text
 	c.lastConfig = config
 	return &modulecomponents.VectorizationResult{
 		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
 		Text:       text,
-	}, nil, nil
+	}, nil, 0, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
@@ -118,6 +122,10 @@ func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
+
+func (v *fakeClient) HasTokenLimit() bool { return false }
+
+func (v *fakeClient) ReturnsRateLimit() bool { return false }
 
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
