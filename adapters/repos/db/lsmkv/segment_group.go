@@ -200,7 +200,22 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = rightSegment.drop()
+			// https://github.com/weaviate/weaviate/pull/6128 introduces the ability
+			// to drop segments delayed by renaming them first and then dropping them
+			// later.
+			//
+			// The existing functionality (previously .drop) was renamed to
+			// .dropImmediately. We are keeping the old behavior in this mainly for
+			// backward compatbility, but also because the motivation behind the
+			// delayed deletion does not apply here:
+			//
+			// The new behavior is meant to split the deletion into two steps, to
+			// reduce the time that an expensive lock – which could block readers -
+			// is held. In this scenario, the segment has not been initialized yet,
+			// so there is no one we could be blocking.
+			//
+			// The total time is the same, so we can also just drop it immediately.
+			err = rightSegment.dropImmediately()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
@@ -229,6 +244,20 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	for _, entry := range list {
+		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
+			// marked for deletion, but never actually deleted. Delete now.
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				// don't abort if the delete fails, we can still continue (albeit
+				// without freeing disk space that should have been freed)
+				sg.logger.WithError(err).WithFields(logrus.Fields{
+					"action": "lsm_segment_init_deleted_previously_marked_files",
+					"file":   entry.Name(),
+				}).Error("failed to delete file already marked for deletion")
+			}
+			continue
+
+		}
+
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue

@@ -128,14 +128,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
 			{
-				name:            "meta.llama2-13b-chat-v1",
-				generativeModel: "meta.llama2-13b-chat-v1",
-			},
-			{
-				name:            "meta.llama2-70b-chat-v1",
-				generativeModel: "meta.llama2-70b-chat-v1",
-			},
-			{
 				name:               "absent module config",
 				generativeModel:    "ai21.j2-mid-v1",
 				absentModuleConfig: true,

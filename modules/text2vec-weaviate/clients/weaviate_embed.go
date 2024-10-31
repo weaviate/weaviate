@@ -139,7 +139,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if len(resBody.Embeddings) == 0 {
