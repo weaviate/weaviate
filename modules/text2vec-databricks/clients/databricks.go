@@ -70,9 +70,10 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config)
+	res, limits, err := v.vectorize(ctx, input, config)
+	return res, limits, 0, err
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
@@ -222,3 +223,7 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		Instruction: settings.Instruction(),
 	}
 }
+
+func (v *client) HasTokenLimit() bool { return false }
+
+func (v *client) ReturnsRateLimit() bool { return false }

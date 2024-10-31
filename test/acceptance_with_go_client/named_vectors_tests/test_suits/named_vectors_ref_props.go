@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package named_vectors_tests
+package test_suits
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
@@ -192,7 +191,7 @@ func testReferenceProperties(host string) func(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 
-			createReferences := func(t *testing.T, client *weaviate.Client,
+			createReferences := func(t *testing.T, client *wvt.Client,
 				bookshelf *models.Object, books []*models.Object,
 			) {
 				ref := client.Data().ReferencePayloadBuilder().
