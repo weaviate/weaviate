@@ -76,10 +76,10 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
-	return res, nil, err
+	return res, nil, 0, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
@@ -139,7 +139,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if len(resBody.Embeddings) == 0 {
@@ -221,3 +221,7 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 		"neither in request header: X-Weaviate-Api-Key " +
 		"nor in environment variable under WEAVIATE_APIKEY")
 }
+
+func (v *vectorizer) HasTokenLimit() bool { return false }
+
+func (v *vectorizer) ReturnsRateLimit() bool { return false }
