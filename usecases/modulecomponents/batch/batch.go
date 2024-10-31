@@ -67,9 +67,11 @@ func (b BatchJob) copy() BatchJob {
 
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
-		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
+	HasTokenLimit() bool
+	ReturnsRateLimit() bool
 }
 
 func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTokensPerBatch func(cfg moduletools.ClassConfig) int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger, label string) *Batch {
@@ -103,6 +105,8 @@ type endOfBatchJob struct {
 	objectsPerRequest int
 	reservedTokens    int
 	reservedReqs      int
+	actualTokens      int
+	actualReqs        int
 	apiKeyHash        [32]byte
 	concurrentBatch   bool
 }
@@ -145,6 +149,8 @@ func (b *Batch) batchWorker() {
 		startProcessingTime := time.Now()
 
 		// check if we already have rate limits for the current api key and reuse them if possible
+		// Note that the rateLimit is a pointer and should only be updated in place and not replaced with a new object
+		//  as otherwise any changes are lost
 		rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
 		if !ok {
 			rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
@@ -159,7 +165,7 @@ func (b *Batch) batchWorker() {
 		for objCounter < len(job.texts) && rateLimit.IsInitialized() {
 			var err error
 			if !job.skipObject[objCounter] {
-				err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit, job.tokens[objCounter])
+				_, err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit, job.tokens[objCounter])
 				if err != nil {
 					job.errs[objCounter] = err
 					objCounter++
@@ -187,7 +193,7 @@ func (b *Batch) batchWorker() {
 		repeats := 0
 		for {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
-			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
+			expectedNumRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
 
 			stats := monitoring.GetMetrics().T2VRateLimitStats
 			stats.WithLabelValues(b.label, "token_limit").Set(float64(rateLimit.LimitTokens))
@@ -196,30 +202,31 @@ func (b *Batch) batchWorker() {
 			stats.WithLabelValues(b.label, "request_limit").Set(float64(rateLimit.LimitRequests))
 			stats.WithLabelValues(b.label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
 			stats.WithLabelValues(b.label, "request_reserved").Set(float64(rateLimit.ReservedRequests))
-			stats.WithLabelValues(b.label, "estimated_requests_needed").Set(float64(numRequests))
+			stats.WithLabelValues(b.label, "estimated_requests_needed").Set(float64(expectedNumRequests))
 			stats.WithLabelValues(b.label, "tokens_needed").Set(float64(job.tokenSum))
 			stats.WithLabelValues(b.label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
 			stats.WithLabelValues(b.label, "repeats_for_scheduling").Set(float64(repeats))
 
-			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
+			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				jobCopy := job.copy()
-				rateLimit.ReservedRequests += numRequests
+				rateLimit.ReservedRequests += expectedNumRequests
 				rateLimit.ReservedTokens += job.tokenSum
 
 				// necessary, because the outer loop can modify these values through b.updateState while the goroutine
 				// is accessing them => race
 				timePerToken := timePerToken
-				numRequests := numRequests
+				expectedNumRequests := expectedNumRequests
 				enterrors.GoWrapper(func() {
-					b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
+					b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, expectedNumRequests, true)
 					monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.label, "processing_async").
 						Observe(time.Since(startProcessingTime).Seconds())
 				}, b.logger)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
 				b.concurrentBatches.Add(1)
+
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				// block so no concurrent batch can be sent
 				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
@@ -245,7 +252,9 @@ rateLimitLoop:
 	for {
 		select {
 		case rateLimitEntry := <-b.rateLimitChannel:
-			rateLimits[rateLimitEntry.apiKeyHash] = rateLimitEntry.rateLimit
+			old := rateLimits[rateLimitEntry.apiKeyHash]
+			old.UpdateWithRateLimit(rateLimitEntry.rateLimit)
+			rateLimits[rateLimitEntry.apiKeyHash] = old
 		default:
 			break rateLimitLoop
 		}
@@ -264,6 +273,10 @@ timeLoop:
 			if endOfBatch.concurrentBatch {
 				rateLimits[endOfBatch.apiKeyHash].ReservedTokens -= endOfBatch.reservedTokens
 				rateLimits[endOfBatch.apiKeyHash].ReservedRequests -= endOfBatch.reservedReqs
+				if !b.client.ReturnsRateLimit() {
+					rateLimits[endOfBatch.apiKeyHash].RemainingTokens -= endOfBatch.actualTokens
+					rateLimits[endOfBatch.apiKeyHash].RemainingRequests -= endOfBatch.actualReqs
+				}
 			}
 
 		default:
@@ -275,9 +288,10 @@ timeLoop:
 
 func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
 	maxTokensPerBatch := b.maxTokensPerBatch(job.cfg)
-	tokensInCurrentBatch := 0
+	estimatedTokensInCurrentBatch := 0
 	numRequests := 0
 	numSendObjects := 0
+	actualTokensUsed := 0
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
@@ -299,11 +313,11 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 
 		// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 		text := job.texts[objCounter]
-		if float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) &&
-			float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(maxTokensPerBatch) &&
-			(timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) &&
+		if float32(estimatedTokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) &&
+			float32(estimatedTokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(maxTokensPerBatch) &&
+			(timePerToken*float64(estimatedTokensInCurrentBatch) < b.maxTimePerVectorizerBatch) &&
 			len(texts) < b.maxObjectsPerBatch {
-			tokensInCurrentBatch += job.tokens[objCounter]
+			estimatedTokensInCurrentBatch += job.tokens[objCounter]
 			texts = append(texts, text)
 			origIndex = append(origIndex, objCounter)
 			objCounter++
@@ -331,15 +345,17 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 				// an objects seems to be too big it might as well work
 				texts = append(texts, text)
 				origIndex = append(origIndex, objCounter)
+				estimatedTokensInCurrentBatch += job.tokens[objCounter]
 				objCounter++
 			}
 		}
 
 		start := time.Now()
-		_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, tokensInCurrentBatch)
+		actualTokensUsedInReq, _ := b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, estimatedTokensInCurrentBatch)
+		actualTokensUsed += actualTokensUsedInReq
 		batchTookInS := time.Since(start).Seconds()
-		if tokensInCurrentBatch > 0 {
-			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
+		if estimatedTokensInCurrentBatch > 0 {
+			timePerToken = batchTookInS / float64(estimatedTokensInCurrentBatch)
 		}
 		numRequests += 1
 		numSendObjects += len(texts)
@@ -353,8 +369,8 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			// adapt the batches per limit
 			batchesPerMinute = float64(rateLimit.LimitRequests)
 		}
-		if batchesPerMinute*float64(tokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
-			sleepFor := batchTookInS * (batchesPerMinute*float64(tokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
+		if batchesPerMinute*float64(estimatedTokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
+			sleepFor := batchTookInS * (batchesPerMinute*float64(estimatedTokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
 			time.Sleep(time.Duration(sleepFor * float64(time.Second)))
 		}
 
@@ -374,7 +390,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		}
 
 		// reset for next vectorizer-batch
-		tokensInCurrentBatch = 0
+		estimatedTokensInCurrentBatch = 0
 		texts = texts[:0]
 		origIndex = origIndex[:0]
 	}
@@ -382,7 +398,8 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	// in case we exit the loop without sending the last batch. This can happen when the last object is a skip or
 	// is too long
 	if len(texts) > 0 && objCounter == len(job.texts) {
-		_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, tokensInCurrentBatch)
+		actualTokensUsedInReq, _ := b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, estimatedTokensInCurrentBatch)
+		actualTokensUsed += actualTokensUsedInReq
 	}
 	objectsPerRequest := 0
 	if numRequests > 0 {
@@ -394,6 +411,8 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		objectsPerRequest: objectsPerRequest,
 		reservedTokens:    job.tokenSum,
 		reservedReqs:      reservedReqs,
+		actualTokens:      actualTokensUsed,
+		actualReqs:        numRequests,
 		apiKeyHash:        job.apiKeyHash,
 		concurrentBatch:   concurrentBatch,
 	}
@@ -402,7 +421,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Dec()
 }
 
-func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) error {
+func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) (int, error) {
 	beforeRequest := time.Now()
 	defer func() {
 		monitoring.GetMetrics().T2VRequestDuration.WithLabelValues(b.label).
@@ -412,7 +431,8 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 	monitoring.GetMetrics().T2VTokensInRequest.WithLabelValues(b.label).
 		Observe(float64(tokensInCurrentBatch))
 
-	res, rateLimitNew, err := b.client.Vectorize(job.ctx, texts, cfg)
+	res, rateLimitNew, tokensUsed, err := b.client.Vectorize(job.ctx, texts, cfg)
+
 	if err != nil {
 		for j := 0; j < len(texts); j++ {
 			job.errs[origIndex[j]] = err
@@ -427,18 +447,15 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		}
 	}
 	if rateLimitNew != nil {
-		rateLimit.LimitRequests = rateLimitNew.LimitRequests
-		rateLimit.LimitTokens = rateLimitNew.LimitTokens
-		rateLimit.ResetRequests = rateLimitNew.ResetRequests
-		rateLimit.ResetTokens = rateLimitNew.ResetTokens
-		rateLimit.RemainingRequests = rateLimitNew.RemainingRequests
-		rateLimit.RemainingTokens = rateLimitNew.RemainingTokens
+		rateLimit.UpdateWithRateLimit(rateLimitNew)
 		b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}
-	} else {
+	} else if b.client.HasTokenLimit() {
+		if tokensUsed > -1 {
+			tokensInCurrentBatch = tokensUsed
+		}
 		rateLimit.ResetAfterRequestFunction(tokensInCurrentBatch)
 	}
-
-	return err
+	return tokensUsed, err
 }
 
 func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string) ([][]float32, map[int]error) {
