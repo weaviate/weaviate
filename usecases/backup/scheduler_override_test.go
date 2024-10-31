@@ -27,8 +27,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var overrideBucket = "testbucketoverridescheduler"
-var overridePath = "testBucketPathOverrideScheduler"
+var (
+	overrideBucket = "testbucketoverridescheduler"
+	overridePath   = "testBucketPathOverrideScheduler"
+)
 
 func TestSchedulerOverrideValidateCreateBackup(t *testing.T) {
 	t.Parallel()
@@ -749,9 +751,6 @@ func TestSchedulerOverrideRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), cls)
 	})
 }
-
-
-
 
 func TestOverrideCancellingBackup(t *testing.T) {
 	var (
