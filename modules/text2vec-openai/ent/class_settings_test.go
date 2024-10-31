@@ -282,3 +282,166 @@ func TestValidateModelVersion(t *testing.T) {
 		})
 	}
 }
+
+func Test_getModelString(t *testing.T) {
+	t.Run("getModelStringDocument", func(t *testing.T) {
+		type args struct {
+			docType string
+			model   string
+			version string
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Document type: text model: ada vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "ada",
+				},
+				want: "text-search-ada-doc-001",
+			},
+			{
+				name: "Document type: text model: ada-002 vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "ada",
+					version: "002",
+				},
+				want: "text-embedding-ada-002",
+			},
+			{
+				name: "Document type: text model: babbage vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "babbage",
+				},
+				want: "text-search-babbage-doc-001",
+			},
+			{
+				name: "Document type: text model: curie vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "curie",
+				},
+				want: "text-search-curie-doc-001",
+			},
+			{
+				name: "Document type: text model: davinci vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "davinci",
+				},
+				want: "text-search-davinci-doc-001",
+			},
+			{
+				name: "Document type: code model: ada vectorizationType: code",
+				args: args{
+					docType: "code",
+					model:   "ada",
+				},
+				want: "code-search-ada-code-001",
+			},
+			{
+				name: "Document type: code model: babbage vectorizationType: code",
+				args: args{
+					docType: "code",
+					model:   "babbage",
+				},
+				want: "code-search-babbage-code-001",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cs := NewClassSettings(&fakeClassConfig{
+					classConfig: map[string]interface{}{
+						"type":         tt.args.docType,
+						"model":        tt.args.model,
+						"modelVersion": tt.args.version,
+					},
+				})
+				if got := cs.ModelString("document"); got != tt.want {
+					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("getModelStringQuery", func(t *testing.T) {
+		type args struct {
+			docType string
+			model   string
+			version string
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Document type: text model: ada vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "ada",
+				},
+				want: "text-search-ada-query-001",
+			},
+			{
+				name: "Document type: text model: babbage vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "babbage",
+				},
+				want: "text-search-babbage-query-001",
+			},
+			{
+				name: "Document type: text model: curie vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "curie",
+				},
+				want: "text-search-curie-query-001",
+			},
+			{
+				name: "Document type: text model: davinci vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "davinci",
+				},
+				want: "text-search-davinci-query-001",
+			},
+			{
+				name: "Document type: code model: ada vectorizationType: text",
+				args: args{
+					docType: "code",
+					model:   "ada",
+				},
+				want: "code-search-ada-text-001",
+			},
+			{
+				name: "Document type: code model: babbage vectorizationType: text",
+				args: args{
+					docType: "code",
+					model:   "babbage",
+				},
+				want: "code-search-babbage-text-001",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				cs := NewClassSettings(&fakeClassConfig{
+					classConfig: map[string]interface{}{
+						"type":         tt.args.docType,
+						"model":        tt.args.model,
+						"modelVersion": tt.args.version,
+					},
+				})
+				if got := cs.ModelString("query"); got != tt.want {
+					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+}
