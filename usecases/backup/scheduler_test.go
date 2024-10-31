@@ -32,6 +32,7 @@ import (
 )
 
 func Test_tschedulerValidateCreateBackup(t *testing.T) {
+	t.Parallel()
 	// Define test cases using a table-driven approach
 	tests := []struct {
 		name           string // Name of the subtest
@@ -80,7 +81,6 @@ func Test_tschedulerValidateCreateBackup(t *testing.T) {
 }
 
 func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath string) {
-	t.Parallel()
 	var (
 		cls         = "C1"
 		backendName = "s3"
@@ -207,7 +207,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 }
 
 func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
-	t.Parallel()
 	var (
 		backendName = "s3"
 		id          = "1234"
@@ -293,7 +292,6 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 }
 
 func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath string) {
-	t.Parallel()
 	var (
 		backendName = "s3"
 		id          = "1234"
@@ -357,7 +355,6 @@ func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath stri
 }
 
 func tSchedulerCreateBackup(t *testing.T, overrideBucket, overridePath string) {
-	t.Parallel()
 	var (
 		cls         = "Class-A"
 		node        = "Node-A"
