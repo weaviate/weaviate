@@ -14,6 +14,7 @@ package journey
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +120,9 @@ func backupJourney(t *testing.T, className, backend, basebackupID string,
 					assert.Equal(t, backupID, resp.Payload.ID)
 					assert.Equal(t, backend, resp.Payload.Backend)
 					assert.Contains(t, resp.Payload.Path, overrideBucket)
+					if !strings.Contains(resp.Payload.Path, overridePath) {
+						t.Logf("expected path: %s, got: %s", overridePath, resp.Payload.Path)
+					}
 					assert.Contains(t, resp.Payload.Path, overridePath)
 				})
 

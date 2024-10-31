@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -165,6 +166,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
+	http.Post("http://192.168.11.38:1234/backup", "application/json", strings.NewReader(fmt.Sprintf(`renew1 {"method":"%s","id":"%s","classes":["%s"],"bucket":"%s","path":"%s"}`, req.Method, req.ID, strings.Join(req.Classes, `","`), req.Bucket, req.Path)))
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}

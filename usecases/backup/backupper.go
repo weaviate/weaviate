@@ -137,6 +137,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		ID:      req.ID,
 		Timeout: expiration,
 	}
+
 	// make sure there is no active backup
 	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
