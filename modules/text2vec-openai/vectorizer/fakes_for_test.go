@@ -36,7 +36,7 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cf
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -92,7 +92,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, c.rateLimit, reqError
+	}, c.rateLimit, 0, reqError
 }
 
 func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
@@ -102,6 +102,10 @@ func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg module
 func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
+
+func (c *fakeBatchClient) HasTokenLimit() bool { return false }
+
+func (c *fakeBatchClient) ReturnsRateLimit() bool { return false }
 
 type FakeClassConfig struct {
 	classConfig           map[string]interface{}
