@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -26,7 +27,7 @@ import (
 
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
@@ -43,7 +44,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenant)
+	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 
 // DeleteObjectsFromGRPC deletes objects in batch based on the match filter
@@ -65,11 +66,13 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant)
+	deletionTime := time.UnixMilli(b.timeSource.Now())
+
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
@@ -77,7 +80,12 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant)
+	var deletionTime time.Time
+	if deletionTimeUnixMilli != nil {
+		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
+	}
+
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, deletionTime, repl, tenant)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -89,9 +97,10 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 	result BatchDeleteResult,
 ) (*BatchDeleteResponse, error) {
 	response := &BatchDeleteResponse{
-		Match:  match,
-		Output: output,
-		DryRun: result.DryRun,
+		Match:        match,
+		Output:       output,
+		DeletionTime: result.DeletionTime,
+		DryRun:       result.DryRun,
 		Result: BatchDeleteResult{
 			Matches: result.Matches,
 			Limit:   result.Limit,
