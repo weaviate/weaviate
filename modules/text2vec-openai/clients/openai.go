@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -127,15 +126,15 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
-	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, v.getModelString(config, "document"), config)
+	config := v.getVectorizationConfig(cfg, "document")
+	return v.vectorize(ctx, input, config.ModelString, config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
-	config := v.getVectorizationConfig(cfg)
-	res, _, _, err := v.vectorize(ctx, input, v.getModelString(config, "query"), config)
+	config := v.getVectorizationConfig(cfg, "query")
+	res, _, _, err := v.vectorize(ctx, input, config.ModelString, config)
 	return res, err
 }
 
@@ -251,7 +250,7 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 }
 
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	config := v.getVectorizationConfig(cfg)
+	config := v.getVectorizationConfig(cfg, "document")
 
 	key, err := v.getApiKey(ctx, config.IsAzure)
 	if err != nil {
@@ -261,7 +260,7 @@ func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig)
 }
 
 func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	config := v.getVectorizationConfig(cfg)
+	config := v.getVectorizationConfig(cfg, "document")
 	name := "Openai"
 	if config.IsAzure {
 		name = "Azure"
@@ -303,39 +302,7 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *client) getModelString(config ent.VectorizationConfig, action string) string {
-	if strings.HasPrefix(config.Model, "text-embedding-3") || config.IsThirdPartyProvider {
-		// indicates that we handle v3 models
-		return config.Model
-	}
-	if config.ModelVersion == "002" {
-		return v.getModel002String(config.Model)
-	}
-	return v.getModel001String(config.Type, config.Model, action)
-}
-
-func (v *client) getModel001String(docType, model, action string) string {
-	modelBaseString := "%s-search-%s-%s-001"
-	if action == "document" {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "code")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "doc")
-
-	} else {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "text")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "query")
-	}
-}
-
-func (v *client) getModel002String(model string) string {
-	modelBaseString := "text-embedding-%s-002"
-	return fmt.Sprintf(modelBaseString, model)
-}
-
-func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig, action string) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
 		Type:                 settings.Type(),
@@ -348,6 +315,7 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
 		ApiVersion:           settings.ApiVersion(),
 		Dimensions:           settings.Dimensions(),
+		ModelString:          settings.ModelString(action),
 	}
 }
 
