@@ -31,8 +31,8 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	return nil, nil, errors.New("OctoAI is permanently shut down")
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+	return nil, nil, 0, errors.New("OctoAI is permanently shut down")
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
@@ -55,3 +55,7 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 		"documentationHref": "https://octo.ai/docs/text-gen-solution/getting-started",
 	}, nil
 }
+
+func (v *vectorizer) HasTokenLimit() bool { return false }
+
+func (v *vectorizer) ReturnsRateLimit() bool { return false }
