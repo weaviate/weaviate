@@ -31,56 +31,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func Test_tschedulerValidateCreateBackup(t *testing.T) {
+func TestSchedulerValidateCreateBackup(t *testing.T) {
 	t.Parallel()
-	// Define test cases using a table-driven approach
-	tests := []struct {
-		name           string // Name of the subtest
-		overrideBucket string // Bucket name override
-		overridePath   string // Path override for the backup
-	}{
-		{
-			name:           "default backup validation",
-			overrideBucket: "",
-			overridePath:   "",
-		},
-		{
-			name:           "custom bucket override",
-			overrideBucket: "customBucketName",
-			overridePath:   "",
-		},
-		{
-			name:           "custom path override",
-			overrideBucket: "",
-			overridePath:   "custom/path/override",
-		},
-		{
-			name:           "custom bucket and path override",
-			overrideBucket: "customBucketName",
-			overridePath:   "custom/path/override",
-		},
-	}
-
-	// Loop through each test case
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Call the backup validation function with specified parameters
-			tschedulerValidateCreateBackup(
-				t,
-				tt.overrideBucket, // Override bucket if specified
-				tt.overridePath,   // Override path if specified
-			)
-			schedulerBackupStatus(t, tt.overrideBucket, tt.overridePath)
-			tschedulerRestorationStatus(t, tt.overrideBucket, tt.overridePath)
-			tSchedulerCreateBackup(t, tt.overrideBucket, tt.overridePath)
-			tSchedulerRestoration(t, tt.overrideBucket, tt.overridePath)
-			tSchedulerRestoreRequestValidation(t, tt.overrideBucket, tt.overridePath)
-			tCancellingBackup(t, tt.overrideBucket, tt.overridePath)
-		})
-	}
-}
-
-func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath string) {
 	var (
 		cls         = "C1"
 		backendName = "s3"
@@ -94,8 +46,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      "",
 			Include: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -105,8 +55,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      "A*:",
 			Include: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -117,8 +65,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			ID:      "1234",
 			Include: []string{cls},
 			Exclude: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -129,8 +75,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			ID:      "1234",
 			Include: []string{"C2", "C2", "C1"},
 			Exclude: []string{},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "C2")
@@ -145,8 +89,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			ID:      "1234",
 			Include: []string{},
 			Exclude: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -159,8 +101,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      "1234",
 			Include: []string{},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -176,8 +116,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      id,
 			Include: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 
 		assert.Nil(t, meta)
@@ -195,8 +133,6 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 			Backend: backendName,
 			ID:      id,
 			Include: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 
 		assert.Nil(t, meta)
@@ -206,7 +142,8 @@ func tschedulerValidateCreateBackup(t *testing.T, overrideBucket, overridePath s
 	})
 }
 
-func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
+func TestSchedulerBackupStatus(t *testing.T) {
+	t.Parallel()
 	var (
 		backendName = "s3"
 		id          = "1234"
@@ -224,14 +161,12 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 	t.Run("ActiveState", func(t *testing.T) {
 		s := newFakeScheduler(nil).scheduler()
 		s.backupper.lastOp.reqState = reqState{
-			Starttime:      starTime,
-			ID:             id,
-			Status:         backup.Transferring,
-			Path:           path,
-			OverrideBucket: overrideBucket,
-			OverridePath:   overridePath,
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
 		}
-		st, err := s.BackupStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
@@ -239,7 +174,7 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 	})
 
@@ -248,7 +183,7 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 
-		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		_, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -270,7 +205,7 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 		want.Status = backup.Success
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -285,13 +220,14 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, ErrAny)
 		fs.backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
 }
 
-func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath string) {
+func TestSchedulerRestorationStatus(t *testing.T) {
+	t.Parallel()
 	var (
 		backendName = "s3"
 		id          = "1234"
@@ -309,14 +245,12 @@ func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath stri
 	t.Run("ActiveState", func(t *testing.T) {
 		s := newFakeScheduler(nil).scheduler()
 		s.restorer.lastOp.reqState = reqState{
-			Starttime:      starTime,
-			ID:             id,
-			Status:         backup.Transferring,
-			Path:           path,
-			OverrideBucket: overrideBucket,
-			OverridePath:   overridePath,
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
 		}
-		st, err := s.RestorationStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		st, err := s.RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
@@ -324,14 +258,14 @@ func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath stri
 	t.Run("GetBackupProvider", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 	})
 
 	t.Run("MetadataNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
-		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -348,13 +282,14 @@ func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath stri
 		want.Status = backup.Success
 		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
-		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
+		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id, "", "")
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
 }
 
-func tSchedulerCreateBackup(t *testing.T, overrideBucket, overridePath string) {
+func TestSchedulerCreateBackup(t *testing.T) {
+	t.Parallel()
 	var (
 		cls         = "Class-A"
 		node        = "Node-A"
@@ -369,7 +304,7 @@ func tSchedulerCreateBackup(t *testing.T, overrideBucket, overridePath string) {
 			Backend: backendName,
 		}
 		cresp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq  = &StatusRequest{OpCreate, backupID, backendName, overrideBucket, overridePath}
+		sReq  = &StatusRequest{OpCreate, backupID, backendName, "", ""}
 		sresp = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 	)
 
@@ -488,7 +423,7 @@ func tSchedulerCreateBackup(t *testing.T, overrideBucket, overridePath string) {
 	})
 }
 
-func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
+func TestSchedulerRestoration(t *testing.T) {
 	var (
 		cls         = "MyClass-A"
 		nodeA       = "Node-A"
@@ -503,7 +438,7 @@ func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
 		keyNodeA    = backupID + "/" + nodeA
 		keyNodeB    = backupID + "/" + nodeB
 		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq        = &StatusRequest{OpRestore, backupID, backendName, overrideBucket, overridePath}
+		sReq        = &StatusRequest{OpRestore, backupID, backendName, "", ""}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
 	meta := backup.DistributedBackupDescriptor{
@@ -555,8 +490,6 @@ func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
 			ID:      backupID,
 			Include: []string{cls},
 			Backend: backendName,
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		}
 		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
 		bytes := marshalCoordinatorMeta(meta)
@@ -600,8 +533,6 @@ func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
 				ID:      backupID,
 				Include: []string{cls},
 				Backend: backendName,
-				Bucket:  overrideBucket,
-				Path:    overridePath,
 			}
 			bytes := marshalCoordinatorMeta(meta)
 			fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
@@ -656,7 +587,7 @@ func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
 	})
 }
 
-func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePath string) {
+func TestSchedulerRestoreRequestValidation(t *testing.T) {
 	var (
 		cls         = "MyClass"
 		backendName = "s3"
@@ -670,8 +601,6 @@ func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePa
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		}
 	)
 	meta := backup.DistributedBackupDescriptor{
@@ -691,8 +620,6 @@ func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePa
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{cls},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 	})
@@ -703,8 +630,6 @@ func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePa
 			ID:      id,
 			Include: []string{"C1", "C2", "C1"},
 			Exclude: []string{},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "C1")
@@ -718,8 +643,6 @@ func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePa
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{},
-			Bucket:  overrideBucket,
-			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), backendName)
@@ -887,7 +810,7 @@ func TestFirstDuplicate(t *testing.T) {
 	}
 }
 
-func tCancellingBackup(t *testing.T, overrideBucket, overridePath string) {
+func TestCancellingBackup(t *testing.T) {
 	var (
 		ctx           = context.Background()
 		backendName   = "s3"
@@ -897,11 +820,11 @@ func tCancellingBackup(t *testing.T, overrideBucket, overridePath string) {
 	)
 
 	t.Run("ValidateEmptyID-Cancellation", func(t *testing.T) {
-		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, overrideBucket, overridePath, ""))
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "", "", ""))
 	})
 
 	t.Run("ValidateID", func(t *testing.T) {
-		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "A*:", overrideBucket, overridePath))
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "A*:", "", ""))
 	})
 
 	t.Run("CancellingSucceeded", func(t *testing.T) {
@@ -915,7 +838,7 @@ func tCancellingBackup(t *testing.T, overrideBucket, overridePath string) {
 		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
-		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc", overrideBucket, overridePath)
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc", "", "")
 		assert.NotNil(t, err)
 		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)
