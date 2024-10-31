@@ -311,10 +311,12 @@ func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath stri
 	t.Run("ActiveState", func(t *testing.T) {
 		s := newFakeScheduler(nil).scheduler()
 		s.restorer.lastOp.reqState = reqState{
-			Starttime: starTime,
-			ID:        id,
-			Status:    backup.Transferring,
-			Path:      path,
+			Starttime:      starTime,
+			ID:             id,
+			Status:         backup.Transferring,
+			Path:           path,
+			OverrideBucket: overrideBucket,
+			OverridePath:   overridePath,
 		}
 		st, err := s.RestorationStatus(ctx, nil, backendName, id, overrideBucket, overridePath)
 		assert.Nil(t, err)
@@ -705,7 +707,7 @@ func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePa
 			Include: []string{"C1", "C2", "C1"},
 			Exclude: []string{},
 			Bucket:  overrideBucket,
-			Path:   overridePath,
+			Path:    overridePath,
 		})
 		assert.NotNil(t, err)
 		assert.ErrorContains(t, err, "C1")
