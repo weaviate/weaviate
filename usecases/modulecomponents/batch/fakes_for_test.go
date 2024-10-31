@@ -33,7 +33,7 @@ type fakeBatchClientWithRL struct {
 
 func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -100,7 +100,7 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 			ResetTokens:       c.rateLimit.ResetTokens,
 			ResetRequests:     c.rateLimit.ResetRequests,
 			LimitRequests:     c.rateLimit.LimitRequests,
-		}, reqError
+		}, 0, reqError
 }
 
 func (c *fakeBatchClientWithRL) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
@@ -111,6 +111,10 @@ func (c *fakeBatchClientWithRL) GetApiKeyHash(ctx context.Context, cfg moduletoo
 	return [32]byte{}
 }
 
+func (v *fakeBatchClientWithRL) HasTokenLimit() bool { return false }
+
+func (v *fakeBatchClientWithRL) ReturnsRateLimit() bool { return true }
+
 type fakeBatchClientWithoutRL struct {
 	defaultResetRate int
 	defaultRPM       int
@@ -119,7 +123,7 @@ type fakeBatchClientWithoutRL struct {
 
 func (c *fakeBatchClientWithoutRL) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -147,7 +151,7 @@ func (c *fakeBatchClientWithoutRL) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, nil, reqError
+	}, nil, 0, reqError
 }
 
 func (c *fakeBatchClientWithoutRL) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
@@ -157,6 +161,10 @@ func (c *fakeBatchClientWithoutRL) GetVectorizerRateLimit(ctx context.Context, c
 func (c *fakeBatchClientWithoutRL) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
+
+func (v *fakeBatchClientWithoutRL) HasTokenLimit() bool { return false }
+
+func (v *fakeBatchClientWithoutRL) ReturnsRateLimit() bool { return false }
 
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}

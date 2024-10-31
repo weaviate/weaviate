@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package named_vectors_tests
+package test_suits
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func testRestart(compose *docker.DockerCompose) func(t *testing.T) {
+func TestRestart(compose *docker.DockerCompose) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		host := compose.GetWeaviate().URI()
