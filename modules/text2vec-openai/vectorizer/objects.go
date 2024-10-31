@@ -41,8 +41,8 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		tokenCounts := make([]int, len(objects))
 		icheck := ent.NewClassSettings(cfg)
 
-		tke, err := tiktoken.EncodingForModel(icheck.Model())
-		if err != nil { // fail all objects as they all have the same model
+		tke, err := tiktoken.EncodingForModel(icheck.ModelString("document"))
+		if err != nil {
 			tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 		}
 
@@ -64,19 +64,4 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
 
 	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger, "openai"), batchTokenizer)
-}
-
-// IndexCheck returns whether a property of a class should be indexed
-type ClassSettings interface {
-	PropertyIndexed(property string) bool
-	VectorizePropertyName(propertyName string) bool
-	VectorizeClassName() bool
-	Model() string
-	Type() string
-	ModelVersion() string
-	ResourceName() string
-	DeploymentID() string
-	BaseURL() string
-	ApiVersion() string
-	IsAzure() bool
 }
