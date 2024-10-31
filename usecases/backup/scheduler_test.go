@@ -69,6 +69,12 @@ func Test_tschedulerValidateCreateBackup(t *testing.T) {
 				tt.overrideBucket, // Override bucket if specified
 				tt.overridePath,   // Override path if specified
 			)
+			schedulerBackupStatus(t, tt.overrideBucket, tt.overridePath)
+			tschedulerRestorationStatus(t, tt.overrideBucket, tt.overridePath)
+			tSchedulerCreateBackup(t, tt.overrideBucket, tt.overridePath)
+			tSchedulerRestoration(t, tt.overrideBucket, tt.overridePath)
+			tSchedulerRestoreRequestValidation(t, tt.overrideBucket, tt.overridePath)
+			tCancellingBackup(t, tt.overrideBucket, tt.overridePath)
 		})
 	}
 }
@@ -268,7 +274,7 @@ func schedulerBackupStatus(t *testing.T, overrideBucket, overridePath string) {
 	})
 }
 
-func tschedulerRestorationStatus(t *testing.T) {
+func tschedulerRestorationStatus(t *testing.T, overrideBucket, overridePath string) {
 	t.Parallel()
 	var (
 		backendName = "s3"
@@ -330,7 +336,7 @@ func tschedulerRestorationStatus(t *testing.T) {
 	})
 }
 
-func TestSchedulerCreateBackup(t *testing.T) {
+func tSchedulerCreateBackup(t *testing.T, overrideBucket, overridePath string) {
 	t.Parallel()
 	var (
 		cls         = "Class-A"
@@ -465,7 +471,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	})
 }
 
-func TestSchedulerRestoration(t *testing.T) {
+func tSchedulerRestoration(t *testing.T, overrideBucket, overridePath string) {
 	var (
 		cls         = "MyClass-A"
 		nodeA       = "Node-A"
@@ -629,7 +635,7 @@ func TestSchedulerRestoration(t *testing.T) {
 	})
 }
 
-func TestSchedulerRestoreRequestValidation(t *testing.T) {
+func tSchedulerRestoreRequestValidation(t *testing.T, overrideBucket, overridePath string) {
 	var (
 		cls         = "MyClass"
 		backendName = "s3"
@@ -852,7 +858,7 @@ func TestFirstDuplicate(t *testing.T) {
 	}
 }
 
-func TestCancellingBackup(t *testing.T) {
+func tCancellingBackup(t *testing.T, overrideBucket, overridePath string) {
 	var (
 		ctx           = context.Background()
 		backendName   = "s3"
