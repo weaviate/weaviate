@@ -18,7 +18,7 @@ package models
 
 import (
 	"context"
-	"strconv"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -31,30 +31,141 @@ import (
 // swagger:model Role
 type Role struct {
 
+	// HTTP Method like actions the user/key can perform on an object
+	// Required: true
+	// Enum: [READ LIST WRITE DELETE]
+	Action *string `json:"action"`
+
+	// level this role has permission to
+	// Required: true
+	// Enum: [Database Collection Tenant Object]
+	Level *string `json:"level"`
+
 	// role name
 	// Required: true
 	Name *string `json:"name"`
 
-	// permissions
-	// Required: true
-	Permissions []*Permission `json:"permissions"`
+	// comma separated string. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *
+	ObjectName *string `json:"object_name,omitempty"`
 }
 
 // Validate validates this role
 func (m *Role) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateName(formats); err != nil {
+	if err := m.validateAction(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validatePermissions(formats); err != nil {
+	if err := m.validateLevel(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateName(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+var roleTypeActionPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["READ","LIST","WRITE","DELETE"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		roleTypeActionPropEnum = append(roleTypeActionPropEnum, v)
+	}
+}
+
+const (
+
+	// RoleActionREAD captures enum value "READ"
+	RoleActionREAD string = "READ"
+
+	// RoleActionLIST captures enum value "LIST"
+	RoleActionLIST string = "LIST"
+
+	// RoleActionWRITE captures enum value "WRITE"
+	RoleActionWRITE string = "WRITE"
+
+	// RoleActionDELETE captures enum value "DELETE"
+	RoleActionDELETE string = "DELETE"
+)
+
+// prop value enum
+func (m *Role) validateActionEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, roleTypeActionPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Role) validateAction(formats strfmt.Registry) error {
+
+	if err := validate.Required("action", "body", m.Action); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateActionEnum("action", "body", *m.Action); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var roleTypeLevelPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["Database","Collection","Tenant","Object"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		roleTypeLevelPropEnum = append(roleTypeLevelPropEnum, v)
+	}
+}
+
+const (
+
+	// RoleLevelDatabase captures enum value "Database"
+	RoleLevelDatabase string = "Database"
+
+	// RoleLevelCollection captures enum value "Collection"
+	RoleLevelCollection string = "Collection"
+
+	// RoleLevelTenant captures enum value "Tenant"
+	RoleLevelTenant string = "Tenant"
+
+	// RoleLevelObject captures enum value "Object"
+	RoleLevelObject string = "Object"
+)
+
+// prop value enum
+func (m *Role) validateLevelEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, roleTypeLevelPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Role) validateLevel(formats strfmt.Registry) error {
+
+	if err := validate.Required("level", "body", m.Level); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateLevelEnum("level", "body", *m.Level); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -67,64 +178,8 @@ func (m *Role) validateName(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Role) validatePermissions(formats strfmt.Registry) error {
-
-	if err := validate.Required("permissions", "body", m.Permissions); err != nil {
-		return err
-	}
-
-	for i := 0; i < len(m.Permissions); i++ {
-		if swag.IsZero(m.Permissions[i]) { // not required
-			continue
-		}
-
-		if m.Permissions[i] != nil {
-			if err := m.Permissions[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("permissions" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("permissions" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
-	return nil
-}
-
-// ContextValidate validate this role based on the context it is used
+// ContextValidate validates this role based on context it is used
 func (m *Role) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.contextValidatePermissions(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *Role) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
-	for i := 0; i < len(m.Permissions); i++ {
-
-		if m.Permissions[i] != nil {
-			if err := m.Permissions[i].ContextValidate(ctx, formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("permissions" + "." + strconv.Itoa(i))
-				} else if ce, ok := err.(*errors.CompositeError); ok {
-					return ce.ValidateName("permissions" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
 	return nil
 }
 
