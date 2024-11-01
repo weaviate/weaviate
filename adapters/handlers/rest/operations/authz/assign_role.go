@@ -17,12 +17,9 @@ package authz
 // Editing this file might prove futile when you re-run the generate command
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -46,9 +43,9 @@ func NewAssignRole(ctx *middleware.Context, handler AssignRoleHandler) *AssignRo
 }
 
 /*
-	AssignRole swagger:route POST /authz/users/{id}/assign authz assignRole
+	AssignRole swagger:route POST /authz/users authz assignRole
 
-Assign a role to a user or key
+Assign a role to a user
 */
 type AssignRole struct {
 	Context *middleware.Context
@@ -82,41 +79,4 @@ func (o *AssignRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
-}
-
-// AssignRoleBody assign role body
-//
-// swagger:model AssignRoleBody
-type AssignRoleBody struct {
-
-	// the roles that assigned to the key or user
-	Roles []string `json:"roles" yaml:"roles"`
-}
-
-// Validate validates this assign role body
-func (o *AssignRoleBody) Validate(formats strfmt.Registry) error {
-	return nil
-}
-
-// ContextValidate validates this assign role body based on context it is used
-func (o *AssignRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *AssignRoleBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *AssignRoleBody) UnmarshalBinary(b []byte) error {
-	var res AssignRoleBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
-	return nil
 }

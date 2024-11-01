@@ -41,7 +41,7 @@ type DeleteRoleParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*role ID
+	/*role
 	  Required: true
 	  In: path
 	*/
