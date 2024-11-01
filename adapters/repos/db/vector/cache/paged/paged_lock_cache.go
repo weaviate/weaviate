@@ -231,20 +231,29 @@ func (s *ShardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 	start := (id / s.pagedLocks.Count) * s.pagedLocks.Count
 	end := start + s.pagedLocks.Count
 
+	if end > uint64(s.count) {
+		end = uint64(s.count)
+	}
+
 	lockId := s.GetCorrespondingLock(start)
 
 	s.pagedLocks.RLock(lockId)
 
 	for i := start; i < end; i++ {
-		vec := s.cache[start+id]
+		vec := s.cache[i]
 
 		if vec == nil {
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
-			errs[i] = err
+			errs[i-start] = err
 			vec = vecFromDisk
 		}
+		// for _, e := range vec {
 
-		out[i] = vec
+		// 	println(e)
+		// }
+		// fmt.Printf("out type: %T, vec type: %T\n", out, vec)
+		// fmt.Printf("i: %d, start: %d, len(out): %d\n", i, start, len(out))
+		out[i-start] = vec
 	}
 
 	s.pagedLocks.RUnlock(lockId)

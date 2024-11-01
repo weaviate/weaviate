@@ -147,11 +147,11 @@ func (sl *PagedRWLocks) RLockedAll(callback func()) {
 }
 
 func (sl *PagedRWLocks) RLock(id uint64) {
-	sl.shards[id%sl.Count].RLock()
+	sl.shards[(id/sl.Count)%sl.Count].RLock()
 }
 
 func (sl *PagedRWLocks) RUnlock(id uint64) {
-	sl.shards[id%sl.Count].RUnlock()
+	sl.shards[(id/sl.Count)%sl.Count].RUnlock()
 }
 
 func (sl *PagedRWLocks) RLocked(id uint64, callback func()) {
