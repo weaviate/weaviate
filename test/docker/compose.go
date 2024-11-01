@@ -32,6 +32,7 @@ import (
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -202,6 +203,12 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
 	d.withGoogleApiKey = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecgoogle.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2veccohere.Name)
 	return d
 }
 

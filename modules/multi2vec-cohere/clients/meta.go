@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	Model    string
-	Truncate string
-	BaseURL  string
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Cohere Module",
+		"documentationHref": "https://docs.cohere.ai/embedding-wiki/",
+	}, nil
 }
