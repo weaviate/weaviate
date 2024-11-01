@@ -76,7 +76,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if err := s.authorizer.Authorize(pr, authorization.ADD, authorization.Backup(req.Backend, req.ID)); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backup(req.Backend, req.ID)); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID)

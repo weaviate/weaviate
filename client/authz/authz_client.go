@@ -41,196 +41,38 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	AddPolicy(params *AddPolicyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPolicyCreated, error)
+	AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error)
 
-	AddRole(params *AddRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddRoleOK, error)
+	CreateRole(params *CreateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRoleCreated, error)
 
-	DeletePolicy(params *DeletePolicyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeletePolicyNoContent, error)
+	DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error)
 
-	GetPolicies(params *GetPoliciesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetPoliciesOK, error)
-
-	GetRolesForUsers(params *GetRolesForUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUsersOK, error)
+	GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error)
 
 	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
 
-	RemoveRole(params *RemoveRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemoveRoleOK, error)
+	RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-AddPolicy adds a new policy
+AssignRole assigns a role to a user
 */
-func (a *Client) AddPolicy(params *AddPolicyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPolicyCreated, error) {
+func (a *Client) AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewAddPolicyParams()
+		params = NewAssignRoleParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "addPolicy",
+		ID:                 "assignRole",
 		Method:             "POST",
-		PathPattern:        "/authz/policy",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &AddPolicyReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*AddPolicyCreated)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for addPolicy: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-AddRole assigns a role to a user
-*/
-func (a *Client) AddRole(params *AddRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddRoleOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewAddRoleParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "addRole",
-		Method:             "POST",
-		PathPattern:        "/authz/roles",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &AddRoleReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*AddRoleOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for addRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-DeletePolicy deletes a policy
-*/
-func (a *Client) DeletePolicy(params *DeletePolicyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeletePolicyNoContent, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewDeletePolicyParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "deletePolicy",
-		Method:             "DELETE",
-		PathPattern:        "/authz/policies/{id}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &DeletePolicyReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*DeletePolicyNoContent)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for deletePolicy: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-GetPolicies gets all policies
-*/
-func (a *Client) GetPolicies(params *GetPoliciesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetPoliciesOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewGetPoliciesParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "getPolicies",
-		Method:             "GET",
-		PathPattern:        "/authz/policies",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &GetPoliciesReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*GetPoliciesOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for getPolicies: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-GetRolesForUsers gets roles for user or a key
-*/
-func (a *Client) GetRolesForUsers(params *GetRolesForUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUsersOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewGetRolesForUsersParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "getRolesForUsers",
-		Method:             "GET",
 		PathPattern:        "/authz/users",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &GetRolesForUsersReader{formats: a.formats},
+		Reader:             &AssignRoleReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -243,18 +85,135 @@ func (a *Client) GetRolesForUsers(params *GetRolesForUsersParams, authInfo runti
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*GetRolesForUsersOK)
+	success, ok := result.(*AssignRoleOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for getRolesForUsers: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for assignRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-GetUsersForRole gets roles for user or a key
+CreateRole creates new role
+*/
+func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateRoleCreated, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewCreateRoleParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "createRole",
+		Method:             "POST",
+		PathPattern:        "/authz/role",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &CreateRoleReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*CreateRoleCreated)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for createRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeleteRole deletes a role
+*/
+func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteRoleParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deleteRole",
+		Method:             "DELETE",
+		PathPattern:        "/authz/roles/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeleteRoleReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeleteRoleNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deleteRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRoles gets all roles
+*/
+func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRoles",
+		Method:             "GET",
+		PathPattern:        "/authz/roles",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRoles: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetUsersForRole gets roles for user or a key or users or keys for roles
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -264,7 +223,7 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "getUsersForRole",
 		Method:             "GET",
-		PathPattern:        "/authz/roles",
+		PathPattern:        "/authz/users",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -293,22 +252,22 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 }
 
 /*
-RemoveRole removes a role from a user
+RevokeRole removes a role from a user
 */
-func (a *Client) RemoveRole(params *RemoveRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemoveRoleOK, error) {
+func (a *Client) RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewRemoveRoleParams()
+		params = NewRevokeRoleParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "removeRole",
+		ID:                 "revokeRole",
 		Method:             "DELETE",
-		PathPattern:        "/authz/roles",
+		PathPattern:        "/authz/users",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &RemoveRoleReader{formats: a.formats},
+		Reader:             &RevokeRoleReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -321,13 +280,13 @@ func (a *Client) RemoveRole(params *RemoveRoleParams, authInfo runtime.ClientAut
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*RemoveRoleOK)
+	success, ok := result.(*RevokeRoleOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for removeRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for revokeRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
