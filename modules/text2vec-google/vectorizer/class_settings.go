@@ -131,3 +131,7 @@ func (ic *classSettings) ModelID() string {
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
 }
+
+func (ic *classSettings) ModelString() string {
+	return ic.ModelID()
+}

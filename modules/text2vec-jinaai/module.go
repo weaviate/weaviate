@@ -110,7 +110,7 @@ func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
 			logger, m.Name()),
-		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, ent.NewClassSettingsInterface),
 	)
 	m.metaProvider = client
 

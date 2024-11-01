@@ -14,6 +14,8 @@ package ent
 import (
 	"fmt"
 
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -40,6 +42,10 @@ type classSettings struct {
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+}
+
+func NewClassSettingsInterface(cfg moduletools.ClassConfig) objectsvectorizer.ClassSettings {
+	return NewClassSettings(cfg)
 }
 
 func (cs *classSettings) Model() string {
@@ -110,4 +116,8 @@ func (cs *classSettings) validateIndexState(class *models.Class) error {
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing.")
+}
+
+func (cs *classSettings) ModelString() string {
+	return cs.Model()
 }

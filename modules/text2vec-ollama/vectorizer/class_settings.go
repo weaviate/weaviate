@@ -65,3 +65,7 @@ func (ic *classSettings) ApiEndpoint() string {
 func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, DefaultModel)
 }
+
+func (ic *classSettings) ModelString() string {
+	return ic.Model()
+}

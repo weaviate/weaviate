@@ -14,22 +14,25 @@ package batch
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, icheck objectsvectorizer.ClassSettings, model string, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
+type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
 
-func ReturnBatchTokenizer(multiplier float32) TokenizerFuncType {
-	return func(ctx context.Context, objects []*models.Object, skipObject []bool, icheck objectsvectorizer.ClassSettings, model string, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+func ReturnBatchTokenizer(multiplier float32, classSettings func(moduletools.ClassConfig) objectsvectorizer.ClassSettings) TokenizerFuncType {
+	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
+		icheck := classSettings(cfg)
 		if multiplier > 0 {
 			var err error
-			tke, err = tiktoken.EncodingForModel(model)
+			tke, err = tiktoken.EncodingForModel(icheck.ModelString())
 			if err != nil {
 				tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 			}
@@ -45,7 +48,7 @@ func ReturnBatchTokenizer(multiplier float32) TokenizerFuncType {
 			text := objectVectorizer.Texts(ctx, objects[i], icheck)
 			texts[i] = text
 			if multiplier > 0 {
-				tokenCounts[i] = int(float32(clients.GetTokensCount(model, text, tke)) * multiplier)
+				tokenCounts[i] = int(float32(clients.GetTokensCount(icheck.ModelString(), text, tke)) * multiplier)
 			}
 		}
 		return texts, tokenCounts, skipAll, nil

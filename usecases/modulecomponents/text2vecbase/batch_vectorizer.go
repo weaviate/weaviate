@@ -14,8 +14,6 @@ package text2vecbase
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-mistral/ent"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -57,9 +55,7 @@ func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg
 
 func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([][]float32, map[int]error) {
-	icheck := ent.NewClassSettings(cfg)
-
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, icheck, icheck.Model(), v.objectVectorizer)
+	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
