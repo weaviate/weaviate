@@ -362,7 +362,7 @@ func Test_getModelString(t *testing.T) {
 						"modelVersion": tt.args.version,
 					},
 				})
-				if got := cs.ModelString("document"); got != tt.want {
+				if got := cs.ModelStringForAction("document"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
@@ -438,7 +438,7 @@ func Test_getModelString(t *testing.T) {
 						"modelVersion": tt.args.version,
 					},
 				})
-				if got := cs.ModelString("query"); got != tt.want {
+				if got := cs.ModelStringForAction("query"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
