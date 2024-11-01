@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,7 +29,7 @@ import (
 )
 
 func TestBatch(t *testing.T) {
-	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 	cases := []struct {
 		name       string
@@ -102,7 +104,9 @@ func TestBatch(t *testing.T) {
 			v := text2vecbase.New(client,
 				batch.NewBatchVectorizer(client, 50*time.Second, 2000, func(cfg moduletools.ClassConfig) int { return 500000 }, 10,
 					logger, "test"),
-				batch.ReturnBatchTokenizer(1),
+				batch.ReturnBatchTokenizer(1, func(config moduletools.ClassConfig) objectsvectorizer.ClassSettings {
+					return cfg
+				}),
 			)
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
