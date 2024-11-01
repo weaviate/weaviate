@@ -42,7 +42,7 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.ADD,
+			expectedVerb:     authorization.CREATE,
 			expectedResource: "backups/s3/123",
 		},
 		{

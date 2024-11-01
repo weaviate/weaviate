@@ -18,28 +18,25 @@ import (
 )
 
 const (
-	// HEAD: Represents the HTTP HEAD method, which is used to retrieve metadata of a resource without
+	// HEAD Represents the HTTP HEAD method, which is used to retrieve metadata of a resource without
 	// fetching the resource itself.
 	HEAD = "head"
-	// VALIDATE: Represents a custom action to validate a resource.
+	// VALIDATE Represents a custom action to validate a resource.
 	// This is not a standard HTTP method but can be used for specific validation operations.
 	VALIDATE = "validate"
-	// LIST: Represents a custom action to list resources.
+	// LIST Represents a custom action to list resources.
 	// This is not a standard HTTP method but can be used to list multiple resources.
 	LIST = "list"
-	// GET: Represents the HTTP GET method, which is used to retrieve a resource.
+	// GET Represents the HTTP GET method, which is used to retrieve a resource.
 	GET = "get"
-	// ADD: Represents a custom action to add a resource.
-	// This is not a standard HTTP method but can be used for specific add operations.
-	ADD = "add"
-	// CREATE: Represents the HTTP POST method, which is used to create a new resource.
+	// CREATE Represents the HTTP POST method, which is used to create a new resource.
 	CREATE = "create"
-	// RESTORE: Represents a custom action to restore a resource.
+	// RESTORE Represents a custom action to restore a resource.
 	// This is not a standard HTTP method but can be used for specific restore operations.
 	RESTORE = "restore"
-	// DELETE: Represents the HTTP DELETE method, which is used to delete a resource.
+	// DELETE Represents the HTTP DELETE method, which is used to delete a resource.
 	DELETE = "delete"
-	// UPDATE: Represents the HTTP PUT method, which is used to update an existing resource.
+	// UPDATE Represents the HTTP PUT method, which is used to update an existing resource.
 	UPDATE = "update"
 )
 
@@ -67,6 +64,58 @@ const (
 )
 
 // TODO add translation layer between weaviate and Casbin permissions
+
+// Actions
+type Read string
+type List string
+type Write string
+type Delete string
+
+func (r *Read) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET}
+}
+
+func (r *List) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST}
+}
+
+func (r *Write) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE}
+}
+
+func (r *Delete) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE, DELETE}
+}
+
+// levels
+type DatabaseL string
+type CollectionL string
+type TenantL string
+type ObjectL string
+
+// db level
+// collection level
+// tenant level
+// object level
+
+// built in
+// admin
+// read-only
+const (
+	CreateCollection Write = "create_collection"
+	CreateTenant     Write = "create_tenant"
+	CreateBackup     Write = "create_backup"
+
+	QueryCollection List = "query_collection"
+	GetCollection   Read = "get_collection"
+	GetTenant       Read = "get_tenant"
+	GetBackup       Read = "get_backup"
+
+	UpdateCollection Write = "update_collection"
+
+	DeleteCollection Write = "delete_collection"
+	DeleteTenant     Write = "delete_tenant"
+)
 
 // SchemaShard returns the path for a specific schema shard.
 // Parameters:
