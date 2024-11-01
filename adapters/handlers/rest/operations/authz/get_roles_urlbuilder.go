@@ -24,11 +24,7 @@ import (
 
 // GetRolesURL generates an URL for the get roles operation
 type GetRolesURL struct {
-	Name *string
-
 	_basePath string
-	// avoid unkeyed usage
-	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -57,18 +53,6 @@ func (o *GetRolesURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
-
-	qs := make(url.Values)
-
-	var nameQ string
-	if o.Name != nil {
-		nameQ = *o.Name
-	}
-	if nameQ != "" {
-		qs.Set("name", nameQ)
-	}
-
-	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

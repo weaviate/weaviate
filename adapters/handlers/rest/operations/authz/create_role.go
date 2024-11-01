@@ -43,7 +43,7 @@ func NewCreateRole(ctx *middleware.Context, handler CreateRoleHandler) *CreateRo
 }
 
 /*
-	CreateRole swagger:route POST /authz/roles authz createRole
+	CreateRole swagger:route POST /authz/role authz createRole
 
 create new role
 */
