@@ -74,7 +74,7 @@ type DeleteRoleParams struct {
 
 	/* ID.
 
-	   role ID
+	   role
 	*/
 	ID string
 

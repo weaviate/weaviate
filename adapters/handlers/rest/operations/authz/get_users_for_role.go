@@ -46,9 +46,9 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 }
 
 /*
-	GetUsersForRole swagger:route GET /authz/roles authz getUsersForRole
+	GetUsersForRole swagger:route GET /authz/users authz getUsersForRole
 
-get roles for user or a key
+get roles for user or a key, or users or keys for roles
 */
 type GetUsersForRole struct {
 	Context *middleware.Context
@@ -91,6 +91,9 @@ type GetUsersForRoleBody struct {
 
 	// the key to be assigned to a role
 	Key *string `json:"key,omitempty" yaml:"key,omitempty"`
+
+	// the role that the key/user assigned to
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
 
 	// the user to be assigned to a role
 	User *string `json:"user,omitempty" yaml:"user,omitempty"`

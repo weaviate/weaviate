@@ -113,11 +113,11 @@ func (o *CreateRoleCreated) Code() int {
 }
 
 func (o *CreateRoleCreated) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated ", 201)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleCreated ", 201)
 }
 
 func (o *CreateRoleCreated) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleCreated ", 201)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleCreated ", 201)
 }
 
 func (o *CreateRoleCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *CreateRoleUnauthorized) Code() int {
 }
 
 func (o *CreateRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleUnauthorized ", 401)
 }
 
 func (o *CreateRoleUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleUnauthorized ", 401)
 }
 
 func (o *CreateRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *CreateRoleForbidden) Code() int {
 }
 
 func (o *CreateRoleForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CreateRoleForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CreateRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -294,11 +294,11 @@ func (o *CreateRoleUnprocessableEntity) Code() int {
 }
 
 func (o *CreateRoleUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *CreateRoleUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *CreateRoleUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *CreateRoleInternalServerError) Code() int {
 }
 
 func (o *CreateRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CreateRoleInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles][%d] createRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/role][%d] createRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CreateRoleInternalServerError) GetPayload() *models.ErrorResponse {
