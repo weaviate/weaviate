@@ -16,6 +16,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 const (
@@ -37,20 +38,16 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
+func NewClassSettingsInterface(cfg moduletools.ClassConfig) objectsvectorizer.ClassSettings {
+	return NewClassSettings(cfg)
+}
+
 func (cs *classSettings) EndpointURL() string {
 	return cs.getEndpointURL()
 }
 
 func (cs *classSettings) PassageModel() string {
 	model := cs.getPassageModel()
-	if model == "" {
-		return DefaultHuggingFaceModel
-	}
-	return model
-}
-
-func (cs *classSettings) QueryModel() string {
-	model := cs.getQueryModel()
 	if model == "" {
 		return DefaultHuggingFaceModel
 	}
@@ -108,14 +105,6 @@ func (cs *classSettings) getPassageModel() string {
 	return model
 }
 
-func (cs *classSettings) getQueryModel() string {
-	model := cs.getProperty("model")
-	if model == "" {
-		model = cs.getProperty("queryModel")
-	}
-	return model
-}
-
 func (cs *classSettings) getEndpointURL() string {
 	endpointURL := cs.getProperty("endpointUrl")
 	if endpointURL == "" {
@@ -153,4 +142,8 @@ func (cs *classSettings) getOptionOrDefault(option string, defaultValue bool) bo
 
 func (cs *classSettings) getProperty(name string) string {
 	return cs.BaseClassSettings.GetPropertyAsString(name, "")
+}
+
+func (cs *classSettings) ModelString() string {
+	return cs.PassageModel()
 }

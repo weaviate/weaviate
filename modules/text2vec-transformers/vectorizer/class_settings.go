@@ -55,6 +55,10 @@ func (ic *classSettings) getSetting(property string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(property, "")
 }
 
+func (ic *classSettings) ModelString() string {
+	return ""
+}
+
 func (ic *classSettings) Validate(class *models.Class) error {
 	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
 		return err

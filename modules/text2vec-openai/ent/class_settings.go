@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -85,6 +87,10 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
+func NewClassSettingsInterface(cfg moduletools.ClassConfig) objectsvectorizer.ClassSettings {
+	return NewClassSettings(cfg)
+}
+
 func (cs *classSettings) Model() string {
 	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultOpenAIModel)
 }
@@ -98,7 +104,7 @@ func (cs *classSettings) ModelVersion() string {
 	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
 }
 
-func (cs *classSettings) ModelString(action string) string {
+func (cs *classSettings) ModelStringForAction(action string) string {
 	if strings.HasPrefix(cs.Model(), "text-embedding-3") || cs.IsThirdPartyProvider() {
 		// indicates that we handle v3 models
 		return cs.Model()
@@ -107,6 +113,10 @@ func (cs *classSettings) ModelString(action string) string {
 		return cs.getModel002String(cs.Model())
 	}
 	return cs.getModel001String(cs.Type(), cs.Model(), action)
+}
+
+func (cs *classSettings) ModelString() string {
+	return cs.ModelStringForAction("document")
 }
 
 func (v *classSettings) getModel001String(docType, model, action string) string {

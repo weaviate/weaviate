@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/modules/text2vec-octoai/ent"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/weaviate/weaviate/modules/text2vec-octoai/clients"
@@ -99,7 +101,7 @@ func (m *OctoAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, 1, func(cfg moduletools.ClassConfig) int { return 1 }, 1,
 			logger, m.Name()),
-		batch.ReturnBatchTokenizer(0),
+		batch.ReturnBatchTokenizer(0, ent.NewClassSettingsInterface),
 	)
 	m.metaProvider = client
 

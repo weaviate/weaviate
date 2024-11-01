@@ -45,7 +45,7 @@ func NewBaseClassSettingsWithAltNames(cfg moduletools.ClassConfig,
 	}
 }
 
-func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
+func (s BaseClassSettings) PropertyIndexed(propName string) bool {
 	if s.cfg == nil {
 		return DefaultPropertyIndexed
 	}
@@ -67,7 +67,7 @@ func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (s *BaseClassSettings) VectorizePropertyName(propName string) bool {
+func (s BaseClassSettings) VectorizePropertyName(propName string) bool {
 	if s.cfg == nil {
 		return DefaultVectorizePropertyName
 	}
@@ -85,7 +85,7 @@ func (s *BaseClassSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (s *BaseClassSettings) VectorizeClassName() bool {
+func (s BaseClassSettings) VectorizeClassName() bool {
 	if s.cfg == nil {
 		return DefaultVectorizeClassName
 	}
@@ -103,7 +103,7 @@ func (s *BaseClassSettings) VectorizeClassName() bool {
 	return asBool
 }
 
-func (s *BaseClassSettings) Properties() []string {
+func (s BaseClassSettings) Properties() []string {
 	if s.cfg == nil || len(s.cfg.Class()) == 0 {
 		return nil
 	}
@@ -130,7 +130,7 @@ func (s *BaseClassSettings) Properties() []string {
 	return nil
 }
 
-func (s *BaseClassSettings) ValidateClassSettings() error {
+func (s BaseClassSettings) ValidateClassSettings() error {
 	if s.cfg != nil && len(s.cfg.Class()) > 0 {
 		if field, ok := s.GetSettings()["properties"]; ok {
 			fieldsArray, fieldsArrayOk := field.([]interface{})
@@ -157,7 +157,7 @@ func (s *BaseClassSettings) ValidateClassSettings() error {
 	return nil
 }
 
-func (s *BaseClassSettings) isPropertyIndexed(propName string) bool {
+func (s BaseClassSettings) isPropertyIndexed(propName string) bool {
 	for _, name := range s.Properties() {
 		if propName == name {
 			return true
@@ -166,23 +166,23 @@ func (s *BaseClassSettings) isPropertyIndexed(propName string) bool {
 	return false
 }
 
-func (s *BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) *int64 {
+func (s BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) *int64 {
 	return s.propertyHelper.GetPropertyAsInt64(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetPropertyAsString(name, defaultValue string) string {
+func (s BaseClassSettings) GetPropertyAsString(name, defaultValue string) string {
 	return s.propertyHelper.GetPropertyAsString(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) bool {
+func (s BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) bool {
 	return s.propertyHelper.GetPropertyAsBool(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetNumber(in interface{}) (float32, error) {
+func (s BaseClassSettings) GetNumber(in interface{}) (float32, error) {
 	return s.propertyHelper.GetNumber(in)
 }
 
-func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
+func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 	if s.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -218,11 +218,11 @@ func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		"indexing")
 }
 
-func (s *BaseClassSettings) GetSettings() map[string]interface{} {
+func (s BaseClassSettings) GetSettings() map[string]interface{} {
 	return s.propertyHelper.GetSettings(s.cfg)
 }
 
-func (s *BaseClassSettings) Validate(class *models.Class) error {
+func (s BaseClassSettings) Validate(class *models.Class) error {
 	if s.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
