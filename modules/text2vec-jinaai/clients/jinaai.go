@@ -33,8 +33,8 @@ import (
 )
 
 const (
-	DefaultRPM = 100 * 60 // from https://jina.ai/embeddings/
-	DefaultTPM = 10000000 // no token limit used
+	DefaultRPM = 500 // from https://jina.ai/embeddings/
+	DefaultTPM = 1_000_000
 )
 
 type (
@@ -68,8 +68,9 @@ type jinaErrorDetail struct {
 
 type embedding struct {
 	jinaErrorDetail
-	Object string          `json:"object"`
-	Data   []embeddingData `json:"data,omitempty"`
+	Object string                  `json:"object"`
+	Data   []embeddingData         `json:"data,omitempty"`
+	Usage  *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
 type embeddingData struct {
@@ -104,17 +105,18 @@ func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) 
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, retrievalPassage, config)
-	return res, nil, err
+	res, usage, err := v.vectorize(ctx, input, config.Model, retrievalPassage, config)
+	return res, nil, usage, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, retrievalQuery, config)
+	res, _, err := v.vectorize(ctx, input, config.Model, retrievalQuery, config)
+	return res, err
 }
 
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
@@ -128,47 +130,47 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 
 func (v *vectorizer) vectorize(ctx context.Context,
 	input []string, model string, task task, config ent.VectorizationConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, int, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, task, config.Dimensions))
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal body")
+		return nil, 0, errors.Wrap(err, "marshal body")
 	}
 
 	endpoint, err := v.buildUrlFn(config)
 	if err != nil {
-		return nil, errors.Wrap(err, "join jinaAI API host and path")
+		return nil, 0, errors.Wrap(err, "join jinaAI API host and path")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, 0, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "API Key")
+		return nil, 0, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, 0, errors.Wrap(err, "read response body")
 	}
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 {
-		return nil, v.getError(res.StatusCode, resBody.Detail)
+		return nil, 0, v.getError(res.StatusCode, resBody.Detail)
 	}
 
 	texts := make([]string, len(resBody.Data))
@@ -183,7 +185,7 @@ func (v *vectorizer) vectorize(ctx context.Context,
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
-	}, nil
+	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
 func (v *vectorizer) getError(statusCode int, errorMessage string) error {
@@ -261,10 +263,9 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 		limits.LimitRequests = rpm
 		limits.LastOverwrite = time.Now()
 
-		// high dummy values
 		limits.RemainingTokens = DefaultTPM
 		limits.LimitTokens = DefaultTPM
-		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
 	}
 
 	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
@@ -272,3 +273,7 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 
 	return initialRL
 }
+
+func (v *vectorizer) HasTokenLimit() bool { return true }
+
+func (v *vectorizer) ReturnsRateLimit() bool { return false }
