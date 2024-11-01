@@ -334,3 +334,19 @@ Offload the tenant again using the [#Offload tenants (on Weaviate core)] script 
 - [ ] Alerts
 - [ ] Playbook for each alerts.
 - [ ] Demo video of running core + querier to query offloaded tenants.
+
+## Dev Cluster
+
+Instructions for how to get the querier running on the dev cluster. This is just a place to get all
+the nodes down, later we should automate this via helm.
+
+### Weaviate Core
+
+Set the offload bucket: `export OFFLOAD_S3_BUCKET=bucket-name-goes-here`
+
+### Querier
+
+Set the bucket to use for reading tenants: `--query.s3.url=bucket-name-goes-here`
+
+If running on AWS, set the AWS env vars: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` (if needed), or authenticate with AWS some other way.
+
