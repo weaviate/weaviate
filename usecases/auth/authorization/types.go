@@ -171,6 +171,58 @@ var (
 
 // TODO add translation layer between weaviate and Casbin permissions
 
+// Actions
+type Read string
+type List string
+type Write string
+type Delete string
+
+func (r *Read) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET}
+}
+
+func (r *List) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST}
+}
+
+func (r *Write) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE}
+}
+
+func (r *Delete) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE, DELETE}
+}
+
+// levels
+type DatabaseL string
+type CollectionL string
+type TenantL string
+type ObjectL string
+
+// db level
+// collection level
+// tenant level
+// object level
+
+// built in
+// admin
+// read-only
+const (
+	CreateCollection Write = "create_collection"
+	CreateTenant     Write = "create_tenant"
+	CreateBackup     Write = "create_backup"
+
+	QueryCollection List = "query_collection"
+	GetCollection   Read = "get_collection"
+	GetTenant       Read = "get_tenant"
+	GetBackup       Read = "get_backup"
+
+	UpdateCollection Write = "update_collection"
+
+	DeleteCollection Write = "delete_collection"
+	DeleteTenant     Write = "delete_tenant"
+)
+
 // SchemaShard returns the path for a specific schema shard.
 // Parameters:
 // - class: The class name.

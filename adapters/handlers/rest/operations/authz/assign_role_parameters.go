@@ -23,8 +23,9 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewAssignRoleParams creates a new AssignRoleParams object
@@ -48,12 +49,7 @@ type AssignRoleParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body AssignRoleBody
-	/*user or key ID
-	  Required: true
-	  In: path
-	*/
-	ID string
+	Body *models.RoleAssignmentRequest
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -67,7 +63,7 @@ func (o *AssignRoleParams) BindRequest(r *http.Request, route *middleware.Matche
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body AssignRoleBody
+		var body models.RoleAssignmentRequest
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))
@@ -86,33 +82,14 @@ func (o *AssignRoleParams) BindRequest(r *http.Request, route *middleware.Matche
 			}
 
 			if len(res) == 0 {
-				o.Body = body
+				o.Body = &body
 			}
 		}
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
-
-	rID, rhkID, _ := route.Params.GetOK("id")
-	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
-		res = append(res, err)
-	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-// bindID binds and validates parameter ID from path.
-func (o *AssignRoleParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-	o.ID = raw
-
 	return nil
 }
