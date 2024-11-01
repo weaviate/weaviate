@@ -97,6 +97,10 @@ type fakeClassConfig struct {
 	baseURL string
 }
 
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
+}
+
 func (f fakeClassConfig) Class() map[string]interface{} {
 	classSettings := map[string]interface{}{
 		"vectorizeClassName": f.vectorizeClassName,
@@ -135,4 +139,20 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) ModelString() string {
+	return f.Model
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }

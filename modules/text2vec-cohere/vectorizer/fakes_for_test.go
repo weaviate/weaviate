@@ -109,6 +109,10 @@ func (f fakeClassConfig) Class() map[string]interface{} {
 	return classSettings
 }
 
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
+}
+
 func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }
@@ -138,4 +142,20 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) ModelString() string {
+	return ""
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }
