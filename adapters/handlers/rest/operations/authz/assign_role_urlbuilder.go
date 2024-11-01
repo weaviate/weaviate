@@ -20,16 +20,11 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
-	"strings"
 )
 
 // AssignRoleURL generates an URL for the assign role operation
 type AssignRoleURL struct {
-	ID string
-
 	_basePath string
-	// avoid unkeyed usage
-	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -51,14 +46,7 @@ func (o *AssignRoleURL) SetBasePath(bp string) {
 func (o *AssignRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users/{id}/assign"
-
-	id := o.ID
-	if id != "" {
-		_path = strings.Replace(_path, "{id}", id, -1)
-	} else {
-		return nil, errors.New("id is required on AssignRoleURL")
-	}
+	var _path = "/authz/users"
 
 	_basePath := o._basePath
 	if _basePath == "" {

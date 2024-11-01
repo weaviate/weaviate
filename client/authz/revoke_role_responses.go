@@ -17,13 +17,11 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"context"
 	"fmt"
 	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -115,11 +113,11 @@ func (o *RevokeRoleOK) Code() int {
 }
 
 func (o *RevokeRoleOK) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleOK ", 200)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleOK ", 200)
 }
 
 func (o *RevokeRoleOK) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleOK ", 200)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleOK ", 200)
 }
 
 func (o *RevokeRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -172,11 +170,11 @@ func (o *RevokeRoleBadRequest) Code() int {
 }
 
 func (o *RevokeRoleBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RevokeRoleBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RevokeRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -239,11 +237,11 @@ func (o *RevokeRoleUnauthorized) Code() int {
 }
 
 func (o *RevokeRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleUnauthorized ", 401)
 }
 
 func (o *RevokeRoleUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleUnauthorized ", 401)
 }
 
 func (o *RevokeRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -296,11 +294,11 @@ func (o *RevokeRoleForbidden) Code() int {
 }
 
 func (o *RevokeRoleForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RevokeRoleForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RevokeRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -364,11 +362,11 @@ func (o *RevokeRoleInternalServerError) Code() int {
 }
 
 func (o *RevokeRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RevokeRoleInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/users][%d] revokeRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RevokeRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -384,43 +382,5 @@ func (o *RevokeRoleInternalServerError) readResponse(response runtime.ClientResp
 		return err
 	}
 
-	return nil
-}
-
-/*
-RevokeRoleBody revoke role body
-swagger:model RevokeRoleBody
-*/
-type RevokeRoleBody struct {
-
-	// the roles that revoked from the key or user
-	Roles []string `json:"roles"`
-}
-
-// Validate validates this revoke role body
-func (o *RevokeRoleBody) Validate(formats strfmt.Registry) error {
-	return nil
-}
-
-// ContextValidate validates this revoke role body based on context it is used
-func (o *RevokeRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *RevokeRoleBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *RevokeRoleBody) UnmarshalBinary(b []byte) error {
-	var res RevokeRoleBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

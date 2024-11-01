@@ -25,6 +25,8 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewAssignRoleParams creates a new AssignRoleParams object,
@@ -73,13 +75,7 @@ AssignRoleParams contains all the parameters to send to the API endpoint
 type AssignRoleParams struct {
 
 	// Body.
-	Body AssignRoleBody
-
-	/* ID.
-
-	   user or key ID
-	*/
-	ID string
+	Body *models.RoleAssignmentRequest
 
 	timeout    time.Duration
 	Context    context.Context
@@ -135,25 +131,14 @@ func (o *AssignRoleParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the assign role params
-func (o *AssignRoleParams) WithBody(body AssignRoleBody) *AssignRoleParams {
+func (o *AssignRoleParams) WithBody(body *models.RoleAssignmentRequest) *AssignRoleParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the assign role params
-func (o *AssignRoleParams) SetBody(body AssignRoleBody) {
+func (o *AssignRoleParams) SetBody(body *models.RoleAssignmentRequest) {
 	o.Body = body
-}
-
-// WithID adds the id to the assign role params
-func (o *AssignRoleParams) WithID(id string) *AssignRoleParams {
-	o.SetID(id)
-	return o
-}
-
-// SetID adds the id to the assign role params
-func (o *AssignRoleParams) SetID(id string) {
-	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -163,13 +148,10 @@ func (o *AssignRoleParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		return err
 	}
 	var res []error
-	if err := r.SetBodyParam(o.Body); err != nil {
-		return err
-	}
-
-	// path param id
-	if err := r.SetPathParam("id", o.ID); err != nil {
-		return err
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
 	}
 
 	if len(res) > 0 {
