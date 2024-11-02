@@ -6,6 +6,12 @@ A preview docker image for this branch is available with the following tag:
 $PREVIEW_TAG
 ```
 
+A semver compliant docker image tag for this branch is available with the following tag:
+
+```
+$PREVIEW_SEMVER_TAG
+```
+
 ## Use at your own risk :warning:
 
 Preview builds make no promises about stability or feature completeness.  Use them at your own risk. A preview build is not generated if tests failed,  so they have at least passed the common test suite. They may or may not have  been subjected to the asynchronous stress test and chaos pipelines.
