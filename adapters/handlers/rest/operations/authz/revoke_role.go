@@ -45,7 +45,7 @@ func NewRevokeRole(ctx *middleware.Context, handler RevokeRoleHandler) *RevokeRo
 /*
 	RevokeRole swagger:route DELETE /authz/users authz revokeRole
 
-Remove a role from a user
+Revoke a role from a user
 */
 type RevokeRole struct {
 	Context *middleware.Context

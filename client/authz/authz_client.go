@@ -49,15 +49,17 @@ type ClientService interface {
 
 	GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error)
 
-	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
+	GetUserRolesOrRoleUsers(params *GetUserRolesOrRoleUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUserRolesOrRoleUsersOK, error)
 
 	RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error)
+
+	UpdateRole(params *UpdateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateRoleCreated, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
-AssignRole assigns a role to a user
+AssignRole assigns a role to a user or key
 */
 func (a *Client) AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -106,7 +108,7 @@ func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAut
 	op := &runtime.ClientOperation{
 		ID:                 "createRole",
 		Method:             "POST",
-		PathPattern:        "/authz/role",
+		PathPattern:        "/authz/roles",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -174,7 +176,7 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-GetRoles gets all roles
+GetRoles gets specific or all roles
 */
 func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error) {
 	// TODO: Validate the params before sending
@@ -213,22 +215,22 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetUsersForRole gets roles for user or a key or users or keys for roles
+GetUserRolesOrRoleUsers gets roles for user or a key or users or keys for roles
 */
-func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
+func (a *Client) GetUserRolesOrRoleUsers(params *GetUserRolesOrRoleUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUserRolesOrRoleUsersOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewGetUsersForRoleParams()
+		params = NewGetUserRolesOrRoleUsersParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "getUsersForRole",
+		ID:                 "getUserRolesOrRoleUsers",
 		Method:             "GET",
 		PathPattern:        "/authz/users",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &GetUsersForRoleReader{formats: a.formats},
+		Reader:             &GetUserRolesOrRoleUsersReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -241,18 +243,18 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*GetUsersForRoleOK)
+	success, ok := result.(*GetUserRolesOrRoleUsersOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for getUsersForRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for getUserRolesOrRoleUsers: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-RevokeRole removes a role from a user
+RevokeRole revokes a role from a user
 */
 func (a *Client) RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -287,6 +289,45 @@ func (a *Client) RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAut
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for revokeRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+UpdateRole updates existing role works as upsert
+*/
+func (a *Client) UpdateRole(params *UpdateRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*UpdateRoleCreated, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewUpdateRoleParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "updateRole",
+		Method:             "PATCH",
+		PathPattern:        "/authz/roles",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &UpdateRoleReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*UpdateRoleCreated)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for updateRole: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
