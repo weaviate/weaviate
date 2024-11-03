@@ -51,7 +51,7 @@ type ClientService interface {
 }
 
 /*
-WeaviateRoot Home. Discover the REST API
+WeaviateRoot Get links to other endpoints to help discover the REST API
 */
 func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error) {
 	// TODO: Validate the params before sending

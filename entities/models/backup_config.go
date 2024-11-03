@@ -36,7 +36,7 @@ type BackupConfig struct {
 	// Minimum: 1
 	CPUPercentage int64 `json:"CPUPercentage,omitempty"`
 
-	// Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB
+	// Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.
 	// Maximum: 512
 	// Minimum: 2
 	ChunkSize int64 `json:"ChunkSize,omitempty"`

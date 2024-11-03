@@ -49,7 +49,7 @@ type ClientService interface {
 }
 
 /*
-NodesGet Returns status of Weaviate DB.
+NodesGet Returns node information for the entire database.
 */
 func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -88,7 +88,7 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-NodesGetClass Returns status of Weaviate DB.
+NodesGetClass Returns node information for the nodes relevant to the collection.
 */
 func (a *Client) NodesGetClass(params *NodesGetClassParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetClassOK, error) {
 	// TODO: Validate the params before sending

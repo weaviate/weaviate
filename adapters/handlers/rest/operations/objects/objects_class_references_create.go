@@ -47,7 +47,7 @@ func NewObjectsClassReferencesCreate(ctx *middleware.Context, handler ObjectsCla
 
 Add a single reference to a class-property.
 
-Add a single reference to a class-property.
+Add a single reference to an object. This adds a reference to the array of cross-references of the given property in the source object specified by its collection name and id
 */
 type ObjectsClassReferencesCreate struct {
 	Context *middleware.Context

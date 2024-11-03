@@ -72,6 +72,8 @@ type ClientService interface {
 
 /*
 SchemaDump dumps the current the database schema
+
+Fetch an array of all collection definitions from the schema.
 */
 func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
@@ -111,6 +113,8 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 
 /*
 SchemaObjectsCreate creates a new object class in the schema
+
+Create a new data object collection. <br/><br/>If AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -150,6 +154,8 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 
 /*
 SchemaObjectsDelete removes an object class and all data in the instances from the schema
+
+Remove a collection from the schema. This will also delete all the objects in the collection.
 */
 func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -267,6 +273,8 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 
 /*
 SchemaObjectsShardsGet gets the shards status of an object class
+
+Get the status of every shard in the cluster.
 */
 func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -305,7 +313,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 }
 
 /*
-SchemaObjectsShardsUpdate Update shard status of an Object Class
+SchemaObjectsShardsUpdate Update a shard status for a collection. For example, a shard may have been marked as `READONLY` because its disk was full. After providing more disk space, use this endpoint to set the shard status to `READY` again. There is also a convenience function in each client to set the status of all shards of a collection.
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -346,7 +354,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 /*
 SchemaObjectsUpdate updates settings of an existing schema class
 
-Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
+Add a property to an existing collection.
 */
 func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -424,7 +432,7 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 }
 
 /*
-TenantsCreate Create a new tenant for a specific class
+TenantsCreate Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.
 */
 func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsCreateOK, error) {
 	// TODO: Validate the params before sending
