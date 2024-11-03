@@ -27,27 +27,27 @@ import (
 
 // RoleAssignmentRequest RBAC role assignment request
 //
-// Min Properties: 2
-//
 // swagger:model RoleAssignmentRequest
 type RoleAssignmentRequest struct {
 
-	// the key to be assigned to a role
-	Key *string `json:"key,omitempty"`
-
-	// the role that the key/user assigned to
+	// the roles that assigned to the key or user
 	// Required: true
-	Role *string `json:"role"`
+	Roles []string `json:"roles"`
 
-	// the user to be assigned to a role
-	User *string `json:"user,omitempty"`
+	// the user or key to be assigned to a role
+	// Required: true
+	User *string `json:"user"`
 }
 
 // Validate validates this role assignment request
 func (m *RoleAssignmentRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateRole(formats); err != nil {
+	if err := m.validateRoles(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUser(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -57,9 +57,18 @@ func (m *RoleAssignmentRequest) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *RoleAssignmentRequest) validateRole(formats strfmt.Registry) error {
+func (m *RoleAssignmentRequest) validateRoles(formats strfmt.Registry) error {
 
-	if err := validate.Required("role", "body", m.Role); err != nil {
+	if err := validate.Required("roles", "body", m.Roles); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *RoleAssignmentRequest) validateUser(formats strfmt.Registry) error {
+
+	if err := validate.Required("user", "body", m.User); err != nil {
 		return err
 	}
 
