@@ -305,7 +305,9 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 }
 
 /*
-SchemaObjectsShardsUpdate Update shard status of an Object Class
+SchemaObjectsShardsUpdate updates a shard status
+
+Update shard status of an Object Class
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -385,7 +387,9 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 }
 
 /*
-TenantExists Check if a tenant exists for a specific class
+TenantExists checks whether a tenant exists
+
+Check if a tenant exists for a specific class
 */
 func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantExistsOK, error) {
 	// TODO: Validate the params before sending
@@ -424,7 +428,9 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 }
 
 /*
-TenantsCreate Create a new tenant for a specific class
+TenantsCreate creates a new tenant
+
+Create a new tenant for a specific class
 */
 func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -502,7 +508,9 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 }
 
 /*
-TenantsGet get all tenants from a specific class
+TenantsGet gets the list of tenants
+
+get all tenants from a specific class
 */
 func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -541,7 +549,9 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-TenantsUpdate Update tenant of a specific class
+TenantsUpdate updates a tenant
+
+Update tenant of a specific class
 */
 func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsUpdateOK, error) {
 	// TODO: Validate the params before sending

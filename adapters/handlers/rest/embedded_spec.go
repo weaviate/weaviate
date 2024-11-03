@@ -55,6 +55,7 @@ func init() {
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -77,6 +78,7 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "summary": "Get application liveness.",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -136,6 +138,7 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "summary": "Get application readiness.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -153,6 +156,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "List backups in progress",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -201,6 +205,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Start a backup process",
         "operationId": "backups.create",
         "parameters": [
           {
@@ -259,6 +264,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get backup process status",
         "operationId": "backups.create.status",
         "parameters": [
           {
@@ -320,6 +326,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Cancel backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -374,6 +381,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get restore process status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
@@ -429,6 +437,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Start a restoration process",
         "operationId": "backups.restore",
         "parameters": [
           {
@@ -827,6 +836,7 @@ func init() {
         "tags": [
           "cluster"
         ],
+        "summary": "See Raft cluster statistics",
         "operationId": "cluster.get.statistics",
         "responses": {
           "200": {
@@ -1022,6 +1032,7 @@ func init() {
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for the database.",
         "operationId": "nodes.get",
         "parameters": [
           {
@@ -1074,6 +1085,7 @@ func init() {
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for a collection.",
         "operationId": "nodes.get.class",
         "parameters": [
           {
@@ -2814,6 +2826,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Update a shard status.",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
@@ -2883,6 +2896,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Get the list of tenants.",
         "operationId": "tenants.get",
         "parameters": [
           {
@@ -2937,6 +2951,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Update a tenant.",
         "operationId": "tenants.update",
         "parameters": [
           {
@@ -2995,6 +3010,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Create a new tenant",
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -3107,6 +3123,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Check whether a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
@@ -5481,6 +5498,7 @@ func init() {
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -5503,6 +5521,7 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "summary": "Get application liveness.",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -5562,6 +5581,7 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "summary": "Get application readiness.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -5579,6 +5599,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "List backups in progress",
         "operationId": "backups.list",
         "parameters": [
           {
@@ -5627,6 +5648,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Start a backup process",
         "operationId": "backups.create",
         "parameters": [
           {
@@ -5685,6 +5707,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get backup process status",
         "operationId": "backups.create.status",
         "parameters": [
           {
@@ -5746,6 +5769,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Cancel backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -5800,6 +5824,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get restore process status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
@@ -5855,6 +5880,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Start a restoration process",
         "operationId": "backups.restore",
         "parameters": [
           {
@@ -6265,6 +6291,7 @@ func init() {
         "tags": [
           "cluster"
         ],
+        "summary": "See Raft cluster statistics",
         "operationId": "cluster.get.statistics",
         "responses": {
           "200": {
@@ -6460,6 +6487,7 @@ func init() {
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for the database.",
         "operationId": "nodes.get",
         "parameters": [
           {
@@ -6516,6 +6544,7 @@ func init() {
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for a collection.",
         "operationId": "nodes.get.class",
         "parameters": [
           {
@@ -8362,6 +8391,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Update a shard status.",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
@@ -8431,6 +8461,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Get the list of tenants.",
         "operationId": "tenants.get",
         "parameters": [
           {
@@ -8485,6 +8516,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Update a tenant.",
         "operationId": "tenants.update",
         "parameters": [
           {
@@ -8543,6 +8575,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Create a new tenant",
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -8655,6 +8688,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Check whether a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {

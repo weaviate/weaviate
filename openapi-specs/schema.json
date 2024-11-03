@@ -2281,6 +2281,7 @@
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -2302,6 +2303,7 @@
     },
     "/.well-known/live": {
       "get": {
+        "summary": "Get application liveness.",
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
@@ -2313,6 +2315,7 @@
     },
     "/.well-known/ready": {
       "get": {
+        "summary": "Get application readiness.",
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
@@ -4441,6 +4444,7 @@
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
+        "summary": "Update a shard status.",
         "description": "Update shard status of an Object Class",
         "operationId": "schema.objects.shards.update",
         "x-serviceIds": [
@@ -4510,6 +4514,7 @@
     },
     "/schema/{className}/tenants": {
       "post": {
+        "summary": "Create a new tenant",
         "description": "Create a new tenant for a specific class",
         "operationId": "tenants.create",
         "tags": [
@@ -4568,6 +4573,7 @@
         }
       },
       "put": {
+        "summary": "Update a tenant.",
         "description": "Update tenant of a specific class",
         "operationId": "tenants.update",
         "tags": [
@@ -4678,6 +4684,7 @@
         }
       },
       "get": {
+        "summary": "Get the list of tenants.",
         "description": "get all tenants from a specific class",
         "operationId": "tenants.get",
         "tags": [
@@ -4735,6 +4742,7 @@
     },
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
+        "summary": "Check whether a tenant exists",
         "description": "Check if a tenant exists for a specific class",
         "operationId": "tenant.exists",
         "tags": [
@@ -4795,6 +4803,7 @@
     },    
     "/backups/{backend}": {
       "post": {
+        "summary": "Start a backup process",
         "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
         "x-serviceIds": [
@@ -4851,6 +4860,7 @@
         }
       },
       "get": {
+        "summary": "List backups in progress",
         "description": "[Coming soon] List all backups in progress not implemented yet.",
         "operationId": "backups.list",
         "x-serviceIds": [
@@ -4901,6 +4911,7 @@
     },
     "/backups/{backend}/{id}": {
       "get": {
+        "summary": "Get backup process status",
         "description": "Returns status of backup creation attempt for a set of classes",
         "operationId": "backups.create.status",
         "x-serviceIds": [
@@ -4962,6 +4973,7 @@
         }
       },
       "delete": {
+        "summary": "Cancel backup",
         "description": "Cancel created backup with specified ID",
         "operationId": "backups.cancel",
         "x-serviceIds": [
@@ -5016,6 +5028,7 @@
     },
     "/backups/{backend}/{id}/restore": {
       "post": {
+        "summary": "Start a restoration process",
         "description": "Starts a process of restoring a backup for a set of classes",
         "operationId": "backups.restore",
         "x-serviceIds": [
@@ -5085,6 +5098,7 @@
         }
       },
       "get": {
+        "summary": "Get restore process status",
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "operationId": "backups.restore.status",
         "x-serviceIds": [
@@ -5142,6 +5156,7 @@
     },
     "/cluster/statistics": {
       "get": {
+        "summary": "See Raft cluster statistics",
         "description": "Returns Raft cluster statistics of Weaviate DB.",
         "operationId": "cluster.get.statistics",
         "x-serviceIds": [
@@ -5183,6 +5198,7 @@
     },
     "/nodes": {
       "get": {
+        "summary": "Node information for the database.",
         "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get",
         "x-serviceIds": [
@@ -5235,6 +5251,7 @@
     },
     "/nodes/{className}": {
       "get": {
+        "summary": "Node information for a collection.",
         "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get.class",
         "x-serviceIds": [
