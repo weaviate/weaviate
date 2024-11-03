@@ -55,6 +55,9 @@ func init() {
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "tags": [
+          "root"
+        ],
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -77,6 +80,9 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -89,9 +95,7 @@ func init() {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          "well-known"
         ],
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "responses": {
@@ -136,6 +140,9 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -498,8 +505,7 @@ func init() {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "summary": "Creates new Objects based on a Object template as a batch.",
         "operationId": "batch.objects.create",
@@ -586,8 +592,7 @@ func init() {
       "delete": {
         "description": "Delete Objects in bulk that match a certain filter.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "summary": "Deletes Objects based on a match filter as a batch.",
         "operationId": "batch.objects.delete",
@@ -5425,28 +5430,48 @@ func init() {
   ],
   "tags": [
     {
+      "description": "The root of the API. Note the base url is ` + "`" + `/v1` + "`" + `.",
+      "name": "root"
+    },
+    {
+      "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
+      "name": "schema"
+    },
+    {
+      "description": "Create, update and delete objects and cross-references.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Create, update and delete multiple objects and references at once. \u003cbr/\u003e\u003cbr/\u003eNote that object-level errors may be reported even in a successful batch request. Accordingly, we recommend you check the response body for errors.",
       "name": "batch"
     },
     {
-      "name": "graphql"
+      "description": "Create, restore and check the status of backups. \u003cbr/\u003e\u003cbr/\u003eSee the [backups page](https://weaviate.io/developers/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups.",
+      "name": "backups"
     },
     {
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules.",
       "name": "meta"
     },
     {
-      "name": "P2P"
+      "description": "Retrieve information about the cluster.",
+      "name": "cluster"
     },
     {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection.",
+      "name": "nodes"
     },
     {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
-      "name": "schema"
+      "description": "` + "`" + `.well-known` + "`" + ` endpoints. If OpenID Connect (OIDC) authentication is enabled, this endpoint includes OIDC configuration details.",
+      "name": "well-known"
+    },
+    {
+      "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://weaviate.io/developers/weaviate/api/graphql) for query syntax details.",
+      "name": "graphql"
+    },
+    {
+      "description": "Perform classification operations",
+      "name": "classifications"
     }
   ],
   "externalDocs": {
@@ -5480,6 +5505,9 @@ func init() {
     "/": {
       "get": {
         "description": "Home. Discover the REST API",
+        "tags": [
+          "root"
+        ],
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -5502,6 +5530,9 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -5514,9 +5545,7 @@ func init() {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          "well-known"
         ],
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "responses": {
@@ -5561,6 +5590,9 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -5923,8 +5955,7 @@ func init() {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "summary": "Creates new Objects based on a Object template as a batch.",
         "operationId": "batch.objects.create",
@@ -6014,8 +6045,7 @@ func init() {
       "delete": {
         "description": "Delete Objects in bulk that match a certain filter.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "summary": "Deletes Objects based on a match filter as a batch.",
         "operationId": "batch.objects.delete",
@@ -11161,28 +11191,48 @@ func init() {
   ],
   "tags": [
     {
+      "description": "The root of the API. Note the base url is ` + "`" + `/v1` + "`" + `.",
+      "name": "root"
+    },
+    {
+      "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
+      "name": "schema"
+    },
+    {
+      "description": "Create, update and delete objects and cross-references.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Create, update and delete multiple objects and references at once. \u003cbr/\u003e\u003cbr/\u003eNote that object-level errors may be reported even in a successful batch request. Accordingly, we recommend you check the response body for errors.",
       "name": "batch"
     },
     {
-      "name": "graphql"
+      "description": "Create, restore and check the status of backups. \u003cbr/\u003e\u003cbr/\u003eSee the [backups page](https://weaviate.io/developers/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups.",
+      "name": "backups"
     },
     {
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules.",
       "name": "meta"
     },
     {
-      "name": "P2P"
+      "description": "Retrieve information about the cluster.",
+      "name": "cluster"
     },
     {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection.",
+      "name": "nodes"
     },
     {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
-      "name": "schema"
+      "description": "` + "`" + `.well-known` + "`" + ` endpoints. If OpenID Connect (OIDC) authentication is enabled, this endpoint includes OIDC configuration details.",
+      "name": "well-known"
+    },
+    {
+      "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://weaviate.io/developers/weaviate/api/graphql) for query syntax details.",
+      "name": "graphql"
+    },
+    {
+      "description": "Perform classification operations",
+      "name": "classifications"
     }
   ],
   "externalDocs": {

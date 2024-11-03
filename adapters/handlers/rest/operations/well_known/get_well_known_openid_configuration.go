@@ -46,7 +46,7 @@ func NewGetWellKnownOpenidConfiguration(ctx *middleware.Context, handler GetWell
 }
 
 /*
-	GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
+	GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known getWellKnownOpenidConfiguration
 
 # OIDC discovery information if OIDC auth is enabled
 

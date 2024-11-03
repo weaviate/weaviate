@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/root"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
@@ -217,14 +218,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
-		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
+		RootWeaviateRootHandler: root.WeaviateRootHandlerFunc(func(params root.WeaviateRootParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation root.WeaviateRoot has not yet been implemented")
 		}),
-		WeaviateWellknownLivenessHandler: WeaviateWellknownLivenessHandlerFunc(func(params WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation WeaviateWellknownLiveness has not yet been implemented")
+		WellKnownWeaviateWellknownLivenessHandler: well_known.WeaviateWellknownLivenessHandlerFunc(func(params well_known.WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation well_known.WeaviateWellknownLiveness has not yet been implemented")
 		}),
-		WeaviateWellknownReadinessHandler: WeaviateWellknownReadinessHandlerFunc(func(params WeaviateWellknownReadinessParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation WeaviateWellknownReadiness has not yet been implemented")
+		WellKnownWeaviateWellknownReadinessHandler: well_known.WeaviateWellknownReadinessHandlerFunc(func(params well_known.WeaviateWellknownReadinessParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation well_known.WeaviateWellknownReadiness has not yet been implemented")
 		}),
 
 		OidcAuth: func(token string, scopes []string) (*models.Principal, error) {
@@ -378,12 +379,12 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
-	// WeaviateRootHandler sets the operation handler for the weaviate root operation
-	WeaviateRootHandler WeaviateRootHandler
-	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
-	WeaviateWellknownLivenessHandler WeaviateWellknownLivenessHandler
-	// WeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
-	WeaviateWellknownReadinessHandler WeaviateWellknownReadinessHandler
+	// RootWeaviateRootHandler sets the operation handler for the weaviate root operation
+	RootWeaviateRootHandler root.WeaviateRootHandler
+	// WellKnownWeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
+	WellKnownWeaviateWellknownLivenessHandler well_known.WeaviateWellknownLivenessHandler
+	// WellKnownWeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
+	WellKnownWeaviateWellknownReadinessHandler well_known.WeaviateWellknownReadinessHandler
 
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
@@ -618,14 +619,14 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
 	}
-	if o.WeaviateRootHandler == nil {
-		unregistered = append(unregistered, "WeaviateRootHandler")
+	if o.RootWeaviateRootHandler == nil {
+		unregistered = append(unregistered, "root.WeaviateRootHandler")
 	}
-	if o.WeaviateWellknownLivenessHandler == nil {
-		unregistered = append(unregistered, "WeaviateWellknownLivenessHandler")
+	if o.WellKnownWeaviateWellknownLivenessHandler == nil {
+		unregistered = append(unregistered, "well_known.WeaviateWellknownLivenessHandler")
 	}
-	if o.WeaviateWellknownReadinessHandler == nil {
-		unregistered = append(unregistered, "WeaviateWellknownReadinessHandler")
+	if o.WellKnownWeaviateWellknownReadinessHandler == nil {
+		unregistered = append(unregistered, "well_known.WeaviateWellknownReadinessHandler")
 	}
 
 	if len(unregistered) > 0 {
@@ -930,15 +931,15 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
+	o.handlers["GET"][""] = root.NewWeaviateRoot(o.context, o.RootWeaviateRootHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/live"] = NewWeaviateWellknownLiveness(o.context, o.WeaviateWellknownLivenessHandler)
+	o.handlers["GET"]["/.well-known/live"] = well_known.NewWeaviateWellknownLiveness(o.context, o.WellKnownWeaviateWellknownLivenessHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/ready"] = NewWeaviateWellknownReadiness(o.context, o.WeaviateWellknownReadinessHandler)
+	o.handlers["GET"]["/.well-known/ready"] = well_known.NewWeaviateWellknownReadiness(o.context, o.WellKnownWeaviateWellknownReadinessHandler)
 }
 
 // Serve creates a http handler to serve the API over HTTP

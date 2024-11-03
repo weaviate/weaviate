@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/operations"
+	"github.com/weaviate/weaviate/client/root"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/well_known"
 )
@@ -84,7 +84,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Meta = meta.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
-	cli.Operations = operations.New(transport, formats)
+	cli.Root = root.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
 	cli.WellKnown = well_known.New(transport, formats)
 	return cli
@@ -147,7 +147,7 @@ type Weaviate struct {
 
 	Objects objects.ClientService
 
-	Operations operations.ClientService
+	Root root.ClientService
 
 	Schema schema.ClientService
 
@@ -167,7 +167,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Meta.SetTransport(transport)
 	c.Nodes.SetTransport(transport)
 	c.Objects.SetTransport(transport)
-	c.Operations.SetTransport(transport)
+	c.Root.SetTransport(transport)
 	c.Schema.SetTransport(transport)
 	c.WellKnown.SetTransport(transport)
 }
