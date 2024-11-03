@@ -37,37 +37,25 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
 
-	roles, err := a.enforcer.GetRolesForUser(principal.Username)
+	a.logger.WithFields(logrus.Fields{
+		"user":     principal.Username,
+		"resource": resource,
+		"action":   verb,
+	}).Debug("checking for role")
+
+	allow, err := a.enforcer.Enforce(principal.Username, resource, verb)
 	if err != nil {
-		a.logger.WithField("user", principal.Username).WithError(err).Error("failed to fetch roles for user")
+		a.logger.WithFields(logrus.Fields{
+			"user":     principal.Username,
+			"resource": resource,
+			"action":   verb,
+		}).WithError(err).Error("failed to enforce policy")
 		return err
 	}
 
-	// TODO: fine grained resources access
-	// for now we will support READONLY/ADMIN on all resources
-	// One user can potentially be assigned multiple roles
-	for _, role := range roles {
-		a.logger.WithFields(logrus.Fields{
-			"role":     role,
-			"resource": resource,
-			"action":   verb,
-		}).Debug("checking for role")
-		allow, err := a.enforcer.Enforce(role, resource, verb)
-		if err != nil {
-			a.logger.WithFields(logrus.Fields{
-				"role":     role,
-				"resource": resource,
-				"action":   verb,
-			}).WithError(err).Error("failed to enforce policy")
-
-			return err
-		}
-
-		if allow {
-			// TODO print permission allowed which user accessing which resource with which
-			// role
-			return nil
-		}
+	// TODO audit-log ?
+	if allow {
+		return nil
 	}
 
 	return errors.NewForbidden(principal, verb, resource)
