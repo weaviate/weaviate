@@ -45,7 +45,7 @@ func NewAssignRole(ctx *middleware.Context, handler AssignRoleHandler) *AssignRo
 /*
 	AssignRole swagger:route POST /authz/users authz assignRole
 
-Assign a role to a user
+Assign a role to a user or key
 */
 type AssignRole struct {
 	Context *middleware.Context

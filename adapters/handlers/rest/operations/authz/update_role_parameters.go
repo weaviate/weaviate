@@ -26,19 +26,19 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewGetUsersForRoleParams creates a new GetUsersForRoleParams object
+// NewUpdateRoleParams creates a new UpdateRoleParams object
 //
 // There are no default values defined in the spec.
-func NewGetUsersForRoleParams() GetUsersForRoleParams {
+func NewUpdateRoleParams() UpdateRoleParams {
 
-	return GetUsersForRoleParams{}
+	return UpdateRoleParams{}
 }
 
-// GetUsersForRoleParams contains all the bound params for the get users for role operation
+// UpdateRoleParams contains all the bound params for the update role operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters getUsersForRole
-type GetUsersForRoleParams struct {
+// swagger:parameters updateRole
+type UpdateRoleParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -47,21 +47,21 @@ type GetUsersForRoleParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body GetUsersForRoleBody
+	Body UpdateRoleBody
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewGetUsersForRoleParams() beforehand.
-func (o *GetUsersForRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewUpdateRoleParams() beforehand.
+func (o *UpdateRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body GetUsersForRoleBody
+		var body UpdateRoleBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))

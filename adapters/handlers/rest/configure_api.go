@@ -54,12 +54,11 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	"github.com/weaviate/weaviate/exp/metadata"
-
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/exp/metadata"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -110,6 +109,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -1537,15 +1537,21 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 		// added manually after startup. The below line can be swapped in for
 		// debugging purposes if needed.
 		//
-		// if _, err := enforcer.AddPolicy(authConfig.Roles[i], "/v1/meta", "GET"); err != nil {
-		//
 		// TODO: objects has to be mapped e.g.
 		//  v1/schema.class.ABC  [path.objectType.objectName]
-		if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", "*"); err != nil {
-			return nil, fmt.Errorf("add policy: %w", err)
+
+		for _, verb := range authorization.BuiltInRolesVerbs[authConfig.Roles[i]] {
+			if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb); err != nil {
+				return nil, fmt.Errorf("add policy: %w", err)
+			}
 		}
-		if _, err := enforcer.AddGroupingPolicy(authConfig.Users[i], authConfig.Roles[i]); err != nil {
-			return nil, fmt.Errorf("add grouping policy: %w", err)
+
+		// TODO do we need to add to keys as users ?
+		// if _, err := enforcer.AddRoleForUser(authConfig.AllowedKeys[i], authConfig.Roles[i]); err != nil {
+		// 	return nil, fmt.Errorf("add role for key: %w", err)
+		// }
+		if _, err := enforcer.AddRoleForUser(authConfig.Users[i], authConfig.Roles[i]); err != nil {
+			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
