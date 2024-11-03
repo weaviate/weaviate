@@ -69,7 +69,7 @@ case $CONFIG in
       AUTHENTICATION_APIKEY_ENABLED=true \
       AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
       AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-      AUTHENTICATION_APIKEY_ROLES='Reviewer,Editor,Reviewer' \
+      AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-filesystem" \

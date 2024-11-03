@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Permission permissions attached to a role.
+// Permission comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *
 //
 // swagger:model Permission
 type Permission struct {
@@ -36,12 +36,8 @@ type Permission struct {
 	// Required: true
 	Actions []string `json:"actions"`
 
-	// level of that permission
-	// Required: true
-	// Enum: [database collection tenant]
-	Level *string `json:"level"`
-
 	// resources
+	// Required: true
 	Resources []*string `json:"resources"`
 }
 
@@ -53,7 +49,7 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateLevel(formats); err != nil {
+	if err := m.validateResources(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -67,7 +63,7 @@ var permissionActionsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["create_role","read_role","update_role","delete_role","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant","create_object","read_object","update_object","delete_object"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -100,46 +96,9 @@ func (m *Permission) validateActions(formats strfmt.Registry) error {
 	return nil
 }
 
-var permissionTypeLevelPropEnum []interface{}
+func (m *Permission) validateResources(formats strfmt.Registry) error {
 
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["database","collection","tenant"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		permissionTypeLevelPropEnum = append(permissionTypeLevelPropEnum, v)
-	}
-}
-
-const (
-
-	// PermissionLevelDatabase captures enum value "database"
-	PermissionLevelDatabase string = "database"
-
-	// PermissionLevelCollection captures enum value "collection"
-	PermissionLevelCollection string = "collection"
-
-	// PermissionLevelTenant captures enum value "tenant"
-	PermissionLevelTenant string = "tenant"
-)
-
-// prop value enum
-func (m *Permission) validateLevelEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, permissionTypeLevelPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Permission) validateLevel(formats strfmt.Registry) error {
-
-	if err := validate.Required("level", "body", m.Level); err != nil {
-		return err
-	}
-
-	// value enum
-	if err := m.validateLevelEnum("level", "body", *m.Level); err != nil {
+	if err := validate.Required("resources", "body", m.Resources); err != nil {
 		return err
 	}
 

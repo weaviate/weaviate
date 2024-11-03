@@ -150,7 +150,54 @@ func init() {
         }
       }
     },
-    "/authz/role": {
+    "/authz/roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get specific or all roles",
+        "operationId": "getRoles",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "the name of the role",
+            "name": "name",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles"
+        ]
+      },
       "post": {
         "tags": [
           "authz"
@@ -196,33 +243,56 @@ func init() {
         "x-serviceIds": [
           "weaviate.authz.create.role"
         ]
-      }
-    },
-    "/authz/roles": {
-      "get": {
+      },
+      "patch": {
         "tags": [
           "authz"
         ],
-        "summary": "Get all roles",
-        "operationId": "getRoles",
+        "summary": "update existing role, works as upsert.",
+        "operationId": "updateRole",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "RBAC role update request",
+              "type": "object",
+              "required": [
+                "role",
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                },
+                "role": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
         "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
+          "201": {
+            "description": "Role update successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -235,7 +305,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.roles"
+          "weaviate.authz.patch.role"
         ]
       }
     },
@@ -292,41 +362,39 @@ func init() {
           "authz"
         ],
         "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUsersForRole",
+        "operationId": "getUserRolesOrRoleUsers",
         "parameters": [
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "RBAC role assignment request",
-              "type": "object",
-              "properties": {
-                "key": {
-                  "description": "the key to be assigned to a role",
-                  "type": "string",
-                  "x-nullable": true
-                },
-                "role": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "string"
-                },
-                "user": {
-                  "description": "the user to be assigned to a role",
-                  "type": "string",
-                  "x-nullable": true
-                }
-              }
-            }
+            "type": "string",
+            "description": "the user or key assigned to a role",
+            "name": "user",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "the role that the key or user assigned to",
+            "name": "role",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "users": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -363,7 +431,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user",
+        "summary": "Assign a role to a user or key",
         "operationId": "assignRole",
         "parameters": [
           {
@@ -412,7 +480,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Remove a role from a user",
+        "summary": "Revoke a role from a user",
         "operationId": "revokeRole",
         "parameters": [
           {
@@ -5008,22 +5076,23 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
       "type": "object",
       "required": [
-        "level",
+        "resources",
         "actions"
       ],
       "properties": {
         "actions": {
           "type": "array",
           "items": {
-            "description": "allowed actions in weaviate.",
+            "description": "HTTP Method like actions the user/key can perform on an object",
             "type": "string",
             "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
+              "create_role",
+              "read_role",
+              "update_role",
+              "delete_role",
               "create_collection",
               "read_collection",
               "update_collection",
@@ -5031,23 +5100,18 @@ func init() {
               "create_tenant",
               "read_tenant",
               "update_tenant",
-              "delete_tenant"
+              "delete_tenant",
+              "create_object",
+              "read_object",
+              "update_object",
+              "delete_object"
             ]
           }
-        },
-        "level": {
-          "description": "level of that permission",
-          "type": "string",
-          "enum": [
-            "database",
-            "collection",
-            "tenant"
-          ]
         },
         "resources": {
           "type": "array",
           "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
             "type": "string",
             "default": "*"
           }
@@ -5346,61 +5410,50 @@ func init() {
       "required": [
         "name",
         "level",
-        "action"
+        "permissions"
       ],
       "properties": {
-        "action": {
-          "description": "HTTP Method like actions the user/key can perform on an object",
-          "type": "string",
-          "enum": [
-            "READ",
-            "LIST",
-            "WRITE",
-            "DELETE"
-          ]
-        },
         "level": {
           "description": "level this role has permission to",
           "type": "string",
           "enum": [
-            "Database",
-            "Collection",
-            "Tenant",
-            "Object"
+            "database",
+            "collection",
+            "tenant",
+            "object"
           ]
         },
         "name": {
           "description": "role name",
           "type": "string"
         },
-        "object_name": {
-          "description": "comma separated string. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "$ref": "#/definitions/Permission"
+          }
         }
       }
     },
     "RoleAssignmentRequest": {
       "description": "RBAC role assignment request",
       "type": "object",
-      "minProperties": 2,
       "required": [
-        "role"
+        "roles",
+        "user"
       ],
       "properties": {
-        "key": {
-          "description": "the key to be assigned to a role",
-          "type": "string",
-          "x-nullable": true
-        },
-        "role": {
-          "description": "the role that the key/user assigned to",
-          "type": "string"
+        "roles": {
+          "description": "the roles that assigned to the key or user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "user": {
-          "description": "the user to be assigned to a role",
-          "type": "string",
-          "x-nullable": true
+          "description": "the user or key to be assigned to a role",
+          "type": "string"
         }
       }
     },
@@ -6119,7 +6172,54 @@ func init() {
         }
       }
     },
-    "/authz/role": {
+    "/authz/roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Get specific or all roles",
+        "operationId": "getRoles",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "the name of the role",
+            "name": "name",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles"
+        ]
+      },
       "post": {
         "tags": [
           "authz"
@@ -6165,33 +6265,56 @@ func init() {
         "x-serviceIds": [
           "weaviate.authz.create.role"
         ]
-      }
-    },
-    "/authz/roles": {
-      "get": {
+      },
+      "patch": {
         "tags": [
           "authz"
         ],
-        "summary": "Get all roles",
-        "operationId": "getRoles",
+        "summary": "update existing role, works as upsert.",
+        "operationId": "updateRole",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "RBAC role update request",
+              "type": "object",
+              "required": [
+                "role",
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                },
+                "role": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
         "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
+          "201": {
+            "description": "Role update successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6204,7 +6327,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.roles"
+          "weaviate.authz.patch.role"
         ]
       }
     },
@@ -6261,41 +6384,39 @@ func init() {
           "authz"
         ],
         "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUsersForRole",
+        "operationId": "getUserRolesOrRoleUsers",
         "parameters": [
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "RBAC role assignment request",
-              "type": "object",
-              "properties": {
-                "key": {
-                  "description": "the key to be assigned to a role",
-                  "type": "string",
-                  "x-nullable": true
-                },
-                "role": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "string"
-                },
-                "user": {
-                  "description": "the user to be assigned to a role",
-                  "type": "string",
-                  "x-nullable": true
-                }
-              }
-            }
+            "type": "string",
+            "description": "the user or key assigned to a role",
+            "name": "user",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "the role that the key or user assigned to",
+            "name": "role",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
+              "type": "object",
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "users": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -6332,7 +6453,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user",
+        "summary": "Assign a role to a user or key",
         "operationId": "assignRole",
         "parameters": [
           {
@@ -6381,7 +6502,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Remove a role from a user",
+        "summary": "Revoke a role from a user",
         "operationId": "revokeRole",
         "parameters": [
           {
@@ -11279,22 +11400,23 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
       "type": "object",
       "required": [
-        "level",
+        "resources",
         "actions"
       ],
       "properties": {
         "actions": {
           "type": "array",
           "items": {
-            "description": "allowed actions in weaviate.",
+            "description": "HTTP Method like actions the user/key can perform on an object",
             "type": "string",
             "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
+              "create_role",
+              "read_role",
+              "update_role",
+              "delete_role",
               "create_collection",
               "read_collection",
               "update_collection",
@@ -11302,23 +11424,18 @@ func init() {
               "create_tenant",
               "read_tenant",
               "update_tenant",
-              "delete_tenant"
+              "delete_tenant",
+              "create_object",
+              "read_object",
+              "update_object",
+              "delete_object"
             ]
           }
-        },
-        "level": {
-          "description": "level of that permission",
-          "type": "string",
-          "enum": [
-            "database",
-            "collection",
-            "tenant"
-          ]
         },
         "resources": {
           "type": "array",
           "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
             "type": "string",
             "default": "*"
           }
@@ -11617,61 +11734,50 @@ func init() {
       "required": [
         "name",
         "level",
-        "action"
+        "permissions"
       ],
       "properties": {
-        "action": {
-          "description": "HTTP Method like actions the user/key can perform on an object",
-          "type": "string",
-          "enum": [
-            "READ",
-            "LIST",
-            "WRITE",
-            "DELETE"
-          ]
-        },
         "level": {
           "description": "level this role has permission to",
           "type": "string",
           "enum": [
-            "Database",
-            "Collection",
-            "Tenant",
-            "Object"
+            "database",
+            "collection",
+            "tenant",
+            "object"
           ]
         },
         "name": {
           "description": "role name",
           "type": "string"
         },
-        "object_name": {
-          "description": "comma separated string. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "$ref": "#/definitions/Permission"
+          }
         }
       }
     },
     "RoleAssignmentRequest": {
       "description": "RBAC role assignment request",
       "type": "object",
-      "minProperties": 2,
       "required": [
-        "role"
+        "roles",
+        "user"
       ],
       "properties": {
-        "key": {
-          "description": "the key to be assigned to a role",
-          "type": "string",
-          "x-nullable": true
-        },
-        "role": {
-          "description": "the role that the key/user assigned to",
-          "type": "string"
+        "roles": {
+          "description": "the roles that assigned to the key or user",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "user": {
-          "description": "the user to be assigned to a role",
-          "type": "string",
-          "x-nullable": true
+          "description": "the user or key to be assigned to a role",
+          "type": "string"
         }
       }
     },
