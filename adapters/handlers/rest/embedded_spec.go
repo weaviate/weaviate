@@ -3686,7 +3686,7 @@ func init() {
       }
     },
     "C11yVector": {
-      "description": "A Vector in the Contextionary",
+      "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
@@ -9329,7 +9329,7 @@ func init() {
       }
     },
     "C11yVector": {
-      "description": "A Vector in the Contextionary",
+      "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
