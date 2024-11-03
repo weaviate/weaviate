@@ -119,8 +119,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
 		}),
-		AuthzGetUsersForRoleHandler: authz.GetUsersForRoleHandlerFunc(func(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.GetUsersForRole has not yet been implemented")
+		AuthzGetUserRolesOrRoleUsersHandler: authz.GetUserRolesOrRoleUsersHandlerFunc(func(params authz.GetUserRolesOrRoleUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetUserRolesOrRoleUsers has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
@@ -236,6 +236,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
+		AuthzUpdateRoleHandler: authz.UpdateRoleHandlerFunc(func(params authz.UpdateRoleParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.UpdateRole has not yet been implemented")
+		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -346,8 +349,8 @@ type WeaviateAPI struct {
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
-	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
-	AuthzGetUsersForRoleHandler authz.GetUsersForRoleHandler
+	// AuthzGetUserRolesOrRoleUsersHandler sets the operation handler for the get user roles or role users operation
+	AuthzGetUserRolesOrRoleUsersHandler authz.GetUserRolesOrRoleUsersHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -424,6 +427,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
+	// AuthzUpdateRoleHandler sets the operation handler for the update role operation
+	AuthzUpdateRoleHandler authz.UpdateRoleHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -565,8 +570,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
 	}
-	if o.AuthzGetUsersForRoleHandler == nil {
-		unregistered = append(unregistered, "authz.GetUsersForRoleHandler")
+	if o.AuthzGetUserRolesOrRoleUsersHandler == nil {
+		unregistered = append(unregistered, "authz.GetUserRolesOrRoleUsersHandler")
 	}
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
@@ -681,6 +686,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
+	}
+	if o.AuthzUpdateRoleHandler == nil {
+		unregistered = append(unregistered, "authz.UpdateRoleHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -850,7 +858,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/role"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
+	o.handlers["POST"]["/authz/roles"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -862,7 +870,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
+	o.handlers["GET"]["/authz/users"] = authz.NewGetUserRolesOrRoleUsers(o.context, o.AuthzGetUserRolesOrRoleUsersHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1015,6 +1023,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/authz/roles"] = authz.NewUpdateRole(o.context, o.AuthzUpdateRoleHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

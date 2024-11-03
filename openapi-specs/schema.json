@@ -15,20 +15,61 @@
         "level": {
           "type": "string",
           "description": "level this role has permission to",
-          "enum": ["Database", "Collection", "Tenant", "Object"]
+          "enum": ["database", "collection", "tenant", "object"]
         },
-        "object_name": {
-          "type": "string",
-          "default": "*",
-          "description": "comma separated string. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *"
-        },
-        "action": {
-          "type": "string",
-          "description": "HTTP Method like actions the user/key can perform on an object",
-          "enum": ["READ", "LIST", "WRITE", "DELETE"]
+        "permissions" : {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "",
+            "$ref": "#/definitions/Permission"
+          }
         }
       },
-      "required": ["name", "level", "action"]
+      "required": ["name", "level", "permissions"]
+    },
+    "Permission": {
+      "type": "object",
+      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "default": "*",
+            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "HTTP Method like actions the user/key can perform on an object",
+            "enum": [
+              "create_role",
+              "read_role",
+              "update_role",
+              "delete_role",
+
+              "create_collection",
+              "read_collection",
+              "update_collection",
+              "delete_collection",
+
+              "create_tenant",
+              "read_tenant",
+              "update_tenant",
+              "delete_tenant",
+
+              "create_object",
+              "read_object",
+              "update_object",
+              "delete_object"
+            ]
+          }
+        }
+      },
+      "required": ["resources", "actions"]
     },
     "RolesListResponse": {
       "type": "array",
@@ -43,21 +84,17 @@
       "properties": {
         "user": {
           "type": "string",
-          "description": "the user to be assigned to a role",
-          "x-nullable": true
+          "description": "the user or key to be assigned to a role"
         },
-        "key": {
-          "type": "string",
-          "description": "the key to be assigned to a role",
-          "x-nullable": true
-        },
-        "role": {
-          "type": "string",
-          "description": "the role that the key/user assigned to"
+        "roles": {
+          "type": "array",
+          "description": "the roles that assigned to the key or user",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["role"],
-      "minProperties": 2
+      "required": ["roles", "user"]
     },
     "RoleAssignmentResponse": {
       "type": "object",
@@ -1037,7 +1074,7 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -2466,7 +2503,55 @@
         "x-available-in-websocket": false
       }
     },
-    "/authz/role": {
+    "/authz/roles": {
+      "get": {
+        "summary": "Get specific or all roles",
+        "operationId": "getRoles",
+        "x-serviceIds": [
+          "weaviate.authz.get.roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",            
+            "required": false,
+            "type": "string",
+            "description": "the name of the role"
+          }        
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "summary": "create new role",
         "operationId": "createRole",
@@ -2512,36 +2597,56 @@
             }
           }
         }
-      }    
-    },
-    "/authz/roles": {
-      "get": {
-        "summary": "Get all roles",
-        "operationId": "getRoles",
+      },
+      "patch": {
+        "summary": "update existing role, works as upsert.",
+        "operationId": "updateRole",
         "x-serviceIds": [
-          "weaviate.authz.get.roles"
+          "weaviate.authz.patch.role"
         ],
         "tags": [
           "authz"
         ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "description": "RBAC role update request",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "the role that the key/user assigned to"
+                },
+                "permissions": {
+                  "type": "array",
+                  "description": "the role that the key/user assigned to",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                }
+              },
+              "required": ["role", "permissions"]
+            }
+          }
+        ],
         "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/RolesListResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
+          "201": {
+            "description": "Role update successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2592,7 +2697,7 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },       
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -2605,7 +2710,7 @@
     "/authz/users": {
       "get": {
         "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUsersForRole",
+        "operationId": "getUserRolesOrRoleUsers",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
         ],
@@ -2614,38 +2719,38 @@
         ],
         "parameters": [
           {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "description": "RBAC role assignment request",
-              "properties": {
-                "user": {
-                  "type": "string",
-                  "description": "the user to be assigned to a role",
-                  "x-nullable": true
-                },
-                "key": {
-                  "type": "string",
-                  "description": "the key to be assigned to a role",
-                  "x-nullable": true
-                },
-                "role": {
-                  "type": "string",
-                  "description": "the role that the key/user assigned to"
-                }
-              }
-            }
+            "in": "query",
+            "name": "user",            
+            "required": false,
+            "type": "string",
+            "description": "the user or key assigned to a role"
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "type": "string",
+            "description": "the role that the key or user assigned to"
           }
         ],
         "responses": {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                  "type": "string"
+              "type": "object",
+              "properties": {
+                "users" : {
+                  "type": "array",
+                  "items": {
+                      "type": "string"
+                  }
+                },
+                "roles" : {
+                  "type": "array",
+                  "items": {
+                      "type": "string"
+                  }
+                }
               }
             }
           },
@@ -2676,7 +2781,7 @@
         }
       },
       "post": {
-        "summary": "Assign a role to a user",
+        "summary": "Assign a role to a user or key",
         "operationId": "assignRole",
         "x-serviceIds": [
           "weaviate.authz.assign.role"
@@ -2725,7 +2830,7 @@
         }
       },
       "delete": {
-        "summary": "Remove a role from a user",
+        "summary": "Revoke a role from a user",
         "operationId": "revokeRole",
         "x-serviceIds": [
           "weaviate.authz.revoke.role"

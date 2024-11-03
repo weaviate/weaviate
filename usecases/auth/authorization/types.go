@@ -64,57 +64,100 @@ const (
 )
 
 // TODO add translation layer between weaviate and Casbin permissions
+var BuiltInRolesVerbs = map[string][]string{
+	"viewer": readOnlyVerbs(),
+	"editor": editorVerbs(),
+	"admin":  adminVerbs(),
+}
+
+func readOnlyVerbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST}
+}
+
+func editorVerbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE}
+}
+
+func adminVerbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
+}
+
+type Action interface {
+	Verbs() []string
+}
+
+func Verbs[T Action](a T) []string {
+	return a.Verbs()
+}
 
 // Actions
 type Read string
 type List string
 type Write string
+type Update string
 type Delete string
 
-func (r *Read) Verbs() []string {
+func (r Read) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET}
 }
 
-func (r *List) Verbs() []string {
-	return []string{HEAD, VALIDATE, GET, LIST}
+func (r List) Verbs() []string {
+	return []string{HEAD, VALIDATE, LIST}
 }
 
-func (r *Write) Verbs() []string {
-	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE}
+func (r Write) Verbs() []string {
+	return []string{HEAD, VALIDATE, CREATE}
 }
 
-func (r *Delete) Verbs() []string {
-	return []string{HEAD, VALIDATE, GET, CREATE, UPDATE, DELETE}
+func (r Update) Verbs() []string {
+	return []string{HEAD, VALIDATE, UPDATE}
 }
+
+func (r Delete) Verbs() []string {
+	return []string{HEAD, VALIDATE, DELETE}
+}
+
+type Level string
 
 // levels
-type DatabaseL string
-type CollectionL string
-type TenantL string
-type ObjectL string
+var (
+	DatabaseL   Level = "database"
+	CollectionL Level = "collection"
+	TenantL     Level = "tenant"
+	ObjectL     Level = "object"
+)
 
-// db level
-// collection level
-// tenant level
-// object level
+var (
+	CreateRole Write  = "create_role"
+	ReadRole   Read   = "read_role"
+	UpdateRole Update = "update_role"
+	DeleteRole Delete = "delete_role"
+	ManageRole Delete = "manage_role" // TODO is it needed ?
 
-// built in
-// admin
-// read-only
-const (
-	CreateCollection Write = "create_collection"
-	CreateTenant     Write = "create_tenant"
-	CreateBackup     Write = "create_backup"
+	CreateCollection Write  = "create_collection"
+	ReadCollection   Read   = "read_collection"
+	UpdateCollection Update = "update_collection"
+	DeleteCollection Delete = "delete_collection"
 
-	QueryCollection List = "query_collection"
-	GetCollection   Read = "get_collection"
-	GetTenant       Read = "get_tenant"
-	GetBackup       Read = "get_backup"
+	Actions = map[string]Action{
+		string(CreateRole): CreateRole,
+		string(ReadRole):   ReadRole,
+		string(UpdateRole): UpdateRole,
+		string(DeleteRole): DeleteRole,
+	}
 
-	UpdateCollection Write = "update_collection"
+	CreateTenant Write  = "create_tenant"
+	ReadTenant   Read   = "read_tenant"
+	UpdateTenant Update = "update_tenant"
+	DeleteTenant Delete = "delete_tenant"
 
-	DeleteCollection Write = "delete_collection"
-	DeleteTenant     Write = "delete_tenant"
+	CreateObject Write  = "create_object"
+	ReadObject   Read   = "read_object"
+	UpdateObject Update = "update_object"
+	DeleteObject Delete = "delete_object"
+
+	CreateBackup Write = "create_backup" // TODO cluster management
+	GetBackup    Read  = "read_backup"   // TODO cluster management ?
 )
 
 // SchemaShard returns the path for a specific schema shard.

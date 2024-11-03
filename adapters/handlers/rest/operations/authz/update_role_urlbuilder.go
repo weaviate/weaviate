@@ -22,19 +22,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// GetRolesURL generates an URL for the get roles operation
-type GetRolesURL struct {
-	Name *string
-
+// UpdateRoleURL generates an URL for the update role operation
+type UpdateRoleURL struct {
 	_basePath string
-	// avoid unkeyed usage
-	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *GetRolesURL) WithBasePath(bp string) *GetRolesURL {
+func (o *UpdateRoleURL) WithBasePath(bp string) *UpdateRoleURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -42,12 +38,12 @@ func (o *GetRolesURL) WithBasePath(bp string) *GetRolesURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *GetRolesURL) SetBasePath(bp string) {
+func (o *UpdateRoleURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *GetRolesURL) Build() (*url.URL, error) {
+func (o *UpdateRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
 	var _path = "/authz/roles"
@@ -58,23 +54,11 @@ func (o *GetRolesURL) Build() (*url.URL, error) {
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
-	qs := make(url.Values)
-
-	var nameQ string
-	if o.Name != nil {
-		nameQ = *o.Name
-	}
-	if nameQ != "" {
-		qs.Set("name", nameQ)
-	}
-
-	_result.RawQuery = qs.Encode()
-
 	return &_result, nil
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *GetRolesURL) Must(u *url.URL, err error) *url.URL {
+func (o *UpdateRoleURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -85,17 +69,17 @@ func (o *GetRolesURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *GetRolesURL) String() string {
+func (o *UpdateRoleURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *GetRolesURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *UpdateRoleURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on GetRolesURL")
+		return nil, errors.New("scheme is required for a full url on UpdateRoleURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on GetRolesURL")
+		return nil, errors.New("host is required for a full url on UpdateRoleURL")
 	}
 
 	base, err := o.Build()
@@ -109,6 +93,6 @@ func (o *GetRolesURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *GetRolesURL) StringFull(scheme, host string) string {
+func (o *UpdateRoleURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
