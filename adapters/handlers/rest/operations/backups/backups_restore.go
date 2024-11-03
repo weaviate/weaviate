@@ -45,6 +45,8 @@ func NewBackupsRestore(ctx *middleware.Context, handler BackupsRestoreHandler) *
 /*
 	BackupsRestore swagger:route POST /backups/{backend}/{id}/restore backups backupsRestore
 
+# Start a restoration process
+
 Starts a process of restoring a backup for a set of classes
 */
 type BackupsRestore struct {

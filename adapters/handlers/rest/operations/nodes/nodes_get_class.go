@@ -45,6 +45,8 @@ func NewNodesGetClass(ctx *middleware.Context, handler NodesGetClassHandler) *No
 /*
 	NodesGetClass swagger:route GET /nodes/{className} nodes nodesGetClass
 
+Node information for a collection.
+
 Returns status of Weaviate DB.
 */
 type NodesGetClass struct {

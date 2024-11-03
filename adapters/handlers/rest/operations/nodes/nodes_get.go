@@ -45,6 +45,8 @@ func NewNodesGet(ctx *middleware.Context, handler NodesGetHandler) *NodesGet {
 /*
 	NodesGet swagger:route GET /nodes nodes nodesGet
 
+Node information for the database.
+
 Returns status of Weaviate DB.
 */
 type NodesGet struct {

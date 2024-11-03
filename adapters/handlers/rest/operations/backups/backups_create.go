@@ -45,6 +45,8 @@ func NewBackupsCreate(ctx *middleware.Context, handler BackupsCreateHandler) *Ba
 /*
 	BackupsCreate swagger:route POST /backups/{backend} backups backupsCreate
 
+# Start a backup process
+
 Starts a process of creating a backup for a set of classes
 */
 type BackupsCreate struct {
