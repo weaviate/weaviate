@@ -13,6 +13,7 @@ package multimodal
 
 import (
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,11 +21,104 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
+
+const (
+	PropertyImageTitle       = "image_title"
+	PropertyImageDescription = "image_description"
+	PropertyImage            = "image"
+	PropertyVideoTitle       = "video_title"
+	PropertyVideoDescription = "video_description"
+	PropertyVideo            = "video"
+)
+
+func BaseClass(className string, withVideo bool) *models.Class {
+	properties := []*models.Property{
+		{
+			Name: PropertyImageTitle, DataType: []string{schema.DataTypeText.String()},
+		},
+		{
+			Name: PropertyImageDescription, DataType: []string{schema.DataTypeText.String()},
+		},
+		{
+			Name: PropertyImage, DataType: []string{schema.DataTypeBlob.String()},
+		},
+	}
+	if withVideo {
+		videoProperties := []*models.Property{
+			{
+				Name: PropertyVideoTitle, DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name: PropertyVideoDescription, DataType: []string{schema.DataTypeText.String()},
+			},
+			{
+				Name: PropertyVideo, DataType: []string{schema.DataTypeBlob.String()},
+			},
+		}
+		properties = append(properties, videoProperties...)
+	}
+	return &models.Class{
+		Class:      className,
+		Properties: properties,
+	}
+}
+
+func InsertObjects(t *testing.T, dataFolderPath, className string, withVideo bool) {
+	f, err := GetCSV(dataFolderPath)
+	require.NoError(t, err)
+	defer f.Close()
+	var objs []*models.Object
+	i := 0
+	csvReader := csv.NewReader(f)
+	for {
+		line, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		if i > 0 {
+			id := line[1]
+			imageTitle := line[2]
+			imageDescription := line[3]
+			imageBlob, err := GetImageBlob(dataFolderPath, i)
+			require.NoError(t, err)
+			properties := map[string]interface{}{
+				PropertyImageTitle:       imageTitle,
+				PropertyImageDescription: imageDescription,
+				PropertyImage:            imageBlob,
+			}
+			if withVideo {
+				videoTitle := line[4]
+				videoDescription := line[5]
+				videoBlob, err := GetVideoBlob(dataFolderPath, i)
+				require.NoError(t, err)
+				properties[PropertyVideoTitle] = videoTitle
+				properties[PropertyVideoDescription] = videoDescription
+				properties[PropertyVideo] = videoBlob
+			}
+
+			obj := &models.Object{
+				Class:      className,
+				ID:         strfmt.UUID(id),
+				Properties: properties,
+			}
+			objs = append(objs, obj)
+		}
+		i++
+	}
+	for _, obj := range objs {
+		helper.CreateObject(t, obj)
+		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
+	}
+}
 
 // Helper methods
 // get image and video blob fns
