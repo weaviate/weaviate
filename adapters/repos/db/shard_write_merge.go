@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -28,8 +27,8 @@ var errObjectNotFound = errors.New("object not found")
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	if s.hasTargetVectors() {
@@ -76,17 +75,17 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range obj.Vectors {
-			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
 	} else {
-		if err := s.updateVectorIndex(obj.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(obj, status); err != nil {
+	if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -127,6 +128,16 @@ type Bucket struct {
 	// optional segment size limit. If set, a compaction will skip segments that
 	// sum to more than the specified value.
 	maxSegmentSize int64
+
+	// this serves as a hint for the compaction process that a flush is ongoing.
+	// This does synchronize anything, there are the proper locks in place to do
+	// so. However, the hint can help the compaction process to delay an action
+	// without blocking.
+	isFlushing atomic.Bool
+	// optional segments cleanup interval. If set, segments will be cleaned of
+	// redundant obsolete data, that was deleted or updated in newer segments
+	// (currently supported only in buckets of REPLACE strategy)
+	segmentsCleanupInterval time.Duration
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -188,6 +199,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
+			isFlushing:            &b.isFlushing,
+			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -329,14 +342,26 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 // secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
+	if time.Since(beforeFlushLock) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeFlushLock)).
+			WithField("action", "lsm_bucket_get_acquire_flush_lock").
+			Debugf("Waited more than 100ms to obtain a flush lock during get")
+	}
 	defer b.flushLock.RUnlock()
 
 	return b.get(key)
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	beforeMemtable := time.Now()
 	v, err := b.active.get(key)
+	if time.Since(beforeMemtable) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeMemtable)).
+			WithField("action", "lsm_bucket_get_active_memtable").
+			Warnf("Waited more than 100ms to retrieve object from memtable")
+	}
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
@@ -353,7 +378,13 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	}
 
 	if b.flushing != nil {
+		beforeFlushMemtable := time.Now()
 		v, err := b.flushing.get(key)
+		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
+			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
+				WithField("action", "lsm_bucket_get_flushing_memtable").
+				Debugf("Waited over 100ms to retrieve object from flushing memtable")
+		}
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -1140,10 +1171,59 @@ func (b *Bucket) isReadOnly() bool {
 	return b.status == storagestate.StatusReadOnly
 }
 
+// FlushAndSwitch is the main way to flush a memtable, replace it with a new
+// one, and make sure that the flushed segment gets added to the segment group.
+//
+// Flushing and adding a segment can take considerable time, which is why the
+// whole process is designed to be non-blocking.
+//
+// To achieve a non-blocking flush, the process is split into four parts:
+//
+//  1. atomicallySwitchMemtable: A new memtable is created, the previous
+//     memtable is moved from "active" to "flushing". This switch is blocking
+//     (holds b.flushLock.Lock()), but extremely fast, as we essentially just
+//     switch a pointer.
+//
+//  2. flush: The previous memtable is flushed to disk. This may take
+//     considerable time as we are I/O-bound. This is done "in the
+//     background"meaning that it does not block any CRUD operations for the
+//     user. It only blocks the flush process itself, meaning only one flush per
+//     bucket can happen simultaneously. This is by design.
+//
+//  3. initAndPrecomputeNewSegment: (Newly added in
+//     https://github.com/weaviate/weaviate/pull/5943, early October 2024). After
+//     the previous flush step the segment can now be initialized. However, to
+//     make it usable for real life, we still need to compute metadata, such as
+//     bloom filters (all types) and net count additions (only Replace type).
+//     Bloom filters can be calculated in isolation and are therefore fairly
+//     trivial. Net count additions on the other hand are more complex, as they
+//     depend on all previous segments. Calculating net count additions can take
+//     a considerable amount of time, especially as the buckets grow larger. As a
+//     result, we need to provide two guarantees: (1) the calculation is
+//     non-blocking from a user's POV and (2) for the duration of the
+//     calculation, the segment group is considered stable, i.e. no other
+//     segments are added, removed, or merged. We can achieve this by holding a
+//     `b.disk.maintenanceLock.RLock()` which prevents modification of the
+//     segments array, but does not block user operation (which are themselves
+//     RLock-holders on that same Lock).
+//
+//  4. atomicallyAddDiskSegmentAndRemoveFlushing: The previous method returned
+//     a fully initialized segment that has not yet been added to the segment
+//     group. This last step is the counter part to the first step and again
+//     blocking, but fast. It adds the segment to the segment group  which at
+//     this point is just a simple array append. At the same time it removes the
+//     "flushing" memtable. It holds the `b.flushLock.Lock()` making this
+//     operation atomic, but blocking.
+//
 // FlushAndSwitch is typically called periodically and does not require manual
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	if b.isFlushing.Swap(true) {
+		return fmt.Errorf("unexpected concurrent call to flush and switch")
+	}
+	defer b.isFlushing.Store(false)
+
 	before := time.Now()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").
@@ -1157,7 +1237,12 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
+	segment, err := b.initAndPrecomputeNewSegment()
+	if err != nil {
+		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
@@ -1174,7 +1259,20 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
+func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+	// Note that this operation does not require the flush lock, i.e. it can
+	// happen in the background and we can accept new writes will this
+	// pre-compute is happening.
+	path := b.flushing.path
+	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	if err != nil {
+		return nil, err
+	}
+
+	return segment, nil
+}
+
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1183,8 +1281,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 		return nil
 	}
 
-	path := b.flushing.path
-	if err := b.disk.add(path + ".db"); err != nil {
+	if err := b.disk.addInitializedSegment(seg); err != nil {
 		return err
 	}
 	b.flushing = nil
@@ -1302,7 +1399,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 					}
 				}
 			} else {
-				if err := segmentDecoded[j].FromBytes(v.value, propBoost); err != nil {
+				if err := segmentDecoded[j].FromBytes(v.value, v.tombstone, propBoost); err != nil {
 					return nil, err
 				}
 			}
@@ -1317,12 +1414,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		}
 		docPointers := make([]terms.DocPointerWithScore, len(mem))
 		for i, v := range mem {
-			if len(v.Value) < 8 {
-				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
-				continue
-			}
-
-			if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+			if err := docPointers[i].FromKeyVal(v.Key, v.Value, v.Tombstone, propBoost); err != nil {
 				return nil, err
 			}
 		}
@@ -1335,11 +1427,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 	docPointers := make([]terms.DocPointerWithScore, len(mem))
 	for i, v := range mem {
-		if len(v.Value) < 8 {
-			b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
-			continue
-		}
-		if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+		if err := docPointers[i].FromKeyVal(v.Key, v.Value, v.Tombstone, propBoost); err != nil {
 			return nil, err
 		}
 	}

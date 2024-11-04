@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-alpha"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -149,7 +149,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
@@ -3281,7 +3281,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3422,7 +3423,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3455,7 +3457,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -4202,6 +4205,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -4725,7 +4732,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -4861,18 +4869,18 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
-        },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
+        },
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },
@@ -5466,7 +5474,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-alpha"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -5567,7 +5575,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
@@ -8821,7 +8829,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8965,7 +8974,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8998,7 +9008,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -9904,6 +9915,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -10445,7 +10460,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -10581,18 +10597,18 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
-        },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
+        },
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },

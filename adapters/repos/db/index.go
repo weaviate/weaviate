@@ -251,7 +251,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	repl := replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, string(cfg.ObjectDeletionConflictResolution), replicaClient, logger)
+		sg, nodeResolver, string(cfg.DeletionStrategy), replicaClient, logger)
 
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
@@ -581,25 +581,27 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 }
 
 type IndexConfig struct {
-	RootPath                         string
-	ClassName                        schema.ClassName
-	QueryMaximumResults              int64
-	QueryNestedRefLimit              int64
-	ResourceUsage                    config.ResourceUsage
-	MemtablesFlushDirtyAfter         int
-	MemtablesInitialSizeMB           int
-	MemtablesMaxSizeMB               int
-	MemtablesMinActiveSeconds        int
-	MemtablesMaxActiveSeconds        int
-	MaxSegmentSize                   int64
-	HNSWMaxLogSize                   int64
-	HNSWWaitForCachePrefill          bool
-	ReplicationFactor                *atomic.Int64
-	ObjectDeletionConflictResolution string
-	AsyncReplicationEnabled          bool
-	AvoidMMap                        bool
-	DisableLazyLoadShards            bool
-	ForceFullReplicasSearch          bool
+	RootPath                       string
+	ClassName                      schema.ClassName
+	QueryMaximumResults            int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	SegmentsCleanupIntervalSeconds int
+	MaxSegmentSize                 int64
+	HNSWMaxLogSize                 int64
+	HNSWWaitForCachePrefill        bool
+	VisitedListPoolMaxSize         int
+	ReplicationFactor              *atomic.Int64
+	DeletionStrategy               string
+	AsyncReplicationEnabled        bool
+	AvoidMMap                      bool
+	DisableLazyLoadShards          bool
+	ForceFullReplicasSearch        bool
 
 	TrackVectorDimensions bool
 }

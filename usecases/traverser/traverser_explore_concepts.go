@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // Explore through unstructured search terms
@@ -27,7 +28,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		params.Limit = 20
 	}
 
-	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	err := t.authorizer.Authorize(principal, authorization.GET, authorization.ALL_TRAVERSAL)
 	if err != nil {
 		return nil, err
 	}

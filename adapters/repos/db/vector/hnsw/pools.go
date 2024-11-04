@@ -29,22 +29,24 @@ type pools struct {
 	pqResults    *common.PqMaxPool
 	pqCandidates *pqMinPool
 
-	tempVectors *common.TempVectorsPool
+	tempVectors       *common.TempVectorsPool
+	tempVectorsUint64 *common.TempVectorUint64Pool
 }
 
-func newPools(maxConnectionsLayerZero int) *pools {
+func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500),
+		visitedLists:     visited.NewPool(1, cache.InitialSize+500, initialVisitedListPoolSize),
 		visitedListsLock: &sync.RWMutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
 			},
 		},
-		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
-		pqResults:    common.NewPqMaxPool(maxConnectionsLayerZero),
-		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
-		tempVectors:  common.NewTempVectorsPool(),
+		pqHeuristic:       newPqMinWithIndexPool(maxConnectionsLayerZero),
+		pqResults:         common.NewPqMaxPool(maxConnectionsLayerZero),
+		pqCandidates:      newPqMinPool(maxConnectionsLayerZero),
+		tempVectors:       common.NewTempVectorsPool(),
+		tempVectorsUint64: common.NewTempUint64VectorsPool(),
 	}
 }
 

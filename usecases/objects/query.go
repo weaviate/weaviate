@@ -13,11 +13,11 @@ package objects
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type QueryInput struct {
@@ -66,8 +66,8 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
-	path := fmt.Sprintf("objects/%s", params.Class)
-	if err := m.authorizer.Authorize(principal, "list", path); err != nil {
+	path := authorization.Objects(params.Class, "")
+	if err := m.authorizer.Authorize(principal, authorization.LIST, path); err != nil {
 		return nil, &Error{path, StatusForbidden, err}
 	}
 	unlock, err := m.locks.LockConnector()

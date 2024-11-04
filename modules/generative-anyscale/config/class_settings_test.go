@@ -83,6 +83,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.Equal(t, tt.wantErr.Error(), ic.Validate(nil).Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())

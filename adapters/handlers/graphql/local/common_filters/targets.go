@@ -54,23 +54,43 @@ var WeightsScalar = graphql.NewScalar(graphql.ScalarConfig{
 	ParseLiteral: func(valueAST ast.Value) interface{} {
 		switch v := valueAST.(type) {
 		case *ast.ObjectValue:
-			result := make(map[string]float64)
+			result := make(map[string]interface{})
 			for _, field := range v.Fields {
 				key := field.Name.Value
 				switch value := field.Value.(type) {
 				case *ast.FloatValue:
-					intValue, err := strconv.ParseFloat(value.Value, 64)
+					floatValue, err := strconv.ParseFloat(value.Value, 64)
 					if err != nil {
 						return nil
 					}
-					result[key] = intValue
+					result[key] = floatValue
 				case *ast.IntValue:
-					// If the value is an int, we can convert it to a float64
 					intValue, err := strconv.ParseFloat(value.Value, 64)
 					if err != nil {
 						return nil
 					}
 					result[key] = intValue
+				case *ast.ListValue:
+					var list []float64
+					for _, item := range value.Values {
+						switch item := item.(type) {
+						case *ast.FloatValue:
+							floatValue, err := strconv.ParseFloat(item.Value, 64)
+							if err != nil {
+								return nil
+							}
+							list = append(list, floatValue)
+						case *ast.IntValue:
+							intValue, err := strconv.ParseFloat(item.Value, 64)
+							if err != nil {
+								return nil
+							}
+							list = append(list, intValue)
+						default:
+							return nil
+						}
+					}
+					result[key] = list
 				default:
 					return nil
 				}

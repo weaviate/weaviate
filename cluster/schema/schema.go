@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -49,7 +50,8 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 	sync.RWMutex
-	Classes map[string]*metaClass
+	Classes               map[string]*metaClass
+	classTenantDataEvents chan metadata.ClassTenant
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -218,6 +220,17 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 	}
 }
 
+func NewSchemaWithTenantEvents(nodeID string, shardReader shardReader,
+	classTenantDataEvents chan metadata.ClassTenant,
+) *schema {
+	return &schema{
+		nodeID:                nodeID,
+		Classes:               make(map[string]*metaClass, 128),
+		shardReader:           shardReader,
+		classTenantDataEvents: classTenantDataEvents,
+	}
+}
+
 func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
@@ -246,7 +259,10 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
+	s.Classes[cls.Class] = &metaClass{
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+		classTenantDataEvents: s.classTenantDataEvents,
+	}
 	return nil
 }
 
