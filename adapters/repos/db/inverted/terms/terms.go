@@ -39,11 +39,11 @@ func (d *DocPointerWithScore) FromBytes(in []byte, isTombstone bool, boost float
 }
 
 func (d *DocPointerWithScore) FromBytesInverted(in []byte, boost float32, propLen float32) error {
-	d.FromKeyVal(in[0:8], in[8:], boost)
+	isTombstone := len(in) == 8
+	d.FromKeyVal(in[0:8], in[8:], isTombstone, boost)
 	d.PropLength = propLen
 	return nil
 }
-
 
 func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, isTombstone bool, boost float32) error {
 	if len(key) != 8 {
