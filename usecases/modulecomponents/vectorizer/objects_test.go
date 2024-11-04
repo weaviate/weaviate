@@ -15,18 +15,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-
-	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
-// These are mostly copy/pasted (with minimal additions) from the
-// text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
 		name                string
@@ -41,7 +33,6 @@ func TestVectorizingObjects(t *testing.T) {
 		openAIModel         string
 		openAIModelVersion  string
 	}
-	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -182,11 +173,9 @@ func TestVectorizingObjects(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &fakeClient{}
+			v := New()
 
-			v := New(client, logger)
-
-			cfg := &FakeClassConfig{
+			cfg := &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"vectorizeClassName": test.excludedClass != "Car",
 					"type":               test.openAIType,
@@ -197,60 +186,73 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
 			}
-			icheck := ent.NewClassSettings(cfg)
-			vector, _, err := v.Object(context.Background(), test.input, cfg, icheck)
-
-			require.Nil(t, err)
-			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
-			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, test.expectedOpenAIType, conf.Type())
-			assert.Equal(t, test.expectedOpenAIModel, conf.Model())
+			text := v.Texts(context.Background(), test.input, cfg)
+			assert.Equal(t, test.expectedClientCall, text)
 		})
 	}
 }
 
-func TestClassSettings(t *testing.T) {
-	type testCase struct {
-		expectedBaseURL string
-		cfg             moduletools.ClassConfig
-	}
-	tests := []testCase{
-		{
-			cfg: FakeClassConfig{
-				classConfig: make(map[string]interface{}),
-			},
-			expectedBaseURL: ent.DefaultBaseURL,
-		},
-		{
-			cfg: FakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL": "https://proxy.weaviate.dev",
-				},
-			},
-			expectedBaseURL: "https://proxy.weaviate.dev",
-		},
-	}
-
-	for _, tt := range tests {
-		ic := ent.NewClassSettings(tt.cfg)
-		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
-	}
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
 }
 
-func TestPickDefaultModelVersion(t *testing.T) {
-	t.Run("ada with text", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "text")
-		assert.Equal(t, "002", version)
-	})
+func (f fakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
 
-	t.Run("ada with code", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "code")
-		assert.Equal(t, "001", version)
-	})
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
 
-	t.Run("with curie", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("curie", "text")
-		assert.Equal(t, "001", version)
-	})
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return f.skippedProperty != property
+}
+
+func (f fakeClassConfig) VectorizePropertyName(property string) bool {
+	if f.excludedProperty == property {
+		return false
+	}
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	vectorizeClassName, ok := f.classConfig["vectorizeClassName"]
+	if !ok {
+		return false
+	}
+	return vectorizeClassName.(bool)
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }
