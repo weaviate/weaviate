@@ -26,6 +26,7 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	LowerCaseInput               = false
 )
 
 type classSettings struct {
@@ -34,7 +35,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettingsWithCustomModel(cfg, LowerCaseInput, "passageModel")}
 }
 
 func (cs *classSettings) EndpointURL() string {
@@ -43,14 +44,6 @@ func (cs *classSettings) EndpointURL() string {
 
 func (cs *classSettings) PassageModel() string {
 	model := cs.getPassageModel()
-	if model == "" {
-		return DefaultHuggingFaceModel
-	}
-	return model
-}
-
-func (cs *classSettings) QueryModel() string {
-	model := cs.getQueryModel()
 	if model == "" {
 		return DefaultHuggingFaceModel
 	}
@@ -83,20 +76,11 @@ func (cs *classSettings) Validate(class *models.Class) error {
 
 	model := cs.getProperty("model")
 	passageModel := cs.getProperty("passageModel")
-	queryModel := cs.getProperty("queryModel")
 
-	if model != "" && (passageModel != "" || queryModel != "") {
-		return errors.New("only one setting must be set either 'model' or 'passageModel' with 'queryModel'")
+	if model != "" && passageModel != "" {
+		return errors.New("only one setting must be set either 'model' or 'passageModel'")
 	}
 
-	if model == "" {
-		if passageModel != "" && queryModel == "" {
-			return errors.New("'passageModel' is set, but 'queryModel' is empty")
-		}
-		if passageModel == "" && queryModel != "" {
-			return errors.New("'queryModel' is set, but 'passageModel' is empty")
-		}
-	}
 	return nil
 }
 
@@ -104,14 +88,6 @@ func (cs *classSettings) getPassageModel() string {
 	model := cs.getProperty("model")
 	if model == "" {
 		model = cs.getProperty("passageModel")
-	}
-	return model
-}
-
-func (cs *classSettings) getQueryModel() string {
-	model := cs.getProperty("model")
-	if model == "" {
-		model = cs.getProperty("queryModel")
 	}
 	return model
 }
