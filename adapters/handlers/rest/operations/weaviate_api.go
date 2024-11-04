@@ -236,9 +236,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
-		AuthzUpdateRoleHandler: authz.UpdateRoleHandlerFunc(func(params authz.UpdateRoleParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.UpdateRole has not yet been implemented")
-		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
@@ -427,8 +424,6 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
-	// AuthzUpdateRoleHandler sets the operation handler for the update role operation
-	AuthzUpdateRoleHandler authz.UpdateRoleHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -686,9 +681,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
-	}
-	if o.AuthzUpdateRoleHandler == nil {
-		unregistered = append(unregistered, "authz.UpdateRoleHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1047,10 +1039,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/tenants"] = schema.NewTenantsUpdate(o.context, o.SchemaTenantsUpdateHandler)
-	if o.handlers["PATCH"] == nil {
-		o.handlers["PATCH"] = make(map[string]http.Handler)
-	}
-	o.handlers["PATCH"]["/authz/roles"] = authz.NewUpdateRole(o.context, o.AuthzUpdateRoleHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
