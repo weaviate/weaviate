@@ -87,47 +87,6 @@ func (v *fakeBatchClient) HasTokenLimit() bool { return false }
 
 func (v *fakeBatchClient) ReturnsRateLimit() bool { return false }
 
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, 0, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{}
-}
-
-func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	return [32]byte{}
-}
-
-func (v *fakeClient) HasTokenLimit() bool { return false }
-
-func (v *fakeClient) ReturnsRateLimit() bool { return false }
-
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizeClassName    bool
@@ -148,6 +107,10 @@ func (f fakeClassConfig) Class() map[string]interface{} {
 		"baseURL":            f.baseURL,
 	}
 	return classSettings
+}
+
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
 }
 
 func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
@@ -179,4 +142,16 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }
