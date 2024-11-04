@@ -2286,6 +2286,7 @@
     "/": {
       "get": {
         "description": "Get links to other endpoints to help discover the REST API",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -2307,6 +2308,7 @@
     },
     "/.well-known/live": {
       "get": {
+        "summary": "Get application liveness.",
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
@@ -2318,6 +2320,7 @@
     },
     "/.well-known/ready": {
       "get": {
+        "summary": "Get application readiness.",
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
@@ -4450,6 +4453,7 @@
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
+        "summary": "Update a shard status.",
         "description": "Update a shard status for a collection. For example, a shard may have been marked as `READONLY` because its disk was full. After providing more disk space, use this endpoint to set the shard status to `READY` again. There is also a convenience function in each client to set the status of all shards of a collection.",
         "operationId": "schema.objects.shards.update",
         "x-serviceIds": [
@@ -4519,6 +4523,7 @@
     },
     "/schema/{className}/tenants": {
       "post": {
+        "summary": "Create a new tenant",
         "description": "Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.",
         "operationId": "tenants.create",
         "tags": [
@@ -4577,6 +4582,7 @@
         }
       },
       "put": {
+        "summary": "Update a tenant.",
         "description": "Update tenant of a specific class",
         "operationId": "tenants.update",
         "tags": [
@@ -4687,6 +4693,7 @@
         }
       },
       "get": {
+        "summary": "Get the list of tenants.",
         "description": "get all tenants from a specific class",
         "operationId": "tenants.get",
         "tags": [
@@ -4744,6 +4751,7 @@
     },
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
+        "summary": "Check whether a tenant exists",
         "description": "Check if a tenant exists for a specific class",
         "operationId": "tenant.exists",
         "tags": [
@@ -4804,6 +4812,7 @@
     },    
     "/backups/{backend}": {
       "post": {
+        "summary": "Start a backup process",
         "description": "Start creating a backup for a set of collections. <br/><br/>Notes: <br/>- Weaviate uses gzip compression by default. <br/>- Weaviate stays usable while a backup process is ongoing.",
         "operationId": "backups.create",
         "x-serviceIds": [
@@ -4860,6 +4869,7 @@
         }
       },
       "get": {
+        "summary": "List backups in progress",
         "description": "[Coming soon] List all backups in progress not implemented yet.",
         "operationId": "backups.list",
         "x-serviceIds": [
@@ -4910,6 +4920,7 @@
     },
     "/backups/{backend}/{id}": {
       "get": {
+        "summary": "Get backup process status",
         "description": "Returns status of backup creation attempt for a set of collections. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using this endpoint.",
         "operationId": "backups.create.status",
         "x-serviceIds": [
@@ -4971,6 +4982,7 @@
         }
       },
       "delete": {
+        "summary": "Cancel backup",
         "description": "Cancel created backup with specified ID",
         "operationId": "backups.cancel",
         "x-serviceIds": [
@@ -5025,6 +5037,7 @@
     },
     "/backups/{backend}/{id}/restore": {
       "post": {
+        "summary": "Start a restoration process",
         "description": "Starts a process of restoring a backup for a set of collections. <br/><br/>Any backup can be restored to any machine, as long as the number of nodes between source and target are identical.<br/><br/>Requrements:<br/><br/>- None of the collections to be restored already exist on the target restoration node(s).<br/>- The node names of the backed-up collections' must match those of the target restoration node(s).",
         "operationId": "backups.restore",
         "x-serviceIds": [
@@ -5094,6 +5107,7 @@
         }
       },
       "get": {
+        "summary": "Get restore process status",
         "description": "Returns status of a backup restoration attempt for a set of classes. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using the this endpoint.",
         "operationId": "backups.restore.status",
         "x-serviceIds": [
@@ -5151,6 +5165,7 @@
     },
     "/cluster/statistics": {
       "get": {
+        "summary": "See Raft cluster statistics",
         "description": "Returns Raft cluster statistics of Weaviate DB.",
         "operationId": "cluster.get.statistics",
         "x-serviceIds": [
@@ -5192,6 +5207,7 @@
     },
     "/nodes": {
       "get": {
+        "summary": "Node information for the database.",
         "description": "Returns node information for the entire database.",
         "operationId": "nodes.get",
         "x-serviceIds": [
@@ -5244,6 +5260,7 @@
     },
     "/nodes/{className}": {
       "get": {
+        "summary": "Node information for a collection.",
         "description": "Returns node information for the nodes relevant to the collection.",
         "operationId": "nodes.get.class",
         "x-serviceIds": [
