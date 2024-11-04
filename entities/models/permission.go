@@ -37,7 +37,6 @@ type Permission struct {
 	Actions []string `json:"actions"`
 
 	// resources
-	// Required: true
 	Resources []*string `json:"resources"`
 }
 
@@ -46,10 +45,6 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActions(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateResources(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -91,15 +86,6 @@ func (m *Permission) validateActions(formats strfmt.Registry) error {
 			return err
 		}
 
-	}
-
-	return nil
-}
-
-func (m *Permission) validateResources(formats strfmt.Registry) error {
-
-	if err := validate.Required("resources", "body", m.Resources); err != nil {
-		return err
 	}
 
 	return nil
