@@ -45,6 +45,8 @@ func NewNodesGetClass(ctx *middleware.Context, handler NodesGetClassHandler) *No
 /*
 	NodesGetClass swagger:route GET /nodes/{className} nodes nodesGetClass
 
+Node information for a collection.
+
 Returns node information for the nodes relevant to the collection.
 */
 type NodesGetClass struct {

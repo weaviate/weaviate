@@ -45,6 +45,8 @@ func NewNodesGet(ctx *middleware.Context, handler NodesGetHandler) *NodesGet {
 /*
 	NodesGet swagger:route GET /nodes nodes nodesGet
 
+Node information for the database.
+
 Returns node information for the entire database.
 */
 type NodesGet struct {

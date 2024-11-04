@@ -50,6 +50,8 @@ func NewWeaviateRoot(ctx *middleware.Context, handler WeaviateRootHandler) *Weav
 /*
 	WeaviateRoot swagger:route GET / weaviateRoot
 
+# List available endpoints
+
 Get links to other endpoints to help discover the REST API
 */
 type WeaviateRoot struct {

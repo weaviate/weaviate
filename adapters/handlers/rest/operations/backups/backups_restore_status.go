@@ -45,6 +45,8 @@ func NewBackupsRestoreStatus(ctx *middleware.Context, handler BackupsRestoreStat
 /*
 	BackupsRestoreStatus swagger:route GET /backups/{backend}/{id}/restore backups backupsRestoreStatus
 
+# Get restore process status
+
 Returns status of a backup restoration attempt for a set of classes. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using the this endpoint.
 */
 type BackupsRestoreStatus struct {
