@@ -119,11 +119,11 @@ func (o *AssignRoleOK) Code() int {
 }
 
 func (o *AssignRoleOK) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleOK ", 200)
 }
 
 func (o *AssignRoleOK) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleOK ", 200)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleOK ", 200)
 }
 
 func (o *AssignRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -176,11 +176,11 @@ func (o *AssignRoleBadRequest) Code() int {
 }
 
 func (o *AssignRoleBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AssignRoleBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AssignRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -243,11 +243,11 @@ func (o *AssignRoleUnauthorized) Code() int {
 }
 
 func (o *AssignRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleUnauthorized ", 401)
 }
 
 func (o *AssignRoleUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleUnauthorized ", 401)
 }
 
 func (o *AssignRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -300,11 +300,11 @@ func (o *AssignRoleForbidden) Code() int {
 }
 
 func (o *AssignRoleForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AssignRoleForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AssignRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -367,11 +367,11 @@ func (o *AssignRoleNotFound) Code() int {
 }
 
 func (o *AssignRoleNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleNotFound ", 404)
 }
 
 func (o *AssignRoleNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleNotFound ", 404)
 }
 
 func (o *AssignRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -424,11 +424,11 @@ func (o *AssignRoleInternalServerError) Code() int {
 }
 
 func (o *AssignRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AssignRoleInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/users][%d] assignRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/users/assign][%d] assignRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AssignRoleInternalServerError) GetPayload() *models.ErrorResponse {
