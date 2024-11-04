@@ -100,6 +100,7 @@ type TenantsGetRequest struct {
 	// we might need to add a tenant-cursor api at some point, make this easily extendable
 	//
 	// Types that are assignable to Params:
+	//
 	//	*TenantsGetRequest_Names
 	Params isTenantsGetRequest_Params `protobuf_oneof:"params"`
 }
