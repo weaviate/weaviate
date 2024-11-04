@@ -243,70 +243,6 @@ func init() {
         "x-serviceIds": [
           "weaviate.authz.create.role"
         ]
-      },
-      "patch": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "update existing role, works as upsert.",
-        "operationId": "updateRole",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "RBAC role update request",
-              "type": "object",
-              "required": [
-                "role",
-                "permissions"
-              ],
-              "properties": {
-                "permissions": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                },
-                "role": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "string"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Role update successfully"
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.patch.role"
-        ]
       }
     },
     "/authz/roles/{id}": {
@@ -5027,7 +4963,6 @@ func init() {
       "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
       "type": "object",
       "required": [
-        "resources",
         "actions"
       ],
       "properties": {
@@ -5366,7 +5301,8 @@ func init() {
         "permissions": {
           "type": "array",
           "items": {
-            "type": "string",
+            "description": "list of permissions (action, resource)",
+            "type": "object",
             "$ref": "#/definitions/Permission"
           }
         }
@@ -6200,70 +6136,6 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.create.role"
-        ]
-      },
-      "patch": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "update existing role, works as upsert.",
-        "operationId": "updateRole",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "description": "RBAC role update request",
-              "type": "object",
-              "required": [
-                "role",
-                "permissions"
-              ],
-              "properties": {
-                "permissions": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                },
-                "role": {
-                  "description": "the role that the key/user assigned to",
-                  "type": "string"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Role update successfully"
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.patch.role"
         ]
       }
     },
@@ -11287,7 +11159,6 @@ func init() {
       "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
       "type": "object",
       "required": [
-        "resources",
         "actions"
       ],
       "properties": {
@@ -11626,7 +11497,8 @@ func init() {
         "permissions": {
           "type": "array",
           "items": {
-            "type": "string",
+            "description": "list of permissions (action, resource)",
+            "type": "object",
             "$ref": "#/definitions/Permission"
           }
         }
