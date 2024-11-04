@@ -20,8 +20,8 @@
         "permissions" : {
           "type": "array",
           "items": {
-            "type": "string",
-            "description": "",
+            "type": "object",
+            "description": "list of permissions (action, resource)",
             "$ref": "#/definitions/Permission"
           }
         }
@@ -69,7 +69,7 @@
           }
         }
       },
-      "required": ["resources", "actions"]
+      "required": ["actions"]
     },
     "RolesListResponse": {
       "type": "array",
@@ -2565,67 +2565,6 @@
         "responses": {
           "201": {
             "description": "Role created successfully"
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },          
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        }
-      },
-      "patch": {
-        "summary": "update existing role, works as upsert.",
-        "operationId": "updateRole",
-        "x-serviceIds": [
-          "weaviate.authz.patch.role"
-        ],
-        "tags": [
-          "authz"
-        ],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "description": "RBAC role update request",
-              "properties": {
-                "role": {
-                  "type": "string",
-                  "description": "the role that the key/user assigned to"
-                },
-                "permissions": {
-                  "type": "array",
-                  "description": "the role that the key/user assigned to",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                }
-              },
-              "required": ["role", "permissions"]
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Role update successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
