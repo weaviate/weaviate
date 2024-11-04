@@ -24,12 +24,14 @@ import (
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereClients "github.com/weaviate/weaviate/modules/generative-cohere/clients"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	databricksClients "github.com/weaviate/weaviate/modules/generative-databricks/clients"
+	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	friendliClients "github.com/weaviate/weaviate/modules/generative-friendliai/clients"
+	friendliParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleClients "github.com/weaviate/weaviate/modules/generative-google/clients"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralClients "github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
-	octoaiClients "github.com/weaviate/weaviate/modules/generative-octoai/clients"
-	octoaiParams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
@@ -196,20 +198,6 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Mistral{Mistral: mistral}
-	case octoaiParams.Name:
-		params := octoaiClients.GetResponseParams(results)
-		if params == nil {
-			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
-		}
-		octoai := &pb.GenerativeOctoAIMetadata{}
-		if params.Usage != nil {
-			octoai.Usage = &pb.GenerativeOctoAIMetadata_Usage{
-				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
-				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
-				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
-			}
-		}
-		metadata.Kind = &pb.GenerativeMetadata_Octoai{Octoai: octoai}
 	case ollamaParams.Name:
 		// Do nothing, no metadata for Ollama
 	case openaiParams.Name:
@@ -260,6 +248,34 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Google{Google: google}
+	case databricksParams.Name:
+		params := databricksClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		databricks := &pb.GenerativeDatabricksMetadata{}
+		if params.Usage != nil {
+			databricks.Usage = &pb.GenerativeDatabricksMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Databricks{Databricks: databricks}
+	case friendliParams.Name:
+		params := friendliClients.GetResponseParams(results)
+		if params == nil {
+			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
+		}
+		friendliai := &pb.GenerativeFriendliAIMetadata{}
+		if params.Usage != nil {
+			friendliai.Usage = &pb.GenerativeFriendliAIMetadata_Usage{
+				PromptTokens:     convertIntPtrToInt64Ptr(params.Usage.PromptTokens),
+				CompletionTokens: convertIntPtrToInt64Ptr(params.Usage.CompletionTokens),
+				TotalTokens:      convertIntPtrToInt64Ptr(params.Usage.TotalTokens),
+			}
+		}
+		metadata.Kind = &pb.GenerativeMetadata_Friendliai{Friendliai: friendliai}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}

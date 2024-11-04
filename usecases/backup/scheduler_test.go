@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -755,7 +757,7 @@ type fakeScheduler struct {
 	schema       fakeSchemaManger
 	backend      *fakeBackend
 	backendErr   error
-	auth         *fakeAuthorizer
+	auth         authorization.Authorizer
 	nodeResolver nodeResolver
 	log          logrus.FieldLogger
 }
@@ -765,7 +767,7 @@ func newFakeScheduler(resolver nodeResolver) *fakeScheduler {
 	fc.backend = newFakeBackend()
 	fc.backendErr = nil
 	logger, _ := test.NewNullLogger()
-	fc.auth = &fakeAuthorizer{}
+	fc.auth = mocks.NewMockAuthorizer()
 	fc.log = logger
 	if resolver == nil {
 		fc.nodeResolver = &fakeNodeResolver{}
@@ -812,6 +814,7 @@ func TestCancellingBackup(t *testing.T) {
 	var (
 		ctx           = context.Background()
 		backendName   = "s3"
+		backupID      = "abc"
 		fakeScheduler = newFakeScheduler(nil)
 		scheduler     = fakeScheduler.scheduler()
 	)
@@ -832,12 +835,12 @@ func TestCancellingBackup(t *testing.T) {
 		b, err := json.Marshal(ds)
 		assert.Nil(t, err)
 
-		fakeScheduler.backend.On("GetObject", mock.Anything, "abc", GlobalBackupFile).Return(b, nil)
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
-		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc")
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, backupID)
 		assert.NotNil(t, err)
-		assert.Equal(t, "backup already succeeded", err.Error())
+		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 }

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -23,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -355,31 +355,65 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
 
+	// wait for flushing to complete before acquiring the maintenance lock, this
+	// can help avoid blocking user requests
+	sg.waitForFlushingToComplete(10*time.Millisecond, 300*time.Second)
+
+	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
+	if err != nil {
+		return fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
+		// don't abort if the delete fails, we can still continue (albeit
+		// without freeing disk space that should have been freed). The
+		// compaction itself was successful.
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  oldL.path,
+			"file_right": oldR.path,
+		}).Error("failed to delete file already marked for deletion")
+	}
+
+	return nil
+}
+
+const replaceSegmentWarnThreshold = 300 * time.Millisecond
+
+func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
+	old1, old2 int, precomputedFiles []string,
+) (*segment, *segment, error) {
+	start := time.Now()
+	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.Lock()
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			Debug("compaction took more than 100ms to acquire maintenance lock")
+	}
 	defer sg.maintenanceLock.Unlock()
 
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
 	if err := rightSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
-	if err := leftSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := leftSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	if err := rightSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := rightSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err = fsync(sg.dir)
+	err := fsync(sg.dir)
 	if err != nil {
-		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
 
 	sg.segments[old1] = nil
@@ -392,7 +426,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	for i, path := range precomputedFiles {
 		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
 		if err != nil {
-			return errors.Wrap(err, "strip .tmp extension of new segment")
+			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
 
 		if i == 0 {
@@ -404,12 +438,46 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
 		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 	if err != nil {
-		return errors.Wrap(err, "create new segment")
+		return nil, nil, errors.Wrap(err, "create new segment")
 	}
 
 	sg.segments[old2] = seg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
+
+	sg.observeReplaceCompactedDuration(start, old1, leftSegment, rightSegment)
+	return leftSegment, rightSegment, nil
+}
+
+func (sg *SegmentGroup) observeReplaceCompactedDuration(
+	start time.Time, segmentIdx int, left, right *segment,
+) {
+	// observe duration - warn if it took too long
+	took := time.Since(start)
+	fields := sg.logger.WithFields(logrus.Fields{
+		"action":        "lsm_replace_compacted_segments_blocking",
+		"segment_index": segmentIdx,
+		"path_left":     left.path,
+		"path_right":    right.path,
+		"took":          took,
+	})
+	msg := fmt.Sprintf("replacing compacted segments took %s", took)
+	if took > replaceSegmentWarnThreshold {
+		fields.Warn(msg)
+	} else {
+		fields.Debugf(msg)
+	}
+}
+
+func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+	// At this point those segments are no longer used, so we can drop them
+	// without holding the maintenance lock and therefore not block readers.
+
+	for pos, seg := range segments {
+		if err := seg.dropMarked(); err != nil {
+			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
+		}
+	}
 
 	return nil
 }
@@ -428,34 +496,6 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 	}
 
 	return newPath, nil
-}
-
-func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	sg.monitorSegments()
-
-	compacted, err := sg.compactOnce()
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("compaction failed")
-	}
-
-	if compacted {
-		return true
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
-		return false
-	}
-}
-
-func (sg *SegmentGroup) Len() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return len(sg.segments)
 }
 
 func (sg *SegmentGroup) monitorSegments() {
@@ -576,4 +616,42 @@ func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
 
 	totalSize := left.size + right.size
 	return totalSize <= sg.maxSegmentSize
+}
+
+// Warning: waitForFlushingToComplete gives you no synchronization guarantees,
+// it mainly acts as a hint that a flushing has just completed, but it gives no
+// guarantees that a new flushing hasn't started yet. The idea is that it's
+// better to delay the attempt to obtain a maintenance lock because it will
+// start blocking user operations if we have to wait for it. But never rely on
+// this behavior alone, always use it in combination with a proper lock.
+func (sg *SegmentGroup) waitForFlushingToComplete(stepSize time.Duration, maxWait time.Duration) {
+	if !sg.isFlushing.Load() {
+		return
+	}
+
+	begin := time.Now()
+
+	t := time.NewTicker(stepSize)
+	defer t.Stop()
+
+	timeout := time.NewTimer(maxWait)
+
+	for {
+		select {
+		case <-t.C:
+			if !sg.isFlushing.Load() {
+				totalDelay := time.Since(begin)
+				sg.logger.WithField("action", "lsm_compaction_delay").
+					WithField("duration", totalDelay).
+					Debugf("waited %s for flushing to complete", totalDelay)
+				return
+			}
+		case <-timeout.C:
+			sg.logger.WithField("action", "lsm_compaction_delay").
+				WithField("duration", maxWait).
+				Warningf("waited %s for flushing to complete, but it did not complete", maxWait)
+
+			return
+		}
+	}
 }

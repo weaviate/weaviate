@@ -79,12 +79,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong topK configuration, values should be greater than zero or nil")
 	}
 
-	endpoint := ic.Endpoint()
-	err := ic.ValidateEndpoint(endpoint)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -121,11 +115,4 @@ func (ic *classSettings) TopK() int {
 
 func (ic *classSettings) Endpoint() string {
 	return *ic.getStringProperty("endpoint", "")
-}
-
-func (cs *classSettings) ValidateEndpoint(endpoint string) error {
-	if endpoint == "" {
-		return errors.New("endpoint cannot be empty")
-	}
-	return nil
 }

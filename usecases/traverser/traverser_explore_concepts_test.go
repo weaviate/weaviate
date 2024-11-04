@@ -21,12 +21,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_ExploreConcepts(t *testing.T) {
 	t.Run("without any near searchers", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -43,7 +44,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("with two searchers set at the same time", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -64,7 +65,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
 	})
 	t.Run("nearCustomText with no movements set", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -127,7 +128,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearCustomText without optional params", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -139,7 +140,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {7.8, 9}},
+				Vectors: [][]float32{{7.8, 9}},
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -187,7 +188,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearObject with id param", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -253,7 +254,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearObject with beacon param", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -319,7 +320,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearCustomText with limit and distance set", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -332,9 +333,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {7.8, 9}},
-				Distance:        0.2,
-				WithDistance:    true,
+				Vectors:      [][]float32{{7.8, 9}},
+				Distance:     0.2,
+				WithDistance: true,
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -363,7 +364,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearCustomText with limit and certainty set", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -376,8 +377,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {7.8, 9}},
-				Certainty:       0.8,
+				Vectors:   [][]float32{{7.8, 9}},
+				Certainty: 0.8,
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -404,7 +405,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearCustomText with minimum distance set to 0.4", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -433,7 +434,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("nearCustomText with minimum certainty set to 0.6", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -474,7 +475,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("near text with movements set", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
@@ -547,7 +548,7 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("near text with movements and objects set", func(t *testing.T) {
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}

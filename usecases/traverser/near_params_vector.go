@@ -81,7 +81,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className, tenant, targetVector string,
+	moduleParams map[string]interface{}, className, tenant, targetVector string, index int,
 ) ([]float32, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
@@ -95,7 +95,10 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		return nearVector.VectorPerTarget[targetVector], nil
+		if index >= len(nearVector.Vectors) {
+			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
+		}
+		return nearVector.Vectors[index], nil
 	}
 
 	if nearObject != nil {
@@ -237,6 +240,9 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		} else if len(res.Vectors) > 1 {
 			return nil, "", errors.New("multiple vectors found, specify target vector")
 		}
+	}
+	if len(res.Vector) == 0 {
+		return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
 	}
 	return res.Vector, targetVector, nil
 }

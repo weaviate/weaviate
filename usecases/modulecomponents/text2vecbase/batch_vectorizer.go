@@ -44,7 +44,7 @@ func (v *BatchVectorizer) Object(ctx context.Context, object *models.Object, cfg
 func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
 ) ([]float32, error) {
 	text := v.objectVectorizer.Texts(ctx, object, cs)
-	res, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
+	res, _, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
 	if err != nil {
 		return nil, err
 	}

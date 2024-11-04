@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -45,8 +46,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	path := fmt.Sprintf("objects/%s/%s", cls, id)
-	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
+	path := authorization.Objects(cls, id)
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
 		return &Error{path, StatusForbidden, err}
 	}
 

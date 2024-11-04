@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
@@ -70,51 +69,61 @@ func TestGetAnswer(t *testing.T) {
 	})
 
 	t.Run("when X-Databricks-Endpoint header is passed", func(t *testing.T) {
-		settings := &fakeClassSettings{}
 		c := New("databricksToken", 0, nullLogger())
 
+		endpoint := "http://default"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, settings)
+		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, endpoint)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com", buildURL)
 
-		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), settings)
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), endpoint)
 		require.NoError(t, err)
+		assert.Equal(t, "http://default", buildURL)
+
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), "")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "endpoint cannot be empty")
 		assert.Equal(t, "", buildURL)
 	})
-}
 
-type testAnswerHandler struct {
-	t *testing.T
-	// the test handler will report as not ready before the time has passed
-	answer generateResponse
-}
+	t.Run("when X-Databricks-User-Agent header is passed", func(t *testing.T) {
+		userAgent := "weaviate+spark_connector"
+		handler := &testAnswerHandler{
+			t: t,
+			answer: generateResponse{
+				Choices: []choice{{
+					FinishReason: "test",
+					Index:        0,
+					Logprobs:     "",
+					Text:         "John",
+				}},
+				Error: nil,
+			},
+			userAgent: userAgent,
+		}
+		server := httptest.NewServer(handler)
+		defer server.Close()
 
-func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, http.MethodPost, r.Method)
+		c := New("databricksToken", 0, nullLogger())
+		c.buildEndpoint = func(endpoint string) (string, error) {
+			return fakeBuildUrl(server.URL)
+		}
 
-	if f.answer.Error != nil && f.answer.Error.Message != "" {
-		outBytes, err := json.Marshal(f.answer)
-		require.Nil(f.t, err)
+		expected := modulecapabilities.GenerateResponse{
+			Result: ptString("John"),
+		}
 
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(outBytes)
-		return
-	}
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Databricks-User-Agent", []string{userAgent})
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	require.Nil(f.t, err)
-	defer r.Body.Close()
+		res, err := c.GenerateAllResults(ctxWithValue, textProperties, "What is my name?", nil, false, nil)
 
-	var b map[string]interface{}
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
-
-	outBytes, err := json.Marshal(f.answer)
-	require.Nil(f.t, err)
-
-	w.Write(outBytes)
+		assert.Nil(t, err)
+		assert.Equal(t, expected, *res)
+	})
 }
 
 func TestDatabricksApiErrorDecode(t *testing.T) {
@@ -149,42 +158,41 @@ func TestDatabricksApiErrorDecode(t *testing.T) {
 	})
 }
 
+type testAnswerHandler struct {
+	t *testing.T
+	// the test handler will report as not ready before the time has passed
+	answer    generateResponse
+	userAgent string
+}
+
+func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	assert.Equal(f.t, http.MethodPost, r.Method)
+
+	if f.userAgent != "" {
+		assert.Equal(f.t, f.userAgent, r.UserAgent())
+	}
+	if f.answer.Error != nil && f.answer.Error.Message != "" {
+		outBytes, err := json.Marshal(f.answer)
+		require.Nil(f.t, err)
+
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(outBytes)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	require.Nil(f.t, err)
+	defer r.Body.Close()
+
+	var b map[string]interface{}
+	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
+
+	outBytes, err := json.Marshal(f.answer)
+	require.Nil(f.t, err)
+
+	w.Write(outBytes)
+}
+
 func ptString(in string) *string {
 	return &in
-}
-
-type fakeClassSettings struct {
-	maxTokens   *int
-	temperature float64
-	topP        float64
-	topK        int
-	endpoint    string
-}
-
-func (s *fakeClassSettings) MaxTokens() *int {
-	return s.maxTokens
-}
-
-func (s *fakeClassSettings) Temperature() float64 {
-	return s.temperature
-}
-
-func (s *fakeClassSettings) TopP() float64 {
-	return s.topP
-}
-
-func (s *fakeClassSettings) TopK() int {
-	return s.topK
-}
-
-func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
-	return 0
-}
-
-func (s *fakeClassSettings) Validate(class *models.Class) error {
-	return nil
-}
-
-func (s *fakeClassSettings) Endpoint() string {
-	return s.endpoint
 }

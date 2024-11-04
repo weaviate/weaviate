@@ -258,7 +258,7 @@ func (v *awsClient) makeRequest(req *http.Request, delayInSeconds int, maxRetrie
 func (v *awsClient) parseBedrockResponse(bodyBytes []byte, input []string) (*ent.VectorizationResult, error) {
 	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 	if len(resBody.Embedding) == 0 && len(resBody.Embeddings) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
@@ -279,7 +279,7 @@ func (v *awsClient) parseBedrockResponse(bodyBytes []byte, input []string) (*ent
 func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
 	var resBody sagemakerEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
@@ -310,7 +310,7 @@ func (v *awsClient) isBedrock(service string) bool {
 }
 
 func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
-	if awsAccessKey := v.getHeaderValue(ctx, "X-Aws-Access-Key"); awsAccessKey != "" {
+	if awsAccessKey := modulecomponents.GetValueFromContext(ctx, "X-Aws-Access-Key"); awsAccessKey != "" {
 		return awsAccessKey, nil
 	}
 	if v.awsAccessKey != "" {
@@ -322,7 +322,7 @@ func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
 }
 
 func (v *awsClient) getAwsAccessSecret(ctx context.Context) (string, error) {
-	if awsSecret := v.getHeaderValue(ctx, "X-Aws-Secret-Key"); awsSecret != "" {
+	if awsSecret := modulecomponents.GetValueFromContext(ctx, "X-Aws-Secret-Key"); awsSecret != "" {
 		return awsSecret, nil
 	}
 	if v.awsSecret != "" {
@@ -334,26 +334,13 @@ func (v *awsClient) getAwsAccessSecret(ctx context.Context) (string, error) {
 }
 
 func (v *awsClient) getAwsSessionToken(ctx context.Context) (string, error) {
-	if awsSessionToken := v.getHeaderValue(ctx, "X-Aws-Session-Token"); awsSessionToken != "" {
+	if awsSessionToken := modulecomponents.GetValueFromContext(ctx, "X-Aws-Session-Token"); awsSessionToken != "" {
 		return awsSessionToken, nil
 	}
 	if v.awsSessionToken != "" {
 		return v.awsSessionToken, nil
 	}
 	return "", nil
-}
-
-func (v *awsClient) getHeaderValue(ctx context.Context, header string) string {
-	headerValue := ctx.Value(header)
-	if value, ok := headerValue.([]string); ok &&
-		len(value) > 0 && len(value[0]) > 0 {
-		return value[0]
-	}
-	// try getting header from GRPC if not successful
-	if value := modulecomponents.GetValueFromGRPC(ctx, header); len(value) > 0 && len(value[0]) > 0 {
-		return value[0]
-	}
-	return ""
 }
 
 func (v *awsClient) getRegion(config ent.VectorizationConfig) string {

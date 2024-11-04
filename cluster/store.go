@@ -23,6 +23,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/exp/metadata"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
@@ -126,6 +127,9 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
+	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
+	// unnecessary
+	EnableOneNodeRecovery bool
 	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
 	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
 	// WARNING: This should be run on *actual* one node cluster only.
@@ -133,6 +137,11 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
+
+	// ClassTenantDataEvents can have events published onto it when tenant changes like
+	// being frozen happen, with the goal of being able to alert the metadata nodes. This
+	// channel will be nil if the metadata server is not enabled.
+	ClassTenantDataEvents chan metadata.ClassTenant
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -199,6 +208,13 @@ func NewFSM(cfg Config) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		})
 	}
+	var schemaManager *schema.SchemaManager
+	if cfg.ClassTenantDataEvents != nil {
+		schemaManager = schema.NewSchemaManagerWithTenantEvents(cfg.NodeID, cfg.DB, cfg.Parser,
+			cfg.ClassTenantDataEvents, cfg.Logger)
+	} else {
+		schemaManager = schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
+	}
 
 	return Store{
 		cfg:           cfg,
@@ -206,7 +222,7 @@ func NewFSM(cfg Config) Store {
 		candidates:    make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schemaManager,
 	}
 }
 
@@ -256,7 +272,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
+	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
+	// node cluster
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
@@ -518,7 +536,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 // see Store.candidates.
 //
 // The value of "last_store_log_applied_index" is the index of the last applied command found when
-// the store was opened, see Store.lastAppliedIndexOnStart.
+// the store was opened, see Store.lastAppliedIndexToDB.
 //
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
@@ -720,8 +738,13 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return err
 	}
 
+	recoveryConfig := st.cfg
+	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
+	// the restore to avoid any data change.
+	recoveryConfig.MetadataOnlyVoters = true
+	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           st.cfg,
+		cfg:           recoveryConfig,
 		log:           st.log,
 		raftResolver:  st.raftResolver,
 		raftTransport: st.raftTransport,

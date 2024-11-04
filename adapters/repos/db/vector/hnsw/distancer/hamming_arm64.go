@@ -19,5 +19,6 @@ import (
 func init() {
 	if cpu.ARM64.HasASIMD {
 		hammingImpl = asm.Hamming
+		hammingBitwiseImpl = asm.HammingBitwise
 	}
 }

@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+// NOTE run `buf generate` from `cluster/proto` to regenerate code
 package weaviate.internal.cluster;
 
 service ClusterService {
