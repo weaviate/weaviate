@@ -46,7 +46,7 @@ func (o *RevokeRoleURL) SetBasePath(bp string) {
 func (o *RevokeRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users"
+	var _path = "/authz/users/revoke"
 
 	_basePath := o._basePath
 	if _basePath == "" {
