@@ -61,6 +61,10 @@ const (
 	BATCH_OBJECTS = "batch/objects"
 	// OBJECTS represents the objects resource.
 	OBJECTS = "objects"
+	// ROLES represents the roles resource.
+	ROLES = "authz/roles"
+	// USERS represents the users resource.
+	USERS = "authz/users"
 )
 
 // TODO add translation layer between weaviate and Casbin permissions
@@ -144,6 +148,11 @@ var (
 		string(ReadRole):   ReadRole,
 		string(UpdateRole): UpdateRole,
 		string(DeleteRole): DeleteRole,
+
+		string(CreateCollection): CreateCollection,
+		string(ReadCollection):   ReadCollection,
+		string(UpdateCollection): UpdateCollection,
+		string(DeleteCollection): DeleteCollection,
 	}
 
 	CreateTenant Write  = "create_tenant"
