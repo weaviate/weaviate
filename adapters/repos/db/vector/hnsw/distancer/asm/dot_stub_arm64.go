@@ -19,8 +19,6 @@ package asm
 //go:generate goat ../c/dot_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 //go:generate goat ../c/dot_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
 //go:generate goat ../c/dot_byte_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
-//go:generate goat ../c/dot_float_byte_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
-//go:generate goat ../c/laq_dot_exp_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
 	"reflect"
@@ -173,40 +171,6 @@ func DotFloatByte_Neon(x []float32, y []uint8) float32 {
 		for i := start; i < l; i++ {
 			res += x[i] * float32(y[i])
 		}
-	}
-
-	return res
-}
-
-func LAQDotExp_Neon(x []float32, y1 []uint8, y2 []uint8, a1, a2 float32) float32 {
-	var LAQDotExpImpl func(x []float32, y1, y2 []byte, a1, a2 float32) float32 = func(x []float32, y1, y2 []byte, a1, a2 float32) float32 {
-		sum := float32(0)
-		for i := range x {
-			sum += x[i] * (a1*float32(y1[i]) + a2*float32(y2[i]))
-		}
-
-		return sum
-	}
-	var res float32
-
-	l := len(x)
-
-	if l < 16 {
-
-		return LAQDotExpImpl(x, y1, y2, a1, a2)
-	}
-
-	laq_dot_exp_neon(
-		unsafe.Pointer(unsafe.SliceData(x)),
-		unsafe.Pointer(unsafe.SliceData(y1)),
-		unsafe.Pointer(unsafe.SliceData(y2)),
-		unsafe.Pointer(&a1),
-		unsafe.Pointer(&a2),
-		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	if l > 16 && l%16 != 0 {
-		return LAQDotExpImpl(x, y1, y2, a1, a2)
 	}
 
 	return res
