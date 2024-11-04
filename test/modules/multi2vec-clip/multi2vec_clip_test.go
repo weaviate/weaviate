@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package tests
+package test
 
 import (
 	"fmt"
@@ -21,14 +21,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
 
-func testMulti2VecCohere(host string) func(t *testing.T) {
+func testMulti2VecClip(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Define path to test/helper/sample-schema/multimodal/data folder
 		dataFolderPath := "../../../test/helper/sample-schema/multimodal/data"
 		// Define class
-		vectorizerName := "multi2vec-cohere"
-		className := "CohereClipTest"
+		vectorizerName := "multi2vec-clip"
+		className := "ClipTest"
 		class := multimodal.BaseClass(className, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
@@ -43,7 +43,6 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 			"clip_weights": {
 				Vectorizer: map[string]interface{}{
 					vectorizerName: map[string]interface{}{
-						"model":       "embed-english-light-v3.0",
 						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
 						"imageFields": []interface{}{multimodal.PropertyImage},
 						"weights": map[string]interface{}{
@@ -77,8 +76,8 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 			titleProperty := multimodal.PropertyImageTitle
 			titlePropertyValue := "waterfalls"
 			targetVectors := map[string]int{
-				"clip":         1024,
-				"clip_weights": 384,
+				"clip":         512,
+				"clip_weights": 512,
 			}
 			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 		})
