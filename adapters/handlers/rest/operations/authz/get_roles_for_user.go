@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AssignRoleHandlerFunc turns a function with the right signature into a assign role handler
-type AssignRoleHandlerFunc func(AssignRoleParams, *models.Principal) middleware.Responder
+// GetRolesForUserHandlerFunc turns a function with the right signature into a get roles for user handler
+type GetRolesForUserHandlerFunc func(GetRolesForUserParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn AssignRoleHandlerFunc) Handle(params AssignRoleParams, principal *models.Principal) middleware.Responder {
+func (fn GetRolesForUserHandlerFunc) Handle(params GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// AssignRoleHandler interface for that can handle valid assign role params
-type AssignRoleHandler interface {
-	Handle(AssignRoleParams, *models.Principal) middleware.Responder
+// GetRolesForUserHandler interface for that can handle valid get roles for user params
+type GetRolesForUserHandler interface {
+	Handle(GetRolesForUserParams, *models.Principal) middleware.Responder
 }
 
-// NewAssignRole creates a new http.Handler for the assign role operation
-func NewAssignRole(ctx *middleware.Context, handler AssignRoleHandler) *AssignRole {
-	return &AssignRole{Context: ctx, Handler: handler}
+// NewGetRolesForUser creates a new http.Handler for the get roles for user operation
+func NewGetRolesForUser(ctx *middleware.Context, handler GetRolesForUserHandler) *GetRolesForUser {
+	return &GetRolesForUser{Context: ctx, Handler: handler}
 }
 
 /*
-	AssignRole swagger:route POST /authz/users/assign authz assignRole
+	GetRolesForUser swagger:route GET /authz/users/{id}/roles authz getRolesForUser
 
-Assign a role to a user or key
+get roles for user or a key
 */
-type AssignRole struct {
+type GetRolesForUser struct {
 	Context *middleware.Context
-	Handler AssignRoleHandler
+	Handler GetRolesForUserHandler
 }
 
-func (o *AssignRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewAssignRoleParams()
+	var Params = NewGetRolesForUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

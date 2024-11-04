@@ -119,8 +119,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
 		}),
-		AuthzGetUserRolesOrRoleUsersHandler: authz.GetUserRolesOrRoleUsersHandlerFunc(func(params authz.GetUserRolesOrRoleUsersParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.GetUserRolesOrRoleUsers has not yet been implemented")
+		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
+		}),
+		AuthzGetUsersForRoleHandler: authz.GetUsersForRoleHandlerFunc(func(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetUsersForRole has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
@@ -331,8 +334,10 @@ type WeaviateAPI struct {
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
-	// AuthzGetUserRolesOrRoleUsersHandler sets the operation handler for the get user roles or role users operation
-	AuthzGetUserRolesOrRoleUsersHandler authz.GetUserRolesOrRoleUsersHandler
+	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
+	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
+	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
+	AuthzGetUsersForRoleHandler authz.GetUsersForRoleHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -550,8 +555,11 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
 	}
-	if o.AuthzGetUserRolesOrRoleUsersHandler == nil {
-		unregistered = append(unregistered, "authz.GetUserRolesOrRoleUsersHandler")
+	if o.AuthzGetRolesForUserHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
+	}
+	if o.AuthzGetUsersForRoleHandler == nil {
+		unregistered = append(unregistered, "authz.GetUsersForRoleHandler")
 	}
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
@@ -783,7 +791,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/users"] = authz.NewAssignRole(o.context, o.AuthzAssignRoleHandler)
+	o.handlers["POST"]["/authz/users/assign"] = authz.NewAssignRole(o.context, o.AuthzAssignRoleHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -847,7 +855,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/authz/users"] = authz.NewGetUserRolesOrRoleUsers(o.context, o.AuthzGetUserRolesOrRoleUsersHandler)
+	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -944,10 +956,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/objects/validate"] = objects.NewObjectsValidate(o.context, o.ObjectsObjectsValidateHandler)
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/authz/users"] = authz.NewRevokeRole(o.context, o.AuthzRevokeRoleHandler)
+	o.handlers["POST"]["/authz/users/revoke"] = authz.NewRevokeRole(o.context, o.AuthzRevokeRoleHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

@@ -252,7 +252,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role",
+            "description": "role ID",
             "name": "id",
             "in": "path",
             "required": true
@@ -289,45 +289,29 @@ func init() {
         ]
       }
     },
-    "/authz/users": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUserRolesOrRoleUsers",
+        "summary": "get users or a keys for role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "the user or key assigned to a role",
-            "name": "user",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "the role that the key or user assigned to",
-            "name": "role",
-            "in": "query"
+            "description": "role ID",
+            "name": "id",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Users assigned to this role",
             "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "users": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           },
@@ -357,9 +341,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.users.roles"
+          "weaviate.authz.get.roles.users"
         ]
-      },
+      }
+    },
+    "/authz/users/assign": {
       "post": {
         "tags": [
           "authz"
@@ -408,8 +394,10 @@ func init() {
         "x-serviceIds": [
           "weaviate.authz.assign.role"
         ]
-      },
-      "delete": {
+      }
+    },
+    "/authz/users/revoke": {
+      "post": {
         "tags": [
           "authz"
         ],
@@ -453,6 +441,62 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role"
+        ]
+      }
+    },
+    "/authz/users/{id}/roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles for user or a key",
+        "operationId": "getRolesForUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user or key ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user/key"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
         ]
       }
     },
@@ -6119,7 +6163,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role",
+            "description": "role ID",
             "name": "id",
             "in": "path",
             "required": true
@@ -6156,45 +6200,29 @@ func init() {
         ]
       }
     },
-    "/authz/users": {
+    "/authz/roles/{id}/users": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUserRolesOrRoleUsers",
+        "summary": "get users or a keys for role",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "the user or key assigned to a role",
-            "name": "user",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "the role that the key or user assigned to",
-            "name": "role",
-            "in": "query"
+            "description": "role ID",
+            "name": "id",
+            "in": "path",
+            "required": true
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Users assigned to this role",
             "schema": {
-              "type": "object",
-              "properties": {
-                "roles": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "users": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           },
@@ -6224,9 +6252,11 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.users.roles"
+          "weaviate.authz.get.roles.users"
         ]
-      },
+      }
+    },
+    "/authz/users/assign": {
       "post": {
         "tags": [
           "authz"
@@ -6275,8 +6305,10 @@ func init() {
         "x-serviceIds": [
           "weaviate.authz.assign.role"
         ]
-      },
-      "delete": {
+      }
+    },
+    "/authz/users/revoke": {
+      "post": {
         "tags": [
           "authz"
         ],
@@ -6320,6 +6352,62 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role"
+        ]
+      }
+    },
+    "/authz/users/{id}/roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles for user or a key",
+        "operationId": "getRolesForUser",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "user or key ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user/key"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
         ]
       }
     },

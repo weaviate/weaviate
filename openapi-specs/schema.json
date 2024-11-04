@@ -2602,7 +2602,7 @@
         ],
         "parameters": [
           {
-            "description": "role",
+            "description": "role ID",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2637,50 +2637,32 @@
         }
       }
     },
-    "/authz/users": {
+    "/authz/roles/{id}/users": {
       "get": {
-        "summary": "get roles for user or a key, or users or keys for roles",
-        "operationId": "getUserRolesOrRoleUsers",
+        "summary": "get users or a keys for role",
+        "operationId": "getUsersForRole",
         "x-serviceIds": [
-          "weaviate.authz.get.users.roles"
+          "weaviate.authz.get.roles.users"
         ],
         "tags": [
           "authz"
         ],
         "parameters": [
           {
-            "in": "query",
-            "name": "user",            
-            "required": false,
-            "type": "string",
-            "description": "the user or key assigned to a role"
-          },
-          {
-            "in": "query",
-            "name": "role",
-            "required": false,
-            "type": "string",
-            "description": "the role that the key or user assigned to"
+            "description": "role ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
           }
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Users assigned to this role",
             "schema": {
-              "type": "object",
-              "properties": {
-                "users" : {
-                  "type": "array",
-                  "items": {
-                      "type": "string"
-                  }
-                },
-                "roles" : {
-                  "type": "array",
-                  "items": {
-                      "type": "string"
-                  }
-                }
+              "type": "array",
+              "items": {
+                  "type": "string"
               }
             }
           },
@@ -2709,7 +2691,65 @@
             }
           }
         }
-      },
+      }
+    },
+    "/authz/users/{id}/roles": {
+      "get": {
+        "summary": "get roles for user or a key",
+        "operationId": "getRolesForUser",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "user or key ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+             "type": "array",
+              "items": {
+                  "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user/key"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/users/assign": {
       "post": {
         "summary": "Assign a role to a user or key",
         "operationId": "assignRole",
@@ -2758,8 +2798,10 @@
             }
           }
         }
-      },
-      "delete": {
+      }
+    },
+    "/authz/users/revoke": {
+      "post": {
         "summary": "Revoke a role from a user",
         "operationId": "revokeRole",
         "x-serviceIds": [
