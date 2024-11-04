@@ -181,6 +181,13 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
+	// WIP: The true bug is likely in the prop length tracker,
+	// but this is a workaround to check if this is
+	// the value that is resulting in the NaN scores.
+	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
+		averagePropLength = 40.0
+	}
+
 	// 100 is a reasonable expected capacity for the total number of terms to query.
 	allRequests := make([]termListRequest, 0, 100)
 
