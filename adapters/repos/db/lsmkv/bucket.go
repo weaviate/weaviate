@@ -356,7 +356,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeMemtable)).
 			WithField("action", "lsm_bucket_get_active_memtable").
-			Warnf("Waited more than 100ms to retrieve object from memtable")
+			Debugf("Waited more than 100ms to retrieve object from memtable")
 	}
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy

@@ -44,7 +44,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, "multi2vec-cohere", nil),
+		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, "multi2vec-cohere", nil, nil),
 	}
 }
 
