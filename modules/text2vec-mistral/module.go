@@ -108,7 +108,7 @@ func (m *MistralModule) initVectorizer(ctx context.Context, timeout time.Duratio
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
 			logger, m.Name()),
-		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, ent.NewClassSettingsInterface),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
 	)
 	m.metaProvider = client
 

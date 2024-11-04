@@ -16,7 +16,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 const (
@@ -35,11 +34,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
-}
-
-func NewClassSettingsInterface(cfg moduletools.ClassConfig) objectsvectorizer.ClassSettings {
-	return NewClassSettings(cfg)
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettingsWithCustomModel(cfg, "passageModel")}
 }
 
 func (cs *classSettings) EndpointURL() string {
@@ -80,20 +75,11 @@ func (cs *classSettings) Validate(class *models.Class) error {
 
 	model := cs.getProperty("model")
 	passageModel := cs.getProperty("passageModel")
-	queryModel := cs.getProperty("queryModel")
 
-	if model != "" && (passageModel != "" || queryModel != "") {
-		return errors.New("only one setting must be set either 'model' or 'passageModel' with 'queryModel'")
+	if model != "" && passageModel != "" {
+		return errors.New("only one setting must be set either 'model' or 'passageModel'")
 	}
 
-	if model == "" {
-		if passageModel != "" && queryModel == "" {
-			return errors.New("'passageModel' is set, but 'queryModel' is empty")
-		}
-		if passageModel == "" && queryModel != "" {
-			return errors.New("'queryModel' is set, but 'passageModel' is empty")
-		}
-	}
 	return nil
 }
 
@@ -142,8 +128,4 @@ func (cs *classSettings) getOptionOrDefault(option string, defaultValue bool) bo
 
 func (cs *classSettings) getProperty(name string) string {
 	return cs.BaseClassSettings.GetPropertyAsString(name, "")
-}
-
-func (cs *classSettings) ModelString() string {
-	return cs.PassageModel()
 }

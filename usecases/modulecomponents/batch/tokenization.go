@@ -14,6 +14,8 @@ package batch
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/tiktoken-go"
@@ -24,15 +26,16 @@ import (
 
 type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
 
-func ReturnBatchTokenizer(multiplier float32, classSettings func(moduletools.ClassConfig) objectsvectorizer.ClassSettings) TokenizerFuncType {
+func ReturnBatchTokenizer(multiplier float32, moduleName string) TokenizerFuncType {
 	return func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
 		var tke *tiktoken.Tiktoken
-		icheck := classSettings(cfg)
+		icheck := settings.NewBaseClassSettings(cfg)
+		modelString := modelToModelString(icheck.Model(), moduleName)
 		if multiplier > 0 {
 			var err error
-			tke, err = tiktoken.EncodingForModel(icheck.ModelString())
+			tke, err = tiktoken.EncodingForModel(modelString)
 			if err != nil {
 				tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 			}
@@ -48,9 +51,18 @@ func ReturnBatchTokenizer(multiplier float32, classSettings func(moduletools.Cla
 			text := objectVectorizer.Texts(ctx, objects[i], icheck)
 			texts[i] = text
 			if multiplier > 0 {
-				tokenCounts[i] = int(float32(clients.GetTokensCount(icheck.ModelString(), text, tke)) * multiplier)
+				tokenCounts[i] = int(float32(clients.GetTokensCount(modelString, text, tke)) * multiplier)
 			}
 		}
 		return texts, tokenCounts, skipAll, nil
 	}
+}
+
+func modelToModelString(model, moduleName string) string {
+	if moduleName == "text2vec-openai" {
+		if model == "ada" {
+			return "text-embedding-ada-002"
+		}
+	}
+	return model
 }

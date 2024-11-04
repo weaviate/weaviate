@@ -197,7 +197,3 @@ func isSagemaker(service string) bool {
 func isBedrock(service string) bool {
 	return service == "bedrock"
 }
-
-func (ic *classSettings) ModelString() string {
-	return ic.Model()
-}

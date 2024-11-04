@@ -26,10 +26,6 @@ func NewIndexChecker(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
-func (cs *classSettings) ModelString() string {
-	return ""
-}
-
 func (ic *classSettings) Validate(class *models.Class) error {
 	return ic.BaseClassSettings.ValidateClassSettings()
 }
