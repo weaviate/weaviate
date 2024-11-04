@@ -31,6 +31,11 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
+	FilterStrategySweeping = "sweeping"
+	FilterStrategyAcorn    = "acorn"
+
+	DefaultFilterStrategy = FilterStrategySweeping
+
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections = 4
 	MinmumEFConstruction = 4
@@ -52,6 +57,7 @@ type UserConfig struct {
 	PQ                     PQConfig `json:"pq"`
 	BQ                     BQConfig `json:"bq"`
 	SQ                     SQConfig `json:"sq"`
+	FilterStrategy         string   `json:"filterStrategy"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -96,6 +102,7 @@ func (u *UserConfig) SetDefaults() {
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
+	u.FilterStrategy = DefaultFilterStrategy
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -191,6 +198,12 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
+		uc.FilterStrategy = v
+	}); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -208,6 +221,10 @@ func (u *UserConfig) validate() error {
 			"efConstruction must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
 		))
+	}
+
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
 	}
 
 	if len(errMsgs) > 0 {

@@ -12,6 +12,7 @@
 package indexcheckpoint
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -98,7 +99,34 @@ func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Put([]byte(c.getID(shardID, targetVector)), buf)
+		key := []byte(c.getID(shardID, targetVector))
+		return b.Put(key, buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "update checkpoint")
+	}
+
+	return nil
+}
+
+func (c *Checkpoints) UpdateIfNewer(shardID, targetVector string, id uint64) error {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, id)
+
+	err := c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(checkpointBucket)
+		key := []byte(c.getID(shardID, targetVector))
+
+		// do not update if the current checkpoint is newer
+		old := b.Get(key)
+		if old != nil {
+			oldID := binary.LittleEndian.Uint64(old)
+			if oldID > id {
+				return errors.Errorf("current checkpoint %d is newer than %d", oldID, id)
+			}
+		}
+
+		return b.Put(key, buf)
 	})
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -114,6 +142,44 @@ func (c *Checkpoints) Delete(shardID, targetVector string) error {
 	})
 	if err != nil {
 		return errors.Wrap(err, "delete checkpoint")
+	}
+
+	return nil
+}
+
+// DeleteShard removes all checkpoints for a shard.
+// It works for both single and multi vector shards.
+func (c *Checkpoints) DeleteShard(shardID string) error {
+	err := c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(checkpointBucket)
+
+		c := b.Cursor()
+		sID := []byte(shardID)
+		var toDelete [][]byte
+
+		for k, _ := c.Seek(sID); k != nil; k, _ = c.Next() {
+			if !bytes.HasPrefix(k, sID) {
+				break
+			}
+
+			// ensure the key is either the shardID or shardID_vector
+			if !bytes.Equal(k, sID) && k[len(sID)] != '_' {
+				continue
+			}
+
+			toDelete = append(toDelete, k)
+		}
+
+		for _, k := range toDelete {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "delete shard checkpoints")
 	}
 
 	return nil

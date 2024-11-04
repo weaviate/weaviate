@@ -77,7 +77,7 @@ func (p Physical) BelongsToNode() string {
 }
 
 // AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
-func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
+func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
@@ -100,7 +100,7 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		return nil
 	}
 
-	names := nodes.Candidates()
+	names := nodes.StorageCandidates()
 	if count > len(names) {
 		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
 	}
@@ -123,26 +123,21 @@ func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
 }
 
-type nodes interface {
-	Candidates() []string
-	LocalName() string
-}
+func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
+	if f, n := replFactor, len(names); f > int64(n) {
+		return nil, fmt.Errorf("could not find enough weaviate nodes for replication: %d available, %d requested", len(names), f)
+	}
 
-func InitState(id string, config config.Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
 		Config:              config,
 		IndexID:             id,
-		localNodeName:       nodes.LocalName(),
+		localNodeName:       nodeLocalName,
 		PartitioningEnabled: partitioningEnabled,
 	}
+
 	if partitioningEnabled {
 		out.Physical = make(map[string]Physical, 128)
 		return out, nil
-	}
-
-	names := nodes.Candidates()
-	if f, n := replFactor, len(names); f > int64(n) {
-		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
 
 	if err := out.initPhysical(names, replFactor); err != nil {
@@ -254,6 +249,9 @@ func (s *State) IsLocalShard(name string) bool {
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
 func (s *State) initPhysical(nodes []string, replFactor int64) error {
+	if len(nodes) == 0 {
+		return fmt.Errorf("there is no nodes provided, can't initiate state for empty node list")
+	}
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
 		return err

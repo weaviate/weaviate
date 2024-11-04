@@ -30,47 +30,47 @@ type fakeSchemaManager struct {
 	countClassEqual bool
 }
 
-func (f *fakeSchemaManager) AddClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (f *fakeSchemaManager) RestoreClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (f *fakeSchemaManager) UpdateClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) DeleteClass(name string) (uint64, error) {
+func (f *fakeSchemaManager) DeleteClass(_ context.Context, name string) (uint64, error) {
 	args := f.Called(name)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) AddProperty(class string, p ...*models.Property) (uint64, error) {
+func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*models.Property) (uint64, error) {
 	args := f.Called(class, p)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateShardStatus(class, shard, status string) (uint64, error) {
+func (f *fakeSchemaManager) UpdateShardStatus(c_ context.Context, class, shard, status string) (uint64, error) {
 	args := f.Called(class, shard, status)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) AddTenants(class string, req *command.AddTenantsRequest) (uint64, error) {
+func (f *fakeSchemaManager) AddTenants(_ context.Context, class string, req *command.AddTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error) {
+func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error) {
+func (f *fakeSchemaManager) DeleteTenants(_ context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
 }
@@ -114,6 +114,10 @@ func (f *fakeSchemaManager) MultiTenancyWithVersion(ctx context.Context, class s
 func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo) {
 	args := f.Called(class)
 	return args.Get(0).(clusterSchema.ClassInfo)
+}
+
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{"node-1"}
 }
 
 func (f *fakeSchemaManager) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error) {
@@ -251,7 +255,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}),
 	}
 }
 

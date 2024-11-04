@@ -28,8 +28,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-var grpcClient pb.WeaviateClient
-
 func SetupClient(uri string) {
 	host, port := "", ""
 	res := strings.Split(uri, ":")
@@ -41,16 +39,20 @@ func SetupClient(uri string) {
 }
 
 func SetupGRPCClient(t *testing.T, uri string) {
-	grpcClient = ClientGRPC(t, uri)
+	host, port := "", ""
+	res := strings.Split(uri, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	ServerGRPCHost = host
+	ServerGRPCPort = port
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	// TODO shall be removed with the DB is idempotent
-	// delete class before trying to create in case it was existing.
-	if err != nil && strings.Contains(err.Error(), "exists") {
+	if err != nil {
 		return
 	}
 	AssertRequestOk(t, resp, err, nil)
@@ -173,10 +175,10 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl replica.ConsistencyLevel) {
 	cls := string(cl)
 	params := objects.NewObjectsClassDeleteParams().
-		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
+		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -312,7 +314,7 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 
 func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
 	t.Helper()
-	return grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
+	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
@@ -338,4 +340,10 @@ func GetMeta(t *testing.T) *models.Meta {
 	resp, err := Client(t).Meta.MetaGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func ObjectContentsProp(contents string) map[string]interface{} {
+	props := map[string]interface{}{}
+	props["contents"] = contents
+	return props
 }

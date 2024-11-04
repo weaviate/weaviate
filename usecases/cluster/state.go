@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -21,6 +22,23 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+// NodeSelector is an interface to select a portion of the available nodes in memberlist
+type NodeSelector interface {
+	// StorageCandidates returns list of storage nodes (names)
+	// sorted by the free amount of disk space in descending orders
+	StorageCandidates() []string
+	// NonStorageNodes return nodes from member list which
+	// they are configured not to be voter only
+	NonStorageNodes() []string
+	// SortCandidates Sort passed nodes names by the
+	// free amount of disk space in descending order
+	SortCandidates(nodes []string) []string
+	// LocalName() return local node name
+	LocalName() string
+	// NodeHostname return hosts address for a specific node name
+	NodeHostname(name string) (string, bool)
+}
 
 type State struct {
 	config Config
@@ -41,8 +59,17 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// failures (down nodes) faster.
+	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
+	// MaintenanceNodes is experimental. is a list of nodes (by Hostname) that are in maintenance mode
+	// (eg return an error for all data requests). We use a list here instead of a bool because it
+	// allows us to set the same config/env vars on all nodes to put a subset of them in maintenance
+	// mode. In addition, we may want to have the cluster nodes not in maintenance mode be aware of
+	// which nodes are in maintenance mode in the future.
+	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
 type AuthConfig struct {
@@ -87,6 +114,10 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 
 	if userConfig.AdvertisePort != 0 {
 		cfg.AdvertisePort = userConfig.AdvertisePort
+	}
+
+	if userConfig.FastFailureDetection {
+		cfg.SuspicionMult = 1
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
@@ -185,7 +216,7 @@ func (s *State) AllNames() []string {
 }
 
 // StorageNodes returns all nodes except non storage nodes
-func (s *State) StorageNodes() []string {
+func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
@@ -207,10 +238,27 @@ func (s *State) StorageNodes() []string {
 	return out[:n]
 }
 
-// Candidates returns list of nodes (names) sorted by the
+// StorageCandidates returns list of storage nodes (names)
+// sorted by the free amount of disk space in descending order
+func (s *State) StorageCandidates() []string {
+	return s.delegate.sortCandidates(s.storageNodes())
+}
+
+// NonStorageNodes return nodes from member list which
+// they are configured not to be voter only
+func (s *State) NonStorageNodes() []string {
+	nonStorage := []string{}
+	for name := range s.nonStorageNodes {
+		nonStorage = append(nonStorage, name)
+	}
+
+	return nonStorage
+}
+
+// SortCandidates Sort passed nodes names by the
 // free amount of disk space in descending order
-func (s *State) Candidates() []string {
-	return s.delegate.sortCandidates(s.StorageNodes())
+func (s *State) SortCandidates(nodes []string) []string {
+	return s.delegate.sortCandidates(nodes)
 }
 
 // All node names (not their hostnames!) for live members, including self.
@@ -221,6 +269,7 @@ func (s *State) NodeCount() int {
 	return s.list.NumMembers()
 }
 
+// LocalName() return local node name
 func (s *State) LocalName() string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
@@ -272,4 +321,14 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+// maintenance mode (which means it should return an error for all data requests).
+func (s *State) MaintenanceModeEnabled() bool {
+	return s.nodeInMaintenanceMode(s.config.Hostname)
+}
+
+func (s *State) nodeInMaintenanceMode(node string) bool {
+	return slices.Contains(s.config.MaintenanceNodes, node)
 }

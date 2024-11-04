@@ -185,6 +185,10 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 type fakeLocks struct {
 	Err error
 }
@@ -195,14 +199,6 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 
 func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
-}
-
-type fakeAuthorizer struct {
-	Err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.Err
 }
 
 type fakeVectorRepo struct {

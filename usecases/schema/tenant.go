@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -34,9 +35,6 @@ const (
 	ErrMsgMaxAllowedTenants = "maximum number of tenants allowed to be updated simultaneously is 100. Please reduce the number of tenants in your request and try again"
 )
 
-// tenantsPath is the main path used for authorization
-const tenantsPath = "schema/tenants"
-
 // AddTenants is used to add new tenants to a class
 // Class must exist and has partitioning enabled
 func (h *Handler) AddTenants(ctx context.Context,
@@ -44,7 +42,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_TENANTS); err != nil {
 		return 0, err
 	}
 
@@ -53,12 +51,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	if err = h.validateActivityStatuses(validated, true, false); err != nil {
+	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
 	}
 
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -68,7 +66,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
@@ -105,7 +103,7 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 	return
 }
 
-func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
+func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
 	allowEmpty, allowFrozen bool,
 ) error {
 	msgs := make([]string, 0, len(tenants))
@@ -120,9 +118,17 @@ func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
 				return fmt.Errorf(
 					"can't offload tenants, because offload-s3 module is not enabled")
 			}
+
+			if allowFrozen && h.cloud != nil {
+				if err := h.cloud.VerifyBucket(ctx); err != nil {
+					return err
+				}
+			}
+
 			if allowFrozen {
 				continue
 			}
+
 		default:
 			if status == "" && allowEmpty {
 				continue
@@ -144,7 +150,7 @@ func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_TENANTS); err != nil {
 		return nil, err
 	}
 
@@ -157,13 +163,13 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateActivityStatuses(validated, false, true); err != nil {
+	if err := h.validateActivityStatuses(ctx, validated, false, true); err != nil {
 		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
@@ -171,7 +177,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +194,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	if err := h.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.SCHEMA_TENANTS); err != nil {
 		return err
 	}
 	for i, name := range tenants {
@@ -201,7 +207,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
 	return err
 }
 
@@ -209,14 +215,14 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
 		return nil, err
 	}
 	return h.getTenants(class)
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +276,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
 		return err
 	}
 

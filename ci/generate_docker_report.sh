@@ -3,8 +3,12 @@ set -e
 cd "${0%/*}"
 
 function generate_report() {
-  echo "$PREVIEW_TAG"
+  echo "PREVIEW_TAG=$PREVIEW_TAG"
   if [ -z "$PREVIEW_TAG" ]; then
+    return
+  fi
+  echo "PREVIEW_SEMVER_TAG=$PREVIEW_SEMVER_TAG"
+  if [ -z "$PREVIEW_SEMVER_TAG" ]; then
     return
   fi
 

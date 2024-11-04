@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -57,7 +58,6 @@ func (f *finderStream) readOne(ctx context.Context,
 		defer close(resultCh)
 		var (
 			votes      = make([]objTuple, 0, st.Level)
-			maxCount   = 0
 			contentIdx = -1
 		)
 
@@ -74,14 +74,26 @@ func (f *finderStream) readOne(ctx context.Context,
 				contentIdx = len(votes)
 			}
 			votes = append(votes, objTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
-			for i := range votes { // count number of votes
-				if votes[i].UTime == resp.UpdateTime {
-					votes[i].ack++
+
+			for i := range votes {
+				if votes[i].UTime != resp.UpdateTime {
+					// incomming response does not match current vote
+					continue
 				}
-				if maxCount < votes[i].ack {
-					maxCount = votes[i].ack
+
+				votes[i].ack++
+
+				if votes[i].ack < st.Level {
+					// current vote does not have enough acks
+					continue
 				}
-				if maxCount >= st.Level && contentIdx >= 0 {
+
+				if votes[i].o.Deleted {
+					resultCh <- objResult{nil, nil}
+					return
+				}
+				if i == contentIdx {
+					// prefetched payload matches agreed vote
 					resultCh <- objResult{votes[contentIdx].o.Object, nil}
 					return
 				}
@@ -94,7 +106,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- objResult{nil, errRepair}
+		resultCh <- objResult{nil, errors.Wrap(err, errRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -133,10 +145,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	resultCh := make(chan _Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
-		var (
-			votes    = make([]boolTuple, 0, st.Level) // number of votes per replica
-			maxCount = 0
-		)
+		votes := make([]boolTuple, 0, st.Level) // number of votes per replica
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
@@ -149,18 +158,23 @@ func (f *finderStream) readExistence(ctx context.Context,
 			}
 
 			votes = append(votes, boolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
+
 			for i := range votes { // count number of votes
-				if votes[i].UTime == resp.UpdateTime {
-					votes[i].ack++
+				if votes[i].UTime != resp.UpdateTime {
+					// incomming response does not match current vote
+					continue
 				}
-				if maxCount < votes[i].ack {
-					maxCount = votes[i].ack
+
+				votes[i].ack++
+
+				if votes[i].ack < st.Level {
+					// current vote does not have enough acks
+					continue
 				}
-				if maxCount >= st.Level {
-					exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
-					resultCh <- _Result[bool]{exists, nil}
-					return
-				}
+
+				exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
+				resultCh <- _Result[bool]{exists, nil}
+				return
 			}
 		}
 
@@ -169,7 +183,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errRepair}
+		resultCh <- _Result[bool]{false, errors.Wrap(err, errRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -220,6 +234,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			M := 0
 			for i := 0; i < N; i++ {
 				max := 0
+				maxAt := -1
 				lastTime := resp.UpdateTimeAt(i)
 
 				for j := range votes { // count votes
@@ -228,9 +243,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 					}
 					if max < votes[j].Count[i] {
 						max = votes[j].Count[i]
+						maxAt = j
 					}
 				}
-				if max >= st.Level {
+				if max >= st.Level && maxAt == contentIdx {
 					M++
 				}
 			}
@@ -260,7 +276,15 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		// set consistency flag
 		for i, n := range sum {
-			if x := res[i]; x != nil && n == maxCount { // if consistent
+			if n == maxCount { // if consistent
+				x := res[i]
+
+				if x == nil {
+					// object was fetched but deleted during repair phase
+					batch.Data[batch.Index[i]].IsConsistent = false
+					continue
+				}
+
 				prev := batch.Data[batch.Index[i]]
 				x.BelongsToShard = prev.BelongsToShard
 				x.BelongsToNode = prev.BelongsToNode

@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 const (
@@ -595,8 +596,8 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName})
 		assert.Nil(t, err)
 		m.backupper.waitForCompletion(20, 50)
+		assert.Equal(t, string(backup.Cancelled), backend.meta.Status)
 		errMsg := context.Canceled.Error()
-		assert.Equal(t, string(backup.Transferring), backend.meta.Status)
 		assert.Equal(t, errMsg, backend.meta.Error)
 		assert.Contains(t, m.backupper.lastAsyncError.Error(), errMsg)
 	})
@@ -689,5 +690,5 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewHandler(logger, &fakeAuthorizer{}, schema, sourcer, backends)
+	return NewHandler(logger, mocks.NewMockAuthorizer(), schema, sourcer, backends)
 }

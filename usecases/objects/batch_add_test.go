@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -68,7 +69,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -123,6 +124,36 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"the correct vector was used")
 		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
+	})
+
+	t.Run("object without class", func(t *testing.T) {
+		reset()
+		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objects := []*models.Object{
+			{
+				Class:  "",
+				Vector: []float32{0.1, 0.1, 0.1111},
+			},
+			{
+				Class:  "Foo",
+				Vector: []float32{0.2, 0.2, 0.2222},
+			},
+		}
+
+		for range objects {
+			modulesProvider.On("BatchUpdateVector").
+				Return(nil, nil)
+		}
+
+		resp, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
+		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+		require.Len(t, repoCalledWithObjects, 2)
+
+		require.NotNil(t, resp[0].Err)
+		require.Equal(t, resp[0].Err.Error(), "object has an empty class")
+		require.Nil(t, resp[1].Err)
 	})
 
 	t.Run("with objects without IDs and nonexistent class and auto schema enabled", func(t *testing.T) {
@@ -292,7 +323,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -437,7 +468,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)

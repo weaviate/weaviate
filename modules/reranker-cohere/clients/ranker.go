@@ -150,7 +150,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 
 	var rankResponse RankResponse
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 	return c.toDocumentScores(documents, rankResponse.Results), nil
 }

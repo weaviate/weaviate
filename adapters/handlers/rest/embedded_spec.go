@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.1"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -148,6 +148,54 @@ func init() {
       }
     },
     "/backups/{backend}": {
+      "get": {
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.list",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existed backups",
+            "schema": {
+              "$ref": "#/definitions/BackupListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup list.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -252,6 +300,58 @@ func init() {
           },
           "422": {
             "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "delete": {
+        "description": "Cancel created backup with specified ID",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup cancellation attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3181,7 +3281,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3214,8 +3315,45 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
+        }
+      }
+    },
+    "BackupListResponse": {
+      "description": "The definition of a backup create response body",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classes": {
+            "description": "The list of classes for which the existed backup process",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "type": "string"
+          },
+          "path": {
+            "description": "destination path of backup files proper to selected backend",
+            "type": "string"
+          },
+          "status": {
+            "description": "status of backup process",
+            "type": "string",
+            "enum": [
+              "STARTED",
+              "TRANSFERRING",
+              "TRANSFERRED",
+              "SUCCESS",
+              "FAILED",
+              "CANCELED"
+            ]
+          }
         }
       }
     },
@@ -3285,7 +3423,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3318,7 +3457,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -4065,6 +4205,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -4588,7 +4732,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -4723,6 +4868,15 @@ func init() {
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "deletionStrategy": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "DeleteOnConflict"
+          ],
+          "x-omitempty": true
         },
         "factor": {
           "description": "Number of times a class is replicated",
@@ -5320,7 +5474,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.1"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -5420,6 +5574,54 @@ func init() {
       }
     },
     "/backups/{backend}": {
+      "get": {
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.list",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Existed backups",
+            "schema": {
+              "$ref": "#/definitions/BackupListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup list.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -5524,6 +5726,58 @@ func init() {
           },
           "422": {
             "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "delete": {
+        "description": "Cancel created backup with specified ID",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup cancellation attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8575,7 +8829,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8608,7 +8863,47 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
+          ]
+        }
+      }
+    },
+    "BackupListResponse": {
+      "description": "The definition of a backup create response body",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BackupListResponseItems0"
+      }
+    },
+    "BackupListResponseItems0": {
+      "type": "object",
+      "properties": {
+        "classes": {
+          "description": "The list of classes for which the existed backup process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "status of backup process",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8679,7 +8974,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8712,7 +9008,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -9618,6 +9915,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -10159,7 +10460,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -10294,6 +10596,15 @@ func init() {
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "deletionStrategy": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "DeleteOnConflict"
+          ],
+          "x-omitempty": true
         },
         "factor": {
           "description": "Number of times a class is replicated",

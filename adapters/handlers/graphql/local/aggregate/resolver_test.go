@@ -32,6 +32,7 @@ type testCase struct {
 	expectedWhereFilter      *filters.LocalFilter
 	expectedNearObjectFilter *searchparams.NearObject
 	expectedNearVectorFilter *searchparams.NearVector
+	expectedNearHybrid       *searchparams.HybridSearch
 	expectedIncludeMetaCount bool
 	expectedLimit            *int
 	expectedObjectLimit      *int
@@ -57,7 +58,7 @@ func groupCarByMadeByManufacturerName() *filters.Path {
 
 func Test_Resolve(t *testing.T) {
 	t.Parallel()
-
+	var emptySubsearch []searchparams.WeightedSearchResult
 	tests := testCases{
 		testCase{
 			name: "for gh-758 (multiple operands)",
@@ -463,7 +464,57 @@ func Test_Resolve(t *testing.T) {
 				},
 			}},
 		},
-
+		testCase{
+			name: "hybrid vector distance",
+			query: `{
+				Aggregate {
+					Car(
+						hybrid: {query:"apple", maxVectorDistance: 0.5}
+					) {
+						horsepower {
+							mean
+						}
+					}
+				}
+			}`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "horsepower",
+					Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator},
+				},
+			},
+			expectedNearHybrid: &searchparams.HybridSearch{
+				Distance:        0.5,
+				WithDistance:    true,
+				Alpha:           0.75,
+				Query:           "apple",
+				FusionAlgorithm: 1,
+				Type:            "hybrid",
+				SubSearches:     emptySubsearch,
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"horsepower": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"mean": 275.7773,
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"mean": 275.7773,
+						},
+					},
+				},
+			}},
+		},
 		testCase{
 			name: "single prop: mean with a where filter",
 			query: `{
@@ -758,9 +809,9 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Distance:        0.3,
-				WithDistance:    true,
+				Vectors:      [][]float32{{1, 2, 3}},
+				Distance:     0.3,
+				WithDistance: true,
 			},
 			resolverReturn: []aggregation.Group{
 				{
@@ -813,8 +864,8 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Certainty:       0.7,
+				Vectors:   [][]float32{{1, 2, 3}},
+				Certainty: 0.7,
 			},
 			resolverReturn: []aggregation.Group{
 				{
@@ -946,6 +997,7 @@ func (tests testCases) AssertExtraction(t *testing.T, className string) {
 				IncludeMetaCount: testCase.expectedIncludeMetaCount,
 				Limit:            testCase.expectedLimit,
 				ObjectLimit:      testCase.expectedObjectLimit,
+				Hybrid:           testCase.expectedNearHybrid,
 			}
 
 			resolver.On("Aggregate", expectedParams).

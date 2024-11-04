@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/exp/metadata"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -41,6 +42,17 @@ type SchemaManager struct {
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
 		schema: NewSchema(nodeId, db),
+		db:     db,
+		parser: parser,
+		log:    log,
+	}
+}
+
+func NewSchemaManagerWithTenantEvents(nodeId string, db Indexer, parser Parser,
+	classTenantDataEvents chan metadata.ClassTenant, log *logrus.Logger,
+) *SchemaManager {
+	return &SchemaManager{
+		schema: NewSchemaWithTenantEvents(nodeId, db, classTenantDataEvents),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -117,7 +129,9 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migrateRangeIndexPropIfNeeded(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// an immutable copy of the sharding state has to be used to avoid conflicts
+		shardingState, _ := v.CopyShardingState()
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
 		i++
 	}
 
@@ -141,10 +155,14 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 		return fmt.Errorf("%w: parsing class: %w", ErrBadRequest, err)
 	}
 	req.State.SetLocalName(nodeID)
+	// We need to make a copy of the sharding state to ensure that the state stored in the internal schema has no
+	// references to. As we will make modification to it to reflect change in the sharding state (adding/removing
+	// tenant) we don't want another goroutine holding a pointer to it and finding issues with concurrent read/writes.
+	shardingStateCopy := req.State.DeepCopy()
 	return s.apply(
 		applyOp{
 			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
+			updateSchema:          func() error { return s.schema.addClass(req.Class, &shardingStateCopy, cmd.Version) },
 			updateStore:           func() error { return s.db.AddClass(req) },
 			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
@@ -180,6 +198,14 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 			triggerSchemaCallback: true,
 		},
 	)
+}
+
+// ReplaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *SchemaManager) ReplaceStatesNodeName(new string) {
+	s.schema.replaceStatesNodeName(new)
 }
 
 // UpdateClass modifies the vectors and inverted indexes associated with a class

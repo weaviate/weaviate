@@ -764,7 +764,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, map[string]float32{"custom1": 1, "custom3": 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
 				require.Nil(t, err)
 				require.Len(t, res, 0) // no results because we are searching for target custom3 which the only object does not have
 
@@ -783,7 +783,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 				}
 
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, map[string]float32{"custom1": 1, "custom3": 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
 				require.Nil(t, err)
 				require.Greater(t, len(res), 0)
 			})

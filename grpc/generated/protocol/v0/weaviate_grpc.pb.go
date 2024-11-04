@@ -59,12 +59,12 @@ type WeaviateServer interface {
 }
 
 // UnimplementedWeaviateServer must be embedded to have forward compatible implementations.
-type UnimplementedWeaviateServer struct{}
+type UnimplementedWeaviateServer struct {
+}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
 }
-
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
 }

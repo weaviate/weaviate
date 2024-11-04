@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -43,9 +44,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
-func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.Class, config *config.Config) (dto.GetParams, error) {
+type generativeParser interface {
+	Extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params
+	ProviderName() string
+	ReturnMetadata() bool
+}
+
+type Parser struct {
+	generative generativeParser
+	getClass   func(string) *models.Class
+}
+
+func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
+	return &Parser{
+		generative: generative.NewParser(uses127Api),
+		getClass:   getClass,
+	}
+}
+
+func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class := getClass(req.Collection)
+	class := p.getClass(req.Collection)
 	if class == nil {
 		return dto.GetParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
@@ -69,7 +88,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -225,6 +244,18 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			vector = hs.Vector
 		}
 
+		var distance float32
+		withDistance := false
+		if hs.Threshold != nil {
+			withDistance = true
+			switch hs.Threshold.(type) {
+			case *pb.Hybrid_VectorDistance:
+				distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
+			default:
+				return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
+			}
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -238,6 +269,8 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
+			Distance:        distance,
+			WithDistance:    withDistance,
 		}
 
 		if nearVec != nil {
@@ -282,7 +315,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req, class)
+		out.AdditionalProperties.ModuleParams["generate"] = p.generative.Extract(req.Generative, class)
 	}
 
 	if req.Rerank != nil {
@@ -297,12 +330,12 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if req.Filters != nil {
-		clause, err := extractFilters(req.Filters, getClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(getClass, filter); err != nil {
+		if err := filters.ValidateFilters(p.getClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
@@ -316,7 +349,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy, &out)
+		groupBy, err := extractGroupBy(req.GroupBy, &out, class)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -338,21 +371,42 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
 
-	groupOut := &searchparams.GroupBy{
-		Property:        groupIn.Path[0],
-		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
-		Groups:          int(groupIn.NumberOfGroups),
-	}
+	groupByProp := groupIn.Path[0]
 
 	// add the property in case it was not requested as return prop - otherwise it is not resolved
-	if out.Properties.FindProperty(groupOut.Property) == nil {
-		out.Properties = append(out.Properties, search.SelectProperty{Name: groupOut.Property, IsPrimitive: true})
+	if out.Properties.FindProperty(groupByProp) == nil {
+		dataType, err := schema.GetPropertyDataType(class, groupByProp)
+		if err != nil || dataType == nil {
+			return nil, err
+		}
+		isPrimitive := true
+		if *dataType == schema.DataTypeCRef {
+			isPrimitive = false
+		}
+		out.Properties = append(out.Properties, search.SelectProperty{Name: groupByProp, IsPrimitive: isPrimitive})
 	}
+
+	var additionalGroupProperties []search.SelectProperty
+	for _, prop := range out.Properties {
+		additionalGroupHitProp := search.SelectProperty{Name: prop.Name}
+		additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, prop.Refs...)
+		additionalGroupHitProp.IsPrimitive = prop.IsPrimitive
+		additionalGroupHitProp.IsObject = prop.IsObject
+		additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+	}
+
+	groupOut := &searchparams.GroupBy{
+		Property:        groupByProp,
+		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
+		Groups:          int(groupIn.NumberOfGroups),
+		Properties:      additionalGroupProperties,
+	}
+
 	out.AdditionalProperties.NoProps = false
 
 	return groupOut, nil
@@ -439,32 +493,29 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	}
 
 	var combinationType dto.TargetCombinationType
-	weights := make(map[string]float32, len(in.Weights))
+	weights := make([]float32, len(in.TargetVectors))
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0 / float32(len(in.TargetVectors))
+		for i := range in.TargetVectors {
+			weights[i] = 1.0 / float32(len(in.TargetVectors))
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0
+		for i := range in.TargetVectors {
+			weights[i] = 1.0
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
-		if len(in.Weights) != len(in.TargetVectors) {
-			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
 		combinationType = dto.ManualWeights
-		for k, v := range in.Weights {
-			weights[k] = v
+		if err := extractWeights(in, weights); err != nil {
+			return nil, err
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE:
 		combinationType = dto.RelativeScore
-		for k, v := range in.Weights {
-			weights[k] = v
+		if err := extractWeights(in, weights); err != nil {
+			return nil, err
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED:
 		combinationType = dto.DefaultTargetCombinationType
@@ -472,6 +523,35 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
+}
+
+func extractWeights(in *pb.Targets, weights []float32) error {
+	if in.WeightsForTargets != nil {
+		if len(in.WeightsForTargets) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for i, v := range in.WeightsForTargets {
+			if v.Target != in.TargetVectors[i] {
+				return fmt.Errorf("target vector %s not found in target vectors", v.Target)
+			}
+			weights[i] = v.Weight
+		}
+		return nil
+	} else {
+		if len(in.Weights) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for k, v := range in.Weights {
+			ind := indexOf(in.TargetVectors, k)
+			if ind == -1 {
+				return fmt.Errorf("target vector %s not found in target vectors", k)
+			}
+			weights[ind] = v
+		}
+		return nil
+	}
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
@@ -484,26 +564,6 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
 	}
 	return sortOut
-}
-
-func extractGenerative(req *pb.SearchRequest, class *models.Class) *generate.Params {
-	generative := generate.Params{}
-	if req.Generative.SingleResponsePrompt != "" {
-		generative.Prompt = &req.Generative.SingleResponsePrompt
-		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
-	}
-	if req.Generative.GroupedResponseTask != "" {
-		generative.Task = &req.Generative.GroupedResponseTask
-	}
-	if len(req.Generative.GroupedProperties) > 0 {
-		generative.Properties = req.Generative.GroupedProperties
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
-	} else {
-		// if users do not supply a properties, all properties need to be extracted
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
-	}
-	return &generative
 }
 
 func extractRerank(req *pb.SearchRequest) *rank.Params {
@@ -1086,20 +1146,40 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	targetsPerVector := make(map[string][]float32, len(targetVectorsTmp))
+	vectors := make([][]float32, len(targetVectorsTmp))
 	if vector != nil {
-		for _, target := range targetVectorsTmp {
-			targetsPerVector[target] = vector
+		for i := range targetVectorsTmp {
+			vectors[i] = vector
 		}
+	} else if nv.VectorForTargets != nil {
+		if len(nv.VectorForTargets) != len(targetVectorsTmp) {
+			return nil, fmt.Errorf("near_vector: vector for target must have the same lengths as target vectors")
+		}
+
+		for i := range nv.VectorForTargets {
+			if nv.VectorForTargets[i].Name != targetVectorsTmp[i] {
+				var allNames []string
+				for k := range nv.VectorForTargets {
+					allNames = append(allNames, nv.VectorForTargets[k].Name)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
+			}
+			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+		}
+
 	} else if nv.VectorPerTarget != nil {
 		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
 			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
 		}
-		for _, target := range targetVectorsTmp {
+		for i, target := range targetVectorsTmp {
 			if vec, ok := nv.VectorPerTarget[target]; ok {
-				targetsPerVector[target] = byteops.Float32FromByteVector(vec)
+				vectors[i] = byteops.Float32FromByteVector(vec)
 			} else {
-				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
+				var allNames []string
+				for k := range nv.VectorPerTarget {
+					allNames = append(allNames, k)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 		}
 	} else {
@@ -1107,9 +1187,18 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 	}
 
 	return &searchparams.NearVector{
-		VectorPerTarget: targetsPerVector,
-		TargetVectors:   targetVectors,
+		Vectors:       vectors,
+		TargetVectors: targetVectors,
 	}, nil
+}
+
+func indexOf(slice []string, value string) int {
+	for i, v := range slice {
+		if v == value {
+			return i
+		}
+	}
+	return -1
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user

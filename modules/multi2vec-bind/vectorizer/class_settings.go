@@ -26,7 +26,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (ic *classSettings) ImageField(property string) bool {

@@ -69,6 +69,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status // Return the shard status
 	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
+	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
@@ -105,6 +106,7 @@ type ShardLike interface {
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
+	PreloadQueue(targetVector string) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -118,7 +120,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() bool
+	isReadOnly() error
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -154,9 +156,9 @@ type ShardLike interface {
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
-	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
-	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
-	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
+	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
+	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
+	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
@@ -167,6 +169,7 @@ type ShardLike interface {
 	Activity() int32
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
+	RepairIndex(ctx context.Context, targetVector string) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -202,7 +205,7 @@ type Shard struct {
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
 
-	status              storagestate.Status
+	status              ShardStatus
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 
@@ -260,6 +263,13 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 
 func (s *Shard) pathHashTree() string {
 	return path.Join(s.path(), "hashtree")
+}
+
+func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
+	if targetVector != "" {
+		return s.vectorIndexes[targetVector]
+	}
+	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
@@ -610,12 +620,17 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
+func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
+	return lsmkv.WithSegmentsCleanupInterval(
+		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
+}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
+	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -626,10 +641,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
+	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 

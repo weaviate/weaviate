@@ -28,6 +28,9 @@ import (
 // swagger:model Meta
 type Meta struct {
 
+	// Max message size for GRPC connection in bytes
+	GrpcMaxMessageSize int64 `json:"grpcMaxMessageSize,omitempty"`
+
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 

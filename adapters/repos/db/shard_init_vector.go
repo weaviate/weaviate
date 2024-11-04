@@ -94,8 +94,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
 					)
 				},
-				AllocChecker:        s.index.allocChecker,
-				WaitForCachePrefill: s.index.Config.HNSWWaitForCachePrefill,
+				AllocChecker:           s.index.allocChecker,
+				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
@@ -121,6 +122,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vi, err := flat.New(flat.Config{
 			ID:               vecIdxID,
 			TargetVector:     targetVector,
+			RootPath:         s.path(),
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,

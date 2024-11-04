@@ -70,7 +70,7 @@ func (q *qna) Answer(ctx context.Context,
 
 	var resBody answersResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode > 399 {

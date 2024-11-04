@@ -17,6 +17,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -61,6 +63,27 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	eg.Go(func() error {
 		return s.initProplenTracker()
 	})
+
+	// geo props depend on the object bucket and we need to wait for its creation in this case
+	hasGeoProp := false
+	for _, prop := range class.Properties {
+		if len(prop.DataType) != 1 {
+			continue
+		}
+		if prop.DataType[0] == schema.DataTypeGeoCoordinates.String() {
+			hasGeoProp = true
+			break
+		}
+	}
+
+	if hasGeoProp {
+		err := eg.Wait()
+		if err != nil {
+			// annotate error with shard id only once, all inner functions should only
+			// annotate what they do, but not repeat the shard id.
+			return fmt.Errorf("init shard %q: %w", s.ID(), err)
+		}
+	}
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
@@ -118,6 +141,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

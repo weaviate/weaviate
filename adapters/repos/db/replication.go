@@ -162,7 +162,7 @@ func (i *Index) writableShard(name string) (ShardLike, func(), *replica.SimpleRe
 			{Code: replica.StatusShardNotFound, Msg: name},
 		}}
 	}
-	if localShard.isReadOnly() {
+	if localShard.isReadOnly() != nil {
 		release()
 
 		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{{
@@ -349,6 +349,19 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	defer release()
 
 	for i, u := range updates {
+		if u.ID != "" && u.Deleted {
+			err := s.DeleteObject(ctx, u.ID)
+			if err != nil {
+				r := replica.RepairResponse{
+					ID:  u.ID.String(),
+					Err: fmt.Sprintf("overwrite deleted object: %v", err),
+				}
+				result = append(result, r)
+			}
+
+			continue
+		}
+
 		// Just in case but this should not happen
 		data := u.LatestObject
 		if data == nil || data.ID == "" {

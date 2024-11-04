@@ -114,3 +114,61 @@ func (e ErrMultiTenancy) Unwrap() error {
 func NewErrMultiTenancy(err error) ErrMultiTenancy {
 	return ErrMultiTenancy{err}
 }
+
+// This error is thrown by the replication logic when an object has either:
+//
+// 1. been deleted locally but exists remotely
+//
+// 2. been deleted remotely but exists locally
+//
+// signifying that the current operation is happening simultaneously to another operation
+// on the same replicated resource.
+//
+// This error is used to bubble up the error from the replication logic so that it can be handled
+// depending on the context of the higher level operation.
+//
+// This was introduced originally to handle
+// cases where concurrent delete_many and single_patch operations were happening on the same object
+// across multiple replicas. The read repair of the patch method would fail with a 500 conflict error
+// if the delete operation was not propagated to all replicas before the patch operation was attempted.
+// By using this error and handling it in func (m *Manager) MergeObject, any patch updates will assume that
+// the object has been deleted everywhere, despite it only being deleted in one place, and will therefore
+// return a 404 not found error.
+type ErrDirtyReadOfDeletedObject struct {
+	err error
+}
+
+func (e ErrDirtyReadOfDeletedObject) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrDirtyReadOfDeletedObject) Unwrap() error {
+	return e.err
+}
+
+// It depends on the order of operations
+//
+// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
+// Created -> Deleted -> Created => propagating deletion will result in data lost
+//
+// Updated -> Deleted => It is safe in this case to propagate deletion to all replicas
+// Updated -> Deleted -> Updated => It is also safe in this case since updating a deleted object makes no logical sense
+func NewErrDirtyReadOfDeletedObject(err error) ErrDirtyReadOfDeletedObject {
+	return ErrDirtyReadOfDeletedObject{err}
+}
+
+type ErrDirtyWriteOfDeletedObject struct {
+	err error
+}
+
+func (e ErrDirtyWriteOfDeletedObject) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrDirtyWriteOfDeletedObject) Unwrap() error {
+	return e.err
+}
+
+func NewErrDirtyWriteOfDeletedObject(err error) ErrDirtyWriteOfDeletedObject {
+	return ErrDirtyWriteOfDeletedObject{err}
+}

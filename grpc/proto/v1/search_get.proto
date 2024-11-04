@@ -4,6 +4,7 @@ package weaviate.v1;
 
 import "google/protobuf/struct.proto";
 import "v1/base.proto";
+import "v1/generative.proto";
 import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
@@ -49,7 +50,8 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
-  bool uses_125_api = 101;
+  bool uses_125_api = 101 [deprecated = true];
+  bool uses_127_api = 102; 
 }
 
 message GroupBy {
@@ -70,11 +72,6 @@ message SortBy {
   repeated string path = 2;
 }
 
-message GenerativeSearch {
-  string single_response_prompt = 1;
-  string grouped_response_task = 2;
-  repeated string grouped_properties = 3;
-}
 
 message MetadataRequest {
   bool uuid = 1;
@@ -111,10 +108,17 @@ enum CombinationMethod {
   COMBINATION_METHOD_TYPE_MANUAL = 5;
 }
 
+message WeightsForTarget {
+  string target = 1;
+  float weight = 2;
+}
+
+
 message Targets {
   repeated string target_vectors = 1;
   CombinationMethod combination = 2;
-  map<string,float> weights = 3;
+  map<string,float> weights = 3 [deprecated = true];   // deprecated in 1.26.2 - use weights_for_targets
+  repeated WeightsForTarget weights_for_targets = 4;
 }
 
 message Hybrid {
@@ -134,6 +138,12 @@ message Hybrid {
   NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
   Targets targets = 10;
+
+  // only vector distance, but keep it extendable
+  oneof threshold {
+    float vector_distance = 20;
+  };
+
 }
 
 message NearTextSearch {
@@ -213,6 +223,11 @@ message RefPropertiesRequest {
   string target_collection = 4;
 }
 
+message VectorForTarget {
+  string name = 1;
+  bytes vector_bytes = 2;
+}
+
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
@@ -221,7 +236,8 @@ message NearVector {
   bytes vector_bytes = 4;
   repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 6;
-  map <string, bytes> vector_per_target = 7;
+  map <string, bytes> vector_per_target = 7 [deprecated = true]; // deprecated in 1.26.2 - use vector_for_targets
+  repeated VectorForTarget vector_for_targets = 8;
 }
 
 message NearObject {
@@ -240,16 +256,13 @@ message Rerank {
 message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
-  optional string generative_grouped_result = 3;
+  optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
+  optional GenerativeResult generative_grouped_results = 5;
 }
 
 message RerankReply {
   double score = 1;
-}
-
-message GenerativeReply {
-  string result = 1;
 }
 
 message GroupByResult {
@@ -259,13 +272,16 @@ message GroupByResult {
   int64 number_of_objects = 4;
   repeated SearchResult objects = 5;
   optional RerankReply rerank = 6;
-  optional GenerativeReply generative = 7;
+  optional GenerativeReply generative = 7 [deprecated = true];
+  optional GenerativeResult generative_result = 8;
 }
 
 message SearchResult {
   PropertiesResult properties = 1;
   MetadataResult metadata = 2;
+  optional GenerativeResult generative = 3;
 }
+
 
 message MetadataResult {
   string id = 1;
@@ -284,8 +300,8 @@ message MetadataResult {
   string explain_score = 13;
   bool explain_score_present = 14;
   optional bool is_consistent = 15;
-  string generative = 16;
-  bool generative_present = 17;
+  string generative = 16 [deprecated = true];
+  bool generative_present = 17 [deprecated = true];
   bool is_consistent_present = 18;
   bytes vector_bytes = 19;
   bytes id_as_bytes = 20;

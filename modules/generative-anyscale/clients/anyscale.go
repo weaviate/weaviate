@@ -73,6 +73,10 @@ func (v *anyscale) getParameters(cfg moduletools.ClassConfig, options interface{
 	if p, ok := options.(anyscaleparams.Params); ok {
 		params = p
 	}
+	if params.BaseURL == "" {
+		baseURL := settings.BaseURL()
+		params.BaseURL = baseURL
+	}
 	if params.Model == "" {
 		model := settings.Model()
 		params.Model = model
@@ -85,11 +89,10 @@ func (v *anyscale) getParameters(cfg moduletools.ClassConfig, options interface{
 }
 
 func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	anyscaleUrl := v.getAnyscaleUrl(ctx, settings.BaseURL())
+	anyscaleUrl := v.getAnyscaleUrl(ctx, params.BaseURL)
 	anyscalePrompt := []map[string]string{
 		{"role": "system", "content": "You are a helpful assistant."},
 		{"role": "user", "content": prompt},
@@ -130,7 +133,7 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {

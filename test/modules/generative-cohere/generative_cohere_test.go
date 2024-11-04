@@ -12,18 +12,23 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeCohere(host string) func(t *testing.T) {
+func testGenerativeCohere(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -40,8 +45,9 @@ func testGenerativeCohere(host string) func(t *testing.T) {
 			},
 		}
 		tests := []struct {
-			name            string
-			generativeModel string
+			name               string
+			generativeModel    string
+			absentModuleConfig bool
 		}{
 			{
 				name:            "command-r-plus",
@@ -51,13 +57,22 @@ func testGenerativeCohere(host string) func(t *testing.T) {
 				name:            "command-r",
 				generativeModel: "command-r",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "command-r",
+				absentModuleConfig: true,
+			},
 		}
-		for _, tt := range tests {
+		for idx, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					"generative-cohere": map[string]interface{}{
-						"model": tt.generativeModel,
-					},
+				if tt.absentModuleConfig {
+					t.Log("skipping adding module config configuration to class")
+				} else {
+					class.ModuleConfig = map[string]interface{}{
+						"generative-cohere": map[string]interface{}{
+							"model": tt.generativeModel,
+						},
+					}
 				}
 				// create schema
 				helper.CreateClass(t, class)
@@ -83,9 +98,36 @@ func testGenerativeCohere(host string) func(t *testing.T) {
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "cohere:{temperature:0.9 k:400}"
+					if tt.absentModuleConfig {
+						params = fmt.Sprintf("cohere:{temperature:0.9 k:400 model:\"%s\" baseURL:\"https://api.cohere.ai\"}", tt.generativeModel)
+					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					cohere := &pb.GenerativeCohere{
+						MaxTokens:        grpchelper.ToPtr(int64(90)),
+						Model:            grpchelper.ToPtr(tt.generativeModel),
+						Temperature:      grpchelper.ToPtr(0.9),
+						K:                grpchelper.ToPtr(int64(90)),
+						P:                grpchelper.ToPtr(0.9),
+						StopSequences:    &pb.TextArray{Values: []string{"stop"}},
+						FrequencyPenalty: grpchelper.ToPtr(0.9),
+					}
+					if tt.absentModuleConfig {
+						cohere.BaseUrl = grpchelper.ToPtr("https://api.cohere.ai")
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+						ReturnMetadata: true,
+						Kind:           &pb.GenerativeProvider_Cohere{Cohere: cohere},
+					})
+				})
 			})
+			if idx+1 < len(tests) {
+				time.Sleep(60 * time.Second) // sleep to avoid rate limit on cohere api
+			}
 		}
 	}
 }

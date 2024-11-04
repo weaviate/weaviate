@@ -87,10 +87,10 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, err := v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
-	return res, nil, err
+	return res, nil, 0, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
@@ -195,7 +195,7 @@ func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, []error, error
 		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
 			var embBert embeddingBert
 			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-				return nil, nil, errors.Wrap(err, "unmarshal response body")
+				return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 			}
 
 			if len(embBert) == 1 && len(embBert[0]) > 0 {
@@ -287,3 +287,7 @@ func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
 
 	return fmt.Sprintf("%s/%s/%s", DefaultOrigin, DefaultPath, config.Model)
 }
+
+func (v *vectorizer) HasTokenLimit() bool { return false }
+
+func (v *vectorizer) ReturnsRateLimit() bool { return false }

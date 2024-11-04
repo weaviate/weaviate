@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -43,14 +45,14 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeSchemaManager) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
 	cfg := config.Config{}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
@@ -62,7 +64,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -136,14 +138,6 @@ func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
 	f.Called()
 }
 
-type fakeAuthorizer struct {
-	err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.err
-}
-
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
@@ -157,19 +151,19 @@ func (f *fakeScaleOutManager) SetSchemaReader(sr scaler.SchemaReader) {
 
 type fakeValidator struct{}
 
-func (f *fakeValidator) ValidateVectorIndexConfigUpdate(
+func (f fakeValidator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
 
-func (f *fakeValidator) ValidateInvertedIndexConfigUpdate(
+func (f fakeValidator) ValidateInvertedIndexConfigUpdate(
 	old, updated *models.InvertedIndexConfig,
 ) error {
 	return nil
 }
 
-func (*fakeValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
+func (fakeValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
@@ -349,16 +343,4 @@ func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
 	args := f.Called(class, shardingState)
 	return args.Error(0)
-}
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
 }

@@ -68,6 +68,7 @@ type Replicator struct {
 func NewReplicator(className string,
 	stateGetter shardingState,
 	nodeResolver nodeResolver,
+	deletionStrategy string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
@@ -83,7 +84,8 @@ func NewReplicator(className string,
 		client:      client,
 		resolver:    resolver,
 		log:         l,
-		Finder:      NewFinder(className, resolver, client, l),
+		Finder: NewFinder(className, resolver, client, l,
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, deletionStrategy),
 	}
 }
 
@@ -148,8 +150,12 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
+		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
+		replicaErr, ok := err.(*Error)
+		if ok && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
+			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
+		}
 	}
 	return err
 }

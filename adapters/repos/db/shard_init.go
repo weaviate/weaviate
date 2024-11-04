@@ -26,7 +26,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -58,7 +57,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: storagestate.StatusLoading,
+		status: NewShardStatus(),
 	}
 
 	defer func() {
@@ -138,13 +137,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			// preload unindexed objects in the background
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
-					err := queue.PreloadShard(s)
+					err := s.PreloadQueue(targetVector)
 					if err != nil {
 						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 					}
 				}
 			} else {
-				err := s.queue.PreloadShard(s)
+				err := s.PreloadQueue("")
 				if err != nil {
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}

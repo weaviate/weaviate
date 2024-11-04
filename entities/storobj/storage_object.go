@@ -897,9 +897,19 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 						val, err = parseValues(innerDataType, innerValue)
 						if err != nil {
 							returnError = err
+							return
 						}
+					case jsonparser.Object:
+						nestedProps := map[string]interface{}{}
+						err := json.Unmarshal(innerValue, &nestedProps)
+						if err != nil {
+							returnError = err
+							return
+						}
+						val = nestedProps
 					default:
 						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+						return
 					}
 					array = append(array, val)
 				})
