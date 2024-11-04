@@ -135,6 +135,7 @@ jobs:
           "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
+          "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
@@ -204,14 +205,15 @@ jobs:
       fail-fast: false
       matrix:
         test: [
+          "--only-module-multi2vec-cohere",
           "--only-module-multi2vec-google",
-          "--only-module-generative-google",
-          "--only-module-text2vec-google",
-          "--only-module-text2vec-aws",
+          "--only-module-generative-anthropic",
           "--only-module-generative-aws",
-          "--only-module-generative-openai",
           "--only-module-generative-cohere",
-          "--only-module-generative-anthropic"
+          "--only-module-generative-google",
+          "--only-module-generative-openai",
+          "--only-module-text2vec-google",
+          "--only-module-text2vec-aws"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -308,7 +310,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors", "--acceptance-lsmkv"]
+        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -457,6 +459,7 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
@@ -477,4 +480,5 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh

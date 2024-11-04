@@ -73,6 +73,7 @@ import (
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
+	modmulti2vecohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
@@ -96,7 +97,6 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
-	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -844,25 +844,26 @@ func registerModules(appState *state.State) error {
 		modtext2vecaws.Name,
 		modcohere.Name,
 		moddatabricks.Name,
-		modhuggingface.Name,
-		modjinaai.Name,
-		modoctoai.Name,
-		modopenai.Name,
 		modtext2vecgoogle.Name,
 		modmulti2vecgoogle.Name,
+		modhuggingface.Name,
+		modjinaai.Name,
+		modmistral.Name,
+		modtext2vecoctoai.Name,
+		modopenai.Name,
 		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
+		modgenerativeanthropic.Name,
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
 		modgenerativedatabricks.Name,
 		modgenerativefriendliai.Name,
+		modgenerativegoogle.Name,
 		modgenerativemistral.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
-		modgenerativegoogle.Name,
-		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
@@ -1015,6 +1016,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecgoogle.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecohere.Name]; ok {
+		appState.Modules.Register(modmulti2vecohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecohere.Name).
 			Debug("enabled module")
 	}
 
