@@ -295,6 +295,23 @@ func (sq *LaScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
+// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
+// instead of allocating a new slice you can pass in a buffer to use. It will
+// slice something off of that buffer. If the buffer is too small, it will
+// allocate a new buffer.
+func (lasq *LaScalarQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
+	if len(*buffer) < len(compressed) {
+		*buffer = make([]byte, len(compressed)*1000)
+	}
+
+	// take from end so we can address the start of the buffer
+	out := (*buffer)[len(*buffer)-len(compressed):]
+	copy(out, compressed)
+	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
+
+	return out
+}
+
 func (sq *LaScalarQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddLASQCompression(LASQData{
 		Dimensions: uint16(sq.dims),
