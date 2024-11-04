@@ -143,10 +143,6 @@ func (f fakeClassConfig) TargetVector() string {
 	return ""
 }
 
-func (f fakeClassConfig) ModelString() string {
-	return f.voyageaiModel
-}
-
 func (f fakeClassConfig) VectorizeClassName() bool {
 	return f.classConfig["vectorizeClassName"].(bool)
 }

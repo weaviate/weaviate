@@ -13,8 +13,6 @@ package ent
 
 import (
 	"github.com/pkg/errors"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -44,10 +42,6 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
-func NewClassSettingsInterface(cfg moduletools.ClassConfig) objectsvectorizer.ClassSettings {
-	return NewClassSettings(cfg)
-}
-
 func (cs *classSettings) Model() string {
 	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultMistralModel)
 }
@@ -67,8 +61,4 @@ func (cs *classSettings) Validate(class *models.Class) error {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
-}
-
-func (cs *classSettings) ModelString() string {
-	return cs.Model()
 }

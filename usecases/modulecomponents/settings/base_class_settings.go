@@ -28,20 +28,36 @@ const (
 )
 
 type BaseClassSettings struct {
-	cfg            moduletools.ClassConfig
-	propertyHelper *classPropertyValuesHelper
+	cfg                 moduletools.ClassConfig
+	propertyHelper      *classPropertyValuesHelper
+	modelParameterNames []string
 }
 
 func NewBaseClassSettings(cfg moduletools.ClassConfig) *BaseClassSettings {
-	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}}
+	return &BaseClassSettings{
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{},
+		modelParameterNames: []string{"model"},
+	}
+}
+
+func NewBaseClassSettingsWithCustomModel(cfg moduletools.ClassConfig, customModelParameterName string) *BaseClassSettings {
+	return &BaseClassSettings{
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{},
+		modelParameterNames: []string{"model", customModelParameterName},
+	}
 }
 
 func NewBaseClassSettingsWithAltNames(cfg moduletools.ClassConfig,
-	moduleName string, altNames []string,
+	moduleName string, altNames []string, customModelParameterName []string,
 ) *BaseClassSettings {
+	modelParameters := append(customModelParameterName, "model")
+
 	return &BaseClassSettings{
-		cfg:            cfg,
-		propertyHelper: &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
+		modelParameterNames: modelParameters,
 	}
 }
 
@@ -128,6 +144,20 @@ func (s BaseClassSettings) Properties() []string {
 	}
 
 	return nil
+}
+
+func (s BaseClassSettings) Model() string {
+	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+		return ""
+	}
+
+	for _, parameterName := range s.modelParameterNames {
+		if model, ok := s.GetSettings()[parameterName]; ok {
+			return model.(string)
+		}
+	}
+
+	return ""
 }
 
 func (s BaseClassSettings) ValidateClassSettings() error {

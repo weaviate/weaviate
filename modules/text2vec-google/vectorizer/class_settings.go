@@ -62,7 +62,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:               cfg,
-		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, "text2vec-google", []string{"text2vec-palm"}),
+		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
 	}
 }
 
@@ -130,8 +130,4 @@ func (ic *classSettings) ModelID() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
-}
-
-func (ic *classSettings) ModelString() string {
-	return ic.ModelID()
 }

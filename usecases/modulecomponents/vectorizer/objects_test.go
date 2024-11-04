@@ -256,11 +256,3 @@ func (f fakeClassConfig) VectorizeClassName() bool {
 func (f fakeClassConfig) Properties() []string {
 	return nil
 }
-
-func (f fakeClassConfig) ModelString() string {
-	model, ok := f.classConfig["model"]
-	if !ok {
-		return ""
-	}
-	return model.(string)
-}

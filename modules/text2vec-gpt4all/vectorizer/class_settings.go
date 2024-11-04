@@ -35,7 +35,3 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 func (cs *classSettings) Validate(class *models.Class) error {
 	return cs.BaseClassSettings.ValidateClassSettings()
 }
-
-func (cs *classSettings) ModelString() string {
-	return ""
-}
