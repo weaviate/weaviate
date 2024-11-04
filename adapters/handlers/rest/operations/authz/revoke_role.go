@@ -43,7 +43,7 @@ func NewRevokeRole(ctx *middleware.Context, handler RevokeRoleHandler) *RevokeRo
 }
 
 /*
-	RevokeRole swagger:route DELETE /authz/users authz revokeRole
+	RevokeRole swagger:route POST /authz/users/revoke authz revokeRole
 
 Revoke a role from a user
 */
