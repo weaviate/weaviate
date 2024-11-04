@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package cohere
 
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
