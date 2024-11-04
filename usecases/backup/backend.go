@@ -215,6 +215,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			if errors.Is(err, context.Canceled) {
 				u.setStatus(backup.Cancelled)
 				desc.Status = string(backup.Cancelled)
+				u.releaseIndexes(classes, desc.ID)
 			}
 			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
 		} else {
@@ -231,6 +232,7 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
+				u.releaseIndexes(classes, desc.ID)
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
@@ -248,17 +250,7 @@ Loop:
 			if ctxerr != nil {
 				u.setStatus(backup.Cancelled)
 				desc.Status = string(backup.Cancelled)
-				for _, class := range desc.Classes {
-					className := class.Name
-					enterrors.GoWrapper(func() {
-						if err := u.sourcer.ReleaseBackup(context.Background(), desc.ID, className); err != nil {
-							u.log.WithFields(logrus.Fields{
-								"class":    className,
-								"backupID": desc.ID,
-							}).Error("failed to release backup")
-						}
-					}, u.log)
-				}
+				u.releaseIndexes(classes, desc.ID)
 			}
 			return ctxerr
 		}
@@ -266,6 +258,20 @@ Loop:
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
 	return nil
+}
+
+func (u *uploader) releaseIndexes(classes []string, ID string) {
+	for _, class := range classes {
+		className := class
+		enterrors.GoWrapper(func() {
+			if err := u.sourcer.ReleaseBackup(context.Background(), ID, className); err != nil {
+				u.log.WithFields(logrus.Fields{
+					"class":    className,
+					"backupID": ID,
+				}).Error("failed to release backup")
+			}
+		}, u.log)
+	}
 }
 
 // class uploads one class

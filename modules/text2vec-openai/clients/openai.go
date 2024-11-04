@@ -325,7 +325,7 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig, action stri
 		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
 		ApiVersion:           settings.ApiVersion(),
 		Dimensions:           settings.Dimensions(),
-		ModelString:          settings.ModelString(action),
+		ModelString:          settings.ModelStringForAction(action),
 	}
 }
 
