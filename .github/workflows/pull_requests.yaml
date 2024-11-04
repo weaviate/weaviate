@@ -135,6 +135,7 @@ jobs:
           "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
+          "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
@@ -208,7 +209,10 @@ jobs:
           "--only-module-text2vec-google",
           "--only-module-text2vec-aws",
           "--only-module-generative-aws",
-          "--only-module-many-generative"
+          "--only-module-multi2vec-cohere",
+          "--only-module-generative-cohere",
+          "--only-module-generative-openai",
+          "--only-module-generative-anthropic"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -263,6 +267,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ steps.creds-aws.outputs.aws-access-key-id }}
           AWS_SECRET_ACCESS_KEY: ${{ steps.creds-aws.outputs.aws-secret-access-key }}
           AWS_SESSION_TOKEN: ${{ steps.creds-aws.outputs.aws-session-token }}
+          OPENAI_APIKEY: ${{ secrets.OPENAI_APIKEY }}
+          OPENAI_ORGANIZATION: ${{ secrets.OPENAI_ORGANIZATION }}
+          COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
+          ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests

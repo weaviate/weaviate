@@ -20,10 +20,10 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestGenerativeAnthropic_SingleNode(t *testing.T) {
-	apiKey := os.Getenv("ANTHROPIC_APIKEY")
+func TestMulti2VecCohere_SingleNode(t *testing.T) {
+	apiKey := os.Getenv("COHERE_APIKEY")
 	if apiKey == "" {
-		t.Skip("skipping, ANTHROPIC_APIKEY environment variable not present")
+		t.Skip("skipping, COHERE_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, apiKey)
@@ -33,21 +33,19 @@ func TestGenerativeAnthropic_SingleNode(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("tests", testGenerativeAnthropic(endpoint))
+	t.Run("multi2vec-cohere", testMulti2VecCohere(endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey).
 		WithWeaviate().
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }
 
 func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecTransformers().
-		WithGenerativeAnthropic(apiKey)
+		WithMulti2VecCohere(apiKey)
 	return
 }
