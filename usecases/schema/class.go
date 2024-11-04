@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/replication"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -39,7 +41,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 	cl := h.schemaReader.ReadOnlyClass(name)
@@ -49,7 +51,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, 0, err
 	}
 	if consistency {
@@ -63,7 +65,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -112,7 +114,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	h.setClassDefaults(cls)
+	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
+		return nil, 0, err
+	}
 
 	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
 		return nil, 0, err
@@ -130,7 +134,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState, cls.ReplicationConfig.Factor,
+		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
@@ -165,7 +169,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	h.setClassDefaults(class)
+	if err := h.setClassDefaults(class, h.config.Replication); err != nil {
+		return err
+	}
+
 	err = h.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
@@ -190,7 +197,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, "delete", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return err
 	}
@@ -202,14 +209,33 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_OBJECTS)
 	if err != nil || updated == nil {
 		return err
 	}
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	h.setClassDefaults(updated)
+	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
+		return err
+	}
+
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
+
+	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
+	// used in many different areas of the codebase that may cause BC issues with the
+	// new validation logic. Issue ref: gh-5860
+	// As our testing becomes more comprehensive, we can move these calls into ParseClass
+	if err := h.parser.parseModuleConfig(updated); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := h.parser.parseVectorConfig(updated); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
@@ -249,7 +275,26 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	return err
 }
 
-func (h *Handler) setClassDefaults(class *models.Class) {
+func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if err := m.setClassDefaults(class, globalCfg); err != nil {
+		return err
+	}
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:           int64(m.config.Replication.MinimumFactor),
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
+		}
+		return nil
+	}
+
+	if class.ReplicationConfig.DeletionStrategy == "" {
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyDeleteOnConflict
+	}
+	return nil
+}
+
+func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set only when no target vectors configured
 	if !hasTargetVectors(class) {
 		if class.Vectorizer == "" {
@@ -275,10 +320,20 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	}
 
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+	}
+
+	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
+		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
+			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if class.ReplicationConfig.Factor < 1 {
+		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
 
 	h.moduleConfig.SetClassDefaults(class)
+	return nil
 }
 
 func setPropertyDefaults(props ...*models.Property) {
@@ -484,7 +539,7 @@ func (h *Handler) validateProperty(
 		}
 
 		if existingPropertyNames[strings.ToLower(property.Name)] {
-			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", class.Class, property.Name)
 		}
 
 		// Validate data type of property.
@@ -605,6 +660,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			case models.PropertyTokenizationKagomeKr:
 				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable")
 				}
 				return nil
 			}
@@ -766,8 +826,13 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		return err
 	}
 
-	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return errors.Errorf("module config is immutable")
+	for k, v := range updated.VectorConfig {
+		if _, ok := initial.VectorConfig[k]; !ok {
+			return fmt.Errorf("vector config is immutable")
+		}
+		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		}
 	}
 
 	return nil

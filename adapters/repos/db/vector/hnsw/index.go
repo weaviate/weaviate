@@ -48,7 +48,7 @@ type hnsw struct {
 	tombstoneLock *sync.RWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.Mutex
+	resetLock *sync.RWMutex
 	// indicates whether reset operation occurred or not - if so tombstones cleanup method
 	// is aborted as it makes no sense anymore
 	resetCtx       context.Context
@@ -159,6 +159,7 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	acornSearch  atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -173,9 +174,10 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	allocChecker memwatch.AllocChecker
-
+	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
+
+	visitedListPoolMaxSize int
 }
 
 type CommitLogger interface {
@@ -259,7 +261,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		distancerProvider:   cfg.DistanceProvider,
 		deleteLock:          &sync.Mutex{},
 		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.Mutex{},
+		resetLock:           &sync.RWMutex{},
 		resetCtx:            resetCtx,
 		resetCtxCancel:      resetCtxCancel,
 		shutdownCtx:         shutdownCtx,
@@ -288,7 +290,9 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+		visitedListPoolMaxSize:   cfg.VisitedListPoolMaxSize,
 	}
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	if uc.BQ.Enabled {
 		var err error
@@ -417,7 +421,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 
 // }
 
-func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
+func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, targetLevel int,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer,
 ) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
@@ -434,7 +438,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
 			continue
 		}
 		if err != nil {
@@ -443,7 +447,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVectorWithDistancer(nodeVec, eps, 1, level, nil, distancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, nodeVec, eps, 1, level, nil, distancer)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -488,7 +492,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -504,7 +508,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -535,7 +539,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -768,11 +772,13 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 			visitedPairs[currentNode] = true
 			h.shardedNodeLocks.RLock(currentNode.nodeId)
 			node := h.nodes[currentNode.nodeId]
-			node.Lock()
-			neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
-			node.Unlock()
+			if node != nil {
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
+			}
 			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
-			candidateList = append(candidateList, neighbors...)
 		}
 	}
 

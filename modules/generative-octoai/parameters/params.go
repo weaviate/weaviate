@@ -17,6 +17,7 @@ import (
 )
 
 type Params struct {
+	BaseURL     string
 	Model       string
 	MaxTokens   *int
 	Temperature *float64
@@ -30,6 +31,8 @@ func extract(field *ast.ObjectField) interface{} {
 	if ok {
 		for _, f := range fields {
 			switch f.Name.Value {
+			case "baseURL":
+				out.BaseURL = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "maxTokens":

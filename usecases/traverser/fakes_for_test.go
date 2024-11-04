@@ -147,12 +147,6 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	return nil, nil
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }

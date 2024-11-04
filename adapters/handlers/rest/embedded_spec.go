@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-alpha"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -149,7 +149,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
@@ -3281,7 +3281,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3314,7 +3315,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3336,6 +3338,10 @@ func init() {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
           },
+          "path": {
+            "description": "destination path of backup files proper to selected backend",
+            "type": "string"
+          },
           "status": {
             "description": "status of backup process",
             "type": "string",
@@ -3344,7 +3350,8 @@ func init() {
               "TRANSFERRING",
               "TRANSFERRED",
               "SUCCESS",
-              "FAILED"
+              "FAILED",
+              "CANCELED"
             ]
           }
         }
@@ -3416,7 +3423,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3449,7 +3457,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -4196,6 +4205,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -4719,7 +4732,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -4854,6 +4868,15 @@ func init() {
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "deletionStrategy": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "DeleteOnConflict"
+          ],
+          "x-omitempty": true
         },
         "factor": {
           "description": "Number of times a class is replicated",
@@ -5451,7 +5474,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.0-alpha"
+    "version": "1.28.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -5552,7 +5575,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
@@ -8806,7 +8829,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8839,7 +8863,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8865,6 +8890,10 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "status": {
           "description": "status of backup process",
           "type": "string",
@@ -8873,7 +8902,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8944,7 +8974,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8977,7 +9008,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -9883,6 +9915,10 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
+        "grpcMaxMessageSize": {
+          "description": "Max message size for GRPC connection in bytes",
+          "type": "integer"
+        },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
@@ -10424,7 +10460,8 @@ func init() {
             "field",
             "trigram",
             "gse",
-            "kagome_kr"
+            "kagome_kr",
+            "kagome_ja"
           ]
         }
       }
@@ -10559,6 +10596,15 @@ func init() {
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "deletionStrategy": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "DeleteOnConflict"
+          ],
+          "x-omitempty": true
         },
         "factor": {
           "description": "Number of times a class is replicated",

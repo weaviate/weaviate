@@ -19,8 +19,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // Version of backup structure
@@ -41,10 +41,6 @@ var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
 	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 type schemaManger interface {
@@ -74,7 +70,7 @@ type Handler struct {
 	node string
 	// deps
 	logger     logrus.FieldLogger
-	authorizer authorizer
+	authorizer authorization.Authorizer
 	backupper  *backupper
 	restorer   *restorer
 	backends   BackupBackendProvider
@@ -82,7 +78,7 @@ type Handler struct {
 
 func NewHandler(
 	logger logrus.FieldLogger,
-	authorizer authorizer,
+	authorizer authorization.Authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,

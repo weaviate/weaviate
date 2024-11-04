@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -30,7 +31,7 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, "create", "objects")
+	err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.OBJECTS)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	if _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
 		return nil, NewErrInternal(err.Error())
 	}
 

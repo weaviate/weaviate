@@ -67,11 +67,10 @@ func (v *friendliai) GenerateAllResults(ctx context.Context, textProperties []ma
 }
 
 func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliUrl := v.getFriendliUrl(ctx, settings.BaseURL())
+	friendliUrl := v.getFriendliUrl(ctx, params.BaseURL)
 	friendliPrompt := []map[string]string{
 		{"role": "user", "content": prompt},
 	}
@@ -113,7 +112,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode == 404 {
@@ -143,7 +142,9 @@ func (v *friendliai) getParameters(cfg moduletools.ClassConfig, options interfac
 	if p, ok := options.(friendliparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
@@ -169,7 +170,16 @@ func (v *friendliai) getDebugInformation(debug bool, prompt string) *modulecapab
 
 func (v *friendliai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"friendliai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{friendliparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[friendliparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -207,15 +217,15 @@ func (v *friendliai) generateForPrompt(textProperties map[string]string, prompt 
 }
 
 func (v *friendliai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Token"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Friendli-Api-Key " +
-		"nor in environment variable under FRIENDLI_APIKEY")
+		"neither in request header: X-Friendli-Token " +
+		"nor in environment variable under FRIENDLI_TOKEN")
 }
 
 type generateInput struct {
@@ -252,4 +262,8 @@ type usage struct {
 
 type friendliApiError struct {
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

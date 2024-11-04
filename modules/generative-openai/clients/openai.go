@@ -36,8 +36,8 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-	if resourceName != "" && deploymentID != "" {
+func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
 			// Fall back to old assumption
@@ -58,7 +58,7 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
+	buildUrl           func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -93,16 +93,16 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
+	isAzure := config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	oaiUrl, err := v.buildOpenAIUrl(ctx, settings)
+	oaiUrl, err := v.buildOpenAIUrl(ctx, params)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
 
-	input, err := v.generateInput(prompt, params, settings)
+	input, err := v.generateInput(prompt, params)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate input")
 	}
@@ -117,11 +117,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx, settings.IsAzure())
+	apiKey, err := v.getApiKey(ctx, isAzure)
 	if err != nil {
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
-	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, isAzure))
 	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
 		req.Header.Add("OpenAI-Organization", openAIOrganization)
 	}
@@ -133,6 +133,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	defer res.Body.Close()
 
+	requestID := res.Header.Get("x-request-id")
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
@@ -140,11 +141,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, settings.IsAzure())
+		return nil, v.getError(res.StatusCode, requestID, resBody.Error, params.IsAzure)
 	}
 
 	responseParams := v.getResponseParams(resBody.Usage)
@@ -183,6 +184,21 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{})
 		params = p
 	}
 
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
+	if params.ApiVersion == "" {
+		params.ApiVersion = settings.ApiVersion()
+	}
+	if params.ResourceName == "" {
+		params.ResourceName = settings.ResourceName()
+	}
+	if params.DeploymentID == "" {
+		params.DeploymentID = settings.DeploymentID()
+	}
+	if !params.IsAzure {
+		params.IsAzure = settings.IsAzure()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
@@ -220,27 +236,50 @@ func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{openaiparams.Name: map[string]interface{}{"usage": usage}}
 	}
 	return nil
 }
 
-func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
-	baseURL := settings.BaseURL()
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[openaiparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
+	}
+	return nil
+}
+
+func (v *openai) buildOpenAIUrl(ctx context.Context, params openaiparams.Params) (string, error) {
+	baseURL := params.BaseURL
+
+	deploymentID := params.DeploymentID
+	resourceName := params.ResourceName
+
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL, settings.ApiVersion())
+
+	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+		deploymentID = headerDeploymentID
+	}
+
+	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
+	}
+
+	isLegacy := config.IsLegacy(params.Model)
+	isAzure := config.IsAzure(params.IsAzure, resourceName, deploymentID)
+
+	return v.buildUrl(isLegacy, isAzure, resourceName, deploymentID, baseURL, params.ApiVersion)
 }
 
-func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
-	if settings.IsLegacy() {
+func (v *openai) generateInput(prompt string, params openaiparams.Params) (generateInput, error) {
+	if config.IsLegacy(params.Model) {
 		return generateInput{
 			Prompt:           prompt,
 			Model:            params.Model,
 			FrequencyPenalty: params.FrequencyPenalty,
-			Logprobs:         params.Logprobs,
-			TopLogprobs:      params.TopLogprobs,
 			MaxTokens:        params.MaxTokens,
 			N:                params.N,
 			PresencePenalty:  params.PresencePenalty,
@@ -254,7 +293,15 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 			Role:    "user",
 			Content: prompt,
 		}}
-		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+
+		var tokens *int
+		var err error
+		if config.IsThirdPartyProvider(params.BaseURL, params.IsAzure, params.ResourceName, params.DeploymentID) {
+			tokens, err = v.determineTokens(config.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+		} else {
+			tokens = params.MaxTokens
+		}
+
 		if err != nil {
 			return input, errors.Wrap(err, "determine tokens count")
 		}
@@ -262,16 +309,14 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 			Messages:         messages,
 			Stream:           false,
 			FrequencyPenalty: params.FrequencyPenalty,
-			Logprobs:         params.Logprobs,
-			TopLogprobs:      params.TopLogprobs,
-			MaxTokens:        &tokens,
+			MaxTokens:        tokens,
 			N:                params.N,
 			PresencePenalty:  params.PresencePenalty,
 			Stop:             params.Stop,
 			Temperature:      params.Temperature,
 			TopP:             params.TopP,
 		}
-		if !settings.IsAzure() {
+		if !config.IsAzure(params.IsAzure, params.ResourceName, params.DeploymentID) {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
 			input.Model = params.Model
 		}
@@ -279,28 +324,34 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 	}
 }
 
-func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *openai) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
 	}
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	errorMsg := fmt.Sprintf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if requestID != "" {
+		errorMsg = fmt.Sprintf("%s request-id: %s", errorMsg, requestID)
 	}
-	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if resBodyError != nil {
+		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
+	}
+	return errors.New(errorMsg)
 }
 
-func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
+func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (*int, error) {
 	tokenMessagesCount, err := getTokensCount(model, messages)
 	if err != nil {
-		return 0, err
+		maxTokens := 0
+		return &maxTokens, err
 	}
 	messageTokens := tokenMessagesCount
 	if messageTokens+classSetting >= int(maxTokensSetting) {
 		// max token limit must be in range: [1, maxTokensSetting) that's why -1 is added
-		return int(maxTokensSetting) - messageTokens - 1, nil
+		maxTokens := int(maxTokensSetting) - messageTokens - 1
+		return &maxTokens, nil
 	}
-	return messageTokens, nil
+	return &messageTokens, nil
 }
 
 func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
@@ -412,7 +463,6 @@ type generateResponse struct {
 type choice struct {
 	FinishReason string
 	Index        float32
-	Logprobs     string
 	Text         string   `json:"text,omitempty"`
 	Message      *message `json:"message,omitempty"`
 }
@@ -452,4 +502,8 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	}
 	*c = openAICode(str)
 	return nil
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

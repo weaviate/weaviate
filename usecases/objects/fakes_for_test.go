@@ -201,14 +201,6 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
 
-type fakeAuthorizer struct {
-	Err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.Err
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }

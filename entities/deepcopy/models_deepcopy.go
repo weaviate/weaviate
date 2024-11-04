@@ -36,7 +36,10 @@ func Class(c *models.Class) *models.Class {
 	}
 	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
-		replicationConf = &models.ReplicationConfig{Factor: c.ReplicationConfig.Factor}
+		replicationConf = &models.ReplicationConfig{
+			Factor:           c.ReplicationConfig.Factor,
+			DeletionStrategy: c.ReplicationConfig.DeletionStrategy,
+		}
 	}
 
 	return &models.Class{

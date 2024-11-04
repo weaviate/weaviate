@@ -21,9 +21,9 @@ import (
 )
 
 func TestGenerativeFriendliAI_SingleNode(t *testing.T) {
-	apiKey := os.Getenv("FRIENDLI_APIKEY")
+	apiKey := os.Getenv("FRIENDLI_TOKEN")
 	if apiKey == "" {
-		t.Skip("skipping, FRIENDLI_APIKEY environment variable not present")
+		t.Skip("skipping, FRIENDLI_TOKEN environment variable not present")
 	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, apiKey)

@@ -126,8 +126,9 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("test-index", config,
-		mocks.NewMockNodeSelector("node1"), 1, false)
+	selector := mocks.NewMockNodeSelector("node1")
+	s, err := sharding.InitState("test-index", config, selector.LocalName(),
+		selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -314,12 +315,6 @@ func largeTestDataSize(size int) search.Results {
 		}
 	}
 	return out
-}
-
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
 }
 
 func beaconRef(target string) *models.SingleRef {

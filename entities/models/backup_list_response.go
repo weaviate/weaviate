@@ -96,8 +96,11 @@ type BackupListResponseItems0 struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
+	// destination path of backup files proper to selected backend
+	Path string `json:"path,omitempty"`
+
 	// status of backup process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
+	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
 	Status string `json:"status,omitempty"`
 }
 
@@ -119,7 +122,7 @@ var backupListResponseItems0TypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -143,6 +146,9 @@ const (
 
 	// BackupListResponseItems0StatusFAILED captures enum value "FAILED"
 	BackupListResponseItems0StatusFAILED string = "FAILED"
+
+	// BackupListResponseItems0StatusCANCELED captures enum value "CANCELED"
+	BackupListResponseItems0StatusCANCELED string = "CANCELED"
 )
 
 // prop value enum

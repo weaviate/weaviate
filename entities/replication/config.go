@@ -18,4 +18,6 @@ type GlobalConfig struct {
 	// to 2, users can no longer create classes with a factor of 1, therefore
 	// forcing them to have replicated classes.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
+
+	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 }

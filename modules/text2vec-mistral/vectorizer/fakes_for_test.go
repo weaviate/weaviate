@@ -28,7 +28,7 @@ type fakeBatchClient struct {
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -61,7 +61,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, rateLimit, nil
+	}, rateLimit, 0, nil
 }
 
 func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
@@ -82,42 +82,9 @@ func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.Cla
 	return [32]byte{}
 }
 
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
+func (c *fakeBatchClient) HasTokenLimit() bool { return false }
 
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, config moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	c.lastInput = text
-	c.lastConfig = config
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, config moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = config
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now(), ResetRequests: time.Now()}
-}
-
-func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	return [32]byte{}
-}
+func (c *fakeBatchClient) ReturnsRateLimit() bool { return false }
 
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}

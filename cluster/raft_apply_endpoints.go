@@ -15,7 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -201,21 +203,41 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		))
 	defer t.ObserveDuration()
 
-	if s.store.IsLeader() {
-		return s.store.Execute(req)
-	}
-	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
-		return 0, types.ErrUnknownCommand
-	}
+	var schemaVersion uint64
+	err := backoff.Retry(func() error {
+		var err error
 
-	leader := s.store.Leader()
-	if leader == "" {
-		return 0, s.leaderErr()
-	}
-	resp, err := s.cl.Apply(ctx, leader, req)
-	if err != nil {
-		return 0, err
-	}
+		// Validate the apply first
+		if _, ok := cmd.ApplyRequest_Type_name[int32(req.Type.Number())]; !ok {
+			err = types.ErrUnknownCommand
+			// This is an invalid apply command, don't retry
+			return backoff.Permanent(err)
+		}
 
-	return resp.Version, err
+		// We are the leader, let's apply
+		if s.store.IsLeader() {
+			schemaVersion, err = s.store.Execute(req)
+			// We might fail due to leader not found as we are losing or transferring leadership, retry
+			return err
+		}
+
+		leader := s.store.Leader()
+		if leader == "" {
+			err = s.leaderErr()
+			s.log.Warnf("apply: could not find leader: %s", err)
+			return err
+		}
+
+		var resp *cmd.ApplyResponse
+		resp, err = s.cl.Apply(ctx, leader, req)
+		if err != nil {
+			// Don't retry if the actual apply to the leader failed, we have retry at the network layer already
+			return backoff.Permanent(err)
+		}
+		schemaVersion = resp.Version
+		return nil
+		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
+	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+
+	return schemaVersion, err
 }

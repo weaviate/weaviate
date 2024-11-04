@@ -68,6 +68,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultLASQEnabled,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -129,6 +130,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultLASQEnabled,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -174,6 +176,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							"type": hnsw.PQEncoderTypeKMeans,
 						},
 					},
+					"filterStrategy": hnsw.FilterStrategyAcorn,
 				},
 			},
 			expected: UserConfig{
@@ -209,6 +212,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultLASQEnabled,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
+					FilterStrategy: hnsw.FilterStrategyAcorn,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -278,6 +282,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultLASQEnabled,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,
@@ -359,6 +364,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       true,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
+					FilterStrategy: hnsw.FilterStrategyAcorn,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,

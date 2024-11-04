@@ -116,8 +116,8 @@ type IndexQueueOptions struct {
 
 type batchIndexer interface {
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
-	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
+	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
@@ -134,7 +134,7 @@ type upgradableIndexer interface {
 }
 
 type shardStatusUpdater interface {
-	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+	compareAndSwapStatusIndexingAndReady(old, new string) (storagestate.Status, error)
 	Name() string
 }
 
@@ -172,6 +172,9 @@ func NewIndexQueue(
 
 	if opts.BruteForceSearchLimit == 0 {
 		opts.BruteForceSearchLimit = 100_000
+	}
+	if v, err := strconv.Atoi(os.Getenv("ASYNC_BRUTE_FORCE_SEARCH_LIMIT")); err == nil && v >= 0 {
+		opts.BruteForceSearchLimit = v
 	}
 
 	if opts.StaleTimeout == 0 {
@@ -339,42 +342,34 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
-// Delete marks the given vectors as deleted.
-// This method can be called even if the async indexing is disabled.
+// Deletes the vectors from the index synchronously
+// if they are already indexed, otherwise it marks them as deleted in the queue.
+// If async indexing is disabled, it calls the index delete method directly.
 func (q *IndexQueue) Delete(ids ...uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	defer q.metrics.Delete(start, len(ids))
+
 	if !asyncEnabled() {
 		return q.index.Delete(ids...)
 	}
-	start := time.Now()
-	defer q.metrics.Delete(start, len(ids))
 
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
 
-	remaining := make([]uint64, 0, len(ids))
-	indexed := make([]uint64, 0, len(ids))
-
-	for _, id := range ids {
-		if q.index.ContainsNode(id) {
-			indexed = append(indexed, id)
-
-			// is it already marked as deleted in the queue?
-			if q.queue.IsDeleted(id) {
-				q.queue.ResetDeleted(id)
+	for i := range ids {
+		if q.index.ContainsNode(ids[i]) {
+			err := q.index.Delete(ids[i])
+			if err != nil {
+				q.Logger.WithError(err).Error("failed to delete vector from index")
 			}
-
-			continue
+		} else {
+			q.queue.Delete(ids[i])
 		}
-
-		remaining = append(remaining, id)
 	}
-
-	err := q.index.Delete(indexed...)
-	if err != nil {
-		return errors.Wrap(err, "delete node from index")
-	}
-
-	q.queue.Delete(remaining)
 
 	return nil
 }
@@ -413,13 +408,19 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
+			// cleanup deleted vectors from the index
+			err := q.cleanupDeleted()
+			if err != nil {
+				q.Logger.WithError(err).Error("cleanup deleted vectors")
+			}
+
 			if q.Size() == 0 {
-				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				_, _ = q.Shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				q.indexLock.RUnlock()
 				continue
 			}
 
-			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+			status, err := q.Shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
 				q.indexLock.RUnlock()
@@ -510,6 +511,24 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	return count
 }
 
+func (q *IndexQueue) cleanupDeleted() error {
+	q.queue.deleted.Lock()
+	defer q.queue.deleted.Unlock()
+
+	for id := range q.queue.deleted.m {
+		if q.index.ContainsNode(id) {
+			err := q.index.Delete(id)
+			if err != nil {
+				return errors.Wrapf(err, "delete vector %d from index", id)
+			}
+
+			delete(q.queue.deleted.m, id)
+		}
+	}
+
+	return nil
+}
+
 func (q *IndexQueue) logStats(vectorsSent int64) {
 	q.metrics.VectorsDequeued(vectorsSent)
 
@@ -522,17 +541,17 @@ func (q *IndexQueue) logStats(vectorsSent int64) {
 
 // SearchByVector performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, -1, k, allowList)
+func (q *IndexQueue) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return q.search(ctx, vector, -1, k, allowList)
 }
 
 // SearchByVectorDistance performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, dist, int(maxLimit), allowList)
+func (q *IndexQueue) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return q.search(ctx, vector, dist, int(maxLimit), allowList)
 }
 
-func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (q *IndexQueue) search(ctx context.Context, vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	start := time.Now()
 	defer q.metrics.Search(start)
 
@@ -543,15 +562,16 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	var distances []float32
 	var err error
 	if dist == -1 {
-		indexedResults, distances, err = q.index.SearchByVector(vector, maxLimit, allowList)
+		indexedResults, distances, err = q.index.SearchByVector(ctx, vector, maxLimit, allowList)
 	} else {
-		indexedResults, distances, err = q.index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
+		indexedResults, distances, err = q.index.SearchByVectorDistance(ctx, vector, dist, int64(maxLimit), allowList)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if !asyncEnabled() {
+	// Skip merging brute force results if async indexing disabled or brute force search limit is 0
+	if !asyncEnabled() || q.BruteForceSearchLimit == 0 {
 		return indexedResults, distances, nil
 	}
 
@@ -990,7 +1010,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 	return nil
 }
 
-func (q *vectorQueue) Delete(ids []uint64) {
+func (q *vectorQueue) Delete(ids ...uint64) {
 	q.deleted.Lock()
 	for _, id := range ids {
 		q.deleted.m[id] = struct{}{}
