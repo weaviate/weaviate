@@ -138,12 +138,12 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	policies, err := h.enforcer.GetPolicies(&params.ID)
 	if err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	res := h.rolesFromPolicies(policies)
