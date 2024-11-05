@@ -18,4 +18,6 @@ type Settings struct {
 	MaxTimePerBatch    float64
 	MaxObjectsPerBatch int
 	MaxTokensPerBatch  func(cfg moduletools.ClassConfig) int
+	HasTokenLimit      bool
+	ReturnsRateLimit   bool
 }

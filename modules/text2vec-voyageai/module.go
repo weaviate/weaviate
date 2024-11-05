@@ -49,6 +49,8 @@ var batchSettings = batch.Settings{
 		}
 		return 120000 // unknown model, use the smallest limit
 	},
+	HasTokenLimit:    true,
+	ReturnsRateLimit: true,
 }
 
 func New() *VoyageAIModule {
@@ -114,7 +116,7 @@ func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Durati
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings,
 			logger, m.Name()),
 		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
 	)
