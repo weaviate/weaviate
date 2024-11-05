@@ -45,7 +45,9 @@ func NewSchemaObjectsShardsGet(ctx *middleware.Context, handler SchemaObjectsSha
 /*
 	SchemaObjectsShardsGet swagger:route GET /schema/{className}/shards schema schemaObjectsShardsGet
 
-Get the shards status of an Object class
+# Get the shards status of an Object class
+
+Get the status of every shard in the cluster.
 */
 type SchemaObjectsShardsGet struct {
 	Context *middleware.Context
