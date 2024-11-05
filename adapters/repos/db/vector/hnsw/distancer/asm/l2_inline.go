@@ -28,6 +28,7 @@ func l22[T number, U number](x []T, y []T) U {
 	return sum
 }
 
+//nolint:golint,unused
 func l23[T number, U number](x []T, y []T) U {
 	diff := U(x[2]) - U(y[2])
 	sum := diff * diff
@@ -45,6 +46,7 @@ func l24[T number, U number](x []T, y []T) U {
 	return l22[T, U](x, y) + sum
 }
 
+//nolint:golint,unused
 func l25[T number, U number](x []T, y []T) U {
 	diff := U(x[4]) - U(y[4])
 	sum := diff * diff

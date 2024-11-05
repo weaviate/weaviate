@@ -68,7 +68,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal(err.Error())
+		return nil, NewErrInternal("%v", err)
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
@@ -137,7 +137,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			return "", NewErrInternal(err.Error())
+			return "", NewErrInternal("%v", err)
 		}
 	}
 

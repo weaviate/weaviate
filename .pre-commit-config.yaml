@@ -16,11 +16,6 @@ repos:
         entry: ./tools/linter_go_routines.sh
         language: system
         types: [ go ]
-      - id: swagger
-        name: swagger
-        entry: ./tools/gen-code-from-swagger.sh
-        language: system
-        types: [ go ]
   -   repo: https://github.com/psf/black
       rev: 24.2.0
       hooks:

@@ -609,6 +609,6 @@ func (sg *SegmentGroup) observeReplaceDuration(
 	if took > replaceSegmentWarnThreshold {
 		fields.Warn(msg)
 	} else {
-		fields.Debugf(msg)
+		fields.Debug(msg)
 	}
 }
