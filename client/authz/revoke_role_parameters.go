@@ -25,8 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewRevokeRoleParams creates a new RevokeRoleParams object,
@@ -75,7 +73,13 @@ RevokeRoleParams contains all the parameters to send to the API endpoint
 type RevokeRoleParams struct {
 
 	// Body.
-	Body *models.RoleAssignmentRequest
+	Body RevokeRoleBody
+
+	/* ID.
+
+	   user or key ID
+	*/
+	ID string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -131,14 +135,25 @@ func (o *RevokeRoleParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the revoke role params
-func (o *RevokeRoleParams) WithBody(body *models.RoleAssignmentRequest) *RevokeRoleParams {
+func (o *RevokeRoleParams) WithBody(body RevokeRoleBody) *RevokeRoleParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the revoke role params
-func (o *RevokeRoleParams) SetBody(body *models.RoleAssignmentRequest) {
+func (o *RevokeRoleParams) SetBody(body RevokeRoleBody) {
 	o.Body = body
+}
+
+// WithID adds the id to the revoke role params
+func (o *RevokeRoleParams) WithID(id string) *RevokeRoleParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the revoke role params
+func (o *RevokeRoleParams) SetID(id string) {
+	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -148,10 +163,13 @@ func (o *RevokeRoleParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		return err
 	}
 	var res []error
-	if o.Body != nil {
-		if err := r.SetBodyParam(o.Body); err != nil {
-			return err
-		}
+	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID); err != nil {
+		return err
 	}
 
 	if len(res) > 0 {

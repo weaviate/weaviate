@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetRolesHandlerFunc turns a function with the right signature into a get roles handler
-type GetRolesHandlerFunc func(GetRolesParams, *models.Principal) middleware.Responder
+// GetRoleHandlerFunc turns a function with the right signature into a get role handler
+type GetRoleHandlerFunc func(GetRoleParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetRolesHandlerFunc) Handle(params GetRolesParams, principal *models.Principal) middleware.Responder {
+func (fn GetRoleHandlerFunc) Handle(params GetRoleParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetRolesHandler interface for that can handle valid get roles params
-type GetRolesHandler interface {
-	Handle(GetRolesParams, *models.Principal) middleware.Responder
+// GetRoleHandler interface for that can handle valid get role params
+type GetRoleHandler interface {
+	Handle(GetRoleParams, *models.Principal) middleware.Responder
 }
 
-// NewGetRoles creates a new http.Handler for the get roles operation
-func NewGetRoles(ctx *middleware.Context, handler GetRolesHandler) *GetRoles {
-	return &GetRoles{Context: ctx, Handler: handler}
+// NewGetRole creates a new http.Handler for the get role operation
+func NewGetRole(ctx *middleware.Context, handler GetRoleHandler) *GetRole {
+	return &GetRole{Context: ctx, Handler: handler}
 }
 
 /*
-	GetRoles swagger:route GET /authz/roles authz getRoles
+	GetRole swagger:route GET /authz/roles/{id} authz getRole
 
-Get all roles
+Get a roles
 */
-type GetRoles struct {
+type GetRole struct {
 	Context *middleware.Context
-	Handler GetRolesHandler
+	Handler GetRoleHandler
 }
 
-func (o *GetRoles) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetRolesParams()
+	var Params = NewGetRoleParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
