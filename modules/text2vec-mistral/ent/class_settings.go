@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	// Default values for URL and model cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultMistralModel          = "mistral-embed"
 	DefaultBaseURL               = "https://api.mistral.ai/v1/embeddings"
 	DefaultVectorizeClassName    = true
