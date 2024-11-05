@@ -157,14 +157,6 @@ func init() {
         ],
         "summary": "Get all roles",
         "operationId": "getRoles",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "the name of the role",
-            "name": "name",
-            "in": "query"
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -250,7 +242,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role",
+        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
         "operationId": "addPermission",
         "parameters": [
           {
@@ -355,7 +347,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.delete.role.permission"
+          "weaviate.authz.remove.role.permission"
         ]
       }
     },
@@ -364,7 +356,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Get a roles",
+        "summary": "Get a role",
         "operationId": "getRole",
         "parameters": [
           {
@@ -415,7 +407,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Delete a role",
+        "summary": "Delete role",
         "operationId": "deleteRole",
         "parameters": [
           {
@@ -462,7 +454,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys for role",
+        "summary": "get users or a keys assigned to role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
@@ -647,7 +639,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key",
+        "summary": "get roles assigned to user or a key",
         "operationId": "getRolesForUser",
         "parameters": [
           {
@@ -5251,7 +5243,7 @@ func init() {
       }
     },
     "Permission": {
-      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+      "description": "permissions attached to a role.",
       "type": "object",
       "required": [
         "level",
@@ -5261,7 +5253,7 @@ func init() {
         "actions": {
           "type": "array",
           "items": {
-            "description": "HTTP Method like actions the user/key can perform on an object",
+            "description": "allowed actions in weaviate.",
             "type": "string",
             "enum": [
               "manage_roles",
@@ -5278,7 +5270,7 @@ func init() {
           }
         },
         "level": {
-          "description": "level this role has permission to",
+          "description": "level of that permission",
           "type": "string",
           "enum": [
             "database",
@@ -5289,7 +5281,7 @@ func init() {
         "resources": {
           "type": "array",
           "items": {
-            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
             "type": "string",
             "default": "*"
           }
@@ -5597,40 +5589,10 @@ func init() {
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (action, resource)",
+            "description": "list of permissions (level, action, resource)",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
-        }
-      }
-    },
-    "RoleAssignmentResponse": {
-      "description": "role assignment response",
-      "type": "object",
-      "properties": {
-        "keys": {
-          "description": "keys assigned to the requested role",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
-        },
-        "roles": {
-          "description": "roles assigned to the requested key/user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
-        },
-        "users": {
-          "description": "users assigned to the requested role",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
         }
       }
     },
@@ -6326,14 +6288,6 @@ func init() {
         ],
         "summary": "Get all roles",
         "operationId": "getRoles",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "the name of the role",
-            "name": "name",
-            "in": "query"
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -6419,7 +6373,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role",
+        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
         "operationId": "addPermission",
         "parameters": [
           {
@@ -6524,7 +6478,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.delete.role.permission"
+          "weaviate.authz.remove.role.permission"
         ]
       }
     },
@@ -6533,7 +6487,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Get a roles",
+        "summary": "Get a role",
         "operationId": "getRole",
         "parameters": [
           {
@@ -6584,7 +6538,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Delete a role",
+        "summary": "Delete role",
         "operationId": "deleteRole",
         "parameters": [
           {
@@ -6631,7 +6585,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get users or a keys for role",
+        "summary": "get users or a keys assigned to role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
@@ -6816,7 +6770,7 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key",
+        "summary": "get roles assigned to user or a key",
         "operationId": "getRolesForUser",
         "parameters": [
           {
@@ -11722,7 +11676,7 @@ func init() {
       }
     },
     "Permission": {
-      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+      "description": "permissions attached to a role.",
       "type": "object",
       "required": [
         "level",
@@ -11732,7 +11686,7 @@ func init() {
         "actions": {
           "type": "array",
           "items": {
-            "description": "HTTP Method like actions the user/key can perform on an object",
+            "description": "allowed actions in weaviate.",
             "type": "string",
             "enum": [
               "manage_roles",
@@ -11749,7 +11703,7 @@ func init() {
           }
         },
         "level": {
-          "description": "level this role has permission to",
+          "description": "level of that permission",
           "type": "string",
           "enum": [
             "database",
@@ -11760,7 +11714,7 @@ func init() {
         "resources": {
           "type": "array",
           "items": {
-            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
             "type": "string",
             "default": "*"
           }
@@ -12068,40 +12022,10 @@ func init() {
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (action, resource)",
+            "description": "list of permissions (level, action, resource)",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
-        }
-      }
-    },
-    "RoleAssignmentResponse": {
-      "description": "role assignment response",
-      "type": "object",
-      "properties": {
-        "keys": {
-          "description": "keys assigned to the requested role",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
-        },
-        "roles": {
-          "description": "roles assigned to the requested key/user",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
-        },
-        "users": {
-          "description": "users assigned to the requested role",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "x-nullable": true
         }
       }
     },

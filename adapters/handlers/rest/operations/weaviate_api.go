@@ -910,54 +910,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/roles"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
-	o.handlers["DELETE"]["/authz/roles/{id}"] = authz.NewDeleteRole(o.context, o.AuthzDeleteRoleHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles/{id}"] = authz.NewGetRole(o.context, o.AuthzGetRoleHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/authz/roles"] = authz.NewCreateRole(o.context, o.AuthzCreateRoleHandler)
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
-	o.handlers["DELETE"]["/authz/roles/{id}"] = authz.NewDeleteRole(o.context, o.AuthzDeleteRoleHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles/{id}"] = authz.NewGetRole(o.context, o.AuthzGetRoleHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/authz/roles/{id}/users"] = authz.NewGetUsersForRole(o.context, o.AuthzGetUsersForRoleHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
 	o.handlers["POST"]["/graphql/batch"] = graphql.NewGraphqlBatch(o.context, o.GraphqlGraphqlBatchHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

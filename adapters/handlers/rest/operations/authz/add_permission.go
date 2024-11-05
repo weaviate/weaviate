@@ -50,7 +50,7 @@ func NewAddPermission(ctx *middleware.Context, handler AddPermissionHandler) *Ad
 /*
 	AddPermission swagger:route POST /authz/roles/add-permission authz addPermission
 
-Add permission to a role
+Add permission to a role, it will be upsert if the role doesn't exists it will be created.
 */
 type AddPermission struct {
 	Context *middleware.Context

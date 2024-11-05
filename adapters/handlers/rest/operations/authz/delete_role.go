@@ -45,7 +45,7 @@ func NewDeleteRole(ctx *middleware.Context, handler DeleteRoleHandler) *DeleteRo
 /*
 	DeleteRole swagger:route DELETE /authz/roles/{id} authz deleteRole
 
-Delete a role
+Delete role
 */
 type DeleteRole struct {
 	Context *middleware.Context

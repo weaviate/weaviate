@@ -71,13 +71,6 @@ GetRolesParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GetRolesParams struct {
-
-	/* Name.
-
-	   the name of the role
-	*/
-	Name *string
-
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -131,17 +124,6 @@ func (o *GetRolesParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithName adds the name to the get roles params
-func (o *GetRolesParams) WithName(name *string) *GetRolesParams {
-	o.SetName(name)
-	return o
-}
-
-// SetName adds the name to the get roles params
-func (o *GetRolesParams) SetName(name *string) {
-	o.Name = name
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *GetRolesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -149,23 +131,6 @@ func (o *GetRolesParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Regi
 		return err
 	}
 	var res []error
-
-	if o.Name != nil {
-
-		// query param name
-		var qrName string
-
-		if o.Name != nil {
-			qrName = *o.Name
-		}
-		qName := qrName
-		if qName != "" {
-
-			if err := r.SetQueryParam("name", qName); err != nil {
-				return err
-			}
-		}
-	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

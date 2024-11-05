@@ -37,9 +37,8 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *rbac.Enforcer, me
 	api.AuthzGetRolesHandler = authz.GetRolesHandlerFunc(h.getRoles)
 	api.AuthzGetRoleHandler = authz.GetRoleHandlerFunc(h.getRole)
 	api.AuthzDeleteRoleHandler = authz.DeleteRoleHandlerFunc(h.deleteRole)
-	// TODO
-	// api.AuthzAddPermissionHandler = authz.AddPermissionHandlerFunc()
-	// api.AuthzRemovedPermissionHandler = authz.RemovedPermissionHandlerFunc()
+	api.AuthzAddPermissionHandler = authz.AddPermissionHandlerFunc(h.addPermission)
+	api.AuthzRemovedPermissionHandler = authz.RemovedPermissionHandlerFunc(h.removePermission)
 
 	// rbac users handlers
 	api.AuthzGetRolesForUserHandler = authz.GetRolesForUserHandlerFunc(h.getRolesForUser)
@@ -79,6 +78,14 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	return authz.NewCreateRoleCreated()
+}
+
+func (h *authZHandlers) addPermission(params authz.AddPermissionParams, principal *models.Principal) middleware.Responder {
+	panic("not implemented")
+}
+
+func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, principal *models.Principal) middleware.Responder {
+	panic("not implemented")
 }
 
 func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Role {
