@@ -5264,10 +5264,8 @@ func init() {
             "description": "HTTP Method like actions the user/key can perform on an object",
             "type": "string",
             "enum": [
-              "create_role",
-              "read_role",
-              "update_role",
-              "delete_role",
+              "manage_roles",
+              "manage_cluster",
               "create_collection",
               "read_collection",
               "update_collection",
@@ -5275,11 +5273,7 @@ func init() {
               "create_tenant",
               "read_tenant",
               "update_tenant",
-              "delete_tenant",
-              "create_object",
-              "read_object",
-              "update_object",
-              "delete_object"
+              "delete_tenant"
             ]
           }
         },
@@ -5289,8 +5283,7 @@ func init() {
           "enum": [
             "database",
             "collection",
-            "tenant",
-            "object"
+            "tenant"
           ]
         },
         "resources": {
@@ -11742,10 +11735,8 @@ func init() {
             "description": "HTTP Method like actions the user/key can perform on an object",
             "type": "string",
             "enum": [
-              "create_role",
-              "read_role",
-              "update_role",
-              "delete_role",
+              "manage_roles",
+              "manage_cluster",
               "create_collection",
               "read_collection",
               "update_collection",
@@ -11753,11 +11744,7 @@ func init() {
               "create_tenant",
               "read_tenant",
               "update_tenant",
-              "delete_tenant",
-              "create_object",
-              "read_object",
-              "update_object",
-              "delete_object"
+              "delete_tenant"
             ]
           }
         },
@@ -11767,8 +11754,7 @@ func init() {
           "enum": [
             "database",
             "collection",
-            "tenant",
-            "object"
+            "tenant"
           ]
         },
         "resources": {
