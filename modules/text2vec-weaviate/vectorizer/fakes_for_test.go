@@ -83,10 +83,6 @@ func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.Cla
 	return [32]byte{}
 }
 
-func (c *fakeBatchClient) HasTokenLimit() bool { return false }
-
-func (c *fakeBatchClient) ReturnsRateLimit() bool { return false }
-
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizeClassName    bool
