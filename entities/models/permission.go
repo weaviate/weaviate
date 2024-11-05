@@ -38,7 +38,7 @@ type Permission struct {
 
 	// level this role has permission to
 	// Required: true
-	// Enum: [database collection tenant object]
+	// Enum: [database collection tenant]
 	Level *string `json:"level"`
 
 	// resources
@@ -67,7 +67,7 @@ var permissionActionsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["create_role","read_role","update_role","delete_role","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant","create_object","read_object","update_object","delete_object"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_roles","manage_cluster","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -104,7 +104,7 @@ var permissionTypeLevelPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["database","collection","tenant","object"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["database","collection","tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -122,9 +122,6 @@ const (
 
 	// PermissionLevelTenant captures enum value "tenant"
 	PermissionLevelTenant string = "tenant"
-
-	// PermissionLevelObject captures enum value "object"
-	PermissionLevelObject string = "object"
 )
 
 // prop value enum

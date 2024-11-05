@@ -30,7 +30,7 @@
         "level": {
           "type": "string",
           "description": "level this role has permission to",
-          "enum": ["database", "collection", "tenant", "object"]
+          "enum": ["database", "collection", "tenant"]
         },
         "resources": {
           "type": "array",
@@ -46,12 +46,10 @@
             "type": "string",
             "description": "HTTP Method like actions the user/key can perform on an object",
             "enum": [
-              "create_role",
-              "read_role",
-              "update_role",
-              "delete_role",
-
+              "manage_roles",
+              "manage_cluster",
               "create_collection",
+
               "read_collection",
               "update_collection",
               "delete_collection",
@@ -59,12 +57,7 @@
               "create_tenant",
               "read_tenant",
               "update_tenant",
-              "delete_tenant",
-
-              "create_object",
-              "read_object",
-              "update_object",
-              "delete_object"
+              "delete_tenant"          
             ]
           }
         }
@@ -3430,7 +3423,7 @@
         "description": "Checks if an object exists in the system based on its UUID.",
         "operationId": "objects.head",
         "x-serviceIds": [
-          "weaviate.local.manipulate"
+          "weaviate.objects.check"
         ],
         "parameters": [
           {
