@@ -364,7 +364,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       true,
 						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
-					FilterStrategy: hnsw.FilterStrategyAcorn,
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
