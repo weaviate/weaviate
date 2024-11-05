@@ -56,7 +56,6 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 			}
 			helper.CreateObjectsBatch(t, batch)
 		}
-
 	})
 
 	t.Run("create backup", func(t *testing.T) {
