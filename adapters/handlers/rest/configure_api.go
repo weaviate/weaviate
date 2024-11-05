@@ -862,6 +862,7 @@ func registerModules(appState *state.State) error {
 	defaultOthers := []string{
 		modrerankercohere.Name,
 		modrerankervoyageai.Name,
+		modrerankerjinaai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
