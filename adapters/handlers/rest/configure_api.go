@@ -674,13 +674,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiscHandlers(api, appState.ServerConfig, appState.SchemaManager, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
-	backupScheduler := backup.NewScheduler(
-		appState.Authorizer,
-		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
-		membership{appState.Cluster, appState.ClusterService},
-		appState.SchemaManager,
-		appState.Logger)
+	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 
@@ -733,6 +727,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+func startBackupScheduler(appState *state.State) *backup.Scheduler {
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(appState.ClusterHttpClient),
+		appState.DB, appState.Modules,
+		membership{appState.Cluster, appState.ClusterService},
+		appState.SchemaManager,
+		appState.Logger)
+	return backupScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

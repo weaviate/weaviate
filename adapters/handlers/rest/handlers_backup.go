@@ -91,9 +91,17 @@ func parseCompressionLevel(l string) ubak.CompressionLevel {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	overrideBucket := ""
+	overridePath := ""
+	if params.Body.Config != nil {
+		overrideBucket = params.Body.Config.Bucket
+		overridePath = params.Body.Config.Path
+	}
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
+		Bucket:      overrideBucket,
+		Path:        overridePath,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
@@ -120,7 +128,15 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -154,6 +170,12 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	bucket := ""
+	path := ""
+	if params.Body.Config != nil {
+		bucket = params.Body.Config.Bucket
+		path = params.Body.Config.Path
+	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.ID,
 		Backend:     params.Backend,
@@ -161,6 +183,8 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
 		Compression: compressionFromRCfg(params.Body.Config),
+		Bucket:      bucket,
+		Path:        path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -187,8 +211,16 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	var overrideBucket string
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	var overridePath string
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -221,7 +253,15 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+	overrideBucket := ""
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
+	}
+	overridePath := ""
+	if params.Path != nil {
+		overridePath = *params.Path
+	}
+	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

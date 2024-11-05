@@ -772,13 +772,13 @@
           ]
         },
         "nestedProperties": {
-            "description": "The properties of the nested object(s). Applies to object and object[] data types.",
-            "items": {
-              "$ref": "#/definitions/NestedProperty"
-            },
-            "type": "array",
-            "x-omitempty": true
-          }
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "type": "array",
+          "x-omitempty": true
+        }
       },
       "type": "object"
     },
@@ -929,7 +929,7 @@
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend",
+          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
           "type": "string"
         },
         "error": {
@@ -953,8 +953,20 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
+        "Endpoint": {
+          "type": "string",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com"
+        },
+        "Bucket": {
+          "type": "string",
+          "description": "Name of the bucket, container, volume, etc"
+        },
+        "Path": {
+          "type": "string",
+          "description": "Path or key within the bucket"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -986,8 +998,20 @@
     },
     "RestoreConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
+        "Endpoint": {
+          "type": "string",
+          "description": "name of the endpoint, e.g. s3.amazonaws.com"
+        },
+        "Bucket": {
+          "type": "string",
+          "description": "Name of the bucket, container, volume, etc"
+        },
+        "Path": {
+          "type": "string",
+          "description": "Path within the bucket"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -995,7 +1019,7 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
-        }       
+        }
       }
     },
     "BackupCreateRequest": {
@@ -1044,8 +1068,12 @@
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "error": {
@@ -1087,10 +1115,10 @@
             "items": {
               "type": "string"
             }
-          },             
+          },
           "status": {
             "description": "status of backup process",
-            "type": "string",          
+            "type": "string",
             "enum": [
               "STARTED",
               "TRANSFERRING",
@@ -4203,7 +4231,7 @@
             "default": true,
             "type": "boolean",
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
-           }
+          }
         ],
         "responses": {
           "200": {
@@ -4810,7 +4838,7 @@
           }
         }
       }
-    },    
+    },
     "/backups/{backend}": {
       "post": {
         "summary": "Start a backup process",
@@ -4891,7 +4919,7 @@
         "responses": {
           "200": {
             "description": "Existed backups",
-            "schema": {              
+            "schema": {
               "$ref": "#/definitions/BackupListResponse"
             }
           },
@@ -4944,6 +4972,20 @@
             "required": true,
             "type": "string",
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "The path within the bucket"
           }
         ],
         "responses": {
@@ -5006,7 +5048,21 @@
             "required": true,
             "type": "string",
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
-          }           
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "The path within the bucket"
+          }
         ],
         "responses": {
           "204": {
@@ -5020,7 +5076,7 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },   
+          },
           "422": {
             "description": "Invalid backup cancellation attempt.",
             "schema": {
@@ -5131,6 +5187,20 @@
             "required": true,
             "type": "string",
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+          },
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "The path within the bucket"
           }
         ],
         "responses": {
