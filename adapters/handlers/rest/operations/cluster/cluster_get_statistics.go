@@ -45,6 +45,8 @@ func NewClusterGetStatistics(ctx *middleware.Context, handler ClusterGetStatisti
 /*
 	ClusterGetStatistics swagger:route GET /cluster/statistics cluster clusterGetStatistics
 
+# See Raft cluster statistics
+
 Returns Raft cluster statistics of Weaviate DB.
 */
 type ClusterGetStatistics struct {

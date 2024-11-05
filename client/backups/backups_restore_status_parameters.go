@@ -74,7 +74,7 @@ type BackupsRestoreStatusParams struct {
 
 	/* Backend.
 
-	   Backup backend name e.g. filesystem, gcs, s3.
+	   Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
 	*/
 	Backend string
 
