@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Jump to root directory
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
