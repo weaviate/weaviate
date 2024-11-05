@@ -379,7 +379,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "$ref": "#/definitions/Role"
             }
           },
           "400": {
@@ -6548,7 +6548,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "$ref": "#/definitions/Role"
             }
           },
           "400": {

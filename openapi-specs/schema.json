@@ -53,8 +53,8 @@
               "read_collection",
               "update_collection",
               "delete_collection",
-
               "create_tenant",
+
               "read_tenant",
               "update_tenant",
               "delete_tenant"          
@@ -2743,7 +2743,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/RolesListResponse"
+              "$ref": "#/definitions/Role"
             }
           },
           "400": {
