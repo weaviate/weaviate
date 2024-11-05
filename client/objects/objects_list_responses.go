@@ -89,7 +89,7 @@ func NewObjectsListOK() *ObjectsListOK {
 /*
 ObjectsListOK describes a response with status code 200, with default header values.
 
-Successful response.
+Successful response. <br/><br/>If `class` is not provided, the response will not include any objects.
 */
 type ObjectsListOK struct {
 	Payload *models.ObjectsListResponse

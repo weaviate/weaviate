@@ -97,8 +97,7 @@ func (m *OctoAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	client := clients.New(octoAIApiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, 1, func(cfg moduletools.ClassConfig) int { return 1 }, 1,
-			logger, m.Name()),
+		batch.NewBatchVectorizer(client, 50*time.Second, batch.Settings{}, logger, m.Name()),
 		batch.ReturnBatchTokenizer(0, m.Name(), false),
 	)
 	m.metaProvider = client

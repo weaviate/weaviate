@@ -47,7 +47,7 @@ func NewObjectsUpdate(ctx *middleware.Context, handler ObjectsUpdateHandler) *Ob
 
 Update an Object based on its UUID.
 
-Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 type ObjectsUpdate struct {
 	Context *middleware.Context
