@@ -666,7 +666,7 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      GOOGLE_CLOUD_PROJECT=voort-200517 \
+      GOOGLE_CLOUD_PROJECT=project-id \
       STORAGE_EMULATOR_HOST=localhost:9090 \
       BACKUP_GCS_ENDPOINT=localhost:9090 \
       BACKUP_GCS_BUCKET=weaviate-backups \

@@ -229,7 +229,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	defer r.Close()
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return -1, errors.Wrap(err, " write: cannot get client")
+		return -1, errors.Wrap(err, "write: cannot get client")
 	}
 	remotePath := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{
