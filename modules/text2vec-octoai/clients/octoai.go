@@ -55,7 +55,3 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 		"documentationHref": "https://octo.ai/docs/text-gen-solution/getting-started",
 	}, nil
 }
-
-func (v *vectorizer) HasTokenLimit() bool { return false }
-
-func (v *vectorizer) ReturnsRateLimit() bool { return false }

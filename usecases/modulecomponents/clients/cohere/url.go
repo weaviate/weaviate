@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package cohere
 
 import "fmt"
 
@@ -21,7 +21,7 @@ type cohereUrlBuilder struct {
 func newCohereUrlBuilder() *cohereUrlBuilder {
 	return &cohereUrlBuilder{
 		origin:   "https://api.cohere.ai",
-		pathMask: "/v1/embed",
+		pathMask: "/v2/embed",
 	}
 }
 

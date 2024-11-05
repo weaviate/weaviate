@@ -135,6 +135,7 @@ jobs:
           "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
+          "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
@@ -204,14 +205,15 @@ jobs:
       fail-fast: false
       matrix:
         test: [
+          "--only-module-multi2vec-cohere",
           "--only-module-multi2vec-google",
-          "--only-module-generative-google",
-          "--only-module-text2vec-google",
-          "--only-module-text2vec-aws",
+          "--only-module-generative-anthropic",
           "--only-module-generative-aws",
-          "--only-module-generative-openai",
           "--only-module-generative-cohere",
-          "--only-module-generative-anthropic"
+          "--only-module-generative-google",
+          "--only-module-generative-openai",
+          "--only-module-text2vec-google",
+          "--only-module-text2vec-aws"
         ]
     steps:
       - uses: actions/checkout@v4
