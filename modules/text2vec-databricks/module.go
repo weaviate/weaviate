@@ -41,6 +41,8 @@ var batchSettings = batch.Settings{
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 2000,
 	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
 }
 
 func New() *DatabricksModule {
@@ -107,7 +109,7 @@ func (m *DatabricksModule) initVectorizer(ctx context.Context, timeout time.Dura
 	client := clients.New(databricksToken, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings,
 			logger, m.Name()),
 		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
 	)
