@@ -4,7 +4,7 @@ dist/*
 dist
 nightly
 
-# ignore confectionary files
+# ignore contextionary files
 contextionary/contextionary.vocab
 contextionary/contextionary.idx
 contextionary/contextionary.knn
