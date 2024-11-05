@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -296,15 +297,16 @@ func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
+	filtered := make([]ClassDescriptor, 0, len(d.Classes))
+	for _, classDesc := range d.Classes {
+		for _, class := range classes {
+			if d.Match(classDesc.Name, class) {
+				filtered = append(filtered, classDesc)
+				break
+			}
+		}
 	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
-	}
-	d.Filter(pred)
+	d.Classes = filtered
 }
 
 // Exclude removes classes from d
@@ -312,15 +314,42 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
+	filtered := make([]ClassDescriptor, 0, len(d.Classes))
+	for _, classDesc := range d.Classes {
+		shouldExclude := false
+		for _, class := range classes {
+			if d.Match(classDesc.Name, class) {
+				shouldExclude = true
+				break
+			}
+		}
+		if shouldExclude {
+			continue
+		}
+		filtered = append(filtered, classDesc)
 	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
+	d.Classes = filtered
+}
+
+// Match checks conditions and return bool
+func (d *BackupDescriptor) Match(name string, filter string) bool {
+	if strings.HasSuffix(filter, "*") {
+		match := strings.TrimSuffix(filter, "*")
+		if strings.HasPrefix(name, match) {
+			return true
+		}
 	}
-	d.Filter(pred)
+	if strings.HasPrefix(filter, "*") {
+		match := strings.TrimPrefix(filter, "*")
+		if strings.HasSuffix(name, match) {
+			return true
+		}
+	}
+
+	if name == filter {
+		return true
+	}
+	return false
 }
 
 // Filter classes based on predicate

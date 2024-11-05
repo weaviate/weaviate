@@ -30,9 +30,8 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"2"}},
-
-		// {in: []BackupDescriptor{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
-		// {in: []BackupDescriptor{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "121"}, {Name: "122"}, {Name: "131"}}}, xs: []string{"12*"}, out: []string{"131"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "122"}, {Name: "222"}, {Name: "131"}}}, xs: []string{"*22"}, out: []string{"131"}},
 	}
 	for _, tc := range tests {
 		tc.in.Exclude(tc.xs)
@@ -52,6 +51,8 @@ func TestIncludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{"a"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"2", "3"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"1", "3"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "121"}, {Name: "122"}, {Name: "131"}}}, xs: []string{"12*"}, out: []string{"121", "122"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "122"}, {Name: "222"}, {Name: "131"}}}, xs: []string{"*22"}, out: []string{"122", "222"}},
 	}
 	for _, tc := range tests {
 		tc.in.Include(tc.xs)
