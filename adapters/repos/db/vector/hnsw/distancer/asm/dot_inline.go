@@ -30,7 +30,6 @@ func dot2[T number, U number](x []T, y []T) U {
 }
 
 //gcassert:inline
-//nolint:unused
 func dot3[T, U number](x []T, y []T) U {
 	sum := x[2] * y[2]
 
@@ -44,7 +43,6 @@ func dot4[T, U number](x []T, y []T) U {
 	return dot2[T, U](x, y) + U(sum)
 }
 
-//nolint:golint,unused
 //gcassert:inline
 func dot5[T, U number](x []T, y []T) U {
 	sum := x[4] * y[4]
@@ -59,7 +57,6 @@ func dot6[T, U number](x []T, y []T) U {
 	return dot4[T, U](x, y) + U(sum)
 }
 
-//nolint:golint,unused
 //gcassert:inline
 func dot7[T, U number](x []T, y []T) U {
 	sum := x[6] * y[6]

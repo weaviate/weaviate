@@ -65,6 +65,7 @@ issues:
       path: test/acceptance/grpc/list_value_return_test.go
       text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
 run:
+  timeout: 5m
   build-tags:
     - integrationTest
     - integrationTestSlow
