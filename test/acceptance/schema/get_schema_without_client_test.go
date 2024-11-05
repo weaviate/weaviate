@@ -71,7 +71,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					},
 					"lasq": map[string]interface{}{
 						"enabled":       false,
-						"trainingLimit": 100000,
+						"trainingLimit": float64(100000),
 					},
 					"filterStrategy": "sweeping",
 				},
