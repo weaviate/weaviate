@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	// Default values for model, baseURL and truncate cannot be changed before we solve how old classes
+	// that have the defaults NOT set will handle the change
 	DefaultBaseURL               = "https://api.cohere.ai"
 	DefaultCohereModel           = "embed-multilingual-v3.0"
 	DefaultTruncate              = "END"
