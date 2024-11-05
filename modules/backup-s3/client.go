@@ -103,7 +103,7 @@ func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "GetObject")
+		return nil, errors.Wrap(err, "get object: failed to get client")
 	}
 	remotePath := s.makeObjectName(backupID, key)
 
@@ -144,7 +144,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to create temporary client")
+		return errors.Wrap(err, "put object: failed to get client")
 	}
 
 	remotePath := s.makeObjectName(backupID, key)
@@ -164,7 +164,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object %s:%s", bucket, remotePath))
+			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -177,7 +177,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket,
 func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	client, err := s.getClient(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to create temporary client")
+		return errors.Wrap(err, "failed to get client")
 	}
 
 	key := "access-check"
