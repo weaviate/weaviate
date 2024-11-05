@@ -147,7 +147,7 @@ func testCreateSchema(host string) func(t *testing.T) {
 				},
 				nameCohere: {
 					name:         text2vecCohere,
-					classOptions: []string{"vectorizeClassName"},
+					classOptions: []string{"vectorizeClassName", "baseUrl", "model", "truncate"},
 					propOptions:  []string{"vectorizePropertyName", "skip"},
 				},
 			}
