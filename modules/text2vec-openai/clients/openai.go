@@ -328,7 +328,3 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig, action stri
 		ModelString:          settings.ModelStringForAction(action),
 	}
 }
-
-func (v *client) HasTokenLimit() bool { return true }
-
-func (v *client) ReturnsRateLimit() bool { return true }
