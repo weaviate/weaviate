@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	// Default values for URL, model and truncate cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultBaseURL               = "https://api.voyageai.com/v1"
 	DefaultVoyageAIModel         = "voyage-3"
 	DefaultTruncate              = true

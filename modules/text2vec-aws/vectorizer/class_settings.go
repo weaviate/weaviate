@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	serviceProperty       = "service"
+	ServiceProperty       = "service"
 	regionProperty        = "region"
 	modelProperty         = "model"
 	endpointProperty      = "endpoint"
@@ -32,6 +32,8 @@ const (
 	targetVariantProperty = "targetVariant"
 )
 
+// Default values for service cannot be changed before we solve how old classes
+// that have the defaults NOT set will handle the change
 const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
@@ -74,7 +76,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	service := ic.Service()
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
-		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
+		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", ServiceProperty, availableAWSServices))
 	}
 	region := ic.Region()
 	if region == "" {
@@ -167,7 +169,7 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 
 // Aws params
 func (ic *classSettings) Service() string {
-	return ic.getStringProperty(serviceProperty, DefaultService)
+	return ic.getStringProperty(ServiceProperty, DefaultService)
 }
 
 func (ic *classSettings) Region() string {

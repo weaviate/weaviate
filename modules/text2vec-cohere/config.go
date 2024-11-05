@@ -25,6 +25,9 @@ import (
 func (m *CohereModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
+		"model":              ent.DefaultCohereModel,
+		"truncate":           ent.DefaultTruncate,
+		"baseUrl":            ent.DefaultBaseURL,
 	}
 }
 
