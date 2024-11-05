@@ -74,10 +74,10 @@ func (r *restorer) restore(
 		Timeout: expiration,
 	}
 
-	destPath := store.HomeDir()
+	destPath := store.HomeDir(req.Bucket, req.Path)
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, destPath); prevID != "" {
+	if prevID := r.lastOp.renew(req.ID, destPath, req.Bucket, req.Path); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
@@ -109,7 +109,10 @@ func (r *restorer) restore(
 			return
 		}
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store)
+		overrideBucket := req.Bucket
+		overridePath := req.Path
+
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -126,12 +129,12 @@ func (r *restorer) restore(
 // The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore,
+	store nodeStore, overrideBucket, overridePath string,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, overrideBucket, overridePath); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -152,12 +155,13 @@ func getType(myvar interface{}) string {
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string,
 	compressed bool, cpuPercentage int, store nodeStore,
+	overrideBucket, overridePath string,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), classLabel)
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.backend), classLabel)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -175,7 +179,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	if err := fw.Write(ctx, desc); err != nil {
+	if err := fw.Write(ctx, desc, overrideBucket, overridePath); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
 
@@ -200,8 +204,8 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 }
 
 func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
-	destPath := store.HomeDir()
-	meta, err := store.Meta(ctx, req.ID, true)
+	destPath := store.HomeDir(req.Bucket, req.Path)
+	meta, err := store.Meta(ctx, req.ID, req.Bucket, req.Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {
@@ -213,7 +217,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
 	}
 	if meta.Status != string(backup.Success) {
-		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)
 		return nil, nil, err
 	}
 	if err := meta.Validate(meta.Version > version1); err != nil {
