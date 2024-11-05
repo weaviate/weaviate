@@ -111,10 +111,6 @@ func (c *fakeBatchClientWithRL) GetApiKeyHash(ctx context.Context, cfg moduletoo
 	return [32]byte{}
 }
 
-func (v *fakeBatchClientWithRL) HasTokenLimit() bool { return false }
-
-func (v *fakeBatchClientWithRL) ReturnsRateLimit() bool { return true }
-
 type fakeBatchClientWithoutRL struct {
 	defaultResetRate int
 	defaultRPM       int
@@ -161,10 +157,6 @@ func (c *fakeBatchClientWithoutRL) GetVectorizerRateLimit(ctx context.Context, c
 func (c *fakeBatchClientWithoutRL) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
-
-func (v *fakeBatchClientWithoutRL) HasTokenLimit() bool { return false }
-
-func (v *fakeBatchClientWithoutRL) ReturnsRateLimit() bool { return false }
 
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}

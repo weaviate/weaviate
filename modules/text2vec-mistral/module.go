@@ -41,6 +41,8 @@ var batchSettings = batch.Settings{
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 1000000, // dummy value, there is only a token limit
 	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 8192 },
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   false,
 }
 
 func New() *MistralModule {
@@ -106,8 +108,7 @@ func (m *MistralModule) initVectorizer(ctx context.Context, timeout time.Duratio
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
-			logger, m.Name()),
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
 		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
 	)
 	m.metaProvider = client
