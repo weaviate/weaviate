@@ -24,7 +24,7 @@ import (
 
 const (
 	DefaultOpenAIDocumentType    = "text"
-	DefaultOpenAIModel           = "ada"
+	DefaultOpenAIModel           = "text-embedding-3-small"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
