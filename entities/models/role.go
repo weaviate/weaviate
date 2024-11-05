@@ -18,7 +18,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -31,11 +30,6 @@ import (
 //
 // swagger:model Role
 type Role struct {
-
-	// level this role has permission to
-	// Required: true
-	// Enum: [database collection tenant object]
-	Level *string `json:"level"`
 
 	// role name
 	// Required: true
@@ -50,10 +44,6 @@ type Role struct {
 func (m *Role) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateLevel(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateName(formats); err != nil {
 		res = append(res, err)
 	}
@@ -65,55 +55,6 @@ func (m *Role) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-var roleTypeLevelPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["database","collection","tenant","object"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		roleTypeLevelPropEnum = append(roleTypeLevelPropEnum, v)
-	}
-}
-
-const (
-
-	// RoleLevelDatabase captures enum value "database"
-	RoleLevelDatabase string = "database"
-
-	// RoleLevelCollection captures enum value "collection"
-	RoleLevelCollection string = "collection"
-
-	// RoleLevelTenant captures enum value "tenant"
-	RoleLevelTenant string = "tenant"
-
-	// RoleLevelObject captures enum value "object"
-	RoleLevelObject string = "object"
-)
-
-// prop value enum
-func (m *Role) validateLevelEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, roleTypeLevelPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Role) validateLevel(formats strfmt.Registry) error {
-
-	if err := validate.Required("level", "body", m.Level); err != nil {
-		return err
-	}
-
-	// value enum
-	if err := m.validateLevelEnum("level", "body", *m.Level); err != nil {
-		return err
-	}
-
 	return nil
 }
 

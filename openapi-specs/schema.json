@@ -12,11 +12,6 @@
           "type": "string",
           "description": "role name"
         },
-        "level": {
-          "type": "string",
-          "description": "level this role has permission to",
-          "enum": ["database", "collection", "tenant", "object"]
-        },
         "permissions" : {
           "type": "array",
           "items": {
@@ -26,12 +21,17 @@
           }
         }
       },
-      "required": ["name", "level", "permissions"]
+      "required": ["name", "permissions"]
     },
     "Permission": {
       "type": "object",
       "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
       "properties": {
+        "level": {
+          "type": "string",
+          "description": "level this role has permission to",
+          "enum": ["database", "collection", "tenant", "object"]
+        },
         "resources": {
           "type": "array",
           "items": {
@@ -69,7 +69,7 @@
           }
         }
       },
-      "required": ["actions"]
+      "required": [ "level","actions"]
     },
     "RolesListResponse": {
       "type": "array",
@@ -77,24 +77,6 @@
       "items": {
         "$ref": "#/definitions/Role"
       }
-    },
-    "RoleAssignmentRequest": {
-      "type": "object",
-      "description": "RBAC role assignment request",
-      "properties": {
-        "user": {
-          "type": "string",
-          "description": "the user or key to be assigned to a role"
-        },
-        "roles": {
-          "type": "array",
-          "description": "the roles that assigned to the key or user",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": ["roles", "user"]
     },
     "RoleAssignmentResponse": {
       "type": "object",
@@ -2533,7 +2515,7 @@
     },
     "/authz/roles": {
       "get": {
-        "summary": "Get specific or all roles",
+        "summary": "Get all roles",
         "operationId": "getRoles",
         "x-serviceIds": [
           "weaviate.authz.get.roles"
@@ -2627,7 +2609,176 @@
         }
       }
     },
+    "/authz/roles/add-permission":{
+      "post": {
+        "summary": "Add permission to a role",
+        "operationId": "addPermission",
+        "x-serviceIds": [
+          "weaviate.authz.add.role.permission"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name":{},
+                "permissions": {
+                  "type":"array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                  
+                }
+              }
+              
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Permission added successfully"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/roles/remove-permission":{
+      "post": {
+        "summary": "remove permission from a role",
+        "operationId": "removedPermission",
+        "x-serviceIds": [
+          "weaviate.authz.delete.role.permission"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name":{},
+                "permissions": {
+                  "type":"array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                  
+                }
+              }
+              
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Permission removed successfully"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/roles/{id}": {
+      "get": {
+        "summary": "Get a roles",
+        "operationId": "getRole",
+        "x-serviceIds": [
+          "weaviate.authz.get.role"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }      
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "delete": {
         "summary": "Delete a role",
         "operationId": "deleteRole",
@@ -2786,7 +2937,7 @@
         }
       }
     },
-    "/authz/users/assign": {
+    "/authz/users/{id}/assign": {
       "post": {
         "summary": "Assign a role to a user or key",
         "operationId": "assignRole",
@@ -2798,11 +2949,26 @@
         ],
         "parameters": [
           {
+            "description": "user or key ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentRequest"
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "description": "the roles that assigned to the key or user",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         ],
@@ -2837,7 +3003,7 @@
         }
       }
     },
-    "/authz/users/revoke": {
+    "/authz/users/{id}/revoke": {
       "post": {
         "summary": "Revoke a role from a user",
         "operationId": "revokeRole",
@@ -2849,11 +3015,26 @@
         ],
         "parameters": [
           {
+            "description": "user or key ID",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentRequest"
+              "properties": {
+                "roles": {
+                  "type": "array",
+                  "description": "the roles that revoked from the key or user",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           }
         ],
