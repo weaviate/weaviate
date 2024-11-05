@@ -223,7 +223,3 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		Instruction: settings.Instruction(),
 	}
 }
-
-func (v *client) HasTokenLimit() bool { return false }
-
-func (v *client) ReturnsRateLimit() bool { return false }

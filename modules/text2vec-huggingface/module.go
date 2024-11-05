@@ -39,6 +39,8 @@ var batchSettings = batch.Settings{
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 100,
 	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 }, // there does not seem to be a limit
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
 }
 
 func New() *HuggingFaceModule {
@@ -104,8 +106,7 @@ func (m *HuggingFaceModule) initVectorizer(ctx context.Context, timeout time.Dur
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
-			logger, m.Name()),
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
 		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
 	)
 	m.metaProvider = client

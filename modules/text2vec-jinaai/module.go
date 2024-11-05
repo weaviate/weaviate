@@ -42,6 +42,8 @@ var batchSettings = batch.Settings{
 	MaxObjectsPerBatch: 512, // Info from jina
 	// real limit is 8192, but the vectorization times go up by A LOT if the batches are larger
 	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 2500 },
+	HasTokenLimit:     true,
+	ReturnsRateLimit:  false,
 }
 
 func New() *JinaAIModule {
@@ -108,8 +110,7 @@ func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 	client := clients.New(jinaAIApiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
-		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings.MaxObjectsPerBatch, batchSettings.MaxTokensPerBatch, batchSettings.MaxTimePerBatch,
-			logger, m.Name()),
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
 		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
 	)
 	m.metaProvider = client

@@ -224,7 +224,3 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		Model: settings.Model(), BaseURL: settings.BaseURL(),
 	}
 }
-
-func (v *vectorizer) HasTokenLimit() bool { return true }
-
-func (v *vectorizer) ReturnsRateLimit() bool { return false }

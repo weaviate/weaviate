@@ -28,13 +28,13 @@ import (
 // swagger:model StopwordConfig
 type StopwordConfig struct {
 
-	// stopwords to be considered additionally
+	// Stopwords to be considered additionally (default: []). Can be any array of custom strings.
 	Additions []string `json:"additions"`
 
-	// pre-existing list of common words by language
+	// Pre-existing list of common words by language (default: 'en'). Options: ['en', 'none'].
 	Preset string `json:"preset,omitempty"`
 
-	// stopwords to be removed from consideration
+	// Stopwords to be removed from consideration (default: []). Can be any array of custom strings.
 	Removals []string `json:"removals"`
 }
 
