@@ -115,13 +115,12 @@ func (m *Memtable) Nodes() []*MemtableNode {
 		Deletions: nnDeletions,
 	}
 
-	empty := sroar.NewBitmap()
 	for bit := range bitsAdditions {
 		if bitsAdditions[bit] != nil {
 			nodes = append(nodes, &MemtableNode{
 				Key:       uint8(bit) + 1,
 				Additions: bitsAdditions[bit],
-				Deletions: empty,
+				Deletions: nil,
 			})
 		}
 	}

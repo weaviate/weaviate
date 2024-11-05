@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,6 +45,7 @@ var availableOpenAIModels = []string{
 	"gpt-4-32k",
 	"gpt-4-1106-preview",
 	"gpt-4o",
+	"gpt-4o-mini",
 }
 
 var (
@@ -61,13 +63,14 @@ var (
 var defaultMaxTokens = map[string]float64{
 	"text-davinci-002":   4097,
 	"text-davinci-003":   4097,
-	"gpt-3.5-turbo":      4097,
+	"gpt-3.5-turbo":      4096,
 	"gpt-3.5-turbo-16k":  16384,
 	"gpt-3.5-turbo-1106": 16385,
 	"gpt-4":              8192,
 	"gpt-4-32k":          32768,
 	"gpt-4-1106-preview": 128000,
 	"gpt-4o":             128000,
+	"gpt-4o-mini":        128000,
 }
 
 var availableApiVersions = []string{
@@ -100,6 +103,7 @@ type ClassSettings interface {
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
+	IsThirdPartyProvider() bool
 }
 
 type classSettings struct {
@@ -235,6 +239,10 @@ func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId s
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
 	return nil
+}
+
+func (cs *classSettings) IsThirdPartyProvider() bool {
+	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
 }
 
 func contains[T comparable](s []T, e T) bool {

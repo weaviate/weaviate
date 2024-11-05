@@ -355,10 +355,21 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
 
+	var additionalGroupProperties []search.SelectProperty
+	for _, prop := range out.Properties {
+		additionalGroupHitProp := search.SelectProperty{Name: prop.Name}
+		additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, prop.Refs...)
+		additionalGroupHitProp.IsPrimitive = prop.IsPrimitive
+		additionalGroupHitProp.IsObject = prop.IsObject
+		additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+
+	}
+
 	groupOut := &searchparams.GroupBy{
 		Property:        groupIn.Path[0],
 		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
 		Groups:          int(groupIn.NumberOfGroups),
+		Properties:      additionalGroupProperties,
 	}
 
 	// add the property in case it was not requested as return prop - otherwise it is not resolved

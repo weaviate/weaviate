@@ -70,9 +70,10 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config)
+	res, limits, err := v.vectorize(ctx, input, config)
+	return res, limits, 0, err
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
@@ -101,8 +102,10 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 		return nil, nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
-
 	req.Header.Add("Content-Type", "application/json")
+	if userAgent := modulecomponents.GetValueFromContext(ctx, "X-Databricks-User-Agent"); userAgent != "" {
+		req.Header.Add("User-Agent", userAgent)
+	}
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
@@ -117,7 +120,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, errors.Wrap(err, "unmarshal response body")
+		return nil, nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.ErrorCode != "" {

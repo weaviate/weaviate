@@ -584,7 +584,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -654,7 +654,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -1359,7 +1359,7 @@ func TestGRPCRequest(t *testing.T) {
 					Group:   true,
 				},
 				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"": {1, 2, 3}}},
-				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name", Properties: defaultTestClassProps},
 			},
 			error: false,
 		},

@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,11 +29,22 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-jinaai"
+
+var batchSettings = batch.Settings{
+	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+	// using 30% more than the OpenAI model is a rough estimate but seems to work
+	TokenMultiplier:    1.3,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 512, // Info from jina
+	// real limit is 8192, but the vectorization times go up by A LOT if the batches are larger
+	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 2500 },
+	HasTokenLimit:     true,
+	ReturnsRateLimit:  false,
+}
 
 func New() *JinaAIModule {
 	return &JinaAIModule{}
@@ -96,7 +109,10 @@ func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(jinaAIApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
+	)
 	m.metaProvider = client
 
 	return nil

@@ -254,9 +254,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if err != nil {
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
 
 	if s.onRefProp(property) && len(props) != 1 {
 		return s.extractReferenceFilter(property, filter, class)
