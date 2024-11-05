@@ -273,7 +273,3 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 
 	return initialRL
 }
-
-func (v *vectorizer) HasTokenLimit() bool { return true }
-
-func (v *vectorizer) ReturnsRateLimit() bool { return false }

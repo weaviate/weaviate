@@ -29,6 +29,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.jina.ai"
+	LowerCaseInput               = false
 )
 
 var DefaultDimensions int64 = 1024
@@ -39,7 +40,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (cs *classSettings) Model() string {
