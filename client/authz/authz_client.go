@@ -65,7 +65,7 @@ type ClientService interface {
 }
 
 /*
-AddPermission adds permission to a role
+AddPermission adds permission to a role it will be upsert if the role doesn t exists it will be created
 */
 func (a *Client) AddPermission(params *AddPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionCreated, error) {
 	// TODO: Validate the params before sending
@@ -182,7 +182,7 @@ func (a *Client) CreateRole(params *CreateRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-DeleteRole deletes a role
+DeleteRole deletes role
 */
 func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteRoleNoContent, error) {
 	// TODO: Validate the params before sending
@@ -221,7 +221,7 @@ func (a *Client) DeleteRole(params *DeleteRoleParams, authInfo runtime.ClientAut
 }
 
 /*
-GetRole gets a roles
+GetRole gets a role
 */
 func (a *Client) GetRole(params *GetRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -299,7 +299,7 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForUser gets roles for user or a key
+GetRolesForUser gets roles assigned to user or a key
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending
@@ -338,7 +338,7 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 }
 
 /*
-GetUsersForRole gets users or a keys for role
+GetUsersForRole gets users or a keys assigned to role
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
 	// TODO: Validate the params before sending
