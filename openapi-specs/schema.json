@@ -1,7 +1,11 @@
 {
+  "servers": [
+    {
+      "url": "http://localhost:8080/v1"
+    }
+  ],  
   "basePath": "/v1",
   "consumes": [
-    "application/yaml",
     "application/json"
   ],
   "definitions": {
@@ -2303,7 +2307,8 @@
               }
             }
           }
-        }
+        },
+        "tags": ["root"]
       }
     },
     "/.well-known/live": {
@@ -2315,7 +2320,8 @@
           "200": {
             "description": "The application is able to respond to HTTP requests"
           }
-        }
+        },
+        "tags": ["well-known"]
       }
     },
     "/.well-known/ready": {
@@ -2330,7 +2336,8 @@
           "503": {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
-        }
+        },
+        "tags": ["well-known"]
       }
     },
     "/.well-known/openid-configuration": {
@@ -2373,9 +2380,7 @@
         },
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          "well-known"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3785,8 +3790,7 @@
         },
         "summary": "Creates new Objects based on a Object template as a batch.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3850,8 +3854,7 @@
         },
         "summary": "Deletes Objects based on a match filter as a batch.",
         "tags": [
-          "batch",
-          "objects"
+          "batch"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3921,8 +3924,7 @@
         },
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
         "tags": [
-          "batch",
-          "references"
+          "batch"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -5442,28 +5444,48 @@
   "swagger": "2.0",
   "tags": [
     {
-      "name": "objects"
-    },
-    {
-      "name": "batch",
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
-    },
-    {
-      "name": "graphql"
-    },
-    {
-      "name": "meta"
-    },
-    {
-      "name": "P2P"
-    },
-    {
-      "name": "contextionary-API",
-      "description": "All functions related to the Contextionary."
+      "name": "root",
+      "description": "The root of the API. Note the base url is `/v1`."
     },
     {
       "name": "schema",
-      "description": "These operations enable manipulation of the schema in Weaviate schema."
+      "description": "Operate on the database schema. <br/><br/>Note an 'Object class' in Weaviate is being renamed to a 'collection'. <br/><br/>See <a href='https://weaviate.io/developers/weaviate/manage-data/collections'>this page</a> for client code examples."
+    },
+    {
+      "name": "objects",
+      "description": "Create, update and delete objects and cross-references."
+    },
+    {
+      "name": "batch",
+      "description": "Create, update and delete multiple objects and references at once. <br/><br/>Note that object-level errors may be reported even in a successful batch request. Accordingly, we recommend you check the response body for errors."
+    },
+    {
+      "name": "backups",
+      "description": "Create, restore and check the status of backups. <br/><br/>See the [backups page](https://weaviate.io/developers/weaviate/configuration/backups) for a general introduction, configuration, and tech background of backups."
+    },
+    {
+      "name": "meta",
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules."
+    },
+    {
+      "name": "cluster",
+      "description": "Retrieve information about the cluster."
+    },
+    {
+      "name": "nodes",
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection."
+    },
+    {
+      "name": "well-known",
+      "description": "`.well-known` endpoints. If OpenID Connect (OIDC) authentication is enabled, this endpoint includes OIDC configuration details."
+    },
+    {
+      "name": "graphql",
+      "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://weaviate.io/developers/weaviate/api/graphql) for query syntax details."
+    },
+    {
+      "name": "classifications",
+      "description": "Perform classification operations"
     }
   ]
 }
