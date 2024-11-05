@@ -70,6 +70,9 @@ type flat struct {
 	bqCache              cache.Cache[uint64]
 	count                uint64
 	concurrentCacheReads int
+
+	vectorDocIDMap map[uint64]uint64
+	docIDVectorMap map[uint64][]uint64
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -98,6 +101,8 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:                 newPools(),
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
+		vectorDocIDMap:       make(map[uint64]uint64),
+		docIDVectorMap:       make(map[uint64][]uint64),
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -332,6 +337,43 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	return nil
 }
 
+func (index *flat) AddMulti(vecID uint64, docID uint64, vector []float32) error {
+	index.trackDimensionsOnce.Do(func() {
+		size := int32(len(vector))
+		atomic.StoreInt32(&index.dims, size)
+		err := index.setDimensions(size)
+		if err != nil {
+			index.logger.WithError(err).Error("could not set dimensions")
+		}
+
+		if index.isBQ() {
+			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
+		}
+	})
+	if len(vector) != int(index.dims) {
+		return errors.Errorf("insert called with a vector of the wrong size")
+	}
+	vector = index.normalized(vector)
+	slice := make([]byte, len(vector)*4)
+	index.storeVector(vecID, byteSliceFromFloat32Slice(vector, slice))
+
+	index.vectorDocIDMap[vecID] = docID
+	index.docIDVectorMap[docID] = append(index.docIDVectorMap[docID], vecID)
+
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(vecID)
+			index.bqCache.Preload(vecID, vectorBQ)
+		}
+		slice = make([]byte, len(vectorBQ)*8)
+		index.storeCompressedVector(vecID, byteSliceFromUint64Slice(vectorBQ, slice))
+	}
+	newCount := atomic.LoadUint64(&index.count)
+	atomic.StoreUint64(&index.count, newCount+1)
+	return nil
+}
+
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
 		if index.isBQCached() {
@@ -375,6 +417,18 @@ func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowLi
 	}
 }
 
+func (index *flat) SearchByMultipleVector(queryVectors [][]float32, k int) ([]uint64, []float32, error) {
+	switch index.compression {
+	case compressionBQ:
+		return nil, nil, errors.Errorf("search by multiple vectors is not supported for BQ")
+	case compressionPQ:
+		// use uncompressed for now
+		return nil, nil, errors.Errorf("search by multiple vectors is not supported for PQ")
+	default:
+		return index.searchByMultipleVector(queryVectors, k)
+	}
+}
+
 func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	heap := index.pqResults.GetMax(k)
 	defer index.pqResults.Put(heap)
@@ -390,6 +444,86 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 
 	ids, dists := index.extractHeap(heap)
 	return ids, dists, nil
+}
+
+func (index *flat) searchByMultipleVector(queryVectors [][]float32, k int /*allow helpers.AllowList*/) ([]uint64, []float32, error) {
+	resultsQueue := priorityqueue.NewMin[any](k)
+
+	queryVectors = index.normalizeAll(queryVectors)
+
+	for docID := range index.docIDVectorMap {
+		score, err := index.computeScore(queryVectors, docID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resultsQueue.Insert(docID, score)
+		if resultsQueue.Len() > k {
+			resultsQueue.Pop()
+		}
+	}
+
+	distances := make([]float32, k)
+	ids := make([]uint64, k)
+
+	i := len(ids) - 1
+	for resultsQueue.Len() > 0 {
+		element := resultsQueue.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+		i--
+	}
+
+	return ids, distances, nil
+}
+
+func (index *flat) getVectorsFromID(docID uint64) ([][]float32, error) {
+	vecIDs := index.docIDVectorMap[docID]
+	vecs := make([][]float32, len(vecIDs))
+	for i, vecID := range vecIDs {
+		vecAsBytes, err := index.vectorById(vecID)
+		vecSlice := index.pool.float32SlicePool.Get(len(vecAsBytes) / 4)
+		defer index.pool.float32SlicePool.Put(vecSlice)
+
+		vec := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
+		}
+		vecs[i] = vec
+	}
+	return vecs, nil
+}
+
+func dotProduct(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}
+
+func (index *flat) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
+
+	docVecs, err := index.getVectorsFromID(docID)
+	if err != nil {
+		return 0.0, err
+	}
+
+	similarity := float32(0.0)
+
+	for _, searchVec := range searchVecs {
+		maxSim := float32(-math.MaxFloat32)
+
+		for _, docVec := range docVecs {
+			sim := dotProduct(searchVec, docVec)
+			if sim > maxSim {
+				maxSim = sim
+			}
+		}
+
+		similarity += maxSim
+	}
+
+	return similarity, nil
 }
 
 func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
@@ -609,6 +743,14 @@ func (index *flat) normalized(vector []float32) []float32 {
 		return distancer.Normalize(vector)
 	}
 	return vector
+}
+
+func (index *flat) normalizeAll(vectors [][]float32) [][]float32 {
+	normalizedVectors := make([][]float32, len(vectors))
+	for i := range vectors {
+		normalizedVectors[i] = index.normalized(vectors[i])
+	}
+	return normalizedVectors
 }
 
 func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {

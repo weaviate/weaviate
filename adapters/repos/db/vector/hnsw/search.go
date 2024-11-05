@@ -830,7 +830,8 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	k_prime := k / 2
+	//k_prime := k / 2
+	k_prime := 10 * k
 	candidateSet := make(map[uint64]bool, 0)
 	for _, searchVec := range searchVecs {
 		var compressorDistancer compressionhelpers.CompressorDistancer
@@ -923,23 +924,13 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 			res.Pop()
 		}
 
-		ids := make([]uint64, res.Len())
-		dists := make([]float32, res.Len())
-		i := len(ids) - 1
 		for res.Len() > 0 {
 			res := res.Pop()
-			ids[i] = res.ID
-			dists[i] = res.Dist
-			i--
 			docID := h.vectorDocIDMap[res.ID]
 			if _, ok := candidateSet[docID]; !ok {
 				candidateSet[docID] = true
 			}
 		}
-
-		// if h.shouldRescore() {
-		// 	h.rescore(res, k, compressorDistancer)
-		// }
 	}
 
 	resultsQueue := priorityqueue.NewMin[any](k)
@@ -966,25 +957,6 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 	}
 
 	return ids, distances, nil
-}
-
-type DocSimilarityPair struct {
-	Distance float32
-	ID       uint64
-}
-
-type ByDescendingValue []DocSimilarityPair
-
-func (a ByDescendingValue) Len() int {
-	return len(a)
-}
-
-func (a ByDescendingValue) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
-}
-
-func (a ByDescendingValue) Less(i, j int) bool {
-	return a[i].Distance > a[j].Distance
 }
 
 func dotProduct(a, b []float32) float32 {
@@ -1024,7 +996,7 @@ func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
 	vecIDs := h.docIDVectorMap[docID]
 	vecs := make([][]float32, len(vecIDs))
 	for i, vecID := range vecIDs {
-		vec, err := h.vectorForID(context.Background(), vecID)
+		vec, err := h.vectorForID(context.Background(), vecID) // should we use multiple vectors for id??
 		if err != nil {
 			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
 		}
