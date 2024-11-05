@@ -82,7 +82,7 @@ func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
 		for _, bak := range backups {
 			if backupNotCompleted(bak.Status) {
 				bak.Status = backup.Cancelled
-				bak.Error = fmt.Sprintf("backup canceled due to node restart")
+				bak.Error = "backup canceled due to node restart"
 				store, err := coordBackend(s.backends, backend.Name(), bak.ID)
 				if err != nil {
 					s.logger.WithField("action", "cleanup_unfinished_backups").
