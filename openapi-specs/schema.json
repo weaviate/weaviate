@@ -16,7 +16,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "description": "list of permissions (action, resource)",
+            "description": "list of permissions (level, action, resource)",
             "$ref": "#/definitions/Permission"
           }
         }
@@ -25,11 +25,11 @@
     },
     "Permission": {
       "type": "object",
-      "description": "comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *",
+      "description": "permissions attached to a role.",
       "properties": {
         "level": {
           "type": "string",
-          "description": "level this role has permission to",
+          "description": "level of that permission",
           "enum": ["database", "collection", "tenant"]
         },
         "resources": {
@@ -37,14 +37,14 @@
           "items": {
             "type": "string",
             "default": "*",
-            "description": "string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *"
+            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
           }
         },
         "actions": {
           "type": "array",
           "items": {
             "type": "string",
-            "description": "HTTP Method like actions the user/key can perform on an object",
+            "description": "allowed actions in weaviate.",
             "enum": [
               "manage_roles",
               "manage_cluster",
@@ -70,37 +70,7 @@
       "items": {
         "$ref": "#/definitions/Role"
       }
-    },
-    "RoleAssignmentResponse": {
-      "type": "object",
-      "description": "role assignment response",
-      "properties": {
-        "users": {
-          "description": "users assigned to the requested role",
-          "x-nullable": true,
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "keys": {
-          "description": "keys assigned to the requested role",
-          "x-nullable": true,
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "roles": {
-          "description": "roles assigned to the requested key/user",
-          "x-nullable": true,
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },    
+    },   
     "Link": {
       "type": "object",
       "properties": {
@@ -2515,16 +2485,7 @@
         ],
         "tags": [
           "authz"
-        ],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "name",            
-            "required": false,
-            "type": "string",
-            "description": "the name of the role"
-          }        
-        ],
+        ],       
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -2604,7 +2565,7 @@
     },
     "/authz/roles/add-permission":{
       "post": {
-        "summary": "Add permission to a role",
+        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
         "operationId": "addPermission",
         "x-serviceIds": [
           "weaviate.authz.add.role.permission"
@@ -2625,8 +2586,7 @@
                   "type":"array",
                   "items": {
                     "$ref": "#/definitions/Permission"
-                  }
-                  
+                  }                  
                 }
               }
               
@@ -2666,7 +2626,7 @@
         "summary": "remove permission from a role",
         "operationId": "removedPermission",
         "x-serviceIds": [
-          "weaviate.authz.delete.role.permission"
+          "weaviate.authz.remove.role.permission"
         ],
         "tags": [
           "authz"
@@ -2722,7 +2682,7 @@
     },
     "/authz/roles/{id}": {
       "get": {
-        "summary": "Get a roles",
+        "summary": "Get a role",
         "operationId": "getRole",
         "x-serviceIds": [
           "weaviate.authz.get.role"
@@ -2773,7 +2733,7 @@
         }
       },
       "delete": {
-        "summary": "Delete a role",
+        "summary": "Delete role",
         "operationId": "deleteRole",
         "x-serviceIds": [
           "weaviate.authz.delete.role"
@@ -2820,7 +2780,7 @@
     },
     "/authz/roles/{id}/users": {
       "get": {
-        "summary": "get users or a keys for role",
+        "summary": "get users or a keys assigned to role",
         "operationId": "getUsersForRole",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
@@ -2876,7 +2836,7 @@
     },
     "/authz/users/{id}/roles": {
       "get": {
-        "summary": "get roles for user or a key",
+        "summary": "get roles assigned to user or a key",
         "operationId": "getRolesForUser",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"

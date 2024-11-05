@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Permission comma separated string or regex. if a specific object(Collection name, Tenant name, Object Name) has a name otherwise, if left empty it will be ALL or *
+// Permission permissions attached to a role.
 //
 // swagger:model Permission
 type Permission struct {
@@ -36,7 +36,7 @@ type Permission struct {
 	// Required: true
 	Actions []string `json:"actions"`
 
-	// level this role has permission to
+	// level of that permission
 	// Required: true
 	// Enum: [database collection tenant]
 	Level *string `json:"level"`
