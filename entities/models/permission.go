@@ -36,6 +36,11 @@ type Permission struct {
 	// Required: true
 	Actions []string `json:"actions"`
 
+	// level this role has permission to
+	// Required: true
+	// Enum: [database collection tenant object]
+	Level *string `json:"level"`
+
 	// resources
 	Resources []*string `json:"resources"`
 }
@@ -45,6 +50,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActions(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateLevel(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -86,6 +95,55 @@ func (m *Permission) validateActions(formats strfmt.Registry) error {
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+var permissionTypeLevelPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["database","collection","tenant","object"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		permissionTypeLevelPropEnum = append(permissionTypeLevelPropEnum, v)
+	}
+}
+
+const (
+
+	// PermissionLevelDatabase captures enum value "database"
+	PermissionLevelDatabase string = "database"
+
+	// PermissionLevelCollection captures enum value "collection"
+	PermissionLevelCollection string = "collection"
+
+	// PermissionLevelTenant captures enum value "tenant"
+	PermissionLevelTenant string = "tenant"
+
+	// PermissionLevelObject captures enum value "object"
+	PermissionLevelObject string = "object"
+)
+
+// prop value enum
+func (m *Permission) validateLevelEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, permissionTypeLevelPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Permission) validateLevel(formats strfmt.Registry) error {
+
+	if err := validate.Required("level", "body", m.Level); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateLevelEnum("level", "body", *m.Level); err != nil {
+		return err
 	}
 
 	return nil
