@@ -22,9 +22,7 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-type tokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)
-
-func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc tokenizerFuncType) *BatchVectorizer {
+func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer {
 	vec := &BatchVectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
