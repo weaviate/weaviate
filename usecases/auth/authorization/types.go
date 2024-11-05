@@ -95,11 +95,13 @@ func Verbs[T Action](a T) []string {
 }
 
 // Actions
-type Read string
-type List string
-type Write string
-type Update string
-type Delete string
+type (
+	Read   string
+	List   string
+	Write  string
+	Update string
+	Delete string
+)
 
 func (r Read) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET}

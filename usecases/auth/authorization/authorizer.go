@@ -12,7 +12,6 @@
 package authorization
 
 import (
-	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
@@ -28,7 +27,7 @@ type Authorizer interface {
 }
 
 // New Authorizer based on the application-wide config
-func New(cfg config.Config, RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) Authorizer {
+func New(cfg config.Config, RBACEnforcer *rbac.Enforcer, logger logrus.FieldLogger) Authorizer {
 	if cfg.Authorization.AdminList.Enabled {
 		return adminlist.New(cfg.Authorization.AdminList)
 	}

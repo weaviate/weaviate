@@ -14,19 +14,18 @@ package rbac
 import (
 	"fmt"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 type Authorizer struct {
-	enforcer *casbin.SyncedCachedEnforcer
+	enforcer *Enforcer
 	logger   logrus.FieldLogger
 }
 
 // New Authorizer using the AdminList method
-func New(RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Authorizer {
+func New(RBACEnforcer *Enforcer, logger logrus.FieldLogger) *Authorizer {
 	return &Authorizer{RBACEnforcer, logger}
 }
 
