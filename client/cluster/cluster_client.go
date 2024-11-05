@@ -47,7 +47,9 @@ type ClientService interface {
 }
 
 /*
-ClusterGetStatistics Returns Raft cluster statistics of Weaviate DB.
+ClusterGetStatistics sees raft cluster statistics
+
+Returns Raft cluster statistics of Weaviate DB.
 */
 func (a *Client) ClusterGetStatistics(params *ClusterGetStatisticsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClusterGetStatisticsOK, error) {
 	// TODO: Validate the params before sending
