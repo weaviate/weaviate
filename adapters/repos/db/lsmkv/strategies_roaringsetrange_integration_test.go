@@ -63,7 +63,8 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			err = b.RoaringSetRangeAdd(key3, orig3...)
 			require.Nil(t, err)
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -87,7 +88,8 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			err = b.RoaringSetRangeAdd(key2, additions2...) // implicit removal from key3 (5)
 			require.NoError(t, err)
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -127,7 +129,8 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			err = b.RoaringSetRangeAdd(key3, orig3...)
 			require.Nil(t, err)
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -155,7 +158,8 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 			err = b.RoaringSetRangeAdd(key2, additions2...) // implicit removal from key3 (5)
 			require.NoError(t, err)
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)

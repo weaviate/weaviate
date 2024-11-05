@@ -353,7 +353,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 
 	selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-	properties, addlProps, err := extractProperties(
+	properties, addlProps, groupByProperties, err := extractProperties(
 		className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 	if err != nil {
 		return nil, err
@@ -441,6 +441,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	var groupByParams *searchparams.GroupBy
 	if groupBy, ok := p.Args["groupBy"]; ok {
 		p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
+		p.Properties = groupByProperties
 		groupByParams = &p
 	}
 
@@ -616,8 +617,9 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 func extractProperties(className string, selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) ([]search.SelectProperty, additional.Properties, error) {
+) ([]search.SelectProperty, additional.Properties, []search.SelectProperty, error) {
 	var properties []search.SelectProperty
+	var additionalGroupHitProperties []search.SelectProperty
 	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
@@ -692,11 +694,11 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "group" {
 							additionalProps.Group = true
-							additionalGroupHitProperties, err := extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
+							var err error
+							additionalGroupHitProperties, err = extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
 							if err != nil {
-								return nil, additionalProps, err
+								return nil, additionalProps, nil, err
 							}
-							properties = append(properties, additionalGroupHitProperties...)
 							continue
 						}
 						if modulesProvider != nil {
@@ -714,7 +716,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 				case *ast.FragmentSpread:
 					ref, err := extractFragmentSpread(className, s, fragments, modulesProvider)
 					if err != nil {
-						return nil, additionalProps, err
+						return nil, additionalProps, nil, err
 					}
 
 					property.Refs = append(property.Refs, ref)
@@ -722,13 +724,13 @@ func extractProperties(className string, selections *ast.SelectionSet,
 				case *ast.InlineFragment:
 					ref, err := extractInlineFragment(className, s, fragments, modulesProvider)
 					if err != nil {
-						return nil, additionalProps, err
+						return nil, additionalProps, nil, err
 					}
 
 					property.Refs = append(property.Refs, ref)
 
 				default:
-					return nil, additionalProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
+					return nil, additionalProps, nil, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
 		}
@@ -740,7 +742,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 		properties = append(properties, property)
 	}
 
-	return properties, additionalProps, nil
+	return properties, additionalProps, additionalGroupHitProperties, nil
 }
 
 func extractGroupHitProperties(
@@ -767,7 +769,7 @@ func extractGroupHitProperties(
 													return nil, err
 												}
 
-												additionalGroupHitProp := search.SelectProperty{Name: fmt.Sprintf("_additional:group:hits:%v", hf.Name.Value)}
+												additionalGroupHitProp := search.SelectProperty{Name: hf.Name.Value}
 												additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, ref)
 												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 											}
@@ -814,7 +816,7 @@ func extractInlineFragment(class string, fragment *ast.InlineFragment,
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
+	subProperties, additionalProperties, _, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}
@@ -842,7 +844,7 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 		return result, err
 	}
 
-	subProperties, additionalProperties, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
+	subProperties, additionalProperties, _, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}

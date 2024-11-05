@@ -72,16 +72,11 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // The returned value is returned to the client as the ApplyFuture.Response.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
-	st.log.WithFields(logrus.Fields{
-		"log_type":  l.Type,
-		"log_name":  l.Type.String(),
-		"log_index": l.Index,
-	}).Debug("apply fsm store command")
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
 			"index": l.Index,
-		}).Info("not a valid command")
+		}).Warn("not a valid command")
 		return ret
 	}
 	cmd := api.ApplyRequest{}
@@ -104,7 +99,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
-			}).Debug("reloading local DB as RAFT and local DB are now caught up")
+			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
 
@@ -123,6 +118,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}()
 
 	cmd.Version = l.Index
+	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
+	// startup time to keep track of progress.
+	if !st.Ready() {
+		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
 		"log_name":        l.Type.String(),

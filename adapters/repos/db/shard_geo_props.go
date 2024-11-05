@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -91,17 +90,18 @@ func geoPropID(propName string) string {
 	return fmt.Sprintf("geo.%s", propName)
 }
 
-func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
+func (s *Shard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object,
 	status objectInsertStatus,
 ) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
+
 	s.propertyIndicesLock.RLock()
 	defer s.propertyIndicesLock.RUnlock()
 
 	for propName, propIndex := range s.propertyIndices {
-		if err := s.updatePropertySpecificIndex(propName, propIndex,
+		if err := s.updatePropertySpecificIndex(ctx, propName, propIndex,
 			object, status); err != nil {
 			return errors.Wrapf(err, "property %q", propName)
 		}
@@ -110,7 +110,7 @@ func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	return nil
 }
 
-func (s *Shard) updatePropertySpecificIndex(propName string,
+func (s *Shard) updatePropertySpecificIndex(ctx context.Context, propName string,
 	index propertyspecific.Index, obj *storobj.Object,
 	status objectInsertStatus,
 ) error {
@@ -119,14 +119,14 @@ func (s *Shard) updatePropertySpecificIndex(propName string,
 	}
 
 	// currently the only property-specific index we support
-	return s.updateGeoIndex(propName, index, obj, status)
+	return s.updateGeoIndex(ctx, propName, index, obj, status)
 }
 
-func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
-	obj *storobj.Object, status objectInsertStatus,
+func (s *Shard) updateGeoIndex(ctx context.Context, propName string,
+	index propertyspecific.Index, obj *storobj.Object, status objectInsertStatus,
 ) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	// geo props were not changed
@@ -140,14 +140,15 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 		}
 	}
 
-	return s.addToGeoIndex(propName, index, obj, status)
+	return s.addToGeoIndex(ctx, propName, index, obj, status)
 }
 
-func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
+func (s *Shard) addToGeoIndex(ctx context.Context, propName string,
+	index propertyspecific.Index,
 	obj *storobj.Object, status objectInsertStatus,
 ) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	if obj.Properties() == nil {
@@ -167,7 +168,7 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 			&models.GeoCoordinates{}, propValue)
 	}
 
-	if err := index.GeoIndex.Add(status.docID, asGeo); err != nil {
+	if err := index.GeoIndex.Add(ctx, status.docID, asGeo); err != nil {
 		return errors.Wrapf(err, "insert into geo index")
 	}
 
@@ -177,8 +178,8 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint64,
 ) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	if err := index.GeoIndex.Delete(docID); err != nil {

@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,13 +29,21 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const (
 	Name = "text2vec-openai"
 )
+
+var batchSettings = batch.Settings{
+	TokenMultiplier:    1,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 2000, // https://platform.openai.com/docs/api-reference/embeddings/create
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   true,
+}
 
 func New() *OpenAIModule {
 	return &OpenAIModule{}
@@ -100,7 +110,11 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
+	)
+
 	m.metaProvider = client
 
 	return nil

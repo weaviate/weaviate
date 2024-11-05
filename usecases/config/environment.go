@@ -27,10 +27,13 @@ import (
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
-	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftPort         = 8300
+	DefaultRaftInternalPort = 8301
+	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
+	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
+	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
+	// on a single node cluster.
+	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 )
@@ -197,6 +200,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
 	}
 
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
+		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
+		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -206,6 +217,15 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = parsed
 	} else {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
+	}
+
+	if err := parseInt(
+		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
+		DefaultHNSWVisitedListPoolSize,
+		func(size int) error { return nil },
+		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+	); err != nil {
+		return err
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -272,6 +292,14 @@ func FromEnv(config *Config) error {
 		config.QueryNestedCrossReferenceLimit = limit
 	} else {
 		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
+	}
+
+	if err := parsePositiveInt(
+		"QUERY_CROSS_REFERENCE_DEPTH_LIMIT",
+		func(val int) { config.QueryCrossReferenceDepthLimit = val },
+		DefaultQueryCrossReferenceDepthLimit,
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
@@ -400,6 +428,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
+		config.Replication.DeletionStrategy = v
+	}
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
@@ -512,6 +544,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
 	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
@@ -600,26 +633,48 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
-func parsePositiveInt(varName string, cb func(val int), defaultValue int) error {
-	if v := os.Getenv(varName); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as int: %w", varName, err)
-		} else if asInt <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0", varName)
+func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a positive value larger 0", envName)
 		}
+		return nil
+	}, cb)
+}
 
-		cb(asInt)
-	} else {
-		cb(defaultValue)
+func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val < 0 {
+			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+	var err error
+	asInt := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asInt, err = strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if err = verify(asInt); err != nil {
+			return err
+		}
 	}
 
+	cb(asInt)
 	return nil
 }
 
 const (
-	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
+	DefaultQueryCrossReferenceDepthLimit = 5
 )
 
 const (
@@ -770,6 +825,20 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+
+	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
+	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
+	// return an error for all data requests, but will still participate in the raft cluster and
+	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
+	// data requests and you need to start up the node to give it time to "catch up".
+
+	// avoid the case where strings.Split creates a slice with only the empty string as I think
+	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
+	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
+	cfg.MaintenanceNodes = []string{}
+	if m := os.Getenv("MAINTENANCE_NODES"); m != "" {
+		cfg.MaintenanceNodes = strings.Split(m, ",")
+	}
 
 	return cfg, nil
 }

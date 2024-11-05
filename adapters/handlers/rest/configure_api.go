@@ -63,15 +63,16 @@ import (
 	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -89,15 +90,14 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
+	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
-	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
-	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -145,9 +145,40 @@ func getCores() (int, error) {
 	if err != nil {
 		return 0, errors.Wrap(err, "read cpuset")
 	}
+	return calcCPUs(strings.TrimSpace(string(cpuset)))
+}
 
-	cores := strings.Split(strings.TrimSpace(string(cpuset)), ",")
-	return len(cores), nil
+func calcCPUs(cpuString string) (int, error) {
+	cores := 0
+	if cpuString == "" {
+		return 0, nil
+	}
+
+	// Split by comma to handle multiple ranges
+	ranges := strings.Split(cpuString, ",")
+	for _, r := range ranges {
+		// Check if it's a range (contains a hyphen)
+		if strings.Contains(r, "-") {
+			parts := strings.Split(r, "-")
+			if len(parts) != 2 {
+				return 0, fmt.Errorf("invalid CPU range format: %s", r)
+			}
+			start, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
+			}
+			end, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
+			}
+			cores += end - start + 1
+		} else {
+			// Single CPU
+			cores++
+		}
+	}
+
+	return cores, nil
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
@@ -266,26 +297,28 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
-		ServerVersion:             config.ServerVersion,
-		GitHash:                   config.GitHash,
-		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
-		MemtablesInitialSizeMB:    10,
-		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		MaxSegmentSize:            appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
-		HNSWMaxLogSize:            appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:   appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
-		QueryNestedRefLimit:       appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
-		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
-		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
-		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
-		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
-		ForceFullReplicasSearch:   appState.ServerConfig.Config.ForceFullReplicasSearch,
+		ServerVersion:                  config.ServerVersion,
+		GitHash:                        config.GitHash,
+		MemtablesFlushDirtyAfter:       appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
+		MemtablesInitialSizeMB:         10,
+		MemtablesMaxSizeMB:             appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		SegmentsCleanupIntervalSeconds: appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
+		MaxSegmentSize:                 appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		HNSWMaxLogSize:                 appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:        appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		VisitedListPoolMaxSize:         appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		RootPath:                       appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                     appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:            appState.ServerConfig.Config.QueryMaximumResults,
+		QueryNestedRefLimit:            appState.ServerConfig.Config.QueryNestedCrossReferenceLimit,
+		MaxImportGoroutinesFactor:      appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:          appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:                  appState.ServerConfig.Config.ResourceUsage,
+		AvoidMMap:                      appState.ServerConfig.Config.AvoidMmap,
+		DisableLazyLoadShards:          appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:        appState.ServerConfig.Config.ForceFullReplicasSearch,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -373,9 +406,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
-		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
 		NodeNameToPortMap:      server2port,
 		NodeToAddressResolver:  appState.Cluster,
 		Logger:                 appState.Logger,
@@ -804,29 +838,31 @@ func registerModules(appState *state.State) error {
 		modtext2vecaws.Name,
 		modcohere.Name,
 		moddatabricks.Name,
+		modtext2vecgoogle.Name,
+		modmulti2vecgoogle.Name,
 		modhuggingface.Name,
 		modjinaai.Name,
-		modoctoai.Name,
+		modmistral.Name,
+		modtext2vecoctoai.Name,
 		modopenai.Name,
-		modtext2vecpalm.Name,
-		modmulti2vecpalm.Name,
 		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
+		modgenerativeanthropic.Name,
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
 		modgenerativedatabricks.Name,
 		modgenerativefriendliai.Name,
+		modgenerativegoogle.Name,
 		modgenerativemistral.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
-		modgenerativepalm.Name,
-		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
 		modrerankervoyageai.Name,
+		modrerankerjinaai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -968,11 +1004,21 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modmulti2vecpalm.Name]; ok {
-		appState.Modules.Register(modmulti2vecpalm.New())
+	_, enabledMulti2VecGoogle := enabledModules[modmulti2vecgoogle.Name]
+	_, enabledMulti2VecPaLM := enabledModules[modmulti2vecgoogle.LegacyName]
+	if enabledMulti2VecGoogle || enabledMulti2VecPaLM {
+		appState.Modules.Register(modmulti2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modmulti2vecpalm.Name).
+			WithField("module", modmulti2vecgoogle.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecohere.Name]; ok {
+		appState.Modules.Register(modmulti2vecohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecohere.Name).
 			Debug("enabled module")
 	}
 
@@ -1072,11 +1118,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
-		appState.Modules.Register(modgenerativepalm.New())
+	_, enabledGenerativeGoogle := enabledModules[modgenerativegoogle.Name]
+	_, enabledGenerativePaLM := enabledModules[modgenerativegoogle.LegacyName]
+	if enabledGenerativeGoogle || enabledGenerativePaLM {
+		appState.Modules.Register(modgenerativegoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modgenerativepalm.Name).
+			WithField("module", modgenerativegoogle.Name).
 			Debug("enabled module")
 	}
 
@@ -1094,13 +1142,15 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", modgenerativeanthropic.Name).
 			Debug("enabled module")
-
 	}
-	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
-		appState.Modules.Register(modtext2vecpalm.New())
+
+	_, enabledText2vecGoogle := enabledModules[modtext2vecgoogle.Name]
+	_, enabledText2vecPaLM := enabledModules[modtext2vecgoogle.LegacyName]
+	if enabledText2vecGoogle || enabledText2vecPaLM {
+		appState.Modules.Register(modtext2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modtext2vecpalm.Name).
+			WithField("module", modtext2vecgoogle.Name).
 			Debug("enabled module")
 	}
 
