@@ -181,7 +181,6 @@ func BenchmarkLASQL2Speed(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lasq.DistanceBetweenCompressedVectors(v1, v2)
-		//compressionhelpers.DotByteImpl(v1[:dims], v2[:dims])
 	}
 }
 
@@ -195,7 +194,6 @@ func BenchmarkSQL2Speed(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		sq.DistanceBetweenCompressedVectors(v1, v2)
-		//compressionhelpers.DotByteImpl(v1[:dims], v2[:dims])
 	}
 }
 
