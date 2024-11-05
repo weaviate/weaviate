@@ -86,7 +86,7 @@ GetRoleOK describes a response with status code 200, with default header values.
 Successful response.
 */
 type GetRoleOK struct {
-	Payload models.RolesListResponse
+	Payload *models.Role
 }
 
 // IsSuccess returns true when this get role o k response has a 2xx status code
@@ -127,14 +127,16 @@ func (o *GetRoleOK) String() string {
 	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleOK  %+v", 200, o.Payload)
 }
 
-func (o *GetRoleOK) GetPayload() models.RolesListResponse {
+func (o *GetRoleOK) GetPayload() *models.Role {
 	return o.Payload
 }
 
 func (o *GetRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+	o.Payload = new(models.Role)
+
 	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
 
