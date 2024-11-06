@@ -11,8 +11,18 @@
 
 package rbac
 
+type Level string
+
+func CheckLevel(sp *string) bool {
+	if sp == nil {
+		return false
+	}
+	return *sp == "database" || *sp == "collection"
+}
+
 type Policy struct {
 	Name     string
 	Resource string
 	Verb     string
+	Level    string
 }

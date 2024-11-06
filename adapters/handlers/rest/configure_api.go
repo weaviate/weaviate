@@ -1542,9 +1542,11 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 		// TODO: objects has to be mapped e.g.
 		//  v1/schema.class.ABC  [path.objectType.objectName]
 
-		for _, verb := range authorization.BuiltInRolesVerbs[authConfig.Roles[i]] {
-			if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb); err != nil {
-				return nil, fmt.Errorf("add policy: %w", err)
+		for _, entry := range authorization.BuiltInRoles[authConfig.Roles[i]] {
+			for _, verb := range entry.Verbs {
+				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, entry.Level); err != nil {
+					return nil, fmt.Errorf("add policy: %w", err)
+				}
 			}
 		}
 

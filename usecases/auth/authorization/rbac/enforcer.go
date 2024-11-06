@@ -29,7 +29,7 @@ func (e *Enforcer) Enforce(username, resource, verb string) (bool, error) {
 
 func (e *Enforcer) AddPolicies(policies []*Policy) error {
 	for _, policy := range policies {
-		if _, err := e.casbin.AddPolicy(policy.Name, policy.Resource, policy.Verb); err != nil {
+		if _, err := e.casbin.AddPolicy(policy.Name, policy.Resource, policy.Verb, policy.Level); err != nil {
 			return err
 		}
 	}
@@ -60,7 +60,7 @@ func (e *Enforcer) GetPolicies(name *string) ([]*Policy, error) {
 		if name != nil && p[0] != *name {
 			continue
 		}
-		policies = append(policies, &Policy{Name: p[0], Resource: p[1], Verb: p[2]})
+		policies = append(policies, &Policy{Name: p[0], Resource: p[1], Verb: p[2], Level: p[3]})
 	}
 	return policies, nil
 }
