@@ -5259,14 +5259,14 @@ func init() {
               "manage_roles",
               "read_roles",
               "manage_cluster",
-              "create_collection",
-              "read_collection",
-              "update_collection",
-              "delete_collection",
-              "create_tenant",
-              "read_tenant",
-              "update_tenant",
-              "delete_tenant"
+              "create_collections",
+              "read_collections",
+              "update_collections",
+              "delete_collections",
+              "create_tenants",
+              "read_tenants",
+              "update_tenants",
+              "delete_tenants"
             ]
           }
         },
@@ -11693,14 +11693,14 @@ func init() {
               "manage_roles",
               "read_roles",
               "manage_cluster",
-              "create_collection",
-              "read_collection",
-              "update_collection",
-              "delete_collection",
-              "create_tenant",
-              "read_tenant",
-              "update_tenant",
-              "delete_tenant"
+              "create_collections",
+              "read_collections",
+              "update_collections",
+              "delete_collections",
+              "create_tenants",
+              "read_tenants",
+              "update_tenants",
+              "delete_tenants"
             ]
           }
         },
