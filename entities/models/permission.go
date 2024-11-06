@@ -67,7 +67,7 @@ var permissionActionsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","manage_cluster","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
