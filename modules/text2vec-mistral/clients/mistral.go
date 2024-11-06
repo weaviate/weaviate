@@ -137,10 +137,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if res.StatusCode != 200 {
 		if resBody.Message != "" {
 			errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "connection to Mistral failed with status: %d error: %v")
-			return nil, 0, errors.Errorf(errorMessage)
+			return nil, 0, errors.New(errorMessage)
 		}
 		errorMessage := getErrorMessage(res.StatusCode, "", "connection to Mistral failed with status: %d")
-		return nil, 0, errors.Errorf(errorMessage)
+		return nil, 0, errors.New(errorMessage)
 	}
 
 	if len(resBody.Data) == 0 || len(resBody.Data[0].Embeddings) == 0 {
