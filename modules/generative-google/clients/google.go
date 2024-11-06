@@ -258,7 +258,7 @@ func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte) 
 		if len(resBody.Candidates[0].Content.Parts) > 0 {
 			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
 		}
-		return nil, fmt.Errorf(v.decodeFinishReason(resBody.Candidates[0].FinishReason))
+		return nil, fmt.Errorf("%s", v.decodeFinishReason(resBody.Candidates[0].FinishReason))
 	}
 
 	return &generativemodels.GenerateResponse{

@@ -68,7 +68,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 							len(objs), origIdx)
 						break
 					}
-					objs[origIdx].Err = fmt.Errorf(msg)
+					objs[origIdx].Err = errors.New(msg)
 				}
 				continue
 			}
