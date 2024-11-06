@@ -74,9 +74,9 @@ type LevelAndVerbs struct {
 
 // TODO add translation layer between weaviate and Casbin permissions
 var BuiltInRoles = map[string][]LevelAndVerbs{
-	"viewer": {{Level: "database", Verbs: readOnlyVerbs()}, {Level: "collection", Verbs: readOnlyVerbs()}},
-	"editor": {{Level: "database", Verbs: editorVerbs()}, {Level: "collection", Verbs: editorVerbs()}},
-	"admin":  {{Level: "database", Verbs: adminVerbs()}, {Level: "collection", Verbs: adminVerbs()}},
+	"viewer": {{Level: "database", Verbs: readOnlyVerbs()}},
+	"editor": {{Level: "database", Verbs: editorVerbs()}},
+	"admin":  {{Level: "database", Verbs: adminVerbs()}},
 }
 
 func readOnlyVerbs() []string {
@@ -99,14 +99,23 @@ func Verbs[T Action](a T) []string {
 	return a.Verbs()
 }
 
-// Actions
+// ActionsByLevel
 type (
 	Read   string
 	List   string
 	Write  string
 	Update string
 	Delete string
+	All    string
 )
+
+func AllActionsForLevel(level string) []string {
+	var actions []string
+	for key := range ActionsByLevel[level] {
+		actions = append(actions, key)
+	}
+	return actions
+}
 
 func (r Read) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET}
@@ -128,6 +137,10 @@ func (r Delete) Verbs() []string {
 	return []string{HEAD, VALIDATE, DELETE}
 }
 
+func (r All) Verbs() []string {
+	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
+}
+
 type Level string
 
 // levels
@@ -139,27 +152,31 @@ var (
 )
 
 var (
-	CreateRole Write  = "create_role"
-	ReadRole   Read   = "read_role"
-	UpdateRole Update = "update_role"
-	DeleteRole Delete = "delete_role"
-	ManageRole Delete = "manage_role" // TODO is it needed ?
+	ManageRole    All  = "manage_role" // should not be delete
+	ReadRole      Read = "manage_role" // should not be delete
+	ManageCluster All  = "manage_role"
 
 	CreateCollection Write  = "create_collection"
 	ReadCollection   Read   = "read_collection"
 	UpdateCollection Update = "update_collection"
 	DeleteCollection Delete = "delete_collection"
 
-	Actions = map[string]Action{
-		string(CreateRole): CreateRole,
-		string(ReadRole):   ReadRole,
-		string(UpdateRole): UpdateRole,
-		string(DeleteRole): DeleteRole,
-
-		string(CreateCollection): CreateCollection,
-		string(ReadCollection):   ReadCollection,
-		string(UpdateCollection): UpdateCollection,
-		string(DeleteCollection): DeleteCollection,
+	ActionsByLevel = map[string]map[string]Action{
+		"database": {
+			string(ManageRole):       ManageRole,
+			string(ReadRole):         ReadRole,
+			string(ManageCluster):    ManageCluster,
+			string(CreateCollection): CreateCollection,
+			string(ReadCollection):   ReadCollection,
+			string(UpdateCollection): UpdateCollection,
+			string(DeleteCollection): DeleteCollection,
+		},
+		"collection": {
+			string(CreateTenant): CreateTenant,
+			string(ReadTenant):   ReadTenant,
+			string(UpdateTenant): UpdateTenant,
+			string(DeleteTenant): DeleteTenant,
+		},
 	}
 
 	CreateTenant Write  = "create_tenant"
@@ -167,13 +184,11 @@ var (
 	UpdateTenant Update = "update_tenant"
 	DeleteTenant Delete = "delete_tenant"
 
+	// not in first version
 	CreateObject Write  = "create_object"
 	ReadObject   Read   = "read_object"
 	UpdateObject Update = "update_object"
 	DeleteObject Delete = "delete_object"
-
-	CreateBackup Write = "create_backup" // TODO cluster management
-	GetBackup    Read  = "read_backup"   // TODO cluster management ?
 )
 
 // SchemaShard returns the path for a specific schema shard.
