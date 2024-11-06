@@ -40,7 +40,7 @@ type BackupRestoreStatusResponse struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of backup files proper to selected backup backend
+	// destination path of backup files proper to selected backup backend, contains bucket and path
 	Path string `json:"path,omitempty"`
 
 	// phase of backup restoration process
