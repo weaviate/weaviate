@@ -31,7 +31,7 @@ func (p *Params) validate(inputSize, dims int) error {
 		ec.Addf("result length %d is larger than 25 items: semantic path calculation is only suported up to 25 items, set a limit to <= 25", inputSize)
 	}
 
-	if p.SearchVector == nil || len(p.SearchVector) == 0 {
+	if len(p.SearchVector) == 0 {
 		ec.Addf("no valid search vector present, got: %v", p.SearchVector)
 	}
 

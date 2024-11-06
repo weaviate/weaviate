@@ -329,5 +329,5 @@ func joinErrors(errors []error) error {
 		return nil
 	}
 
-	return fmt.Errorf(strings.Join(errorStrings, ", "))
+	return fmt.Errorf("%s", strings.Join(errorStrings, ", "))
 }
