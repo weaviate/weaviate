@@ -66,7 +66,8 @@ type API struct {
 	log    logrus.FieldLogger
 	config *Config
 
-	schema  SchemaQuerier
+	schema SchemaQuerier
+
 	offload *modsloads3.Module
 	// cachedTenantLsmkvStores: tenantName -> tenantLsmkvStore (lsm object and path to tenant dir on disk)
 	// the tenantLsmkvStore value is updated if new tenant data versions are downloaded.
@@ -79,7 +80,7 @@ type API struct {
 }
 
 type SchemaQuerier interface {
-	TenantStatus(ctx context.Context, collection, tenant string) (string, error)
+	TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
 }
 
@@ -112,7 +113,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	// 4. Once in the local disk, load the index
 	// 5. Searve the search.
 
-	info, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
+	info, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -121,10 +122,11 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	store, localPath, err := a.EnsureLSM(ctx, req.Collection, req.Tenant, false)
+	store, localPath, err := a.FetchLSM(ctx, req.Collection, req.Tenant, tenantVersion)
 	if err != nil {
 		return nil, err
 	}
+	defer store.Shutdown(ctx)
 
 	var resp SearchResponse
 
@@ -325,6 +327,39 @@ type tenantLsmkvStore struct {
 	localTenantPath string
 }
 
+func (a *API) FetchLSM(ctx context.Context, collection, tenant string, tenatVersion uint64) (*lsmkv.Store, string, error) {
+	download := a.config.AlwaysFetchObjectStore
+	// TODO(kavi): Will update download flag based on data version from schema later to decide to get from local cache or upstream storage.
+
+	dst := path.Join(
+		a.offload.DataPath,
+		strings.ToLower(collection),
+		strings.ToLower(tenant),
+		defaultLSMRoot,
+	)
+	if download {
+		// src - s3://<collection>/<tenant>/<node>/
+		// dst (local) - <data-path/<collection>/<tenant>
+		a.log.WithFields(logrus.Fields{
+			"collection": collection,
+			"tenant":     tenant,
+			"nodeName":   nodeName,
+			"dst":        dst,
+		}).Debug("starting download to path")
+		if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, dst); err != nil {
+			return nil, "", err
+		}
+	}
+
+	store, err := lsmkv.New(dst, dst, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
+	}
+
+	return store, dst, nil
+}
+
+// NOTE(kavi): Not using it anywhere for now as it is bit unsable.
 // EnsureLSM returns a cached lsmkv store or downloads a new one and returns that. If
 // doUpdateTenantIfExistsLocally is true then the tenant will only be downloaded if it exists
 // locally and if the tenant does not exist locally then this method will return nil. If
@@ -391,7 +426,7 @@ func (a *API) EnsureLSM(
 	)
 	if proceedWithDownload {
 		_, err := os.Stat(localTenantTimePath)
-		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
+		if os.IsNotExist(err) {
 			// src - s3://<collection>/<tenant>/<node>/
 			// dst (local) - <data-path/<collection>/<tenant>/timestamp
 			a.log.WithFields(logrus.Fields{
