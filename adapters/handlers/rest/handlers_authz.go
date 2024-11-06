@@ -65,14 +65,14 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 		if len(permission.Resources) == 0 { // no filters
 			for _, action := range permission.Actions {
-				for _, verb := range authorization.Verbs(authorization.Actions[action]) {
+				for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
 					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Level: level})
 				}
 			}
 		} else {
 			for _, resource := range permission.Resources { // with filtering
 				for _, action := range permission.Actions {
-					for _, verb := range authorization.Verbs(authorization.Actions[action]) {
+					for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
 						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Level: level}) // TODO: add filter to specific resource
 					}
 				}
@@ -99,32 +99,55 @@ func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, p
 func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Role {
 	// TODO proper mapping between casbin and weaviate permissions
 	// name, level, verb
-	actionsByRole := make(map[string]map[string]map[string]struct{})
+	verbsByRole := make(map[string]map[string]map[string]struct{})
 	resourcesByRole := make(map[string]map[string]map[string]struct{})
 	for _, policy := range policies {
-		if _, ok := actionsByRole[policy.Name]; !ok {
-			actionsByRole[policy.Name] = map[string]map[string]struct{}{}
+		if _, ok := verbsByRole[policy.Name]; !ok {
+			verbsByRole[policy.Name] = map[string]map[string]struct{}{}
 		}
 		if _, ok := resourcesByRole[policy.Name]; !ok {
 			resourcesByRole[policy.Name] = map[string]map[string]struct{}{}
 		}
-		if _, ok := actionsByRole[policy.Name][policy.Level]; !ok {
-			actionsByRole[policy.Name][policy.Level] = map[string]struct{}{}
+		if _, ok := verbsByRole[policy.Name][policy.Level]; !ok {
+			verbsByRole[policy.Name][policy.Level] = map[string]struct{}{}
 		}
 		if _, ok := resourcesByRole[policy.Name][policy.Level]; !ok {
 			resourcesByRole[policy.Name][policy.Level] = map[string]struct{}{}
 		}
 
-		actionsByRole[policy.Name][policy.Level][policy.Verb] = struct{}{}
+		verbsByRole[policy.Name][policy.Level][policy.Verb] = struct{}{}
 		resourcesByRole[policy.Name][policy.Level][policy.Resource] = struct{}{}
 	}
 
-	out := make([]*models.Role, 0, len(actionsByRole))
-	for name, actions := range actionsByRole {
-		for level := range actions {
-			as := make([]string, 0, len(actions[level]))
-			for a := range actions[level] {
-				as = append(as, a)
+	out := make([]*models.Role, 0, len(verbsByRole))
+	for name, verbs := range verbsByRole {
+		for level := range verbs {
+			allActions := authorization.AllActionsForLevel(level)
+
+			// map verbs to actions
+			actionToVerbs := map[string]map[string]struct{}{}
+			for _, action := range allActions {
+				for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
+					if _, ok := actionToVerbs[action]; !ok {
+						actionToVerbs[action] = map[string]struct{}{}
+					}
+
+					actionToVerbs[action][verb] = struct{}{}
+				}
+			}
+
+			for verb := range verbs[level] {
+				for action, actionVerb := range actionToVerbs {
+					if _, ok := actionVerb[verb]; ok {
+						delete(actionToVerbs[action], verb)
+					}
+				}
+			}
+			var roleActions []string
+			for action, actionVerb := range actionToVerbs {
+				if len(actionVerb) == 0 {
+					roleActions = append(roleActions, action)
+				}
 			}
 
 			rs := make([]*string, 0, len(resourcesByRole[name][level]))
@@ -135,7 +158,7 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 			out = append(out, &models.Role{
 				Name: &name,
 				Permissions: []*models.Permission{{
-					Actions:   as,
+					Actions:   roleActions,
 					Resources: rs,
 					Level:     &level,
 				}},
@@ -143,6 +166,7 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 
 		}
 	}
+
 	return out
 }
 
