@@ -82,7 +82,7 @@ func TestAuthzRoles(t *testing.T) {
 		require.Equal(t, 1, len(res.Payload))
 	})
 
-	t.Run("get non-existant role by name", func(t *testing.T) {
+	t.Run("get non-existent role by name", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
 		require.NotNil(t, err)
 	})
