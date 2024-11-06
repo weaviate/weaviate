@@ -18,7 +18,6 @@ package asm
 //go:generate goat ../c/dot_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
-	"reflect"
 	"unsafe"
 )
 
@@ -49,15 +48,15 @@ func Dot(x []float32, y []float32) float32 {
 	var res float32
 
 	// The C function expects pointers to the underlying array, not slices.
-	hdrx := (*reflect.SliceHeader)(unsafe.Pointer(&x))
-	hdry := (*reflect.SliceHeader)(unsafe.Pointer(&y))
+	hdrx := unsafe.SliceData(x)
+	hdry := unsafe.SliceData(y)
 
 	l := len(x)
 	dot(
 		// The slice header contains the address of the underlying array.
 		// We only need to cast it to a pointer.
-		unsafe.Pointer(hdrx.Data),
-		unsafe.Pointer(hdry.Data),
+		unsafe.Pointer(hdrx),
+		unsafe.Pointer(hdry),
 		// The C function expects pointers to the result and the length of the arrays.
 		unsafe.Pointer(&res),
 		unsafe.Pointer(&l))
