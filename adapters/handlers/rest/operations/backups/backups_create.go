@@ -45,7 +45,9 @@ func NewBackupsCreate(ctx *middleware.Context, handler BackupsCreateHandler) *Ba
 /*
 	BackupsCreate swagger:route POST /backups/{backend} backups backupsCreate
 
-Starts a process of creating a backup for a set of classes
+# Start a backup process
+
+Start creating a backup for a set of collections. <br/><br/>Notes: <br/>- Weaviate uses gzip compression by default. <br/>- Weaviate stays usable while a backup process is ongoing.
 */
 type BackupsCreate struct {
 	Context *middleware.Context

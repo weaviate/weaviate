@@ -71,7 +71,8 @@ func TestBatch(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			v := text2vecbase.New(client,
-				batch.NewBatchVectorizer(client, 50*time.Second, 1000000, func(cfg moduletools.ClassConfig) int { return 8192 }, 10,
+				batch.NewBatchVectorizer(client, 50*time.Second,
+					batch.Settings{MaxObjectsPerBatch: 100, MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 500000 }, MaxTimePerBatch: 10},
 					logger, "test"),
 				batch.ReturnBatchTokenizer(1.3, "", false),
 			)

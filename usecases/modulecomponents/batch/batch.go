@@ -70,22 +70,18 @@ type BatchClient interface {
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
-	HasTokenLimit() bool
-	ReturnsRateLimit() bool
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTokensPerBatch func(cfg moduletools.ClassConfig) int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger, label string) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch {
 	batch := Batch{
-		client:                    client,
-		objectVectorizer:          objectsvectorizer.New(),
-		jobQueueCh:                make(chan BatchJob, BatchChannelSize),
-		maxBatchTime:              maxBatchTime,
-		maxObjectsPerBatch:        maxObjectsPerBatch,
-		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
-		maxTokensPerBatch:         maxTokensPerBatch,
-		concurrentBatches:         atomic.Int32{},
-		logger:                    logger,
-		label:                     label,
+		client:            client,
+		objectVectorizer:  objectsvectorizer.New(),
+		jobQueueCh:        make(chan BatchJob, BatchChannelSize),
+		maxBatchTime:      maxBatchTime,
+		settings:          settings,
+		concurrentBatches: atomic.Int32{},
+		logger:            logger,
+		label:             label,
 	}
 
 	batch.rateLimitChannel = make(chan rateLimitJob, BatchChannelSize)
@@ -112,18 +108,16 @@ type endOfBatchJob struct {
 }
 
 type Batch struct {
-	client                    BatchClient
-	objectVectorizer          *objectsvectorizer.ObjectVectorizer
-	jobQueueCh                chan BatchJob
-	maxBatchTime              time.Duration
-	maxObjectsPerBatch        int
-	maxTimePerVectorizerBatch float64
-	maxTokensPerBatch         func(cfg moduletools.ClassConfig) int
-	rateLimitChannel          chan rateLimitJob
-	endOfBatchChannel         chan endOfBatchJob
-	concurrentBatches         atomic.Int32
-	logger                    logrus.FieldLogger
-	label                     string
+	client            BatchClient
+	objectVectorizer  *objectsvectorizer.ObjectVectorizer
+	jobQueueCh        chan BatchJob
+	maxBatchTime      time.Duration
+	settings          Settings
+	rateLimitChannel  chan rateLimitJob
+	endOfBatchChannel chan endOfBatchJob
+	concurrentBatches atomic.Int32
+	logger            logrus.FieldLogger
+	label             string
 }
 
 // batchWorker is a go routine that handles the communication with the vectorizer
@@ -135,7 +129,7 @@ type Batch struct {
 //  3. It sends the smaller batches to the vectorizer
 func (b *Batch) batchWorker() {
 	timePerToken := 0.0
-	objectsPerBatch := b.maxObjectsPerBatch
+	objectsPerBatch := b.settings.MaxObjectsPerBatch
 
 	rateLimitPerApiKey := make(map[[32]byte]*modulecomponents.RateLimits)
 
@@ -273,7 +267,7 @@ timeLoop:
 			if endOfBatch.concurrentBatch {
 				rateLimits[endOfBatch.apiKeyHash].ReservedTokens -= endOfBatch.reservedTokens
 				rateLimits[endOfBatch.apiKeyHash].ReservedRequests -= endOfBatch.reservedReqs
-				if !b.client.ReturnsRateLimit() {
+				if !b.settings.ReturnsRateLimit {
 					rateLimits[endOfBatch.apiKeyHash].RemainingTokens -= endOfBatch.actualTokens
 					rateLimits[endOfBatch.apiKeyHash].RemainingRequests -= endOfBatch.actualReqs
 				}
@@ -287,7 +281,7 @@ timeLoop:
 }
 
 func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
-	maxTokensPerBatch := b.maxTokensPerBatch(job.cfg)
+	maxTokensPerBatch := b.settings.MaxTokensPerBatch(job.cfg)
 	estimatedTokensInCurrentBatch := 0
 	numRequests := 0
 	numSendObjects := 0
@@ -315,8 +309,8 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		text := job.texts[objCounter]
 		if float32(estimatedTokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) &&
 			float32(estimatedTokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(maxTokensPerBatch) &&
-			(timePerToken*float64(estimatedTokensInCurrentBatch) < b.maxTimePerVectorizerBatch) &&
-			len(texts) < b.maxObjectsPerBatch {
+			(timePerToken*float64(estimatedTokensInCurrentBatch) < b.settings.MaxTimePerBatch) &&
+			len(texts) < b.settings.MaxObjectsPerBatch {
 			estimatedTokensInCurrentBatch += job.tokens[objCounter]
 			texts = append(texts, text)
 			origIndex = append(origIndex, objCounter)
@@ -449,7 +443,7 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 	if rateLimitNew != nil {
 		rateLimit.UpdateWithRateLimit(rateLimitNew)
 		b.rateLimitChannel <- rateLimitJob{rateLimit: rateLimitNew, apiKeyHash: job.apiKeyHash}
-	} else if b.client.HasTokenLimit() {
+	} else if b.settings.HasTokenLimit {
 		if tokensUsed > -1 {
 			tokensInCurrentBatch = tokensUsed
 		}
