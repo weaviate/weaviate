@@ -35,6 +35,9 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 	if a.enforcer == nil {
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
+	if principal == nil {
+		return fmt.Errorf("user is unauthenticated")
+	}
 
 	a.logger.WithFields(logrus.Fields{
 		"user":     principal.Username,

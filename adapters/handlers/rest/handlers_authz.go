@@ -211,7 +211,12 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.enforcer.RemovePolicies(params.ID); err != nil {
+	policies, err := h.enforcer.GetPolicies(&params.ID)
+	if err != nil {
+		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err := h.enforcer.RemovePolicies(policies); err != nil {
 		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
