@@ -152,8 +152,9 @@ var (
 )
 
 var (
-	ManageRole    All = "manage_role" // should not be delete
-	ManageCluster All = "manage_role"
+	ManageRole    All  = "manage_role" // should not be delete
+	ReadRole      Read = "manage_role" // should not be delete
+	ManageCluster All  = "manage_role"
 
 	CreateCollection Write  = "create_collection"
 	ReadCollection   Read   = "read_collection"
@@ -163,6 +164,7 @@ var (
 	ActionsByLevel = map[string]map[string]Action{
 		"database": {
 			string(ManageRole):       ManageRole,
+			string(ReadRole):         ReadRole,
 			string(ManageCluster):    ManageCluster,
 			string(CreateCollection): CreateCollection,
 			string(ReadCollection):   ReadCollection,
