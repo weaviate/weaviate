@@ -428,7 +428,7 @@ func (a *API) EnsureLSM(
 	)
 	if proceedWithDownload {
 		_, err := os.Stat(localTenantTimePath)
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) || a.config.AlwaysFetchObjectStore {
 			// src - s3://<collection>/<tenant>/<node>/
 			// dst (local) - <data-path/<collection>/<tenant>/timestamp
 			a.log.WithFields(logrus.Fields{
