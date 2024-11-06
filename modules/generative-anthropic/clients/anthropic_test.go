@@ -75,7 +75,7 @@ func TestGenerate(t *testing.T) {
 			settings := &fakeClassConfig{baseURL: server.URL}
 			res, err := a.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
 
-			if test.answer.Content == nil || len(test.answer.Content) == 0 {
+			if len(test.answer.Content) == 0 {
 				assert.Error(t, err)
 				assert.Nil(t, res)
 			} else {
@@ -114,7 +114,7 @@ func (f *testAnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Content == nil || len(f.answer.Content) == 0 {
+	if len(f.answer.Content) == 0 {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
