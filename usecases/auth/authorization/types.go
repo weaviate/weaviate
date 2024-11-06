@@ -67,11 +67,16 @@ const (
 	USERS = "authz/users"
 )
 
+type LevelAndVerbs struct {
+	Level string
+	Verbs []string
+}
+
 // TODO add translation layer between weaviate and Casbin permissions
-var BuiltInRolesVerbs = map[string][]string{
-	"viewer": readOnlyVerbs(),
-	"editor": editorVerbs(),
-	"admin":  adminVerbs(),
+var BuiltInRoles = map[string][]LevelAndVerbs{
+	"viewer": {{Level: "database", Verbs: readOnlyVerbs()}, {Level: "collection", Verbs: readOnlyVerbs()}},
+	"editor": {{Level: "database", Verbs: editorVerbs()}, {Level: "collection", Verbs: editorVerbs()}},
+	"admin":  {{Level: "database", Verbs: adminVerbs()}, {Level: "collection", Verbs: adminVerbs()}},
 }
 
 func readOnlyVerbs() []string {
