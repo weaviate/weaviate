@@ -415,15 +415,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 		var (
 			ids   []uint64
 			dists []float32
+			err   error
 		)
 		eg.Go(func() error {
-			queue, err := s.getIndexQueue(targetVector)
-			if err != nil {
-				return err
-			}
+			vidx := s.getVectorIndex(targetVector)
 
 			if limit < 0 {
-				ids, dists, err = queue.SearchByVectorDistance(
+				ids, dists, err = vidx.SearchByVectorDistance(
 					ctx, searchVectors[i], targetDist, s.index.Config.QueryMaximumResults, allowList)
 				if err != nil {
 					// This should normally not fail. A failure here could indicate that more
@@ -434,7 +432,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					return err
 				}
 			} else {
-				ids, dists, err = queue.SearchByVector(ctx, searchVectors[i], limit, allowList)
+				ids, dists, err = vidx.SearchByVector(ctx, searchVectors[i], limit, allowList)
 				if err != nil {
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's
@@ -459,7 +457,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-	vidx := s.getVectorIndex(targetVector)
 
 	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
 	if err != nil {
