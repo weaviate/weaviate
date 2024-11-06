@@ -434,8 +434,8 @@ func (r *ShardInvertedReindexer) tempBucket(propName string, indexType PropertyI
 
 func (r *ShardInvertedReindexer) checkContextExpired(ctx context.Context, msg string) error {
 	if ctx.Err() != nil {
-		r.logError(ctx.Err(), msg)
-		return errors.Wrapf(ctx.Err(), msg)
+		r.logError(ctx.Err(), "%v", msg)
+		return errors.Wrapf(ctx.Err(), "%v", msg)
 	}
 	return nil
 }
