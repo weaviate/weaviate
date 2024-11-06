@@ -335,7 +335,6 @@ func (a *API) FetchLSM(ctx context.Context, collection, tenant string, tenatVers
 		a.offload.DataPath,
 		strings.ToLower(collection),
 		strings.ToLower(tenant),
-		defaultLSMRoot,
 	)
 	if download {
 		// src - s3://<collection>/<tenant>/<node>/
@@ -351,7 +350,9 @@ func (a *API) FetchLSM(ctx context.Context, collection, tenant string, tenatVers
 		}
 	}
 
-	store, err := lsmkv.New(dst, dst, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	lsmPath := path.Join(dst, defaultLSMRoot)
+
+	store, err := lsmkv.New(lsmPath, lsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
