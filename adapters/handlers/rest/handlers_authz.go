@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -55,17 +57,23 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies := []*rbac.Policy{}
 	for _, permission := range params.Body.Permissions {
+		if !rbac.CheckLevel(permission.Level) {
+			err := fmt.Errorf("permission level '%v' is not allowed", permission.Level)
+			return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
+		level := *permission.Level
+
 		if len(permission.Resources) == 0 { // no filters
 			for _, action := range permission.Actions {
 				for _, verb := range authorization.Verbs(authorization.Actions[action]) {
-					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb})
+					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Level: level})
 				}
 			}
 		} else {
 			for _, resource := range permission.Resources { // with filtering
 				for _, action := range permission.Actions {
 					for _, verb := range authorization.Verbs(authorization.Actions[action]) {
-						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb}) // TODO: add filter to specific resource
+						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Level: level}) // TODO: add filter to specific resource
 					}
 				}
 			}
@@ -90,38 +98,50 @@ func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, p
 
 func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Role {
 	// TODO proper mapping between casbin and weaviate permissions
-	actionsByRole := make(map[string]map[string]struct{})
-	resourcesByRole := make(map[string]map[string]struct{})
+	// name, level, verb
+	actionsByRole := make(map[string]map[string]map[string]struct{})
+	resourcesByRole := make(map[string]map[string]map[string]struct{})
 	for _, policy := range policies {
 		if _, ok := actionsByRole[policy.Name]; !ok {
-			actionsByRole[policy.Name] = map[string]struct{}{}
+			actionsByRole[policy.Name] = map[string]map[string]struct{}{}
 		}
 		if _, ok := resourcesByRole[policy.Name]; !ok {
-			resourcesByRole[policy.Name] = map[string]struct{}{}
+			resourcesByRole[policy.Name] = map[string]map[string]struct{}{}
 		}
-		actionsByRole[policy.Name][policy.Verb] = struct{}{}
-		resourcesByRole[policy.Name][policy.Resource] = struct{}{}
+		if _, ok := actionsByRole[policy.Name][policy.Level]; !ok {
+			actionsByRole[policy.Name][policy.Level] = map[string]struct{}{}
+		}
+		if _, ok := resourcesByRole[policy.Name][policy.Level]; !ok {
+			resourcesByRole[policy.Name][policy.Level] = map[string]struct{}{}
+		}
+
+		actionsByRole[policy.Name][policy.Level][policy.Verb] = struct{}{}
+		resourcesByRole[policy.Name][policy.Level][policy.Resource] = struct{}{}
 	}
 
 	out := make([]*models.Role, 0, len(actionsByRole))
 	for name, actions := range actionsByRole {
-		as := make([]string, 0, len(actions))
-		for a := range actions {
-			as = append(as, a)
-		}
+		for level := range actions {
+			as := make([]string, 0, len(actions[level]))
+			for a := range actions[level] {
+				as = append(as, a)
+			}
 
-		rs := make([]*string, 0, len(resourcesByRole[name]))
-		for r := range resourcesByRole[name] {
-			rs = append(rs, &r)
-		}
+			rs := make([]*string, 0, len(resourcesByRole[name][level]))
+			for r := range resourcesByRole[name][level] {
+				rs = append(rs, &r)
+			}
 
-		out = append(out, &models.Role{
-			Name: &name,
-			Permissions: []*models.Permission{{
-				Actions:   as,
-				Resources: rs,
-			}},
-		})
+			out = append(out, &models.Role{
+				Name: &name,
+				Permissions: []*models.Permission{{
+					Actions:   as,
+					Resources: rs,
+					Level:     &level,
+				}},
+			})
+
+		}
 	}
 	return out
 }
