@@ -47,14 +47,15 @@
             "description": "allowed actions in weaviate.",
             "enum": [
               "manage_roles",
+              "read_roles",
               "manage_cluster",
-              "create_collection",
 
+              "create_collection",
               "read_collection",
               "update_collection",
               "delete_collection",
-              "create_tenant",
 
+              "create_tenant",
               "read_tenant",
               "update_tenant",
               "delete_tenant"          
