@@ -5257,6 +5257,7 @@ func init() {
             "type": "string",
             "enum": [
               "manage_roles",
+              "read_roles",
               "manage_cluster",
               "create_collection",
               "read_collection",
@@ -11690,6 +11691,7 @@ func init() {
             "type": "string",
             "enum": [
               "manage_roles",
+              "read_roles",
               "manage_cluster",
               "create_collection",
               "read_collection",
