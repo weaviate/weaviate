@@ -152,43 +152,43 @@ var (
 )
 
 var (
-	ManageRole    All  = "manage_role" // should not be delete
-	ReadRole      Read = "manage_role" // should not be delete
-	ManageCluster All  = "manage_role"
+	ManageRoles   All  = "manage_roles"
+	ReadRoles     Read = "read_roles"
+	ManageCluster All  = "manage_cluster"
 
-	CreateCollection Write  = "create_collection"
-	ReadCollection   Read   = "read_collection"
-	UpdateCollection Update = "update_collection"
-	DeleteCollection Delete = "delete_collection"
+	CreateCollections Write  = "create_collections"
+	ReadCollections   Read   = "read_collections"
+	UpdateCollections Update = "update_collections"
+	DeleteCollections Delete = "delete_collections"
 
 	ActionsByLevel = map[string]map[string]Action{
 		"database": {
-			string(ManageRole):       ManageRole,
-			string(ReadRole):         ReadRole,
-			string(ManageCluster):    ManageCluster,
-			string(CreateCollection): CreateCollection,
-			string(ReadCollection):   ReadCollection,
-			string(UpdateCollection): UpdateCollection,
-			string(DeleteCollection): DeleteCollection,
+			string(ManageRoles):       ManageRoles,
+			string(ReadRoles):         ReadRoles,
+			string(ManageCluster):     ManageCluster,
+			string(CreateCollections): CreateCollections,
+			string(ReadCollections):   ReadCollections,
+			string(UpdateCollections): UpdateCollections,
+			string(DeleteCollections): DeleteCollections,
 		},
 		"collection": {
-			string(CreateTenant): CreateTenant,
-			string(ReadTenant):   ReadTenant,
-			string(UpdateTenant): UpdateTenant,
-			string(DeleteTenant): DeleteTenant,
+			string(CreateTenants): CreateTenants,
+			string(ReadTenants):   ReadTenants,
+			string(UpdateTenants): UpdateTenants,
+			string(DeleteTenants): DeleteTenants,
 		},
 	}
 
-	CreateTenant Write  = "create_tenant"
-	ReadTenant   Read   = "read_tenant"
-	UpdateTenant Update = "update_tenant"
-	DeleteTenant Delete = "delete_tenant"
+	CreateTenants Write  = "create_tenants"
+	ReadTenants   Read   = "read_tenants"
+	UpdateTenants Update = "update_tenants"
+	DeleteTenants Delete = "delete_tenants"
 
 	// not in first version
-	CreateObject Write  = "create_object"
-	ReadObject   Read   = "read_object"
-	UpdateObject Update = "update_object"
-	DeleteObject Delete = "delete_object"
+	CreateObjects Write  = "create_objects"
+	ReadObjects   Read   = "read_objects"
+	UpdateObjects Update = "update_objects"
+	DeleteObjects Delete = "delete_objects"
 )
 
 // SchemaShard returns the path for a specific schema shard.
