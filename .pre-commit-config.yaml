@@ -27,7 +27,7 @@ repos:
           - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
         require_serial: true
         pass_filenames: false
-  -   repo: https://github.com/psf/black
+  - repo: https://github.com/psf/black
       rev: 24.2.0
       hooks:
         -   id: black

@@ -73,6 +73,30 @@ issues:
         - unused
       path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
       text: "func `l2[35]`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l22FloatByte`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l23FloatByte`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l24FloatByte`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l25FloatByte`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l210FloatByte`"
+    - linters:
+        - unused
+      path: adapters/repos/db/vector/hnsw/distancer/asm/l2_inline.go
+      text: "func `l212FloatByte`"
 
 run:
   timeout: 5m
