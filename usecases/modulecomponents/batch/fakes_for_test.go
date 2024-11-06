@@ -52,7 +52,7 @@ func (c *fakeBatchClientWithRL) Vectorize(ctx context.Context,
 	}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
@@ -130,7 +130,7 @@ func (c *fakeBatchClientWithoutRL) Vectorize(ctx context.Context,
 	errors := make([]error, len(text))
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
