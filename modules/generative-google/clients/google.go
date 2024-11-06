@@ -322,7 +322,7 @@ func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte, 
 			}
 			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text, params, debug)
 		}
-		return nil, fmt.Errorf(v.decodeFinishReason(resBody.Candidates[0].FinishReason))
+		return nil, fmt.Errorf("%s", v.decodeFinishReason(resBody.Candidates[0].FinishReason))
 	}
 
 	return &modulecapabilities.GenerateResponse{

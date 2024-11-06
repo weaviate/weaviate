@@ -139,7 +139,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 	}
 
 	if len(msgs) != 0 {
-		return uco.NewErrInvalidUserInput(strings.Join(msgs, ", "))
+		return uco.NewErrInvalidUserInput("%s", strings.Join(msgs, ", "))
 	}
 	return nil
 }
