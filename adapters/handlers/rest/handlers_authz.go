@@ -18,17 +18,26 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type authZHandlers struct {
 	authorizer authorization.Authorizer
-	manager    *authorization.AuthzManager
+	manager    authzManager
 	logger     logrus.FieldLogger
 	metrics    *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, manager *authorization.AuthzManager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+type authzManager interface {
+	CreateRole(role *models.Role) error
+	GetRoles() ([]*models.Role, error)
+	GetRole(roleID string) (*models.Role, error)
+	DeleteRole(roleID string) error
+	Enforcer() *rbac.Enforcer
+}
+
+func setupAuthZHandlers(api *operations.WeaviateAPI, manager authzManager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
 	h := &authZHandlers{manager: manager, authorizer: authorizer, logger: logger, metrics: metrics}
 
 	// rbac role handlers
