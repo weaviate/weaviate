@@ -50,7 +50,7 @@ func TestAuthzRoles(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: makeStrPtr("test-role"),
 				Permissions: []*models.Permission{{
-					Actions: []string{"create_collections"},
+					Action: makeStrPtr("create_collections"),
 				}},
 			}),
 			helper.CreateAuth("testing-key"),
@@ -69,8 +69,7 @@ func TestAuthzRoles(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, "test-role", *res.Payload.Name)
 		require.Equal(t, 1, len(res.Payload.Permissions))
-		require.Equal(t, 1, len(res.Payload.Permissions[0].Actions))
-		require.Equal(t, "create_collections", res.Payload.Permissions[0].Actions[0])
+		require.Equal(t, "create_collections", *res.Payload.Permissions[0].Action)
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {

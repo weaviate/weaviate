@@ -25,7 +25,7 @@ func NewEnforcer(casbin *casbin.SyncedCachedEnforcer) *Enforcer {
 	return &Enforcer{casbin: casbin}
 }
 
-func (e *Enforcer) Enforce(username, resource, verb string) (bool, error) {
+func (e *Enforcer) enforce(username, resource, verb string) (bool, error) {
 	return e.casbin.Enforce(username, resource, verb)
 }
 

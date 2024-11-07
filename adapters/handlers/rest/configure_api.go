@@ -110,7 +110,6 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -665,7 +664,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	setupAuthZHandlers(api, appState.RBACEnforcer, appState.Metrics, appState.Authorizer, appState.Logger)
+	setupAuthZHandlers(api, appState.AuthzManager, appState.Metrics, appState.Authorizer, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -805,7 +804,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 			WithField("action", "startup").WithError(err).
 			Fatal("RBAC enforcer not initialized")
 	}
-	appState.RBACEnforcer = rbac.NewEnforcer(casbin)
+	appState.AuthzManager = authorization.NewAuthzManager(casbin)
 	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -1542,9 +1541,10 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 		// TODO: objects has to be mapped e.g.
 		//  v1/schema.class.ABC  [path.objectType.objectName]
 
-		for _, entry := range authorization.BuiltInRoles[authConfig.Roles[i]] {
-			for _, verb := range entry.Verbs {
-				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, entry.Domain); err != nil {
+		entry := authorization.BuiltInRoles[authConfig.Roles[i]]
+		for _, verb := range entry.Verbs {
+			for _, domain := range entry.Domains {
+				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, domain.String()); err != nil {
 					return nil, fmt.Errorf("add policy: %w", err)
 				}
 			}

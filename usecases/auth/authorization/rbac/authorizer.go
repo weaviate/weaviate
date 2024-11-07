@@ -45,7 +45,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		"action":   verb,
 	}).Debug("checking for role")
 
-	allow, err := a.enforcer.Enforce(principal.Username, resource, verb)
+	allow, err := a.enforcer.enforce(principal.Username, resource, verb)
 	if err != nil {
 		a.logger.WithFields(logrus.Fields{
 			"user":     principal.Username,
