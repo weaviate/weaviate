@@ -36,11 +36,6 @@ type Permission struct {
 	// Required: true
 	Actions []string `json:"actions"`
 
-	// level of that permission
-	// Required: true
-	// Enum: [cluster collections objects roles tenants]
-	Domain *string `json:"domain"`
-
 	// resources
 	Resources []*string `json:"resources"`
 }
@@ -50,10 +45,6 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActions(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateDomain(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -95,58 +86,6 @@ func (m *Permission) validateActions(formats strfmt.Registry) error {
 			return err
 		}
 
-	}
-
-	return nil
-}
-
-var permissionTypeDomainPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["cluster","collections","objects","roles","tenants"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		permissionTypeDomainPropEnum = append(permissionTypeDomainPropEnum, v)
-	}
-}
-
-const (
-
-	// PermissionDomainCluster captures enum value "cluster"
-	PermissionDomainCluster string = "cluster"
-
-	// PermissionDomainCollections captures enum value "collections"
-	PermissionDomainCollections string = "collections"
-
-	// PermissionDomainObjects captures enum value "objects"
-	PermissionDomainObjects string = "objects"
-
-	// PermissionDomainRoles captures enum value "roles"
-	PermissionDomainRoles string = "roles"
-
-	// PermissionDomainTenants captures enum value "tenants"
-	PermissionDomainTenants string = "tenants"
-)
-
-// prop value enum
-func (m *Permission) validateDomainEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, permissionTypeDomainPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Permission) validateDomain(formats strfmt.Registry) error {
-
-	if err := validate.Required("domain", "body", m.Domain); err != nil {
-		return err
-	}
-
-	// value enum
-	if err := m.validateDomainEnum("domain", "body", *m.Domain); err != nil {
-		return err
 	}
 
 	return nil
