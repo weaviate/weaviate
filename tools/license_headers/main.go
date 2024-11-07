@@ -120,6 +120,6 @@ func startsWithBuildTag(content []byte) bool {
 
 func fatal(err error) {
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Fatal(err)
 	}
 }

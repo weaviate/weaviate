@@ -38,8 +38,8 @@ type Permission struct {
 
 	// level of that permission
 	// Required: true
-	// Enum: [database collection tenant]
-	Level *string `json:"level"`
+	// Enum: [cluster collections objects roles tenants]
+	Domain *string `json:"domain"`
 
 	// resources
 	Resources []*string `json:"resources"`
@@ -53,7 +53,7 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateLevel(formats); err != nil {
+	if err := m.validateDomain(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -67,7 +67,7 @@ var permissionActionsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collection","read_collection","update_collection","delete_collection","create_tenant","read_tenant","update_tenant","delete_tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -100,46 +100,52 @@ func (m *Permission) validateActions(formats strfmt.Registry) error {
 	return nil
 }
 
-var permissionTypeLevelPropEnum []interface{}
+var permissionTypeDomainPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["database","collection","tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["cluster","collections","objects","roles","tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
-		permissionTypeLevelPropEnum = append(permissionTypeLevelPropEnum, v)
+		permissionTypeDomainPropEnum = append(permissionTypeDomainPropEnum, v)
 	}
 }
 
 const (
 
-	// PermissionLevelDatabase captures enum value "database"
-	PermissionLevelDatabase string = "database"
+	// PermissionDomainCluster captures enum value "cluster"
+	PermissionDomainCluster string = "cluster"
 
-	// PermissionLevelCollection captures enum value "collection"
-	PermissionLevelCollection string = "collection"
+	// PermissionDomainCollections captures enum value "collections"
+	PermissionDomainCollections string = "collections"
 
-	// PermissionLevelTenant captures enum value "tenant"
-	PermissionLevelTenant string = "tenant"
+	// PermissionDomainObjects captures enum value "objects"
+	PermissionDomainObjects string = "objects"
+
+	// PermissionDomainRoles captures enum value "roles"
+	PermissionDomainRoles string = "roles"
+
+	// PermissionDomainTenants captures enum value "tenants"
+	PermissionDomainTenants string = "tenants"
 )
 
 // prop value enum
-func (m *Permission) validateLevelEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, permissionTypeLevelPropEnum, true); err != nil {
+func (m *Permission) validateDomainEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, permissionTypeDomainPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *Permission) validateLevel(formats strfmt.Registry) error {
+func (m *Permission) validateDomain(formats strfmt.Registry) error {
 
-	if err := validate.Required("level", "body", m.Level); err != nil {
+	if err := validate.Required("domain", "body", m.Domain); err != nil {
 		return err
 	}
 
 	// value enum
-	if err := m.validateLevelEnum("level", "body", *m.Level); err != nil {
+	if err := m.validateDomainEnum("domain", "body", *m.Domain); err != nil {
 		return err
 	}
 
