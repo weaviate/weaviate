@@ -57,7 +57,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "GetObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -96,13 +96,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "GetObjectsClass",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "GetObjectClassFromName",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -193,7 +193,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 						"execution must abort with authorizer error")
 				}
 
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
 					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}
@@ -284,7 +284,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
 				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})

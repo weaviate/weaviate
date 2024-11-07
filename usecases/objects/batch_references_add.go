@@ -32,9 +32,11 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ALL_BATCH)
-	if err != nil {
-		return nil, err
+	for _, ref := range refs {
+		err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards("*", ref.Tenant)...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
