@@ -35,6 +35,11 @@ type Tenant struct {
 	// Enum: [ACTIVE INACTIVE OFFLOADED OFFLOADING ONLOADING HOT COLD FROZEN FREEZING UNFREEZING]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
+	// TODO expose this in clients for reading and make sure cant be set via client/api
+	// Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.
+	// Example: 3
+	DataVersion *int64 `json:"dataVersion,omitempty"`
+
 	// The name of the tenant (required).
 	Name string `json:"name,omitempty"`
 }
