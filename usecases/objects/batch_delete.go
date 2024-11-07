@@ -31,7 +31,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(match.Class, tenant, ""))
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(match.Class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	params BatchDeleteParams,
 	repl *additional.ReplicationProperties, tenant string,
 ) (BatchDeleteResult, error) {
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(params.ClassName.String(), tenant, ""))
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(params.ClassName.String(), tenant)...)
 	if err != nil {
 		return BatchDeleteResult{}, err
 	}
