@@ -5274,11 +5274,11 @@ func init() {
           "description": "level of that permission",
           "type": "string",
           "enum": [
-            "database",
+            "cluster",
             "collections",
-            "tenants",
+            "objects",
             "roles",
-            "cluster"
+            "tenants"
           ]
         },
         "resources": {
@@ -11710,11 +11710,11 @@ func init() {
           "description": "level of that permission",
           "type": "string",
           "enum": [
-            "database",
+            "cluster",
             "collections",
-            "tenants",
+            "objects",
             "roles",
-            "cluster"
+            "tenants"
           ]
         },
         "resources": {
