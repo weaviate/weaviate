@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"fmt"
-
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -57,25 +55,19 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies := []*rbac.Policy{}
 	for _, permission := range params.Body.Permissions {
-		if !authorization.CheckDomain(permission.Domain) {
-			err := fmt.Errorf("permission domain '%v' is not allowed", permission.Domain)
-			return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		domain := *permission.Domain
-
-		domainTyped, _ := authorization.ToDomain(domain)
-
 		if len(permission.Resources) == 0 { // no filters
 			for _, action := range permission.Actions {
-				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domainTyped][action]) {
-					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: domain})
+				domain := authorization.DomainByAction[action]
+				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: string(domain)})
 				}
 			}
 		} else {
 			for _, resource := range permission.Resources { // with filtering
 				for _, action := range permission.Actions {
-					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domainTyped][action]) {
-						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Domain: domain}) // TODO: add filter to specific resource
+					domain := authorization.DomainByAction[action]
+					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Domain: string(domain)}) // TODO: add filter to specific resource
 					}
 				}
 			}
@@ -160,13 +152,11 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Ro
 			for r := range resourcesByRole[name][domain] {
 				rs = append(rs, &r)
 			}
-			domainStr := string(domain)
 			out = append(out, &models.Role{
 				Name: &name,
 				Permissions: []*models.Permission{{
 					Actions:   roleActions,
 					Resources: rs,
-					Domain:    &domainStr,
 				}},
 			})
 
