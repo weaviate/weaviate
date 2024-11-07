@@ -107,7 +107,7 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 }
 
 func configureAuthorizer(appState *state.State) authorization.Authorizer {
-	return authorization.New(appState.ServerConfig.Config, appState.AuthzManager.Enforcer(), appState.Logger)
+	return authorization.New(appState.ServerConfig.Config, appState.AuthzController.Enforcer(), appState.Logger)
 }
 
 func timeTillDeadline(ctx context.Context) string {

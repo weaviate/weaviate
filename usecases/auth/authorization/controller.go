@@ -19,21 +19,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
-type AuthzManager struct {
+type AuthzController struct {
 	enforcer *rbac.Enforcer
 }
 
 var ErrRoleNotFound = errors.New("role not found")
 
-func NewAuthzManager(casbin *casbin.SyncedCachedEnforcer) *AuthzManager {
-	return &AuthzManager{enforcer: rbac.NewEnforcer(casbin)}
+func NewAuthzManager(casbin *casbin.SyncedCachedEnforcer) *AuthzController {
+	return &AuthzController{enforcer: rbac.NewEnforcer(casbin)}
 }
 
-func (m *AuthzManager) Enforcer() *rbac.Enforcer {
+func (m *AuthzController) Enforcer() *rbac.Enforcer {
 	return m.enforcer
 }
 
-func (m *AuthzManager) CreateRole(role *models.Role) error {
+func (m *AuthzController) CreateRole(role *models.Role) error {
 	policies := []*rbac.Policy{}
 	for _, permission := range role.Permissions {
 		if permission.Resource == nil || *permission.Resource == "" { // no filters
@@ -54,7 +54,7 @@ func (m *AuthzManager) CreateRole(role *models.Role) error {
 	return m.enforcer.AddPolicies(policies)
 }
 
-func (m *AuthzManager) GetRoles() ([]*models.Role, error) {
+func (m *AuthzController) GetRoles() ([]*models.Role, error) {
 	policies, err := m.enforcer.GetPolicies(nil)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (m *AuthzManager) GetRoles() ([]*models.Role, error) {
 	return m.rolesFromPolicies(policies)
 }
 
-func (m *AuthzManager) GetRole(name string) (*models.Role, error) {
+func (m *AuthzController) GetRole(name string) (*models.Role, error) {
 	policies, err := m.enforcer.GetPolicies(&name)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (m *AuthzManager) GetRole(name string) (*models.Role, error) {
 	return roles[0], nil
 }
 
-func (m *AuthzManager) DeleteRole(name string) error {
+func (m *AuthzController) DeleteRole(name string) error {
 	policies, err := m.enforcer.GetPolicies(&name)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func (m *AuthzManager) DeleteRole(name string) error {
 	return nil
 }
 
-func (m *AuthzManager) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
+func (m *AuthzController) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
 	verbsByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 	resourcesByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 

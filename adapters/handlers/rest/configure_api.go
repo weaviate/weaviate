@@ -664,7 +664,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	setupAuthZHandlers(api, appState.AuthzManager, appState.Metrics, appState.Authorizer, appState.Logger)
+	setupAuthZHandlers(api, appState.AuthzController, appState.Metrics, appState.Authorizer, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -804,7 +804,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 			WithField("action", "startup").WithError(err).
 			Fatal("RBAC enforcer not initialized")
 	}
-	appState.AuthzManager = authorization.NewAuthzManager(casbin)
+	appState.AuthzController = authorization.NewAuthzManager(casbin)
 	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).

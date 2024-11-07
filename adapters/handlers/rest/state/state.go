@@ -50,7 +50,7 @@ type State struct {
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.Client
 	Authorizer      authorization.Authorizer
-	AuthzManager    *authorization.AuthzManager
+	AuthzController *authorization.AuthzController
 
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock
