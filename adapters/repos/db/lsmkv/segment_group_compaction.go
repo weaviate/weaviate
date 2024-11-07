@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -486,7 +487,11 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 }
 
 func (sg *SegmentGroup) monitorSegments() {
-	if sg.metrics == nil || sg.metrics.groupClasses {
+	if sg.metrics == nil || sg.metrics.groupClasses ||
+		// Keeping metering to only the critical buckets helps
+		// cut down on noise when monitoring
+		!strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) ||
+		!strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
 		return
 	}
 
