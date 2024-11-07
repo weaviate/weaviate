@@ -12,6 +12,8 @@
 package rbac
 
 import (
+	"fmt"
+
 	"github.com/casbin/casbin/v2"
 )
 
@@ -23,7 +25,7 @@ func NewEnforcer(casbin *casbin.SyncedCachedEnforcer) *Enforcer {
 	return &Enforcer{casbin: casbin}
 }
 
-func (e *Enforcer) Enforce(username, resource, verb string) (bool, error) {
+func (e *Enforcer) enforce(username, resource, verb string) (bool, error) {
 	return e.casbin.Enforce(username, resource, verb)
 }
 
@@ -65,9 +67,15 @@ func (e *Enforcer) GetPolicies(name *string) ([]*Policy, error) {
 	return policies, nil
 }
 
-func (e *Enforcer) RemovePolicies(roleNmae string) error {
-	if _, err := e.casbin.RemovePolicy(roleNmae); err != nil {
-		return err
+func (e *Enforcer) RemovePolicies(policies []*Policy) error {
+	for _, policy := range policies {
+		ok, err := e.casbin.RemovePolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("failed to remove policy %v", policy)
+		}
 	}
 	if err := e.casbin.SavePolicy(); err != nil {
 		return err

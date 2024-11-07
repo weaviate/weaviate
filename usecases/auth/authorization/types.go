@@ -68,16 +68,16 @@ const (
 	USERS = "authz/users"
 )
 
-type DomainAndVerbs struct {
-	Domain string
-	Verbs  []string
+type DomainsAndVerbs struct {
+	Domains []Domain
+	Verbs   []string
 }
 
 // TODO add translation layer between weaviate and Casbin permissions
-var BuiltInRoles = map[string][]DomainAndVerbs{
-	"viewer": {{Domain: "database", Verbs: readOnlyVerbs()}},
-	"editor": {{Domain: "database", Verbs: editorVerbs()}},
-	"admin":  {{Domain: "database", Verbs: adminVerbs()}},
+var BuiltInRoles = map[string]DomainsAndVerbs{
+	"viewer": {Domains: Domains, Verbs: readOnlyVerbs()},
+	"editor": {Domains: Domains, Verbs: editorVerbs()},
+	"admin":  {Domains: Domains, Verbs: adminVerbs()},
 }
 
 func readOnlyVerbs() []string {
@@ -156,12 +156,14 @@ const (
 	DeleteObjects Delete = "delete_objects"
 )
 
-func AllActionsForDomain(domain Domain) []string {
-	var actions []string
-	for key := range ActionsByDomain[domain] {
-		actions = append(actions, key)
+func AllActionsForDomain(domain Domain) ([]Action, []string) {
+	var actions []Action
+	var names []string
+	for name, action := range ActionsByDomain[domain] {
+		actions = append(actions, action)
+		names = append(names, name)
 	}
-	return actions
+	return actions, names
 }
 
 type Domain string
@@ -173,6 +175,8 @@ const (
 	TenantD     Domain = "tenants"
 	ObjectD     Domain = "objects"
 )
+
+var Domains []Domain = []Domain{RolesD, ClusterD, CollectionD, TenantD, ObjectD}
 
 func (d Domain) String() string {
 	return string(d)

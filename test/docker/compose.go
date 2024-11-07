@@ -104,6 +104,8 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
+	withWeaviateRbac              bool
+	weaviateRbacUsers             []RbacUser
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -416,11 +418,27 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithRBAC() *Compose {
+	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithRbacUser(username, key, role string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
+		Username: username,
+		Key:      key,
+		Role:     role,
+	})
+	return d
+}
+
 func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
 	for _, name := range names {
 		d.removeEnvs[name] = struct{}{}
 	}
-
 	return d
 }
 
@@ -688,6 +706,32 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+
+		usernames := make([]string, 0, len(d.weaviateRbacUsers))
+		keys := make([]string, 0, len(d.weaviateRbacUsers))
+		roles := make([]string, 0, len(d.weaviateRbacUsers))
+
+		for _, user := range d.weaviateRbacUsers {
+			usernames = append(usernames, user.Username)
+			keys = append(keys, user.Key)
+			roles = append(roles, user.Role)
+		}
+		if len(keys) > 0 {
+			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+		if len(usernames) > 0 {
+			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+		if len(roles) > 0 {
+			settings["AUTHENTICATION_APIKEY_ROLES"] = strings.Join(roles, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
 	}
 
 	settings["RAFT_PORT"] = "8300"
