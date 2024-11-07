@@ -17,7 +17,7 @@ func CheckDomain(sp *string) bool {
 	if sp == nil {
 		return false
 	}
-	return *sp == "cluster" || *sp == "collection" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
+	return *sp == "cluster" || *sp == "collections" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
 }
 
 type Policy struct {

@@ -147,10 +147,9 @@ type Domain string
 var (
 	RolesD      Domain = "roles"
 	ClusterD    Domain = "cluster"
-	DatabaseD   Domain = "database"
-	CollectionD Domain = "collection"
-	TenantD     Domain = "tenant"
-	ObjectD     Domain = "object"
+	CollectionD Domain = "collections"
+	TenantD     Domain = "tenants"
+	ObjectD     Domain = "objects"
 )
 
 var (
