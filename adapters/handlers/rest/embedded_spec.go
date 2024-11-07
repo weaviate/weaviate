@@ -5246,36 +5246,30 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "actions"
+        "action"
       ],
       "properties": {
-        "actions": {
-          "type": "array",
-          "items": {
-            "description": "allowed actions in weaviate.",
-            "type": "string",
-            "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
-              "create_collections",
-              "read_collections",
-              "update_collections",
-              "delete_collections",
-              "create_tenants",
-              "read_tenants",
-              "update_tenants",
-              "delete_tenants"
-            ]
-          }
+        "action": {
+          "description": "allowed actions in weaviate.",
+          "type": "string",
+          "enum": [
+            "manage_roles",
+            "read_roles",
+            "manage_cluster",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
+          ]
         },
-        "resources": {
-          "type": "array",
-          "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-            "type": "string",
-            "default": "*"
-          }
+        "resource": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
@@ -11670,36 +11664,30 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "actions"
+        "action"
       ],
       "properties": {
-        "actions": {
-          "type": "array",
-          "items": {
-            "description": "allowed actions in weaviate.",
-            "type": "string",
-            "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
-              "create_collections",
-              "read_collections",
-              "update_collections",
-              "delete_collections",
-              "create_tenants",
-              "read_tenants",
-              "update_tenants",
-              "delete_tenants"
-            ]
-          }
+        "action": {
+          "description": "allowed actions in weaviate.",
+          "type": "string",
+          "enum": [
+            "manage_roles",
+            "read_roles",
+            "manage_cluster",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
+          ]
         },
-        "resources": {
-          "type": "array",
-          "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-            "type": "string",
-            "default": "*"
-          }
+        "resource": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
