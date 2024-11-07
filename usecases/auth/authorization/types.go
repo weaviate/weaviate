@@ -67,16 +67,16 @@ const (
 	USERS = "authz/users"
 )
 
-type LevelAndVerbs struct {
-	Level string
-	Verbs []string
+type DomainAndVerbs struct {
+	Domain string
+	Verbs  []string
 }
 
 // TODO add translation layer between weaviate and Casbin permissions
-var BuiltInRoles = map[string][]LevelAndVerbs{
-	"viewer": {{Level: "database", Verbs: readOnlyVerbs()}},
-	"editor": {{Level: "database", Verbs: editorVerbs()}},
-	"admin":  {{Level: "database", Verbs: adminVerbs()}},
+var BuiltInRoles = map[string][]DomainAndVerbs{
+	"viewer": {{Domain: "database", Verbs: readOnlyVerbs()}},
+	"editor": {{Domain: "database", Verbs: editorVerbs()}},
+	"admin":  {{Domain: "database", Verbs: adminVerbs()}},
 }
 
 func readOnlyVerbs() []string {
@@ -99,7 +99,7 @@ func Verbs[T Action](a T) []string {
 	return a.Verbs()
 }
 
-// ActionsByLevel
+// ActionsByDomain
 type (
 	Read   string
 	List   string
@@ -109,9 +109,9 @@ type (
 	All    string
 )
 
-func AllActionsForLevel(level string) []string {
+func AllActionsForDomain(domain string) []string {
 	var actions []string
-	for key := range ActionsByLevel[level] {
+	for key := range ActionsByDomain[domain] {
 		actions = append(actions, key)
 	}
 	return actions
@@ -141,14 +141,15 @@ func (r All) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
 }
 
-type Level string
+type Domain string
 
 // levels
 var (
-	DatabaseL   Level = "database"
-	CollectionL Level = "collection"
-	TenantL     Level = "tenant"
-	ObjectL     Level = "object"
+	RolesD      Domain = "roles"
+	ClusterD    Domain = "cluster"
+	CollectionD Domain = "collections"
+	TenantD     Domain = "tenants"
+	ObjectD     Domain = "objects"
 )
 
 var (
@@ -161,17 +162,21 @@ var (
 	UpdateCollections Update = "update_collections"
 	DeleteCollections Delete = "delete_collections"
 
-	ActionsByLevel = map[string]map[string]Action{
-		"database": {
-			string(ManageRoles):       ManageRoles,
-			string(ReadRoles):         ReadRoles,
-			string(ManageCluster):     ManageCluster,
+	ActionsByDomain = map[string]map[string]Action{
+		string(RolesD): {
+			string(ManageRoles): ManageRoles,
+			string(ReadRoles):   ReadRoles,
+		},
+		string(ClusterD): {
+			string(ManageCluster): ManageCluster,
+		},
+		string(CollectionD): {
 			string(CreateCollections): CreateCollections,
 			string(ReadCollections):   ReadCollections,
 			string(UpdateCollections): UpdateCollections,
 			string(DeleteCollections): DeleteCollections,
 		},
-		"collection": {
+		string(TenantD): {
 			string(CreateTenants): CreateTenants,
 			string(ReadTenants):   ReadTenants,
 			string(UpdateTenants): UpdateTenants,
