@@ -24,13 +24,21 @@ import (
 
 type authZHandlers struct {
 	authorizer authorization.Authorizer
-	enforcer   *rbac.Enforcer
+	controller authzController
 	logger     logrus.FieldLogger
 	metrics    *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *rbac.Enforcer, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
-	h := &authZHandlers{enforcer: enforcer, authorizer: authorizer, logger: logger, metrics: metrics}
+type authzController interface {
+	CreateRole(role *models.Role) error
+	GetRoles() ([]*models.Role, error)
+	GetRole(roleID string) (*models.Role, error)
+	DeleteRole(roleID string) error
+	Enforcer() *rbac.Enforcer
+}
+
+func setupAuthZHandlers(api *operations.WeaviateAPI, controller authzController, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	h := &authZHandlers{controller: controller, authorizer: authorizer, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -53,25 +61,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	policies := []*rbac.Policy{}
-	for _, permission := range params.Body.Permissions {
-		if permission.Resource == nil || *permission.Resource == "" { // no filters
-			action := *permission.Action
-			domain := authorization.DomainByAction[action]
-			for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
-				policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: string(domain)})
-			}
-		} else {
-			resource := *permission.Resource // with filtering
-			action := *permission.Action
-			domain := authorization.DomainByAction[action]
-			for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
-				policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: resource, Verb: verb, Domain: string(domain)}) // TODO: add filter to specific resource
-			}
-		}
-	}
-
-	err := h.enforcer.AddPolicies(policies)
+	err := h.controller.CreateRole(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -87,100 +77,18 @@ func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, p
 	panic("not implemented")
 }
 
-func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
-	// TODO proper mapping between casbin and weaviate permissions
-	// name, level, verb
-	verbsByRole := make(map[string]map[authorization.Domain]map[string]struct{})
-	resourcesByRole := make(map[string]map[authorization.Domain]map[string]struct{})
-	for _, policy := range policies {
-		domain, err := authorization.ToDomain(policy.Domain)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := verbsByRole[policy.Name]; !ok {
-			verbsByRole[policy.Name] = map[authorization.Domain]map[string]struct{}{}
-		}
-		if _, ok := resourcesByRole[policy.Name]; !ok {
-			resourcesByRole[policy.Name] = map[authorization.Domain]map[string]struct{}{}
-		}
-		if _, ok := verbsByRole[policy.Name][domain]; !ok {
-			verbsByRole[policy.Name][domain] = map[string]struct{}{}
-		}
-		if _, ok := resourcesByRole[policy.Name][domain]; !ok {
-			resourcesByRole[policy.Name][domain] = map[string]struct{}{}
-		}
-
-		verbsByRole[policy.Name][domain][policy.Verb] = struct{}{}
-		resourcesByRole[policy.Name][domain][policy.Resource] = struct{}{}
-	}
-
-	out := make([]*models.Role, 0, len(verbsByRole))
-	for name, verbs := range verbsByRole {
-		for domain := range verbs {
-			allActions := authorization.AllActionsForDomain(domain)
-
-			// map verbs to actions
-			actionToVerbs := map[string]map[string]struct{}{}
-			for _, action := range allActions {
-				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
-					if _, ok := actionToVerbs[action]; !ok {
-						actionToVerbs[action] = map[string]struct{}{}
-					}
-
-					actionToVerbs[action][verb] = struct{}{}
-				}
-			}
-
-			for verb := range verbs[domain] {
-				for action, actionVerb := range actionToVerbs {
-					if _, ok := actionVerb[verb]; ok {
-						delete(actionToVerbs[action], verb)
-					}
-				}
-			}
-			var roleActions []string
-			for action, actionVerb := range actionToVerbs {
-				if len(actionVerb) == 0 {
-					roleActions = append(roleActions, action)
-				}
-			}
-
-			rs := make([]*string, 0, len(resourcesByRole[name][domain]))
-			for r := range resourcesByRole[name][domain] {
-				rs = append(rs, &r)
-			}
-			for i := range roleActions {
-				out = append(out, &models.Role{
-					Name: &name,
-					Permissions: []*models.Permission{{
-						Action:   &roleActions[i],
-						Resource: rs[i],
-					}},
-				})
-			}
-		}
-	}
-
-	return out, nil
-}
-
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	policies, err := h.enforcer.GetPolicies(nil)
+	roles, err := h.controller.GetRoles()
 	if err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	res, err := h.rolesFromPolicies(policies)
-	if err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewGetRolesOK().WithPayload(res)
+	return authz.NewGetRolesOK().WithPayload(roles)
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
@@ -189,21 +97,15 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	policies, err := h.enforcer.GetPolicies(&params.ID)
+	role, err := h.controller.GetRole(params.ID)
 	if err != nil {
+		if err == authorization.ErrRoleNotFound {
+			return authz.NewGetRoleNotFound()
+		}
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	res, err := h.rolesFromPolicies(policies)
-	if err != nil {
-		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if len(res) == 0 {
-		return authz.NewGetRoleNotFound()
-	}
-
-	return authz.NewGetRoleOK().WithPayload(res[0])
+	return authz.NewGetRoleOK().WithPayload(role)
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
@@ -212,7 +114,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.enforcer.RemovePolicies(params.ID); err != nil {
+	if err := h.controller.DeleteRole(params.ID); err != nil {
 		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -225,7 +127,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.enforcer.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
+	if err := h.controller.Enforcer().AddRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -238,7 +140,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	roles, err := h.enforcer.GetRolesForUser(params.ID)
+	roles, err := h.controller.Enforcer().GetRolesForUser(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -252,7 +154,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	users, err := h.enforcer.GetUsersForRole(params.ID)
+	users, err := h.controller.Enforcer().GetUsersForRole(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -266,7 +168,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.enforcer.DeleteRolesForUser(params.ID, params.Body.Roles); err != nil {
+	if err := h.controller.Enforcer().DeleteRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
