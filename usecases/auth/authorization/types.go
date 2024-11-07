@@ -110,14 +110,6 @@ type (
 	All    string
 )
 
-func AllActionsForDomain(domain Domain) []string {
-	var actions []string
-	for key := range ActionsByDomain[domain] {
-		actions = append(actions, key)
-	}
-	return actions
-}
-
 func (r Read) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET}
 }
@@ -142,6 +134,36 @@ func (r All) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
 }
 
+const (
+	ManageRoles   All  = "manage_roles"
+	ReadRoles     Read = "read_roles"
+	ManageCluster All  = "manage_cluster"
+
+	CreateCollections Write  = "create_collections"
+	ReadCollections   Read   = "read_collections"
+	UpdateCollections Update = "update_collections"
+	DeleteCollections Delete = "delete_collections"
+
+	CreateTenants Write  = "create_tenants"
+	ReadTenants   Read   = "read_tenants"
+	UpdateTenants Update = "update_tenants"
+	DeleteTenants Delete = "delete_tenants"
+
+	// not in first version
+	CreateObjects Write  = "create_objects"
+	ReadObjects   Read   = "read_objects"
+	UpdateObjects Update = "update_objects"
+	DeleteObjects Delete = "delete_objects"
+)
+
+func AllActionsForDomain(domain Domain) []string {
+	var actions []string
+	for key := range ActionsByDomain[domain] {
+		actions = append(actions, key)
+	}
+	return actions
+}
+
 type Domain string
 
 const (
@@ -164,23 +186,7 @@ func ToDomain(s string) (Domain, error) {
 	return "", errors.New("invalid status: " + s)
 }
 
-func CheckDomain(sp *string) bool {
-	if sp == nil {
-		return false
-	}
-	return *sp == "cluster" || *sp == "collections" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
-}
-
 var (
-	ManageRoles   All  = "manage_roles"
-	ReadRoles     Read = "read_roles"
-	ManageCluster All  = "manage_cluster"
-
-	CreateCollections Write  = "create_collections"
-	ReadCollections   Read   = "read_collections"
-	UpdateCollections Update = "update_collections"
-	DeleteCollections Delete = "delete_collections"
-
 	ActionsByDomain = map[Domain]map[string]Action{
 		RolesD: {
 			string(ManageRoles): ManageRoles,
@@ -203,16 +209,19 @@ var (
 		},
 	}
 
-	CreateTenants Write  = "create_tenants"
-	ReadTenants   Read   = "read_tenants"
-	UpdateTenants Update = "update_tenants"
-	DeleteTenants Delete = "delete_tenants"
-
-	// not in first version
-	CreateObjects Write  = "create_objects"
-	ReadObjects   Read   = "read_objects"
-	UpdateObjects Update = "update_objects"
-	DeleteObjects Delete = "delete_objects"
+	DomainByAction = map[string]Domain{
+		string(ManageRoles):       RolesD,
+		string(ReadRoles):         RolesD,
+		string(ManageCluster):     ClusterD,
+		string(CreateCollections): CollectionD,
+		string(ReadCollections):   CollectionD,
+		string(UpdateCollections): CollectionD,
+		string(DeleteCollections): CollectionD,
+		string(CreateTenants):     TenantD,
+		string(ReadTenants):       TenantD,
+		string(UpdateTenants):     TenantD,
+		string(DeleteTenants):     TenantD,
+	}
 )
 
 // SchemaShard returns the path for a specific schema shard.
