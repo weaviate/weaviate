@@ -44,21 +44,21 @@ func Test_Traverser_Authorization(t *testing.T) {
 		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{dto.GetParams{}},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "traversal/*",
 		},
 
 		{
 			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&aggregation.Params{}},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "traversal/*",
 		},
 
 		{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
-			expectedVerb:     authorization.GET,
+			expectedVerb:     authorization.READ,
 			expectedResource: "traversal/*",
 		},
 	}
@@ -94,7 +94,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
 				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})

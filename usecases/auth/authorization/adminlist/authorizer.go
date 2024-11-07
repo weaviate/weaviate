@@ -38,7 +38,7 @@ func New(cfg Config) *Authorizer {
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
-func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (a *Authorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	if principal == nil {
 		principal = newAnonymousPrincipal()
 	}
@@ -53,7 +53,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		}
 	}
 
-	if verb == "get" || verb == "list" {
+	if verb == "R" {
 		if _, ok := a.readOnlyUsers[principal.Username]; ok {
 			return nil
 		}
@@ -64,7 +64,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		}
 	}
 
-	return errors.NewForbidden(principal, verb, resource)
+	return errors.NewForbidden(principal, verb, resources...)
 }
 
 func (a *Authorizer) addAdminUserList(users []string) {
