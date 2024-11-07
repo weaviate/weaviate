@@ -27,11 +27,6 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
-        "domain": {
-          "type": "string",
-          "description": "level of that permission",
-          "enum": ["cluster", "collections", "objects", "roles", "tenants"]
-        },
         "resources": {
           "type": "array",
           "items": {
@@ -63,7 +58,7 @@
           }
         }
       },
-      "required": ["domain", "actions"]
+      "required": ["actions"]
     },
     "RolesListResponse": {
       "type": "array",
