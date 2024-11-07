@@ -50,8 +50,9 @@ func TestCollections(t *testing.T) {
 		expected []string
 	}{
 		{"No classes", []string{}, []string{"collections/*"}},
-		{"Single class", []string{"class1"}, []string{"collection/class1"}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{"collection/class1", "collection/class2"}},
+		{"Single empty class", []string{""}, []string{"collections/*"}},
+		{"Single class", []string{"class1"}, []string{"collections/class1"}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{"collections/class1", "collections/class2"}},
 	}
 
 	for _, tt := range tests {
