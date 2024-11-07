@@ -57,22 +57,24 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies := []*rbac.Policy{}
 	for _, permission := range params.Body.Permissions {
-		if !rbac.CheckDomain(permission.Domain) {
+		if !authorization.CheckDomain(permission.Domain) {
 			err := fmt.Errorf("permission domain '%v' is not allowed", permission.Domain)
 			return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		domain := *permission.Domain
 
+		domainTyped, _ := authorization.ToDomain(domain)
+
 		if len(permission.Resources) == 0 { // no filters
 			for _, action := range permission.Actions {
-				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domainTyped][action]) {
 					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: domain})
 				}
 			}
 		} else {
 			for _, resource := range permission.Resources { // with filtering
 				for _, action := range permission.Actions {
-					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domainTyped][action]) {
 						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Domain: domain}) // TODO: add filter to specific resource
 					}
 				}
@@ -96,27 +98,31 @@ func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, p
 	panic("not implemented")
 }
 
-func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Role {
+func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
 	// TODO proper mapping between casbin and weaviate permissions
 	// name, level, verb
-	verbsByRole := make(map[string]map[string]map[string]struct{})
-	resourcesByRole := make(map[string]map[string]map[string]struct{})
+	verbsByRole := make(map[string]map[authorization.Domain]map[string]struct{})
+	resourcesByRole := make(map[string]map[authorization.Domain]map[string]struct{})
 	for _, policy := range policies {
+		domain, err := authorization.ToDomain(policy.Domain)
+		if err != nil {
+			return nil, err
+		}
 		if _, ok := verbsByRole[policy.Name]; !ok {
-			verbsByRole[policy.Name] = map[string]map[string]struct{}{}
+			verbsByRole[policy.Name] = map[authorization.Domain]map[string]struct{}{}
 		}
 		if _, ok := resourcesByRole[policy.Name]; !ok {
-			resourcesByRole[policy.Name] = map[string]map[string]struct{}{}
+			resourcesByRole[policy.Name] = map[authorization.Domain]map[string]struct{}{}
 		}
-		if _, ok := verbsByRole[policy.Name][policy.Domain]; !ok {
-			verbsByRole[policy.Name][policy.Domain] = map[string]struct{}{}
+		if _, ok := verbsByRole[policy.Name][domain]; !ok {
+			verbsByRole[policy.Name][domain] = map[string]struct{}{}
 		}
-		if _, ok := resourcesByRole[policy.Name][policy.Domain]; !ok {
-			resourcesByRole[policy.Name][policy.Domain] = map[string]struct{}{}
+		if _, ok := resourcesByRole[policy.Name][domain]; !ok {
+			resourcesByRole[policy.Name][domain] = map[string]struct{}{}
 		}
 
-		verbsByRole[policy.Name][policy.Domain][policy.Verb] = struct{}{}
-		resourcesByRole[policy.Name][policy.Domain][policy.Resource] = struct{}{}
+		verbsByRole[policy.Name][domain][policy.Verb] = struct{}{}
+		resourcesByRole[policy.Name][domain][policy.Resource] = struct{}{}
 	}
 
 	out := make([]*models.Role, 0, len(verbsByRole))
@@ -154,20 +160,20 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 			for r := range resourcesByRole[name][domain] {
 				rs = append(rs, &r)
 			}
-
+			domainStr := string(domain)
 			out = append(out, &models.Role{
 				Name: &name,
 				Permissions: []*models.Permission{{
 					Actions:   roleActions,
 					Resources: rs,
-					Domain:    &domain,
+					Domain:    &domainStr,
 				}},
 			})
 
 		}
 	}
 
-	return out
+	return out, nil
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
@@ -181,7 +187,10 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	res := h.rolesFromPolicies(policies)
+	res, err := h.rolesFromPolicies(policies)
+	if err != nil {
+		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	return authz.NewGetRolesOK().WithPayload(res)
 }
@@ -197,7 +206,11 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	res := h.rolesFromPolicies(policies)
+	res, err := h.rolesFromPolicies(policies)
+	if err != nil {
+		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	if len(res) == 0 {
 		return authz.NewGetRoleNotFound()
 	}
