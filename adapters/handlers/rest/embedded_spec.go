@@ -5246,7 +5246,6 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "domain",
         "actions"
       ],
       "properties": {
@@ -5269,17 +5268,6 @@ func init() {
               "delete_tenants"
             ]
           }
-        },
-        "domain": {
-          "description": "level of that permission",
-          "type": "string",
-          "enum": [
-            "cluster",
-            "collections",
-            "objects",
-            "roles",
-            "tenants"
-          ]
         },
         "resources": {
           "type": "array",
@@ -11682,7 +11670,6 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "domain",
         "actions"
       ],
       "properties": {
@@ -11705,17 +11692,6 @@ func init() {
               "delete_tenants"
             ]
           }
-        },
-        "domain": {
-          "description": "level of that permission",
-          "type": "string",
-          "enum": [
-            "cluster",
-            "collections",
-            "objects",
-            "roles",
-            "tenants"
-          ]
         },
         "resources": {
           "type": "array",
