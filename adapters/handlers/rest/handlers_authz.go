@@ -57,23 +57,23 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies := []*rbac.Policy{}
 	for _, permission := range params.Body.Permissions {
-		if !rbac.CheckLevel(permission.Level) {
-			err := fmt.Errorf("permission level '%v' is not allowed", permission.Level)
+		if !rbac.CheckDomain(permission.Domain) {
+			err := fmt.Errorf("permission domain '%v' is not allowed", permission.Domain)
 			return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
-		level := *permission.Level
+		domain := *permission.Domain
 
 		if len(permission.Resources) == 0 { // no filters
 			for _, action := range permission.Actions {
-				for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
-					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Level: level})
+				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: domain})
 				}
 			}
 		} else {
 			for _, resource := range permission.Resources { // with filtering
 				for _, action := range permission.Actions {
-					for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
-						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Level: level}) // TODO: add filter to specific resource
+					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Domain: domain}) // TODO: add filter to specific resource
 					}
 				}
 			}
@@ -108,26 +108,26 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 		if _, ok := resourcesByRole[policy.Name]; !ok {
 			resourcesByRole[policy.Name] = map[string]map[string]struct{}{}
 		}
-		if _, ok := verbsByRole[policy.Name][policy.Level]; !ok {
-			verbsByRole[policy.Name][policy.Level] = map[string]struct{}{}
+		if _, ok := verbsByRole[policy.Name][policy.Domain]; !ok {
+			verbsByRole[policy.Name][policy.Domain] = map[string]struct{}{}
 		}
-		if _, ok := resourcesByRole[policy.Name][policy.Level]; !ok {
-			resourcesByRole[policy.Name][policy.Level] = map[string]struct{}{}
+		if _, ok := resourcesByRole[policy.Name][policy.Domain]; !ok {
+			resourcesByRole[policy.Name][policy.Domain] = map[string]struct{}{}
 		}
 
-		verbsByRole[policy.Name][policy.Level][policy.Verb] = struct{}{}
-		resourcesByRole[policy.Name][policy.Level][policy.Resource] = struct{}{}
+		verbsByRole[policy.Name][policy.Domain][policy.Verb] = struct{}{}
+		resourcesByRole[policy.Name][policy.Domain][policy.Resource] = struct{}{}
 	}
 
 	out := make([]*models.Role, 0, len(verbsByRole))
 	for name, verbs := range verbsByRole {
-		for level := range verbs {
-			allActions := authorization.AllActionsForLevel(level)
+		for domain := range verbs {
+			allActions := authorization.AllActionsForDomain(domain)
 
 			// map verbs to actions
 			actionToVerbs := map[string]map[string]struct{}{}
 			for _, action := range allActions {
-				for _, verb := range authorization.Verbs(authorization.ActionsByLevel[level][action]) {
+				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
 					if _, ok := actionToVerbs[action]; !ok {
 						actionToVerbs[action] = map[string]struct{}{}
 					}
@@ -136,7 +136,7 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 				}
 			}
 
-			for verb := range verbs[level] {
+			for verb := range verbs[domain] {
 				for action, actionVerb := range actionToVerbs {
 					if _, ok := actionVerb[verb]; ok {
 						delete(actionToVerbs[action], verb)
@@ -150,8 +150,8 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 				}
 			}
 
-			rs := make([]*string, 0, len(resourcesByRole[name][level]))
-			for r := range resourcesByRole[name][level] {
+			rs := make([]*string, 0, len(resourcesByRole[name][domain]))
+			for r := range resourcesByRole[name][domain] {
 				rs = append(rs, &r)
 			}
 
@@ -160,7 +160,7 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) []*models.Rol
 				Permissions: []*models.Permission{{
 					Actions:   roleActions,
 					Resources: rs,
-					Level:     &level,
+					Domain:    &domain,
 				}},
 			})
 

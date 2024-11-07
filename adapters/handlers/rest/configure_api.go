@@ -1544,7 +1544,7 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 
 		for _, entry := range authorization.BuiltInRoles[authConfig.Roles[i]] {
 			for _, verb := range entry.Verbs {
-				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, entry.Level); err != nil {
+				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, entry.Domain); err != nil {
 					return nil, fmt.Errorf("add policy: %w", err)
 				}
 			}

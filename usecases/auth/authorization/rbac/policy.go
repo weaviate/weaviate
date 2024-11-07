@@ -13,16 +13,16 @@ package rbac
 
 type Level string
 
-func CheckLevel(sp *string) bool {
+func CheckDomain(sp *string) bool {
 	if sp == nil {
 		return false
 	}
-	return *sp == "database" || *sp == "collection"
+	return *sp == "cluster" || *sp == "collection" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
 }
 
 type Policy struct {
 	Name     string
 	Resource string
 	Verb     string
-	Level    string
+	Domain   string
 }
