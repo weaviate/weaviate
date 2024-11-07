@@ -77,13 +77,13 @@ func Roles(roles ...string) []string {
 //
 //	A slice of strings representing the resource paths.
 func Collections(classes ...string) []string {
-	if len(classes) == 0 {
+	if len(classes) == 0 || (len(classes) == 1 && classes[0] == "") {
 		return []string{"collections/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
-		resources[idx] = fmt.Sprintf("collection/%s", classes[idx])
+		resources[idx] = fmt.Sprintf("collections/%s", classes[idx])
 	}
 
 	return resources

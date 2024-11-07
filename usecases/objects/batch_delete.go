@@ -31,7 +31,11 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(match.Class, tenant)...)
+	class := "*"
+	if match != nil {
+		class = match.Class
+	}
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
