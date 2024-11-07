@@ -5263,7 +5263,15 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_objects_collection",
+            "read_objects_collection",
+            "update_objects_collection",
+            "delete_objects_collection",
+            "create_objects_tenant",
+            "read_objects_tenant",
+            "update_objects_tenant",
+            "delete_objects_tenant"
           ]
         },
         "resource": {
@@ -11681,7 +11689,15 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_objects_collection",
+            "read_objects_collection",
+            "update_objects_collection",
+            "delete_objects_collection",
+            "create_objects_tenant",
+            "read_objects_tenant",
+            "update_objects_tenant",
+            "delete_objects_tenant"
           ]
         },
         "resource": {
