@@ -25,7 +25,7 @@ type AuthzController struct {
 
 var ErrRoleNotFound = errors.New("role not found")
 
-func NewAuthzManager(casbin *casbin.SyncedCachedEnforcer) *AuthzController {
+func NewAuthzController(casbin *casbin.SyncedCachedEnforcer) *AuthzController {
 	return &AuthzController{enforcer: rbac.NewEnforcer(casbin)}
 }
 
