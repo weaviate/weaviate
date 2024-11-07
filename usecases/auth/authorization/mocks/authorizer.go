@@ -18,7 +18,7 @@ import (
 type AuthZReq struct {
 	Principal *models.Principal
 	Verb      string
-	Resource  string
+	Resources []string
 }
 
 type FakeAuthorizer struct {
@@ -35,8 +35,8 @@ func (a *FakeAuthorizer) SetErr(err error) {
 }
 
 // Authorize provides a mock function with given fields: principal, verb, resource
-func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, resource string) error {
-	a.requests = append(a.requests, AuthZReq{principal, verb, resource})
+func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
+	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
 	if a.err != nil {
 		return a.err
 	}
