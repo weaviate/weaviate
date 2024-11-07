@@ -5246,7 +5246,7 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "level",
+        "domain",
         "actions"
       ],
       "properties": {
@@ -5270,13 +5270,15 @@ func init() {
             ]
           }
         },
-        "level": {
+        "domain": {
           "description": "level of that permission",
           "type": "string",
           "enum": [
             "database",
-            "collection",
-            "tenant"
+            "collections",
+            "tenants",
+            "roles",
+            "cluster"
           ]
         },
         "resources": {
@@ -11680,7 +11682,7 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "level",
+        "domain",
         "actions"
       ],
       "properties": {
@@ -11704,13 +11706,15 @@ func init() {
             ]
           }
         },
-        "level": {
+        "domain": {
           "description": "level of that permission",
           "type": "string",
           "enum": [
             "database",
-            "collection",
-            "tenant"
+            "collections",
+            "tenants",
+            "roles",
+            "cluster"
           ]
         },
         "resources": {
