@@ -57,7 +57,7 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, controller authzController,
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ROLES); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles()...); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -79,7 +79,7 @@ func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, p
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles()...); err != nil {
 		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -93,7 +93,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles()...); err != nil {
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -110,7 +110,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.ROLES); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles()...); err != nil {
 		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -123,7 +123,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.USERS); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles()...); err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -136,7 +136,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.USERS); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles()...); err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -150,7 +150,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.USERS); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles()...); err != nil {
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -164,7 +164,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.USERS); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles()...); err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 

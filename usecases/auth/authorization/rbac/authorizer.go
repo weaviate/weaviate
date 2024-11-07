@@ -31,7 +31,7 @@ func New(RBACEnforcer *Enforcer, logger logrus.FieldLogger) *Authorizer {
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
-func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (a *Authorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	if a.enforcer == nil {
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
@@ -39,26 +39,28 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		return fmt.Errorf("user is unauthenticated")
 	}
 
-	a.logger.WithFields(logrus.Fields{
-		"user":     principal.Username,
-		"resource": resource,
-		"action":   verb,
-	}).Debug("checking for role")
-
-	allow, err := a.enforcer.enforce(principal.Username, resource, verb)
-	if err != nil {
+	for _, resource := range resources {
 		a.logger.WithFields(logrus.Fields{
 			"user":     principal.Username,
 			"resource": resource,
 			"action":   verb,
-		}).WithError(err).Error("failed to enforce policy")
-		return err
+		}).Debug("checking for role")
+
+		allow, err := a.enforcer.enforce(principal.Username, resource, verb)
+		if err != nil {
+			a.logger.WithFields(logrus.Fields{
+				"user":     principal.Username,
+				"resource": resource,
+				"action":   verb,
+			}).WithError(err).Error("failed to enforce policy")
+			return err
+		}
+
+		// TODO audit-log ?
+		if allow {
+			return nil
+		}
 	}
 
-	// TODO audit-log ?
-	if allow {
-		return nil
-	}
-
-	return errors.NewForbidden(principal, verb, resource)
+	return errors.NewForbidden(principal, verb, resources...)
 }
