@@ -80,7 +80,6 @@ FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
-COPY ./rbac/model.conf ./rbac/model.conf
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
 RUN apk add --no-cache --upgrade bc ca-certificates openssl
