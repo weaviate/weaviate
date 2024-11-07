@@ -89,7 +89,7 @@ func (v *Validator) knnTypeFeasibility() {
 }
 
 func (v *Validator) basedOnProperties(class *models.Class) {
-	if v.subject.BasedOnProperties == nil || len(v.subject.BasedOnProperties) == 0 {
+	if len(v.subject.BasedOnProperties) == 0 {
 		v.errors.Addf("basedOnProperties must have at least one property")
 		return
 	}
@@ -130,7 +130,7 @@ func (v *Validator) basedOnProperty(class *models.Class, propName string) {
 }
 
 func (v *Validator) classifyProperties(class *models.Class) {
-	if v.subject.ClassifyProperties == nil || len(v.subject.ClassifyProperties) == 0 {
+	if len(v.subject.ClassifyProperties) == 0 {
 		v.errors.Addf("classifyProperties must have at least one property")
 		return
 	}
