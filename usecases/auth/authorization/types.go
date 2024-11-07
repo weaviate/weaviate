@@ -18,11 +18,10 @@ import (
 )
 
 const (
-
-	// TODO shall be added if the user can CRUD the resource on permission creation
-	// // CRUD allow all actions on a resource
-	// CRUD = "(C)|(R)|(U)|(D)"
-
+	// CRUD allow all actions on a resource
+	CRUD = "(C)|(R)|(U)|(D)"
+	// CRU allow all actions on a resource except DELETE
+	CRU = "(C)|(R)|(U)"
 	// CREATE Represents the action to create a new resource.
 	CREATE = "C"
 	// READ Represents the action to retrieve a resource.
