@@ -74,9 +74,9 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "UpdateClass",
-			additionalArgs:    []interface{}{"oldClass", &models.Class{Class: "newClass"}},
+			additionalArgs:    []interface{}{"class", &models.Class{Class: "class"}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Collections("oldClass"),
+			expectedResources: authorization.Collections("class"),
 		},
 		{
 			methodName:        "DeleteClass",
@@ -111,7 +111,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:        "AddTenants",
 			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
-			expectedVerb:      authorization.UPDATE,
+			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.Shards("className"),
 		},
 		{
@@ -120,13 +120,13 @@ func Test_Schema_Authorization(t *testing.T) {
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("className"),
+			expectedResources: authorization.Shards("className", "P1"),
 		},
 		{
 			methodName:        "DeleteTenants",
 			additionalArgs:    []interface{}{"className", []string{"P1"}},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.Shards("className"),
+			expectedResources: authorization.Shards("className", "P1"),
 		},
 		{
 			methodName:        "GetTenants",
