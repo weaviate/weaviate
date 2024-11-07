@@ -366,14 +366,15 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 			res = make([]*models.Tenant, len(ss.Physical))
 			i := 0
 			for tenant := range ss.Physical {
-				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
+				physical := ss.Physical[tenant]
+				res[i] = makeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion)
 				i++
 			}
 		} else {
 			res = make([]*models.Tenant, 0, len(tenants))
 			for _, tenant := range tenants {
-				if status, ok := ss.Physical[tenant]; ok {
-					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
+				if physical, ok := ss.Physical[tenant]; ok {
+					res = append(res, makeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion))
 				}
 			}
 		}
@@ -408,5 +409,13 @@ func makeTenant(name, status string) *models.Tenant {
 	return &models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
+	}
+}
+
+func makeTenantWithDataVersion(name, status string, dataVersion int64) *models.Tenant {
+	return &models.Tenant{
+		Name:           name,
+		ActivityStatus: status,
+		DataVersion:    &dataVersion,
 	}
 }

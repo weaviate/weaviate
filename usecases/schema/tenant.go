@@ -317,9 +317,11 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
+			physical := ss.Physical[name]
 			ts = append(ts, &models.Tenant{
 				Name:           name,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
+				ActivityStatus: schema.ActivityStatus(physical.Status),
+				DataVersion:    &physical.DataVersion,
 			})
 		}
 		return nil
