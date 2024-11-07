@@ -317,11 +317,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		LSMObjectsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_objects_bucket_segment_count",
 			Help: "Number of segments per shard in the objects bucket",
-		}, []string{}),
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMCompressedVecsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_compressed_vecs_bucket_segment_count",
 			Help: "Number of segments per shard in the vectors_compressed bucket",
-		}, []string{}),
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMBloomFilters: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "lsm_bloom_filters_duration_ms",
 			Help: "Duration of bloom filter operations",
