@@ -487,11 +487,30 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 }
 
 func (sg *SegmentGroup) monitorSegments() {
-	if sg.metrics == nil || sg.metrics.groupClasses ||
-		// Keeping metering to only the critical buckets helps
-		// cut down on noise when monitoring
-		!strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) ||
-		!strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
+	if sg.metrics == nil || sg.metrics.groupClasses {
+		return
+	}
+
+	// Keeping metering to only the critical buckets helps
+	// cut down on noise when monitoring
+	if sg.metrics.criticalBucketsOnly {
+		if !strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) ||
+			!strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
+			return
+		}
+		if strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) {
+			sg.metrics.ObjectsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		if strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
+			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		sg.reportSegmentStats()
 		return
 	}
 
@@ -499,7 +518,10 @@ func (sg *SegmentGroup) monitorSegments() {
 		"strategy": sg.strategy,
 		"path":     sg.dir,
 	}).Set(float64(sg.Len()))
+	sg.reportSegmentStats()
+}
 
+func (sg *SegmentGroup) reportSegmentStats() {
 	stats := sg.segmentLevelStats()
 	stats.fillMissingLevels()
 	stats.report(sg.metrics, sg.strategy, sg.dir)
