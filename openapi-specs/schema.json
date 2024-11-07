@@ -30,7 +30,7 @@
         "domain": {
           "type": "string",
           "description": "level of that permission",
-          "enum": ["database", "collections", "tenants", "roles", "cluster"]
+          "enum": ["cluster", "collections", "objects", "roles", "tenants"]
         },
         "resources": {
           "type": "array",
@@ -63,7 +63,7 @@
           }
         }
       },
-      "required": [ "domain","actions"]
+      "required": ["domain", "actions"]
     },
     "RolesListResponse": {
       "type": "array",
