@@ -452,7 +452,7 @@ func (sg *SegmentGroup) observeReplaceCompactedDuration(
 	if took > replaceSegmentWarnThreshold {
 		fields.Warn(msg)
 	} else {
-		fields.Debugf(msg)
+		fields.Debug(msg)
 	}
 }
 
