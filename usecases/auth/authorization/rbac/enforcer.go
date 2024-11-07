@@ -69,7 +69,7 @@ func (e *Enforcer) GetPolicies(name *string) ([]*Policy, error) {
 
 func (e *Enforcer) RemovePolicies(policies []*Policy) error {
 	for _, policy := range policies {
-		ok, err := e.casbin.RemovePolicy(policy.Name, policy.Resource, policy.Verb, policy.Level)
+		ok, err := e.casbin.RemovePolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain)
 		if err != nil {
 			return err
 		}
