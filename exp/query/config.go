@@ -22,7 +22,7 @@ type Config struct {
 	// Main rationale is, we first download the objects from object store and put it on local disk
 	// We need this, to make it work with existing query helpers, where we assume we serve query from
 	// local disk. This will go away eventually once we start reading from object store into memory directly.
-	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
+	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp/weaviate"`
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
 
@@ -30,8 +30,7 @@ type Config struct {
 	// Note that this should be replaced later to avoid having a single metadata node as a single point of failure.
 	// If MetadataGRPCAddress is empty, the querier will connect to localhost.
 	MetadataGRPCAddress string `long:"metadata.grpc.address" description:"metadata grpc address" default:":9050"`
-	// AlwaysFetchObjectStore flag ignore what version does local querier has and fetch from
-	// object store (source of truth) all the time.
-	// NOTE: Enabling this (without any intermediate cache) can introduce more latency. Can be used to during performance testing, debugging, correctness check, etc.
-	AlwaysFetchObjectStore bool `long:"always-fetch-objectstore" description:"always fetch from object storage during query, skip local querier state."`
+
+	NoCache        bool  `long:"no-cache" description:"disable disk based cache on query path"`
+	CacheMaxSizeGB int64 `long:"cache-max-size" description:"max size allocated for cache in GBs. More than this start evicting the cache" default:"20"`
 }
