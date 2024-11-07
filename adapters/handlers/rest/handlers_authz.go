@@ -55,21 +55,18 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	policies := []*rbac.Policy{}
 	for _, permission := range params.Body.Permissions {
-		if len(permission.Resources) == 0 { // no filters
-			for _, action := range permission.Actions {
-				domain := authorization.DomainByAction[action]
-				for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
-					policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: string(domain)})
-				}
+		if permission.Resource == nil || *permission.Resource == "" { // no filters
+			action := *permission.Action
+			domain := authorization.DomainByAction[action]
+			for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+				policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: "*", Verb: verb, Domain: string(domain)})
 			}
 		} else {
-			for _, resource := range permission.Resources { // with filtering
-				for _, action := range permission.Actions {
-					domain := authorization.DomainByAction[action]
-					for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
-						policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: *resource, Verb: verb, Domain: string(domain)}) // TODO: add filter to specific resource
-					}
-				}
+			resource := *permission.Resource // with filtering
+			action := *permission.Action
+			domain := authorization.DomainByAction[action]
+			for _, verb := range authorization.Verbs(authorization.ActionsByDomain[domain][action]) {
+				policies = append(policies, &rbac.Policy{Name: *params.Body.Name, Resource: resource, Verb: verb, Domain: string(domain)}) // TODO: add filter to specific resource
 			}
 		}
 	}
@@ -152,14 +149,15 @@ func (h *authZHandlers) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Ro
 			for r := range resourcesByRole[name][domain] {
 				rs = append(rs, &r)
 			}
-			out = append(out, &models.Role{
-				Name: &name,
-				Permissions: []*models.Permission{{
-					Actions:   roleActions,
-					Resources: rs,
-				}},
-			})
-
+			for i := range roleActions {
+				out = append(out, &models.Role{
+					Name: &name,
+					Permissions: []*models.Permission{{
+						Action:   &roleActions[i],
+						Resource: rs[i],
+					}},
+				})
+			}
 		}
 	}
 
