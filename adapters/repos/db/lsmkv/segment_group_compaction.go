@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -494,17 +495,18 @@ func (sg *SegmentGroup) monitorSegments() {
 	// Keeping metering to only the critical buckets helps
 	// cut down on noise when monitoring
 	if sg.metrics.criticalBucketsOnly {
-		if !strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) ||
-			!strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
+		bucket := path.Base(sg.dir)
+		if bucket != helpers.ObjectsBucketLSM &&
+			bucket != helpers.VectorsCompressedBucketLSM {
 			return
 		}
-		if strings.HasSuffix(sg.dir, helpers.ObjectsBucketLSM) {
+		if bucket == helpers.ObjectsBucketLSM {
 			sg.metrics.ObjectsBucketSegments.With(prometheus.Labels{
 				"strategy": sg.strategy,
 				"path":     sg.dir,
 			}).Set(float64(sg.Len()))
 		}
-		if strings.HasSuffix(sg.dir, helpers.VectorsCompressedBucketLSM) {
+		if bucket == helpers.VectorsCompressedBucketLSM {
 			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
 				"strategy": sg.strategy,
 				"path":     sg.dir,
