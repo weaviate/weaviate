@@ -166,18 +166,21 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 
-	compressActionLock *sync.RWMutex
-	className          string
-	shardName          string
-	VectorForIDThunk   common.VectorForID[float32]
-	shardedNodeLocks   *common.ShardedRWLocks
-	store              *lsmkv.Store
+	compressActionLock  *sync.RWMutex
+	className           string
+	shardName           string
+	VectorForIDThunk    common.VectorForID[float32]
+	MultipleVectorForID common.MultipleVectorForID[float32]
+	shardedNodeLocks    *common.ShardedRWLocks
+	store               *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 
-	vectorDocIDMap map[uint64]uint64
-	docIDVectorMap map[uint64][]uint64
+	vectorDocIDMap    map[uint64]uint64
+	docIDVectorMap    map[uint64][]uint64
+	vecIDcounter      uint64
+	vectorPositionMap map[uint64]uint64
 }
 
 type CommitLogger interface {
@@ -233,7 +236,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultipleVectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -279,6 +282,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		compressActionLock:   &sync.RWMutex{},
 		className:            cfg.ClassName,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
+		MultipleVectorForID:  cfg.MultipleVectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
 		bqConfig:             uc.BQ,
@@ -291,6 +295,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		allocChecker:             cfg.AllocChecker,
 		vectorDocIDMap:           make(map[uint64]uint64),
 		docIDVectorMap:           make(map[uint64][]uint64),
+		vectorPositionMap:        make(map[uint64]uint64),
+		vecIDcounter:             0,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -488,7 +494,11 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
+	h.RLock()
+	docIDA := h.vectorDocIDMap[a]
+	vecA, err := h.MultipleVectorForID(context.Background(), docIDA, a)
+	h.RUnlock()
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -504,7 +514,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.vectorForID(context.Background(), b)
+	h.RLock()
+	vecB, err := h.MultipleVectorForID(context.Background(), h.vectorDocIDMap[b], b)
+	h.RUnlock()
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -535,7 +547,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
+	h.RLock()
+	vecA, err := h.MultipleVectorForID(context.Background(), h.vectorDocIDMap[node], node)
+	h.RUnlock()
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {

@@ -105,71 +105,95 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
-func (h *hnsw) AddMultiVectorBatch(ctx context.Context, ids []uint64, docIDs []uint64, vectors [][]float32) error {
+func (h *hnsw) AddMultiVectorBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(ids) != len(vectors) {
+	if len(docIDs) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
-	if len(ids) == 0 {
+	if len(docIDs) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
+
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
 	})
-	levels := make([]int, len(ids))
-	maxId := uint64(0)
-	for i, id := range ids {
-		if maxId < id {
-			maxId = id
+
+	for i, docID := range docIDs {
+
+		numVectors := len(vectors[i])
+		levels := make([]int, numVectors) // should be outside the loop? they don't have fixed size
+		for j := range numVectors {
+			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 		}
-		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
-	}
-	h.RLock()
-	if maxId >= uint64(len(h.nodes)) {
+
+		h.RLock()
+		counter := h.vecIDcounter
 		h.RUnlock()
 		h.Lock()
+		h.vecIDcounter += uint64(numVectors)
+		h.Unlock()
+
+		maxId := counter + uint64(numVectors)
+
+		h.RLock()
 		if maxId >= uint64(len(h.nodes)) {
-			err := h.growIndexToAccomodateNode(maxId, h.logger)
-			if err != nil {
-				h.Unlock()
-				return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
+			h.RUnlock()
+			h.Lock()
+			if maxId >= uint64(len(h.nodes)) {
+				err := h.growIndexToAccomodateNode(maxId, h.logger)
+				if err != nil {
+					h.Unlock()
+					return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
+				}
 			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
 		}
-		h.Unlock()
-	} else {
-		h.RUnlock()
+
+		for j := range numVectors {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
+			vector := vectors[i][j]
+
+			globalBefore := time.Now()
+			if len(vector) == 0 {
+				return errors.Errorf("insert called with nil-vector")
+			}
+
+			h.metrics.InsertVector()
+
+			vector = h.normalizeVec(vector)
+
+			nodeId := counter
+			counter++
+
+			node := &vertex{
+				id:    uint64(nodeId),
+				level: levels[j],
+			}
+
+			err := h.addOne(vector, node)
+			if err != nil {
+				return err
+			}
+
+			h.Lock()
+			h.vectorDocIDMap[nodeId] = docID
+			h.docIDVectorMap[docID] = append(h.docIDVectorMap[docIDs[i]], nodeId)
+			h.vectorPositionMap[nodeId] = uint64(j)
+			h.Unlock()
+			h.insertMetrics.total(globalBefore)
+
+			//fmt.Println("idCounter", idCounter)
+		}
+
 	}
 
-	for i := range ids {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		vector := vectors[i]
-		node := &vertex{
-			id:    ids[i],
-			level: levels[i],
-		}
-		globalBefore := time.Now()
-		if len(vector) == 0 {
-			return errors.Errorf("insert called with nil-vector")
-		}
-
-		h.metrics.InsertVector()
-
-		vector = h.normalizeVec(vector)
-		err := h.addOne(vector, node)
-		if err != nil {
-			return err
-		}
-		h.Lock()
-		h.vectorDocIDMap[ids[i]] = docIDs[i]
-		h.docIDVectorMap[docIDs[i]] = append(h.docIDVectorMap[docIDs[i]], ids[i])
-		h.Unlock()
-		h.insertMetrics.total(globalBefore)
-	}
 	return nil
 }
 
@@ -295,8 +319,8 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	return h.AddBatch(context.TODO(), []uint64{id}, [][]float32{vector})
 }
 
-func (h *hnsw) AddMulti(id uint64, docID uint64, vector []float32) error {
-	return h.AddMultiVectorBatch(context.TODO(), []uint64{id}, []uint64{docID}, [][]float32{vector})
+func (h *hnsw) AddMulti(id uint64, vector [][]float32) error {
+	return h.AddMultiVectorBatch(context.TODO(), []uint64{id}, [][][]float32{vector})
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {

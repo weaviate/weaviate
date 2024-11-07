@@ -385,7 +385,10 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if h.compressed.Load() {
 				distance, err = compressorDistancer.DistanceToNode(neighborID)
 			} else {
-				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
+				h.RLock()
+				docID := h.vectorDocIDMap[neighborID]
+				distance, err = h.distanceToFloatMultiNode(floatDistancer, docID, neighborID)
+				h.RUnlock()
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -484,8 +487,10 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 ) (float32, error) {
 	if results.Len() > 0 {
 		id := results.Top().ID
-
-		d, err := h.distanceToFloatNode(distancer, id)
+		h.RLock()
+		docID := h.vectorDocIDMap[id]
+		d, err := h.distanceToFloatMultiNode(distancer, docID, id)
+		h.RUnlock()
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -554,6 +559,20 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64) (float32, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
+	if err != nil {
+		return 0, err
+	}
+
+	dist, err := distancer.Distance(candidateVec)
+	if err != nil {
+		return 0, errors.Wrap(err, "calculate distance between candidate and query")
+	}
+
+	return dist, nil
+}
+
+func (h *hnsw) distanceToFloatMultiNode(distancer distancer.Distancer, docID uint64, vecID uint64) (float32, error) {
+	candidateVec, err := h.MultipleVectorForID(context.Background(), docID, vecID)
 	if err != nil {
 		return 0, err
 	}
@@ -995,13 +1014,15 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
 	vecIDs := h.docIDVectorMap[docID]
 	vecs := make([][]float32, len(vecIDs))
+	h.RLock()
 	for i, vecID := range vecIDs {
-		vec, err := h.vectorForID(context.Background(), vecID) // should we use multiple vectors for id??
+		vec, err := h.MultipleVectorForID(context.Background(), docID, vecID) // should we use multiple vectors for id??
 		if err != nil {
 			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
 		}
 		vecs[i] = vec
 	}
+	h.RUnlock()
 	return vecs, nil
 }
 

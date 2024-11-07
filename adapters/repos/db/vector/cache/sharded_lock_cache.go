@@ -27,16 +27,17 @@ import (
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks     *common.ShardedRWLocks
-	cache            [][]T
-	vectorForID      common.VectorForID[T]
-	normalizeOnRead  bool
-	maxSize          int64
-	count            int64
-	cancel           chan bool
-	logger           logrus.FieldLogger
-	deletionInterval time.Duration
-	allocChecker     memwatch.AllocChecker
+	shardedLocks        *common.ShardedRWLocks
+	cache               [][]T
+	vectorForID         common.VectorForID[T]
+	multipleVectorForID common.MultipleVectorForID[T]
+	normalizeOnRead     bool
+	maxSize             int64
+	count               int64
+	cancel              chan bool
+	logger              logrus.FieldLogger
+	deletionInterval    time.Duration
+	allocChecker        memwatch.AllocChecker
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -49,12 +50,14 @@ const (
 	indexGrowthRate         = 1.25
 )
 
-func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
+func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multipleVecForID common.MultipleVectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
-	vc := &shardedLockCache[float32]{
-		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
+	var vecForIDValue common.VectorForID[float32] = nil
+	var multipleVecForIDValue common.MultipleVectorForID[float32] = nil
+	if vecForID != nil {
+		vecForIDValue = func(ctx context.Context, id uint64) ([]float32, error) {
 			vec, err := vecForID(ctx, id)
 			if err != nil {
 				return nil, err
@@ -63,17 +66,33 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 				vec = distancer.Normalize(vec)
 			}
 			return vec, nil
-		},
-		cache:            make([][]float32, InitialSize),
-		normalizeOnRead:  normalizeOnRead,
-		count:            0,
-		maxSize:          int64(maxSize),
-		cancel:           make(chan bool),
-		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedRWLocks(),
-		maintenanceLock:  sync.RWMutex{},
-		deletionInterval: deletionInterval,
-		allocChecker:     allocChecker,
+		}
+	}
+	if multipleVecForID != nil {
+		multipleVecForIDValue = func(ctx context.Context, docId uint64, vecId uint64) ([]float32, error) {
+			vec, err := multipleVecForID(ctx, docId, vecId)
+			if err != nil {
+				return nil, err
+			}
+			if normalizeOnRead {
+				vec = distancer.Normalize(vec)
+			}
+			return vec, nil
+		}
+	}
+	vc := &shardedLockCache[float32]{
+		vectorForID:         vecForIDValue,
+		multipleVectorForID: multipleVecForIDValue,
+		cache:               make([][]float32, InitialSize),
+		normalizeOnRead:     normalizeOnRead,
+		count:               0,
+		maxSize:             int64(maxSize),
+		cancel:              make(chan bool),
+		logger:              logger,
+		shardedLocks:        common.NewDefaultShardedRWLocks(),
+		maintenanceLock:     sync.RWMutex{},
+		deletionInterval:    deletionInterval,
+		allocChecker:        allocChecker,
 	}
 
 	vc.watchForDeletion()
