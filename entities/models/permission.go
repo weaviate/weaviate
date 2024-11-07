@@ -38,7 +38,7 @@ type Permission struct {
 
 	// level of that permission
 	// Required: true
-	// Enum: [database collections tenants roles cluster]
+	// Enum: [cluster collections objects roles tenants]
 	Domain *string `json:"domain"`
 
 	// resources
@@ -104,7 +104,7 @@ var permissionTypeDomainPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["database","collections","tenants","roles","cluster"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["cluster","collections","objects","roles","tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -114,20 +114,20 @@ func init() {
 
 const (
 
-	// PermissionDomainDatabase captures enum value "database"
-	PermissionDomainDatabase string = "database"
+	// PermissionDomainCluster captures enum value "cluster"
+	PermissionDomainCluster string = "cluster"
 
 	// PermissionDomainCollections captures enum value "collections"
 	PermissionDomainCollections string = "collections"
 
-	// PermissionDomainTenants captures enum value "tenants"
-	PermissionDomainTenants string = "tenants"
+	// PermissionDomainObjects captures enum value "objects"
+	PermissionDomainObjects string = "objects"
 
 	// PermissionDomainRoles captures enum value "roles"
 	PermissionDomainRoles string = "roles"
 
-	// PermissionDomainCluster captures enum value "cluster"
-	PermissionDomainCluster string = "cluster"
+	// PermissionDomainTenants captures enum value "tenants"
+	PermissionDomainTenants string = "tenants"
 )
 
 // prop value enum
