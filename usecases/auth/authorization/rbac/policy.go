@@ -11,15 +11,6 @@
 
 package rbac
 
-type Level string
-
-func CheckDomain(sp *string) bool {
-	if sp == nil {
-		return false
-	}
-	return *sp == "cluster" || *sp == "collections" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
-}
-
 type Policy struct {
 	Name     string
 	Resource string

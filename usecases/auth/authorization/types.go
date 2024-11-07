@@ -12,6 +12,7 @@
 package authorization
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -109,14 +110,6 @@ type (
 	All    string
 )
 
-func AllActionsForDomain(domain string) []string {
-	var actions []string
-	for key := range ActionsByDomain[domain] {
-		actions = append(actions, key)
-	}
-	return actions
-}
-
 func (r Read) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET}
 }
@@ -141,18 +134,7 @@ func (r All) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
 }
 
-type Domain string
-
-// levels
-var (
-	RolesD      Domain = "roles"
-	ClusterD    Domain = "cluster"
-	CollectionD Domain = "collections"
-	TenantD     Domain = "tenants"
-	ObjectD     Domain = "objects"
-)
-
-var (
+const (
 	ManageRoles   All  = "manage_roles"
 	ReadRoles     Read = "read_roles"
 	ManageCluster All  = "manage_cluster"
@@ -161,28 +143,6 @@ var (
 	ReadCollections   Read   = "read_collections"
 	UpdateCollections Update = "update_collections"
 	DeleteCollections Delete = "delete_collections"
-
-	ActionsByDomain = map[string]map[string]Action{
-		string(RolesD): {
-			string(ManageRoles): ManageRoles,
-			string(ReadRoles):   ReadRoles,
-		},
-		string(ClusterD): {
-			string(ManageCluster): ManageCluster,
-		},
-		string(CollectionD): {
-			string(CreateCollections): CreateCollections,
-			string(ReadCollections):   ReadCollections,
-			string(UpdateCollections): UpdateCollections,
-			string(DeleteCollections): DeleteCollections,
-		},
-		string(TenantD): {
-			string(CreateTenants): CreateTenants,
-			string(ReadTenants):   ReadTenants,
-			string(UpdateTenants): UpdateTenants,
-			string(DeleteTenants): DeleteTenants,
-		},
-	}
 
 	CreateTenants Write  = "create_tenants"
 	ReadTenants   Read   = "read_tenants"
@@ -194,6 +154,74 @@ var (
 	ReadObjects   Read   = "read_objects"
 	UpdateObjects Update = "update_objects"
 	DeleteObjects Delete = "delete_objects"
+)
+
+func AllActionsForDomain(domain Domain) []string {
+	var actions []string
+	for key := range ActionsByDomain[domain] {
+		actions = append(actions, key)
+	}
+	return actions
+}
+
+type Domain string
+
+const (
+	RolesD      Domain = "roles"
+	ClusterD    Domain = "cluster"
+	CollectionD Domain = "collections"
+	TenantD     Domain = "tenants"
+	ObjectD     Domain = "objects"
+)
+
+func (d Domain) String() string {
+	return string(d)
+}
+
+func ToDomain(s string) (Domain, error) {
+	switch Domain(s) {
+	case RolesD, ClusterD, CollectionD, TenantD, ObjectD:
+		return Domain(s), nil
+	}
+	return "", errors.New("invalid status: " + s)
+}
+
+var (
+	ActionsByDomain = map[Domain]map[string]Action{
+		RolesD: {
+			string(ManageRoles): ManageRoles,
+			string(ReadRoles):   ReadRoles,
+		},
+		ClusterD: {
+			string(ManageCluster): ManageCluster,
+		},
+		CollectionD: {
+			string(CreateCollections): CreateCollections,
+			string(ReadCollections):   ReadCollections,
+			string(UpdateCollections): UpdateCollections,
+			string(DeleteCollections): DeleteCollections,
+		},
+		TenantD: {
+			string(CreateTenants): CreateTenants,
+			string(ReadTenants):   ReadTenants,
+			string(UpdateTenants): UpdateTenants,
+			string(DeleteTenants): DeleteTenants,
+		},
+	}
+
+	DomainByAction = map[string]Domain{
+		string(ManageRoles):       RolesD,
+		string(ReadRoles):         RolesD,
+		string(ManageCluster):     ClusterD,
+		string(CreateCollections): CollectionD,
+		string(ReadCollections):   CollectionD,
+		string(UpdateCollections): CollectionD,
+		string(DeleteCollections): CollectionD,
+		string(CreateTenants):     TenantD,
+		string(ReadTenants):       TenantD,
+		string(UpdateTenants):     TenantD,
+		string(DeleteTenants):     TenantD,
+	}
 )
 
 // SchemaShard returns the path for a specific schema shard.
