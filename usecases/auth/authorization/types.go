@@ -12,6 +12,7 @@
 package authorization
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -109,7 +110,7 @@ type (
 	All    string
 )
 
-func AllActionsForDomain(domain string) []string {
+func AllActionsForDomain(domain Domain) []string {
 	var actions []string
 	for key := range ActionsByDomain[domain] {
 		actions = append(actions, key)
@@ -143,14 +144,32 @@ func (r All) Verbs() []string {
 
 type Domain string
 
-// levels
-var (
+const (
 	RolesD      Domain = "roles"
 	ClusterD    Domain = "cluster"
 	CollectionD Domain = "collections"
 	TenantD     Domain = "tenants"
 	ObjectD     Domain = "objects"
 )
+
+func (d Domain) String() string {
+	return string(d)
+}
+
+func ToDomain(s string) (Domain, error) {
+	switch Domain(s) {
+	case RolesD, ClusterD, CollectionD, TenantD, ObjectD:
+		return Domain(s), nil
+	}
+	return "", errors.New("invalid status: " + s)
+}
+
+func CheckDomain(sp *string) bool {
+	if sp == nil {
+		return false
+	}
+	return *sp == "cluster" || *sp == "collections" || *sp == "objects" || *sp == "roles" || *sp == "tenants"
+}
 
 var (
 	ManageRoles   All  = "manage_roles"
@@ -162,21 +181,21 @@ var (
 	UpdateCollections Update = "update_collections"
 	DeleteCollections Delete = "delete_collections"
 
-	ActionsByDomain = map[string]map[string]Action{
-		string(RolesD): {
+	ActionsByDomain = map[Domain]map[string]Action{
+		RolesD: {
 			string(ManageRoles): ManageRoles,
 			string(ReadRoles):   ReadRoles,
 		},
-		string(ClusterD): {
+		ClusterD: {
 			string(ManageCluster): ManageCluster,
 		},
-		string(CollectionD): {
+		CollectionD: {
 			string(CreateCollections): CreateCollections,
 			string(ReadCollections):   ReadCollections,
 			string(UpdateCollections): UpdateCollections,
 			string(DeleteCollections): DeleteCollections,
 		},
-		string(TenantD): {
+		TenantD: {
 			string(CreateTenants): CreateTenants,
 			string(ReadTenants):   ReadTenants,
 			string(UpdateTenants): UpdateTenants,
