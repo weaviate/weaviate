@@ -163,6 +163,7 @@ func (b *BM25Searcher) wand(
 		// A NaN here is the results of a corrupted prop length tracker.
 		// This is a workaround to try and avoid 0 or NaN scores.
 		// There is an extra check below in case all prop lengths are NaN or 0.
+		// Related issue https://github.com/weaviate/weaviate/issues/6247
 		if !math.IsNaN(float64(propMean)) {
 			averagePropLength += float64(propMean)
 			averagePropLengthCount++
@@ -189,6 +190,7 @@ func (b *BM25Searcher) wand(
 
 	// If this value is zero or NaN, the prop length tracker is fully corrupted.
 	// This is a workaround to avoid 0 or NaN scores.
+	// Related issue https://github.com/weaviate/weaviate/issues/6247
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0 // sane default, if all prop lengths are NaN or 0
 	}
