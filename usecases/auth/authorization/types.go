@@ -67,16 +67,16 @@ const (
 	USERS = "authz/users"
 )
 
-type LevelAndVerbs struct {
-	Level string
-	Verbs []string
+type DomainAndVerbs struct {
+	Domain string
+	Verbs  []string
 }
 
 // TODO add translation layer between weaviate and Casbin permissions
-var BuiltInRoles = map[string][]LevelAndVerbs{
-	"viewer": {{Level: "database", Verbs: readOnlyVerbs()}},
-	"editor": {{Level: "database", Verbs: editorVerbs()}},
-	"admin":  {{Level: "database", Verbs: adminVerbs()}},
+var BuiltInRoles = map[string][]DomainAndVerbs{
+	"viewer": {{Domain: "database", Verbs: readOnlyVerbs()}},
+	"editor": {{Domain: "database", Verbs: editorVerbs()}},
+	"admin":  {{Domain: "database", Verbs: adminVerbs()}},
 }
 
 func readOnlyVerbs() []string {
@@ -99,7 +99,7 @@ func Verbs[T Action](a T) []string {
 	return a.Verbs()
 }
 
-// ActionsByLevel
+// ActionsByDomain
 type (
 	Read   string
 	List   string
@@ -109,9 +109,9 @@ type (
 	All    string
 )
 
-func AllActionsForLevel(level string) []string {
+func AllActionsForDomain(domain string) []string {
 	var actions []string
-	for key := range ActionsByLevel[level] {
+	for key := range ActionsByDomain[domain] {
 		actions = append(actions, key)
 	}
 	return actions
@@ -141,54 +141,59 @@ func (r All) Verbs() []string {
 	return []string{HEAD, VALIDATE, GET, LIST, CREATE, UPDATE, DELETE}
 }
 
-type Level string
+type Domain string
 
 // levels
 var (
-	DatabaseL   Level = "database"
-	CollectionL Level = "collection"
-	TenantL     Level = "tenant"
-	ObjectL     Level = "object"
+	RolesD      Domain = "roles"
+	ClusterD    Domain = "cluster"
+	CollectionD Domain = "collections"
+	TenantD     Domain = "tenants"
+	ObjectD     Domain = "objects"
 )
 
 var (
-	ManageRole    All  = "manage_role" // should not be delete
-	ReadRole      Read = "manage_role" // should not be delete
-	ManageCluster All  = "manage_role"
+	ManageRoles   All  = "manage_roles"
+	ReadRoles     Read = "read_roles"
+	ManageCluster All  = "manage_cluster"
 
-	CreateCollection Write  = "create_collection"
-	ReadCollection   Read   = "read_collection"
-	UpdateCollection Update = "update_collection"
-	DeleteCollection Delete = "delete_collection"
+	CreateCollections Write  = "create_collections"
+	ReadCollections   Read   = "read_collections"
+	UpdateCollections Update = "update_collections"
+	DeleteCollections Delete = "delete_collections"
 
-	ActionsByLevel = map[string]map[string]Action{
-		"database": {
-			string(ManageRole):       ManageRole,
-			string(ReadRole):         ReadRole,
-			string(ManageCluster):    ManageCluster,
-			string(CreateCollection): CreateCollection,
-			string(ReadCollection):   ReadCollection,
-			string(UpdateCollection): UpdateCollection,
-			string(DeleteCollection): DeleteCollection,
+	ActionsByDomain = map[string]map[string]Action{
+		string(RolesD): {
+			string(ManageRoles): ManageRoles,
+			string(ReadRoles):   ReadRoles,
 		},
-		"collection": {
-			string(CreateTenant): CreateTenant,
-			string(ReadTenant):   ReadTenant,
-			string(UpdateTenant): UpdateTenant,
-			string(DeleteTenant): DeleteTenant,
+		string(ClusterD): {
+			string(ManageCluster): ManageCluster,
+		},
+		string(CollectionD): {
+			string(CreateCollections): CreateCollections,
+			string(ReadCollections):   ReadCollections,
+			string(UpdateCollections): UpdateCollections,
+			string(DeleteCollections): DeleteCollections,
+		},
+		string(TenantD): {
+			string(CreateTenants): CreateTenants,
+			string(ReadTenants):   ReadTenants,
+			string(UpdateTenants): UpdateTenants,
+			string(DeleteTenants): DeleteTenants,
 		},
 	}
 
-	CreateTenant Write  = "create_tenant"
-	ReadTenant   Read   = "read_tenant"
-	UpdateTenant Update = "update_tenant"
-	DeleteTenant Delete = "delete_tenant"
+	CreateTenants Write  = "create_tenants"
+	ReadTenants   Read   = "read_tenants"
+	UpdateTenants Update = "update_tenants"
+	DeleteTenants Delete = "delete_tenants"
 
 	// not in first version
-	CreateObject Write  = "create_object"
-	ReadObject   Read   = "read_object"
-	UpdateObject Update = "update_object"
-	DeleteObject Delete = "delete_object"
+	CreateObjects Write  = "create_objects"
+	ReadObjects   Read   = "read_objects"
+	UpdateObjects Update = "update_objects"
+	DeleteObjects Delete = "delete_objects"
 )
 
 // SchemaShard returns the path for a specific schema shard.

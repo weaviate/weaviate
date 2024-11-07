@@ -27,10 +27,10 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
-        "level": {
+        "domain": {
           "type": "string",
           "description": "level of that permission",
-          "enum": ["database", "collection", "tenant"]
+          "enum": ["cluster", "collections", "objects", "roles", "tenants"]
         },
         "resources": {
           "type": "array",
@@ -50,20 +50,20 @@
               "read_roles",
               "manage_cluster",
 
-              "create_collection",
-              "read_collection",
-              "update_collection",
-              "delete_collection",
+              "create_collections",
+              "read_collections",
+              "update_collections",
+              "delete_collections",
 
-              "create_tenant",
-              "read_tenant",
-              "update_tenant",
-              "delete_tenant"    
+              "create_tenants",
+              "read_tenants",
+              "update_tenants",
+              "delete_tenants"
             ]
           }
         }
       },
-      "required": [ "level","actions"]
+      "required": ["domain", "actions"]
     },
     "RolesListResponse": {
       "type": "array",
