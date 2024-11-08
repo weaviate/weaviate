@@ -167,7 +167,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	return authz.NewGetRolesForUserOK().WithPayload(users)
+	return authz.NewGetUsersForRoleOK().WithPayload(users)
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
