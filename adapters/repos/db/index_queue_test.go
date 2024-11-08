@@ -778,7 +778,7 @@ func TestIndexQueue(t *testing.T) {
 					return container.Slice, nil
 				},
 			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 		defer index.Shutdown(context.Background())
 
 		q, err := NewIndexQueue("foo", "1", "", new(mockShard), index, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{

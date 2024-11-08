@@ -78,10 +78,8 @@ func TestBackup_Integration(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk:     TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:       noopCallback,
-		ShardCompactionCallbacks: noopCallback,
-		ShardFlushCallbacks:      noopCallback,
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		TombstoneCallbacks:   noopCallback,
 	}
 
 	uc := ent.UserConfig{

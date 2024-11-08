@@ -488,7 +488,7 @@ Ex: go test -v -run TestHnswStress . -download
 			MaxConnections:        30,
 			EFConstruction:        128,
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 
 		var wg sync.WaitGroup
