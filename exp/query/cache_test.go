@@ -70,10 +70,10 @@ func TestCache_Tenant(t *testing.T) {
 	require.NotNil(t, tt)
 	assert.NotEmpty(t, tt.AbsolutePath())
 
-	tt, err = c.Tenant(collection1, tenant1)
+	_, err = c.Tenant(collection1, tenant1)
 	assert.ErrorIs(t, err, ErrTenantNotFound)
 
-	tt, err = c.Tenant(collection2, tenant2)
+	_, err = c.Tenant(collection2, tenant2)
 	assert.ErrorIs(t, err, ErrTenantNotFound)
 }
 

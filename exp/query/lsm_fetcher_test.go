@@ -43,7 +43,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 	assert.Equal(t, expectedFullpath, gotFullpath)
 	assert.Equal(t, 1, downloader.count)
 
-	// Any version number is irrelavent if cache is disabled and still should download from upstream
+	// Any version number is irrelevent if cache is disabled and still should download from upstream
 	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 111) // non-zero version number
 	expectedFullpath = path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
 	require.NoError(t, err)
