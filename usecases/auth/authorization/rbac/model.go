@@ -17,7 +17,7 @@ const (
 	r = sub, obj, act
 
 	[policy_definition]
-	p = sub, obj, act, lev
+	p = sub, obj, act, dom
 
 	[role_definition]
 	g = _, _
