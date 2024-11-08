@@ -18,8 +18,10 @@ import (
 )
 
 type shardCycleCallbacks struct {
-	compactionCallbacks     cyclemanager.CycleCallbackGroup
-	compactionCallbacksCtrl cyclemanager.CycleCallbackCtrl
+	compactionObjectsCallbacks        cyclemanager.CycleCallbackGroup
+	compactionObjectsCallbacksCtrl    cyclemanager.CycleCallbackCtrl
+	compactionNonObjectsCallbacks     cyclemanager.CycleCallbackGroup
+	compactionNonObjectsCallbacksCtrl cyclemanager.CycleCallbackCtrl
 
 	flushCallbacks     cyclemanager.CycleCallbackGroup
 	flushCallbacksCtrl cyclemanager.CycleCallbackCtrl
@@ -39,10 +41,16 @@ func (s *Shard) initCycleCallbacks() {
 		return strings.Join(elems, "/")
 	}
 
-	compactionId := id("compaction")
-	compactionCallbacks := cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
-	compactionCallbacksCtrl := s.index.cycleCallbacks.compactionCallbacks.Register(
-		compactionId, compactionCallbacks.CycleCallback,
+	compactionObjectsId := id("compaction-objects")
+	compactionObjectsCallbacks := cyclemanager.NewCallbackGroup(compactionObjectsId, s.index.logger, 1)
+	compactionObjectsCallbacksCtrl := s.index.cycleCallbacks.compactionObjectsCallbacks.Register(
+		compactionObjectsId, compactionObjectsCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+
+	compactionNonObjectsId := id("compaction-non-objects")
+	compactionNonObjectsCallbacks := cyclemanager.NewCallbackGroup(compactionNonObjectsId, s.index.logger, 1)
+	compactionNonObjectsCallbacksCtrl := s.index.cycleCallbacks.compactionNonObjectsCallbacks.Register(
+		compactionNonObjectsId, compactionNonObjectsCallbacks.CycleCallback,
 		cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
 
 	flushId := id("flush")
@@ -82,8 +90,10 @@ func (s *Shard) initCycleCallbacks() {
 		geoPropsCommitLoggerCallbacksCtrl, geoPropsTombstoneCleanupCallbacksCtrl)
 
 	s.cycleCallbacks = &shardCycleCallbacks{
-		compactionCallbacks:     compactionCallbacks,
-		compactionCallbacksCtrl: compactionCallbacksCtrl,
+		compactionObjectsCallbacks:        compactionObjectsCallbacks,
+		compactionObjectsCallbacksCtrl:    compactionObjectsCallbacksCtrl,
+		compactionNonObjectsCallbacks:     compactionNonObjectsCallbacks,
+		compactionNonObjectsCallbacksCtrl: compactionNonObjectsCallbacksCtrl,
 
 		flushCallbacks:     flushCallbacks,
 		flushCallbacksCtrl: flushCallbacksCtrl,

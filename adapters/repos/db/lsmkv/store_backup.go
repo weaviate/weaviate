@@ -29,8 +29,11 @@ import (
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (s *Store) PauseCompaction(ctx context.Context) error {
-	if err := s.cycleCallbacks.compactionCallbacksCtrl.Deactivate(ctx); err != nil {
-		return errors.Wrap(err, "long-running compaction in progress")
+	if err := s.cycleCallbacks.compactionNonObjectCallbacksCtrl.Deactivate(ctx); err != nil {
+		return errors.Wrap(err, "long-running non-objects compaction in progress")
+	}
+	if err := s.cycleCallbacks.compactionObjectCallbacksCtrl.Deactivate(ctx); err != nil {
+		return errors.Wrap(err, "long-running objects compaction in progress")
 	}
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
@@ -50,7 +53,8 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 // ResumeCompaction starts the compaction cycle again.
 // It errors if compactions were not paused
 func (s *Store) ResumeCompaction(ctx context.Context) error {
-	s.cycleCallbacks.compactionCallbacksCtrl.Activate()
+	s.cycleCallbacks.compactionObjectCallbacksCtrl.Activate()
+	s.cycleCallbacks.compactionNonObjectCallbacksCtrl.Activate()
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {

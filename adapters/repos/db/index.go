@@ -292,7 +292,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, err
 	}
 
-	index.cycleCallbacks.compactionCycle.Start()
+	index.cycleCallbacks.compactionObjectsCycle.Start()
+	index.cycleCallbacks.compactionNonObjectsCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
@@ -2213,8 +2214,11 @@ func (i *Index) Shutdown(ctx context.Context) error {
 }
 
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
-	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop compaction cycle: %w", usecase, err)
+	if err := i.cycleCallbacks.compactionObjectsCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.compactionNonObjectsCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
 	}
 	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
