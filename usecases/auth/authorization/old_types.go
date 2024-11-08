@@ -92,10 +92,15 @@ const (
 	DeleteTenants Delete = "delete_tenants"
 
 	// not in first version
-	CreateObjects Write  = "create_objects"
-	ReadObjects   Read   = "read_objects"
-	UpdateObjects Update = "update_objects"
-	DeleteObjects Delete = "delete_objects"
+	CreateObjectsC Write  = "create_objects_collection"
+	ReadObjectsC   Read   = "read_objects_collection"
+	UpdateObjectsC Update = "update_objects_collection"
+	DeleteObjectsC Delete = "delete_objects_collection"
+
+	CreateObjectT  Write  = "create_objects_tenant"
+	ReadObjectsT   Read   = "read_objects_tenant"
+	UpdateObjectsT Update = "update_objects_tenant"
+	DeleteObjectsT Delete = "delete_objects_tenant"
 )
 
 func AllActionsForDomain(domain Domain) ([]Action, []string) {
@@ -111,14 +116,15 @@ func AllActionsForDomain(domain Domain) ([]Action, []string) {
 type Domain string
 
 const (
-	RolesD      Domain = "roles"
-	ClusterD    Domain = "cluster"
-	CollectionD Domain = "collections"
-	TenantD     Domain = "tenants"
-	ObjectD     Domain = "objects"
+	RolesD             Domain = "roles"
+	ClusterD           Domain = "cluster"
+	CollectionD        Domain = "collections"
+	TenantD            Domain = "tenants"
+	ObjectsCollectionD Domain = "objects_collection"
+	ObjectsTenantsD    Domain = "objects_tenant"
 )
 
-var Domains []Domain = []Domain{RolesD, ClusterD, CollectionD, TenantD, ObjectD}
+var Domains []Domain = []Domain{RolesD, ClusterD, CollectionD, TenantD, ObjectsCollectionD, ObjectsTenantsD}
 
 func (d Domain) String() string {
 	return string(d)
@@ -126,7 +132,7 @@ func (d Domain) String() string {
 
 func ToDomain(s string) (Domain, error) {
 	switch Domain(s) {
-	case RolesD, ClusterD, CollectionD, TenantD, ObjectD:
+	case RolesD, ClusterD, CollectionD, TenantD, ObjectsCollectionD, ObjectsTenantsD:
 		return Domain(s), nil
 	}
 	return "", errors.New("invalid status: " + s)
@@ -153,6 +159,18 @@ var (
 			string(UpdateTenants): UpdateTenants,
 			string(DeleteTenants): DeleteTenants,
 		},
+		ObjectsCollectionD: {
+			string(CreateObjectsC): CreateObjectsC,
+			string(ReadObjectsC):   ReadObjectsC,
+			string(UpdateObjectsC): UpdateObjectsC,
+			string(DeleteObjectsC): DeleteObjectsC,
+		},
+		ObjectsTenantsD: {
+			string(CreateObjectT):  CreateObjectT,
+			string(ReadObjectsT):   ReadObjectsT,
+			string(UpdateObjectsT): UpdateObjectsT,
+			string(DeleteObjectsT): DeleteObjectsT,
+		},
 	}
 
 	DomainByAction = map[string]Domain{
@@ -167,5 +185,13 @@ var (
 		string(ReadTenants):       TenantD,
 		string(UpdateTenants):     TenantD,
 		string(DeleteTenants):     TenantD,
+		string(CreateObjectT):     ObjectsTenantsD,
+		string(ReadObjectsT):      ObjectsTenantsD,
+		string(UpdateObjectsT):    ObjectsTenantsD,
+		string(DeleteObjectsT):    ObjectsTenantsD,
+		string(CreateObjectsC):    ObjectsCollectionD,
+		string(ReadObjectsC):      ObjectsCollectionD,
+		string(UpdateObjectsC):    ObjectsCollectionD,
+		string(DeleteObjectsC):    ObjectsCollectionD,
 	}
 )
