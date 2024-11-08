@@ -13,6 +13,7 @@ package authorization
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -57,7 +58,7 @@ func (c *AuthzController) GetRole(name string) (*models.Role, error) {
 		return nil, err
 	}
 	if len(policies) == 0 {
-		return nil, ErrRoleNotFound
+		return nil, fmt.Errorf("%w: %s", ErrRoleNotFound, name)
 	}
 	roles, err := rolesFromPolicies(policies)
 	if err != nil {
@@ -78,7 +79,7 @@ func (m *AuthzController) GetRolesByName(names ...string) ([]*models.Role, error
 			return nil, err
 		}
 		if len(role) == 0 {
-			return nil, ErrRoleNotFound
+			return nil, fmt.Errorf("%w: %s", ErrRoleNotFound, name)
 		}
 		roles = append(roles, role[0])
 	}

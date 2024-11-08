@@ -25,17 +25,18 @@ import (
 
 func TestAuthzRoles(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
-	const existingUser = "existing-user"
-	const existingKey = "existing-key"
-	const existingRole = "existing-role"
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+	existingRole := "admin"
 
-	const testRole = "test-role"
-	const testAction = "create_collections"
+	testRole := "test-role"
+	testAction := "create_collections"
 
 	clientAuth := helper.CreateAuth(existingKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
 	require.Nil(t, err)
@@ -52,14 +53,15 @@ func TestAuthzRoles(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("create role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.CreateRole(
 			authz.NewCreateRoleParams().WithBody(&models.Role{
-				Name: makeStrPtr(testRole),
+				Name: &testRole,
 				Permissions: []*models.Permission{{
-					Action: makeStrPtr(testAction),
+					Action: &testAction,
 				}},
 			}),
 			clientAuth,
@@ -93,8 +95,8 @@ func TestAuthzRoles(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
-		require.Equal(t, existingRole, res.Payload[0])
-		require.Equal(t, testRole, res.Payload[1])
+		require.Equal(t, existingRole, *res.Payload[0].Name)
+		require.Equal(t, testRole, *res.Payload[1].Name)
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
@@ -113,7 +115,7 @@ func TestAuthzRoles(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, existingRole, res.Payload[0])
+		require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
@@ -127,8 +129,4 @@ func TestAuthzRoles(t *testing.T) {
 		require.NotNil(t, err)
 		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})
-}
-
-func makeStrPtr(s string) *string {
-	return &s
 }

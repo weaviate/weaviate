@@ -110,7 +110,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 	roles, err := h.controller.GetRolesByName(params.ID)
 	if err != nil {
-		if err == authorization.ErrRoleNotFound {
+		if errors.Is(err, authorization.ErrRoleNotFound) {
 			return authz.NewGetRoleNotFound()
 		}
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
