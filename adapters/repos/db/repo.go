@@ -157,6 +157,11 @@ func New(logger logrus.FieldLogger, config Config,
 			i := i
 			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
+		// since queues are created regardless of the async setting, we need to
+		// create a scheduler anyway, but there is no need to start it
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger: logger,
+		})
 	} else {
 		logger.Info("async indexing enabled")
 
