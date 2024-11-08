@@ -35,6 +35,7 @@ type rbacManager interface {
 	GetRolesForUser(user string) ([]string, error)
 	GetUsersForRole(role string) ([]string, error)
 	DeleteRolesForUser(user string, roles []string) error
+	DeleteRoleFromUsers(role string) error
 }
 
 var ErrRoleNotFound = errors.New("role not found")
@@ -71,6 +72,10 @@ func (c *AuthzController) GetRole(name string) (*models.Role, error) {
 }
 
 func (c *AuthzController) DeleteRole(name string) error {
+	err := c.rbac.DeleteRoleFromUsers(name)
+	if err != nil {
+		return err
+	}
 	policies, err := c.rbac.GetPolicies(&name)
 	if err != nil {
 		return err

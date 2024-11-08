@@ -19,44 +19,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
-type fakeRbacManager struct{}
-
-func (f *fakeRbacManager) AddPolicies(policies []*rbac.Policy) error {
-	return nil
-}
-
-func (f *fakeRbacManager) GetPolicies(name *string) ([]*rbac.Policy, error) {
-	if name != nil && *name != "new-role" {
-		return nil, nil
-	}
-	return []*rbac.Policy{{
-		Name:     "new-role",
-		Resource: "*",
-		Verb:     "(C)|(R)|(U)|(D)",
-		Domain:   "roles",
-	}}, nil
-}
-
-func (f *fakeRbacManager) RemovePolicies(policies []*rbac.Policy) error {
-	return nil
-}
-
-func (f *fakeRbacManager) AddRolesForUser(user string, roles []string) error {
-	return nil
-}
-
-func (f *fakeRbacManager) GetRolesForUser(user string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *fakeRbacManager) GetUsersForRole(role string) ([]string, error) {
-	return nil, nil
-}
-
-func (f *fakeRbacManager) DeleteRolesForUser(user string, roles []string) error {
-	return nil
-}
-
 func Test_roleToPolicies(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -134,6 +96,22 @@ func Test_rolesFromPolicies(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, tt.expected, roles)
 	}
+}
+
+type fakeRbacManager struct {
+	rbacManager
+}
+
+func (f *fakeRbacManager) GetPolicies(name *string) ([]*rbac.Policy, error) {
+	if name != nil && *name != "new-role" {
+		return nil, nil
+	}
+	return []*rbac.Policy{{
+		Name:     "new-role",
+		Resource: "*",
+		Verb:     "(C)|(R)|(U)|(D)",
+		Domain:   "roles",
+	}}, nil
 }
 
 func TestAuthzController(t *testing.T) {

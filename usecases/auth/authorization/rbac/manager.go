@@ -114,3 +114,19 @@ func (m *Manager) DeleteRolesForUser(user string, role []string) error {
 	}
 	return nil
 }
+
+func (m *Manager) DeleteRoleFromUsers(role string) error {
+	users, err := m.casbin.GetUsersForRole(role)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
+			return err
+		}
+	}
+	if err := m.casbin.SavePolicy(); err != nil {
+		return err
+	}
+	return nil
+}

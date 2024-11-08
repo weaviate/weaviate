@@ -72,9 +72,39 @@ func TestAuthzRoles(t *testing.T) {
 		require.Equal(t, "create_collections", *res.Payload.Permissions[0].Action)
 	})
 
+	t.Run("assign role to user", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AssignRole(
+			authz.NewAssignRoleParams().WithID("testing-user").WithBody(authz.AssignRoleBody{Roles: []string{"test-role"}}),
+			helper.CreateAuth("testing-key"),
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("get roles for user after assignment", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("testing-user"), helper.CreateAuth("testing-key"))
+		require.Nil(t, err)
+		require.Equal(t, 2, len(res.Payload))
+		require.Equal(t, "admin", res.Payload[0])
+		require.Equal(t, "test-role", res.Payload[1])
+	})
+
+	t.Run("get users for role after assignment", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, "testing-user", res.Payload[0])
+	})
+
 	t.Run("delete role by name", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
 		require.Nil(t, err)
+	})
+
+	t.Run("get roles for user after deletion", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("testing-user"), helper.CreateAuth("testing-key"))
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, "admin", res.Payload[0])
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
@@ -86,6 +116,7 @@ func TestAuthzRoles(t *testing.T) {
 	t.Run("get non-existent role by name", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
 		require.NotNil(t, err)
+		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})
 }
 
