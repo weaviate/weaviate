@@ -799,7 +799,8 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	casbin, err := initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey)
+	casbin, err := initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey,
+		filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir))
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -1503,7 +1504,7 @@ func (m membership) LeaderID() string {
 	return id
 }
 
-func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, error) {
+func initializeCasbin(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
 	numRoles := len(authConfig.Roles)
 	if numRoles == 0 {
 		log.Printf("no roles found")
@@ -1527,10 +1528,17 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 	}
 	enforcer.EnableCache(true)
 
-	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
+	rbacStoragePath := fmt.Sprintf("./%s/rbac/policy.csv", policyPath)
+	if err := rbac.CreateStorage(rbacStoragePath); err != nil {
+		return nil, err
+	}
+
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
+
 	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
