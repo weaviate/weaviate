@@ -14,7 +14,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -54,6 +53,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 	offmod := modsloads3.Module{}
 	config := Config{}
 	logger := testLogger()
+	lsm := NewLSMFetcher("", &offmod, logger)
 	ctx := context.Background()
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 
-	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
+	api := NewAPI(testSchemaInfo, lsm, vectorize, st, &config, logger)
 
 	cases := []struct {
 		name     string
@@ -139,9 +139,6 @@ func TestAPI_propertyFilters(t *testing.T) {
 			res, err := api.propertyFilters(ctx, store, testCollection, nil, testTenant, tc.filters, tc.limit)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expCount, len(res))
-			for _, r := range res {
-				fmt.Printf("%#v\n", r)
-			}
 		})
 	}
 }
@@ -154,6 +151,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 	offmod := modsloads3.Module{}
 	config := Config{}
 	logger := testLogger()
+	lsm := NewLSMFetcher("", &offmod, logger)
 	ctx := context.Background()
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
@@ -162,7 +160,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 
-	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
+	api := NewAPI(testSchemaInfo, lsm, vectorize, st, &config, logger)
 
 	nearText := []string{"biology"}
 
