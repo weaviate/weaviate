@@ -10,11 +10,11 @@ from weaviate.collections.classes.config import (
     _VectorizerConfigCreate,
     _InvertedIndexConfigCreate,
     _ReferencePropertyBase,
-    _GenerativeConfigCreate,
+    _GenerativeProvider,
     _ReplicationConfigCreate,
     _MultiTenancyConfigCreate,
     _VectorIndexConfigCreate,
-    _RerankerConfigCreate,
+    _RerankerProvider,
 )
 from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
@@ -36,7 +36,7 @@ class CollectionFactory(Protocol):
         ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-        generative_config: Optional[_GenerativeConfigCreate] = None,
+        generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
         data_model_properties: Optional[Type[Properties]] = None,
@@ -44,7 +44,7 @@ class CollectionFactory(Protocol):
         replication_config: Optional[_ReplicationConfigCreate] = None,
         vector_index_config: Optional[_VectorIndexConfigCreate] = None,
         description: Optional[str] = None,
-        reranker_config: Optional[_RerankerConfigCreate] = None,
+        reranker_config: Optional[_RerankerProvider] = None,
     ) -> Collection[Any, Any]:
         """Typing for fixture."""
         ...
@@ -76,7 +76,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         ] = None,
         inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
         multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-        generative_config: Optional[_GenerativeConfigCreate] = None,
+        generative_config: Optional[_GenerativeProvider] = None,
         headers: Optional[Dict[str, str]] = None,
         ports: Tuple[int, int] = (8080, 50051),
         data_model_properties: Optional[Type[Properties]] = None,
@@ -84,7 +84,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         replication_config: Optional[_ReplicationConfigCreate] = None,
         vector_index_config: Optional[_VectorIndexConfigCreate] = None,
         description: Optional[str] = None,
-        reranker_config: Optional[_RerankerConfigCreate] = None,
+        reranker_config: Optional[_RerankerProvider] = None,
     ) -> Collection[Any, Any]:
         nonlocal client_fixture, name_fixture
         name_fixture = _sanitize_collection_name(request.node.name) + name
