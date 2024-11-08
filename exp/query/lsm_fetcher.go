@@ -38,6 +38,7 @@ type LSMDownloader interface {
 type LSMCache interface {
 	Tenant(collection, tenantID string) (*TenantCache, error)
 	AddTenant(collection, tenantID string, version uint64) error
+	BasePath() string
 }
 
 // NewLSMFetcher creates LSMFetcher without cache.
@@ -64,11 +65,13 @@ func NewLSMFetcherWithCache(basePath string, upstream LSMDownloader, cache LSMCa
 // 4. if cache is enabled, found in the cache and local version is up to date, return from the cache.
 func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, version uint64) (*lsmkv.Store, string, error) {
 	var (
-		tenantPath string
-		download   bool = true
+		basePath          = l.basePath
+		tenantPath string = ""
+		download   bool   = true
 	)
 
 	if l.cache != nil {
+		basePath = l.cache.BasePath()
 		c, err := l.cache.Tenant(collection, tenant)
 		if err == nil && version != 0 && c.Version >= version {
 			tenantPath = c.AbsolutePath()
@@ -81,7 +84,7 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 
 	if download {
 		tenantPath = path.Join(
-			l.basePath,
+			basePath,
 			strings.ToLower(collection),
 			strings.ToLower(tenant),
 		)
