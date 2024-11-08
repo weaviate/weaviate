@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -28,10 +27,6 @@ import (
 	"time"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
-	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/model"
-	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
-	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -110,7 +105,6 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -799,14 +793,14 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	casbin, err := initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey,
+	rbac, err := authorization.InitRBAC(appState.ServerConfig.Config.Authentication.APIKey,
 		filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir))
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("RBAC enforcer not initialized")
 	}
-	appState.AuthzController = authorization.NewAuthzController(casbin)
+	appState.AuthzController = authorization.NewAuthzController(rbac)
 	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -1502,75 +1496,4 @@ type membership struct {
 func (m membership) LeaderID() string {
 	_, id := m.raft.LeaderWithID()
 	return id
-}
-
-func initializeCasbin(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
-	numRoles := len(authConfig.Roles)
-	if numRoles == 0 {
-		log.Printf("no roles found")
-		return nil, nil
-	}
-
-	if len(authConfig.Users) != numRoles || len(authConfig.AllowedKeys) != numRoles {
-		return nil, fmt.Errorf(
-			"AUTHENTICATION_APIKEY_ROLES must contain the same number of entries as " +
-				"AUTHENTICATION_APIKEY_USERS and AUTHENTICATION_APIKEY_ALLOWED_KEYS")
-	}
-
-	m, err := model.NewModelFromString(rbac.MODEL)
-	if err != nil {
-		return nil, fmt.Errorf("load rbac model: %w", err)
-	}
-
-	enforcer, err := casbin.NewSyncedCachedEnforcer(m)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create enforcer: %w", err)
-	}
-	enforcer.EnableCache(true)
-
-	rbacStoragePath := fmt.Sprintf("./%s/rbac/policy.csv", policyPath)
-	if err := rbac.CreateStorage(rbacStoragePath); err != nil {
-		return nil, err
-	}
-
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
-
-	if err := enforcer.LoadPolicy(); err != nil {
-		return nil, err
-	}
-
-	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
-	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
-
-	for i := range authConfig.Roles {
-		// All abstract roles are created at startup.
-		//
-		// No permissions are added by default for a new instance, they need to be
-		// added manually after startup. The below line can be swapped in for
-		// debugging purposes if needed.
-		//
-
-		entry := authorization.BuiltInRoles[authConfig.Roles[i]]
-		for _, verb := range entry.Verbs {
-			for _, domain := range entry.Domains {
-				if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb, domain.String()); err != nil {
-					return nil, fmt.Errorf("add policy: %w", err)
-				}
-			}
-		}
-
-		// TODO do we need to add to keys as users ?
-		// if _, err := enforcer.AddRoleForUser(authConfig.AllowedKeys[i], authConfig.Roles[i]); err != nil {
-		// 	return nil, fmt.Errorf("add role for key: %w", err)
-		// }
-		if _, err := enforcer.AddRoleForUser(authConfig.Users[i], authConfig.Roles[i]); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
-		}
-	}
-
-	if err := enforcer.SavePolicy(); err != nil {
-		return nil, err
-	}
-
-	return enforcer, nil
 }
