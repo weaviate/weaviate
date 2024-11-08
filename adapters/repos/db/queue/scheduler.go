@@ -48,9 +48,6 @@ type SchedulerOptions struct {
 	Workers int
 	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
-	// If a queue does not receive any tasks for this duration, it is considered stale
-	// and must be scheduled. Defaults to 5 seconds.
-	StaleTimeout time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
 }
@@ -67,10 +64,6 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 
 	if opts.ScheduleInterval == 0 {
 		opts.ScheduleInterval = time.Second
-	}
-
-	if opts.StaleTimeout == 0 {
-		opts.StaleTimeout = 5 * time.Second
 	}
 
 	s := Scheduler{

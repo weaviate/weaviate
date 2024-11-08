@@ -14,7 +14,6 @@ package queue
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"os"
 	"slices"
 	"testing"
@@ -120,7 +119,10 @@ func TestScheduler(t *testing.T) {
 
 		// consume the channel in a separate goroutine
 		var res []uint64
+		done := make(chan struct{})
 		go func() {
+			defer close(done)
+
 			for i := range ch {
 				res = append(res, i)
 			}
@@ -145,6 +147,7 @@ func TestScheduler(t *testing.T) {
 		require.Zero(t, q.Size())
 
 		close(ch)
+		<-done
 
 		for i := 0; i < 10000; i++ {
 			require.EqualValues(t, i, res[i])
@@ -160,11 +163,12 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("chunk is promoted if full", func(t *testing.T) {
 		s := makeScheduler(t, 1)
-		s.SchedulerOptions.StaleTimeout = 1 * time.Second
 		s.Start()
 
 		_, e := streamExecutor()
 		q := makeQueue(t, s, e)
+		q.staleTimeout = 1 * time.Second
+
 		// override chunk size for testing
 		q.chunkSize = 90
 
@@ -186,11 +190,11 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("does not read partial chunk", func(t *testing.T) {
 		s := makeScheduler(t, 1)
-		s.SchedulerOptions.StaleTimeout = 1 * time.Second
 		s.Start()
 
 		ch, e := streamExecutor()
 		q := makeQueue(t, s, e)
+		q.staleTimeout = 1 * time.Second
 
 		var batch []uint64
 		for i := 0; i < 10; i++ {
@@ -229,7 +233,6 @@ func makeScheduler(t *testing.T, workers ...int) *Scheduler {
 		Logger:           logger,
 		Workers:          w,
 		ScheduleInterval: 50 * time.Millisecond,
-		StaleTimeout:     500 * time.Millisecond,
 	})
 }
 
@@ -305,8 +308,6 @@ func (m *mockTaskDecoder) DecodeTask(data []byte) (Task, error) {
 		op:  data[0],
 		key: binary.BigEndian.Uint64(data[1:]),
 	}
-
-	fmt.Println("Decoded task", t.op, t.key)
 
 	t.execFn = func(ctx context.Context) error {
 		return m.execFn(ctx, &t)
