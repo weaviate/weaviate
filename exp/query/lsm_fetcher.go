@@ -10,12 +10,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 )
 
 const (
-	DefaulLocaltBasePath = "/tmp/tenant-cache"
-	defaultLSMRoot       = "lsm"
+	defaultLSMRoot = "lsm"
 
 	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
 	// TODO(kavi): Make it dynamic.
@@ -25,20 +23,25 @@ const (
 // LSMFetcher fetches the tenant's LSM data using given `upstream` without or without local cache.
 type LSMFetcher struct {
 	cache    *DiskCache
-	upstream *modsloads3.Module
+	upstream LSMDownloader
 	log      logrus.FieldLogger
 
 	basePath string
 }
 
+// LSMDownloader is usually some component that used to download tenant's data.
+type LSMDownloader interface {
+	DownloadToPath(ctx context.Context, collection, tenant, nodeName, path string) error
+}
+
 // NewLSMFetcher creates LSMFetcher without cache.
 // Every call is forwarded to given `upstream` to fetch the LSM data for the tenant.
-func NewLSMFetcher(basePath string, upstream *modsloads3.Module, log logrus.FieldLogger) *LSMFetcher {
+func NewLSMFetcher(basePath string, upstream LSMDownloader, log logrus.FieldLogger) *LSMFetcher {
 	return NewLSMFetcherWithCache(basePath, upstream, nil, log)
 }
 
 // NewLSMFetcherWithCache creates LSMFetcher with cache.
-func NewLSMFetcherWithCache(basePath string, upstream *modsloads3.Module, cache *DiskCache, log logrus.FieldLogger) *LSMFetcher {
+func NewLSMFetcherWithCache(basePath string, upstream LSMDownloader, cache *DiskCache, log logrus.FieldLogger) *LSMFetcher {
 	return &LSMFetcher{
 		basePath: basePath,
 		cache:    cache,
@@ -72,7 +75,7 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 
 	if download {
 		dst := path.Join(
-			l.upstream.DataPath,
+			l.basePath,
 			strings.ToLower(collection),
 			strings.ToLower(tenant),
 		)
