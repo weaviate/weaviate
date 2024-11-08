@@ -15,10 +15,8 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -32,14 +30,7 @@ func (s *segment) hasKey(key []byte) bool {
 	}
 
 	_, err := s.index.Get(key)
-	if err != nil {
-		if errors.Is(err, lsmkv.NotFound) {
-			return false
-		} else {
-			return false
-		}
-	}
-	return true
+	return err == nil
 }
 
 func (s *segment) getDocCount(key []byte) uint64 {
