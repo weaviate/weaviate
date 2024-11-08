@@ -110,6 +110,7 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -798,7 +799,8 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	casbin, err := initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey)
+	casbin, err := initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey,
+		filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir))
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -1502,7 +1504,7 @@ func (m membership) LeaderID() string {
 	return id
 }
 
-func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, error) {
+func initializeCasbin(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
 	numRoles := len(authConfig.Roles)
 	if numRoles == 0 {
 		log.Printf("no roles found")
@@ -1515,7 +1517,7 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 				"AUTHENTICATION_APIKEY_USERS and AUTHENTICATION_APIKEY_ALLOWED_KEYS")
 	}
 
-	m, err := model.NewModelFromFile("./rbac/model.conf")
+	m, err := model.NewModelFromString(rbac.MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
 	}
@@ -1524,12 +1526,21 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
-	// TODO: make configurable
-	enforcer.EnableCache(false)
+	enforcer.EnableCache(true)
 
-	// TODO: make configurable
-	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
-	enforcer.AddNamedMatchingFunc("g", "KeyMatch2", casbinutil.KeyMatch2)
+	rbacStoragePath := fmt.Sprintf("./%s/rbac/policy.csv", policyPath)
+	if err := rbac.CreateStorage(rbacStoragePath); err != nil {
+		return nil, err
+	}
+
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+
+	if err := enforcer.LoadPolicy(); err != nil {
+		return nil, err
+	}
+
+	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
+	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	for i := range authConfig.Roles {
 		// All abstract roles are created at startup.
@@ -1538,8 +1549,6 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 		// added manually after startup. The below line can be swapped in for
 		// debugging purposes if needed.
 		//
-		// TODO: objects has to be mapped e.g.
-		//  v1/schema.class.ABC  [path.objectType.objectName]
 
 		entry := authorization.BuiltInRoles[authConfig.Roles[i]]
 		for _, verb := range entry.Verbs {
