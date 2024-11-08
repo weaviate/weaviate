@@ -6,7 +6,7 @@
 //
 //  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@weaviatq.io
+//  CONTACT: hello@weaviate.io
 //
 
 package queue
@@ -68,11 +68,11 @@ type DiskQueue struct {
 	id           string
 	dir          string
 	lastPushTime atomic.Pointer[time.Time]
-	closed       atomic.Bool
 	chunkSize    uint64
 
 	// m protects the disk operations
 	m                       sync.RWMutex
+	closed                  bool
 	w                       *bufio.Writer
 	f                       *os.File
 	partialChunkSize        uint64
@@ -134,7 +134,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 
 	// create the directory if it doesn't exist
-	err := os.MkdirAll(q.dir, 0755)
+	err := os.MkdirAll(q.dir, 0o755)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create directory")
 	}
@@ -160,21 +160,31 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 
 // Close the queue, prevent further pushes and unregister it from the scheduler.
 func (q *DiskQueue) Close() error {
-	if q.closed.Swap(true) {
-		return errors.New("queue already closed")
-	}
-
-	q.scheduler.UnregisterQueue(q.id)
-
-	err := q.Flush()
-	if err != nil {
-		return err
+	if q == nil {
+		return nil
 	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
 
+	if q.closed {
+		return errors.New("queue already closed")
+	}
+	q.closed = true
+
+	q.scheduler.UnregisterQueue(q.id)
+
+	err := q.w.Flush()
+	if err != nil {
+		return errors.Wrap(err, "failed to flush")
+	}
+
 	if q.f != nil {
+		err = q.f.Sync()
+		if err != nil {
+			return errors.Wrap(err, "failed to sync")
+		}
+
 		err := q.f.Close()
 		if err != nil {
 			return errors.Wrap(err, "failed to close chunk")
@@ -191,7 +201,10 @@ func (q *DiskQueue) ID() string {
 }
 
 func (q *DiskQueue) Push(record []byte) error {
-	if q.closed.Load() {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.closed {
 		return errors.New("queue closed")
 	}
 
@@ -201,9 +214,6 @@ func (q *DiskQueue) Push(record []byte) error {
 
 	now := time.Now()
 	q.lastPushTime.Store(&now)
-
-	q.m.Lock()
-	defer q.m.Unlock()
 
 	err := q.ensureChunk()
 	if err != nil {
@@ -240,7 +250,7 @@ func (q *DiskQueue) ensureChunk() error {
 	if q.f == nil {
 		// create or open partial chunk
 		path := filepath.Join(q.dir, partialChunkFile)
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return errors.Wrap(err, "failed to create chunk file")
 		}

@@ -369,13 +369,11 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 	return taskCount, nil
 }
 
-func (s *Scheduler) logQueueStats(q Queue, vectorsSent int64) {
-	// q.metrics.VectorsDequeued(vectorsSent)
-
+func (s *Scheduler) logQueueStats(q Queue, tasksDequeued int64) {
 	s.Logger.
 		WithField("queue_id", q.ID()).
 		WithField("queue_size", q.Size()).
-		WithField("vectors_sent", vectorsSent).
+		WithField("tasks_dequeued", tasksDequeued).
 		Debug("queue stats")
 }
 
