@@ -12,15 +12,11 @@
 package tests
 
 import (
-	"encoding/csv"
 	"fmt"
-	"io"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
@@ -33,44 +29,31 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 		// Define class
 		vectorizerName := "multi2vec-cohere"
 		className := "CohereClipTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "image_title", DataType: []string{schema.DataTypeText.String()},
+		class := multimodal.BaseClass(className, false)
+		class.VectorConfig = map[string]models.VectorConfig{
+			"clip": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"imageFields":        []interface{}{multimodal.PropertyImage},
+						"vectorizeClassName": false,
+					},
 				},
-				{
-					Name: "image_description", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "image", DataType: []string{schema.DataTypeBlob.String()},
-				},
+				VectorIndexType: "flat",
 			},
-			VectorConfig: map[string]models.VectorConfig{
-				"clip": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"imageFields":        []interface{}{"image"},
-							"vectorizeClassName": false,
+			"clip_weights": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"model":       "embed-english-light-v3.0",
+						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
+						"imageFields": []interface{}{multimodal.PropertyImage},
+						"weights": map[string]interface{}{
+							"textFields":  []interface{}{0.05, 0.05},
+							"imageFields": []interface{}{0.9},
 						},
+						"vectorizeClassName": false,
 					},
-					VectorIndexType: "flat",
 				},
-				"clip_weights": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"model":       "embed-english-light-v3.0",
-							"textFields":  []interface{}{"image_title", "image_description"},
-							"imageFields": []interface{}{"image"},
-							"weights": map[string]interface{}{
-								"textFields":  []interface{}{0.05, 0.05},
-								"imageFields": []interface{}{0.9},
-							},
-							"vectorizeClassName": false,
-						},
-					},
-					VectorIndexType: "flat",
-				},
+				VectorIndexType: "flat",
 			},
 		}
 		// create schema
@@ -78,41 +61,7 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 		defer helper.DeleteClass(t, class.Class)
 
 		t.Run("import data", func(t *testing.T) {
-			f, err := multimodal.GetCSV(dataFolderPath)
-			require.NoError(t, err)
-			defer f.Close()
-			var objs []*models.Object
-			i := 0
-			csvReader := csv.NewReader(f)
-			for {
-				line, err := csvReader.Read()
-				if err == io.EOF {
-					break
-				}
-				require.NoError(t, err)
-				if i > 0 {
-					id := line[1]
-					imageTitle := line[2]
-					imageDescription := line[3]
-					imageBlob, err := multimodal.GetImageBlob(dataFolderPath, i)
-					require.NoError(t, err)
-					obj := &models.Object{
-						Class: class.Class,
-						ID:    strfmt.UUID(id),
-						Properties: map[string]interface{}{
-							"image_title":       imageTitle,
-							"image_description": imageDescription,
-							"image":             imageBlob,
-						},
-					}
-					objs = append(objs, obj)
-				}
-				i++
-			}
-			for _, obj := range objs {
-				helper.CreateObject(t, obj)
-				helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-			}
+			multimodal.InsertObjects(t, dataFolderPath, class.Class, false)
 		})
 
 		t.Run("nearImage", func(t *testing.T) {
@@ -125,7 +74,7 @@ func testMulti2VecCohere(host string) func(t *testing.T) {
 					targetVectors: ["%s"]
 				}
 			`, blob, targetVector)
-			titleProperty := "image_title"
+			titleProperty := multimodal.PropertyImageTitle
 			titlePropertyValue := "waterfalls"
 			targetVectors := map[string]int{
 				"clip":         1024,

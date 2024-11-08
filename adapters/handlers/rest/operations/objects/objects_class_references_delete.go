@@ -47,7 +47,7 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 
 Delete the single reference that is given in the body from the list of references that this property has.
 
-Delete the single reference that is given in the body from the list of references that this property of a data object has
+Delete the single reference that is given in the body from the list of references that this property has.
 */
 type ObjectsClassReferencesDelete struct {
 	Context *middleware.Context

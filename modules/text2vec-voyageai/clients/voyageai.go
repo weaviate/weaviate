@@ -159,10 +159,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if res.StatusCode != 200 {
 		if resBody.Detail != "" {
 			errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "connection to VoyageAI failed with status: %d error: %v")
-			return nil, 0, errors.Errorf(errorMessage)
+			return nil, 0, errors.New(errorMessage)
 		}
 		errorMessage := getErrorMessage(res.StatusCode, "", "connection to VoyageAI failed with status: %d")
-		return nil, 0, errors.Errorf(errorMessage)
+		return nil, 0, errors.New(errorMessage)
 	}
 
 	if len(resBody.Data) == 0 || len(resBody.Data[0].Embeddings) == 0 {
@@ -255,7 +255,3 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		BaseURL:  settings.BaseURL(),
 	}
 }
-
-func (v *vectorizer) HasTokenLimit() bool { return true }
-
-func (v *vectorizer) ReturnsRateLimit() bool { return false }

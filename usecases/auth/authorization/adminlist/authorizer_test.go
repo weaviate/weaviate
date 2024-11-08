@@ -31,8 +31,8 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "get", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
+			err := New(cfg).Authorize(principal, "R", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
 				"should have the correct err msg")
 		})
 
@@ -43,8 +43,8 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "get", "things")
-			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "get", "things"), err,
+			err := New(cfg).Authorize(principal, "R", "things")
+			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "R", "things"), err,
 				"should have the correct err msg")
 		})
 
@@ -60,8 +60,8 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "get", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
+			err := New(cfg).Authorize(principal, "R", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
 				"should have the correct err msg")
 		})
 
@@ -78,7 +78,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "get", "things")
+			err := New(cfg).Authorize(principal, "R", "things")
 			assert.Nil(t, err)
 		})
 
@@ -95,7 +95,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "get", "things")
+			err := New(cfg).Authorize(principal, "R", "things")
 			assert.Nil(t, err)
 		})
 
@@ -108,7 +108,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "get", "things")
+			err := New(cfg).Authorize(principal, "R", "things")
 			assert.Nil(t, err)
 		})
 	})
@@ -127,8 +127,8 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				"posse",
 			},
 		}
-		err := New(cfg).Authorize(principal, "get", "things")
-		assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
+		err := New(cfg).Authorize(principal, "R", "things")
+		assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
 			"should have the correct err msg")
 	})
 
@@ -147,7 +147,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				"posse",
 			},
 		}
-		err := New(cfg).Authorize(principal, "get", "things")
+		err := New(cfg).Authorize(principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -167,7 +167,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "get", "things")
+		err := New(cfg).Authorize(principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -190,7 +190,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "get", "things")
+		err := New(cfg).Authorize(principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -213,7 +213,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "get", "things")
+		err := New(cfg).Authorize(principal, "R", "things")
 		assert.Nil(t, err)
 	})
 

@@ -22,7 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// Vector A Vector object
+// Vector A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.
 //
 // swagger:model Vector
 type Vector []float32
