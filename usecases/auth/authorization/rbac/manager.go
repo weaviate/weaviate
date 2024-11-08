@@ -21,7 +21,7 @@ type Manager struct {
 	casbin *casbin.SyncedCachedEnforcer
 }
 
-func NewController(casbin *casbin.SyncedCachedEnforcer) *Manager {
+func NewManager(casbin *casbin.SyncedCachedEnforcer) *Manager {
 	return &Manager{casbin: casbin}
 }
 

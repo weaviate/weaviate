@@ -806,7 +806,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 			WithField("action", "startup").WithError(err).
 			Fatal("RBAC enforcer not initialized")
 	}
-	appState.AuthzController = authorization.NewAuthzController(rbac.NewController(casbin))
+	appState.AuthzController = authorization.NewAuthzController(rbac.NewManager(casbin))
 	appState.RBACEnforcer = rbac.NewEnforcer(casbin)
 	appState.Authorizer = configureAuthorizer(appState)
 
