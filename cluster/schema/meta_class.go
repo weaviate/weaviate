@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -35,29 +36,36 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
+		// classTenantDataEvents receives messages for tenant events if the metadata server is
+		// enabled (eg when a tenant is frozen). It will be nil if not enabled
+		classTenantDataEvents chan metadata.ClassTenant
 	}
 )
 
-func (m *metaClass) ClassInfo() (ci ClassInfo) {
+func (m *metaClass) ClassInfo() ClassInfo {
 	if m == nil {
-		return
+		return ClassInfo{}
 	}
+
 	m.RLock()
 	defer m.RUnlock()
-	ci.Exists = true
-	ci.Properties = len(m.Class.Properties)
-	if m.Class.MultiTenancyConfig == nil {
-		ci.MultiTenancy = models.MultiTenancyConfig{}
-	} else {
+
+	ci := ClassInfo{
+		ReplicationFactor: 1,
+		Exists:            true,
+		Properties:        len(m.Class.Properties),
+		MultiTenancy:      models.MultiTenancyConfig{},
+		Tenants:           len(m.Sharding.Physical),
+		ClassVersion:      m.ClassVersion,
+		ShardVersion:      m.ShardVersion,
+	}
+
+	if m.Class.MultiTenancyConfig != nil {
 		ci.MultiTenancy = *m.Class.MultiTenancyConfig
 	}
-	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
 	}
-	ci.Tenants = len(m.Sharding.Physical)
-	ci.ClassVersion = m.ClassVersion
-	ci.ShardVersion = m.ShardVersion
 	return ci
 }
 
@@ -180,6 +188,8 @@ func MergeProps(old, new []*models.Property) []*models.Property {
 		if oldIdx, exists := mem[strings.ToLower(new[idx].Name)]; !exists {
 			mergedProps = append(mergedProps, new[idx])
 		} else {
+			mergedProps[oldIdx].IndexRangeFilters = new[idx].IndexRangeFilters
+
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
 				mergedProps[oldIdx].NestedProperties,
 				new[idx].NestedProperties)
@@ -223,6 +233,9 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 			continue
 		}
 		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: part}
+		if m.Sharding.Physical == nil {
+			m.Sharding.Physical = make(map[string]sharding.Physical, 128)
+		}
 		m.Sharding.Physical[t.Name] = p
 		// TODO-RAFT: Check here why we set =nil if it is "owned by another node"
 		if !slices.Contains(part, nodeID) {
@@ -286,7 +299,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -333,8 +346,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 		switch {
 		case existedSharedFrozen && !requestedToFrozen:
-			if err = m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
-				return n, err
+			if err := m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
+				return err
 			}
 			if req.Tenants[i] != nil {
 				requestTenant.Status = req.Tenants[i].Status
@@ -369,13 +382,14 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	req.Tenants = req.Tenants[:writeIndex]
 
 	// Check for any missing shard to return an error
+	var err error
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return writeIndex, err
+	return err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
@@ -468,6 +482,22 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
+			// TODO move the data events channel out of cluster/schema and handle at a higher/different level
+			// Note, the channel being nil indicates that it is not enabled to receive events. Technically,
+			// this nil check isn't needed but I think it makes the intent more clear
+			if m.classTenantDataEvents != nil {
+				// Whenever a tenant is frozen, we send an event on the class tenant data events
+				// channel. This send is non-blocking and will drop events if the channel is full.
+				select {
+				case m.classTenantDataEvents <- metadata.ClassTenant{
+					ClassName:  m.Class.Class,
+					TenantName: name,
+				}:
+				default:
+					// drop event if channel is full, we don't want to have any slow ops on
+					// this critical path of the raft apply
+				}
+			}
 		} else {
 			copy.Status = onAbortStatus
 			req.Tenant.Status = onAbortStatus

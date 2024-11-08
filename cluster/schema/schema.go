@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -49,7 +50,8 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 	sync.RWMutex
-	Classes map[string]*metaClass
+	Classes               map[string]*metaClass
+	classTenantDataEvents chan metadata.ClassTenant
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -218,6 +220,17 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 	}
 }
 
+func NewSchemaWithTenantEvents(nodeID string, shardReader shardReader,
+	classTenantDataEvents chan metadata.ClassTenant,
+) *schema {
+	return &schema{
+		nodeID:                nodeID,
+		Classes:               make(map[string]*metaClass, 128),
+		shardReader:           shardReader,
+		classTenantDataEvents: classTenantDataEvents,
+	}
+}
+
 func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
@@ -246,7 +259,10 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
+	s.Classes[cls.Class] = &metaClass{
+		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
+		classTenantDataEvents: s.classTenantDataEvents,
+	}
 	return nil
 }
 
@@ -260,6 +276,30 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 		return ErrClassNotFound
 	}
 	return meta.LockGuard(f)
+}
+
+// replaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *schema) replaceStatesNodeName(new string) {
+	s.Lock()
+	defer s.Unlock()
+
+	for _, meta := range s.Classes {
+		meta.LockGuard(func(mc *metaClass) error {
+			if meta.Class.ReplicationConfig.Factor > 1 {
+				return nil
+			}
+
+			for idx := range meta.Sharding.Physical {
+				cp := meta.Sharding.Physical[idx].DeepCopy()
+				cp.BelongsToNodes = []string{new}
+				meta.Sharding.Physical[idx] = cp
+			}
+			return nil
+		})
+	}
 }
 
 func (s *schema) deleteClass(name string) {
@@ -297,9 +337,9 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	}
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
 	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
-		return 0, err
+		return err
 	} else {
 		return meta.UpdateTenants(s.nodeID, req, v)
 	}

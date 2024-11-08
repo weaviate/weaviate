@@ -18,9 +18,12 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -32,10 +35,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -46,10 +51,11 @@ const (
 )
 
 type flat struct {
-	sync.Mutex
 	id                  string
 	targetVector        string
+	rootPath            string
 	dims                int32
+	metadata            *bolt.DB
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -60,9 +66,10 @@ type flat struct {
 	pqResults *common.PqMaxPool
 	pool      *pools
 
-	compression string
-	bqCache     cache.Cache[uint64]
-	count       uint64
+	compression          string
+	bqCache              cache.Cache[uint64]
+	count                uint64
+	concurrentCacheReads int
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -80,15 +87,17 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                cfg.ID,
-		targetVector:      cfg.TargetVector,
-		logger:            logger,
-		distancerProvider: cfg.DistanceProvider,
-		rescore:           extractCompressionRescore(uc),
-		pqResults:         common.NewPqMaxPool(100),
-		compression:       extractCompression(uc),
-		pool:              newPools(),
-		store:             store,
+		id:                   cfg.ID,
+		targetVector:         cfg.TargetVector,
+		rootPath:             cfg.RootPath,
+		logger:               logger,
+		distancerProvider:    cfg.DistanceProvider,
+		rescore:              extractCompressionRescore(uc),
+		pqResults:            common.NewPqMaxPool(100),
+		compression:          extractCompression(uc),
+		pool:                 newPools(),
+		store:                store,
+		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -97,6 +106,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+	}
+
+	if err := index.initMetadata(); err != nil {
+		return nil, err
 	}
 
 	return index, nil
@@ -109,6 +122,9 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 	bytes, err := flat.store.Bucket(flat.getCompressedBucketName()).Get(key.slice)
 	if err != nil {
 		return nil, err
+	}
+	if len(bytes) == 0 {
+		return nil, nil
 	}
 	return uint64SliceFromByteSlice(bytes, make([]uint64, len(bytes)/8)), nil
 }
@@ -193,6 +209,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
+
+		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+		// was simply missing. Now we want to explicitly set it to false for
+		// performance reasons. There are pread performance improvements in the
+		// pipeline, but as of now, mmap is much more performant – especially for
+		// parallel cache prefilling.
+		//
+		// In the future when the pure pread performance is on par with mmap, we
+		// should update this to pass the global setting.
+		lsmkv.WithPread(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
@@ -201,6 +227,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
+
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
 		); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
@@ -227,7 +263,7 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := index.Add(ids[i], vectors[i]); err != nil {
+		if err := index.Add(ctx, ids[i], vectors[i]); err != nil {
 			return err
 		}
 	}
@@ -262,9 +298,18 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
-func (index *flat) Add(id uint64, vector []float32) error {
+func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		size := int32(len(vector))
+		atomic.StoreInt32(&index.dims, size)
+		err := index.setDimensions(size)
+		if err != nil {
+			index.logger.WithError(err).Error("could not set dimensions")
+		}
 
 		if index.isBQ() {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
@@ -322,19 +367,20 @@ func (index *flat) searchTimeRescore(k int) int {
 	return k
 }
 
-func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	switch index.compression {
 	case compressionBQ:
-		return index.searchByVectorBQ(vector, k, allow)
+		return index.searchByVectorBQ(ctx, vector, k, allow)
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
 	default:
-		return index.searchByVector(vector, k, allow)
+		return index.searchByVector(ctx, vector, k, allow)
 	}
 }
 
-func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// TODO: pass context into inner methods, so it can be checked more granuarly
 	heap := index.pqResults.GetMax(k)
 	defer index.pqResults.Put(heap)
 
@@ -361,7 +407,8 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 	}
 }
 
-func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// TODO: pass context into inner methods, so it can be checked more granuarly
 	rescore := index.searchTimeRescore(k)
 	heap := index.pqResults.GetMax(rescore)
 	defer index.pqResults.Put(heap)
@@ -389,16 +436,41 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	for i := range idsSlice.slice {
 		idsSlice.slice[i] = heap.Pop().ID
 	}
-	for _, id := range idsSlice.slice {
-		candidateAsBytes, err := index.vectorById(id)
-		if err != nil {
-			return nil, nil, err
-		}
-		distance, err := distanceCalc(candidateAsBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		index.insertToHeap(heap, k, id, distance)
+
+	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
+	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
+
+	eg := enterrors.NewErrorGroupWrapper(index.logger)
+	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
+				id := idsSlice.slice[idPos]
+				candidateAsBytes, err := index.vectorById(id)
+				if err != nil {
+					return err
+				}
+				if len(candidateAsBytes) == 0 {
+					continue
+				}
+				distance, err := distanceCalc(candidateAsBytes)
+				if err != nil {
+					return err
+				}
+
+				distancesUncompressedVectors[idPos] = distance
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	for i, id := range idsSlice.slice {
+		index.insertToHeap(heap, k, id, distancesUncompressedVectors[i])
 	}
 
 	ids, dists := index.extractHeap(heap)
@@ -545,7 +617,9 @@ func (index *flat) normalized(vector []float32) []float32 {
 	return vector
 }
 
-func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
@@ -555,7 +629,7 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := index.SearchByVector(vector, totalLimit, allow)
+		ids, dist, err := index.SearchByVector(ctx, vector, totalLimit, allow)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
@@ -623,7 +697,14 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+		if err := index.removeMetadataFile(); err != nil {
+			return err
+		}
+	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
 }
@@ -635,7 +716,11 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+	}
 	// Shard::shutdown will take care of handling store's buckets
 	return nil
 }
@@ -645,9 +730,23 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	// nothing to do here
-	// Shard::ListBackupFiles will take care of handling store's buckets
-	return []string{}, nil
+	var files []string
+
+	if index.metadata != nil {
+		metadataFile := index.getMetadataFile()
+		fullPath := filepath.Join(index.rootPath, metadataFile)
+
+		if _, err := os.Stat(fullPath); err == nil {
+			relPath, err := filepath.Rel(basePath, fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relative path: %w", err)
+			}
+			files = append(files, relPath)
+		}
+		// If the file doesn't exist, we simply don't add it to the list
+	}
+
+	return files, nil
 }
 
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
@@ -658,8 +757,6 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
-	defer cursor.Close()
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
@@ -667,34 +764,52 @@ func (index *flat) PostStartup() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []uint64
-	}
 
 	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
 	// this slice dynamically should be quite cheap compared to other operations
 	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	vecs := make([]compressionhelpers.VecAndID[uint64], 0, 10_000)
 	maxID := uint64(0)
 
-	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(key)
-		vecs = append(vecs, vec{
-			id:  id,
-			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
-		})
-		if id > maxID {
-			maxID = id
+	before := time.Now()
+	bucket := index.store.Bucket(index.getCompressedBucketName())
+	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
+	// however want some kind of relationship to the machine size, so
+	// 2*GOMAXPROCS seems like a good default.
+	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
+		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
+	}
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	count := 0
+	for i := range vecs {
+		count++
+		if vecs[i].Id > maxID {
+			maxID = vecs[i].Id
 		}
 	}
 
 	// Grow cache just once
-	index.bqCache.Grow(maxID)
+	index.bqCache.LockAll()
+	defer index.bqCache.UnlockAll()
 
+	index.bqCache.SetSizeAndGrowNoLock(maxID)
 	for _, vec := range vecs {
-		index.bqCache.Preload(vec.id, vec.vec)
+		index.bqCache.PreloadNoLock(vec.Id, vec.Vec)
 	}
+
+	took := time.Since(before)
+	index.logger.WithFields(logrus.Fields{
+		"action":   "preload_bq_cache",
+		"count":    count,
+		"took":     took,
+		"index_id": index.id,
+	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) Dump(labels ...string) {
@@ -734,6 +849,33 @@ func (index *flat) ContainsNode(id uint64) bool {
 	}
 
 	return true
+}
+
+func (index *flat) Iterate(fn func(id uint64) bool) {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	bucket := index.store.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		if !fn(id) {
+			break
+		}
+	}
 }
 
 func (index *flat) DistancerProvider() distancer.Provider {
@@ -813,6 +955,7 @@ func (index *flat) AlreadyIndexed() uint64 {
 
 func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
+	queryVector = index.normalized(queryVector)
 	defaultDistFunc := func(nodeID uint64) (float32, error) {
 		vec, err := index.vectorById(nodeID)
 		if err != nil {
@@ -831,6 +974,9 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		} else {
 			queryVecEncode := index.bq.Encode(queryVector)
 			distFunc = func(nodeID uint64) (float32, error) {
+				if int32(nodeID) > index.bqCache.Len() {
+					return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.bqCache.Len())
+				}
 				vec, err := index.bqCache.Get(context.Background(), nodeID)
 				if err != nil {
 					return 0, err
@@ -838,7 +984,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
 		}
-
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
@@ -856,4 +1001,14 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
 }

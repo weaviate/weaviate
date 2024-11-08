@@ -88,9 +88,8 @@ func (v *awsClient) GenerateAllResults(ctx context.Context, textProperties []map
 }
 
 func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
-	service := settings.Service()
 	params := v.getParameters(cfg, options)
+	service := params.Service
 	debugInformation := v.getDebugInformation(debug, prompt)
 
 	accessKey, err := v.getAwsAccessKey(ctx)
@@ -122,10 +121,10 @@ func (v *awsClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		var path string
 		var err error
 
-		region := settings.Region()
-		endpoint := settings.Endpoint()
-		targetModel := settings.TargetModel()
-		targetVariant := settings.TargetVariant()
+		region := params.Region
+		endpoint := params.Endpoint
+		targetModel := params.TargetModel
+		targetVariant := params.TargetVariant
 
 		endpointUrl = v.buildSagemakerUrlFn(service, region, endpoint)
 		host = "runtime." + service + "." + region + ".amazonaws.com"
@@ -200,9 +199,23 @@ func (v *awsClient) getParameters(cfg moduletools.ClassConfig, options interface
 		params = p
 	}
 
+	if params.Service == "" {
+		params.Service = settings.Service()
+	}
+	if params.Region == "" {
+		params.Region = settings.Region()
+	}
+	if params.Endpoint == "" {
+		params.Endpoint = settings.Endpoint()
+	}
+	if params.TargetModel == "" {
+		params.TargetModel = settings.TargetModel()
+	}
+	if params.TargetVariant == "" {
+		params.TargetVariant = settings.TargetVariant()
+	}
 	if params.Model == "" {
-		model := settings.Model()
-		params.Model = model
+		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature(service, params.Model)
@@ -220,9 +233,8 @@ func (v *awsClient) sendBedrockRequest(
 	cfg moduletools.ClassConfig,
 	debugInformation *modulecapabilities.GenerateDebugInformation,
 ) (*modulecapabilities.GenerateResponse, error) {
-	settings := generativeconfig.NewClassSettings(cfg)
 	model := params.Model
-	region := settings.Region()
+	region := params.Region
 	req, err := v.createRequestBody(prompt, params, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request for model %s: %w", model, err)
@@ -248,6 +260,7 @@ func (v *awsClient) sendBedrockRequest(
 	result, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(model),
 		ContentType: aws.String("application/json"),
+		Accept:      aws.String("application/json"),
 		Body:        body,
 	})
 	if err != nil {
@@ -366,19 +379,19 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	var content string
 	var resBodyMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-		return "", errors.Wrap(err, "unmarshal response body")
+		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if v.isCohereCommandRModel(model) {
 		var resBody bedrockCohereCommandRResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Text, nil
 	} else if v.isAnthropicClaude3Model(model) {
 		var resBody bedrockAnthropicClaude3Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Content) > 0 && resBody.Content[0].Text != nil {
 			return *resBody.Content[0].Text, nil
@@ -387,13 +400,13 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isAnthropicModel(model) {
 		var resBody bedrockAnthropicClaudeResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Completion, nil
 	} else if v.isAI21Model(model) {
 		var resBody bedrockAI21Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Completions) > 0 {
 			return resBody.Completions[0].Data.Text, nil
@@ -402,7 +415,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMistralAIModel(model) {
 		var resBody bedrockMistralAIResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Outputs) > 0 {
 			return resBody.Outputs[0].Text, nil
@@ -411,14 +424,14 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMetaModel(model) {
 		var resBody bedrockMetaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Generation, nil
 	}
 
 	var resBody bedrockGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return "", errors.Wrap(err, "unmarshal response body")
+		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if len(resBody.Results) == 0 && len(resBody.Generations) == 0 {
@@ -437,7 +450,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*modulecapabilities.GenerateResponse, error) {
 	var resBody sagemakerGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
@@ -498,7 +511,7 @@ func (v *awsClient) generateForPrompt(textProperties map[string]string, prompt s
 }
 
 func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
-	if awsAccessKey := v.getHeaderValue(ctx, "X-Aws-Access-Key"); awsAccessKey != "" {
+	if awsAccessKey := modulecomponents.GetValueFromContext(ctx, "X-Aws-Access-Key"); awsAccessKey != "" {
 		return awsAccessKey, nil
 	}
 	if v.awsAccessKey != "" {
@@ -510,7 +523,7 @@ func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
 }
 
 func (v *awsClient) getAwsAccessSecret(ctx context.Context) (string, error) {
-	if awsSecret := v.getHeaderValue(ctx, "X-Aws-Secret-Key"); awsSecret != "" {
+	if awsSecret := modulecomponents.GetValueFromContext(ctx, "X-Aws-Secret-Key"); awsSecret != "" {
 		return awsSecret, nil
 	}
 	if v.awsSecretKey != "" {
@@ -522,26 +535,13 @@ func (v *awsClient) getAwsAccessSecret(ctx context.Context) (string, error) {
 }
 
 func (v *awsClient) getAwsSessionToken(ctx context.Context) (string, error) {
-	if awsSessionToken := v.getHeaderValue(ctx, "X-Aws-Session-Token"); awsSessionToken != "" {
+	if awsSessionToken := modulecomponents.GetValueFromContext(ctx, "X-Aws-Session-Token"); awsSessionToken != "" {
 		return awsSessionToken, nil
 	}
 	if v.awsSessionToken != "" {
 		return v.awsSessionToken, nil
 	}
 	return "", nil
-}
-
-func (v *awsClient) getHeaderValue(ctx context.Context, header string) string {
-	headerValue := ctx.Value(header)
-	if value, ok := headerValue.([]string); ok &&
-		len(value) > 0 && len(value[0]) > 0 {
-		return value[0]
-	}
-	// try getting header from GRPC if not successful
-	if value := modulecomponents.GetValueFromGRPC(ctx, header); len(value) > 0 && len(value[0]) > 0 {
-		return value[0]
-	}
-	return ""
 }
 
 func (v *awsClient) isAmazonModel(model string) bool {

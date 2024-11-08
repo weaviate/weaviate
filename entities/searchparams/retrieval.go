@@ -15,16 +15,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type NearVector struct {
-	Certainty       float64              `json:"certainty"`
-	Distance        float64              `json:"distance"`
-	WithDistance    bool                 `json:"-"`
-	VectorPerTarget map[string][]float32 `json:"vectorPerTarget"`
-	TargetVectors   []string             `json:"targetVectors"`
+	Certainty     float64     `json:"certainty"`
+	Distance      float64     `json:"distance"`
+	WithDistance  bool        `json:"-"`
+	Vectors       [][]float32 `json:"vectors"`
+	TargetVectors []string    `json:"targetVectors"`
 }
 
 type KeywordRanking struct {
@@ -104,6 +106,8 @@ type HybridSearch struct {
 	Properties       []string    `json:"properties"`
 	TargetVectors    []string    `json:"targetVectors"`
 	FusionAlgorithm  int         `json:"fusionalgorithm"`
+	Distance         float32     `json:"distance"`
+	WithDistance     bool        `json:"withDistance"`
 	NearTextParams   *NearTextParams
 	NearVectorParams *NearVector
 }
@@ -146,4 +150,5 @@ type GroupBy struct {
 	Property        string
 	Groups          int
 	ObjectsPerGroup int
+	Properties      search.SelectProperties
 }

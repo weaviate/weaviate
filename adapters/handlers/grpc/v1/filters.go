@@ -20,7 +20,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, className string) (filters.Clause, error) {
+func ExtractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, className string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
 		if filterIn.Operator == pb.Filters_OPERATOR_AND {
@@ -31,7 +31,7 @@ func extractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, c
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
 		for i, clause := range filterIn.Filters {
-			retClause, err := extractFilters(clause, getClass, className)
+			retClause, err := ExtractFilters(clause, getClass, className)
 			if err != nil {
 				return filters.Clause{}, err
 			}

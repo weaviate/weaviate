@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -46,10 +47,10 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func run(dirName string, logger *logrus.Logger, compression string, vectorCache bool,
+func run(ctx context.Context, dirName string, logger *logrus.Logger, compression string, vectorCache bool,
 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
 	extraVectorsForDelete [][]float32, allowIds []uint64,
-	distancer distancer.Provider,
+	distancer distancer.Provider, concurrentCacheReads int,
 ) (float32, float32, error) {
 	vectors_size := len(vectors)
 	queries_size := len(queries)
@@ -81,6 +82,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	}
 	index, err := New(Config{
 		ID:               runId,
+		RootPath:         dirName,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
 		PQ: pq,
@@ -89,13 +91,18 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	if err != nil {
 		return 0, 0, err
 	}
+	defer index.Shutdown(context.Background())
+
+	if concurrentCacheReads != 0 {
+		index.concurrentCacheReads = concurrentCacheReads
+	}
 
 	compressionhelpers.ConcurrentlyWithError(logger, uint64(vectors_size), func(id uint64) error {
-		return index.Add(id, vectors[id])
+		return index.Add(ctx, id, vectors[id])
 	})
 
 	for i := range extraVectorsForDelete {
-		index.Add(uint64(vectors_size+i), extraVectorsForDelete[i])
+		index.Add(ctx, uint64(vectors_size+i), extraVectorsForDelete[i])
 	}
 
 	for i := range extraVectorsForDelete {
@@ -105,6 +112,11 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		if err != nil {
 			return 0, 0, err
 		}
+	}
+
+	buckets := store.GetBucketsByName()
+	for _, bucket := range buckets {
+		bucket.FlushMemtable()
 	}
 
 	var relevant uint64
@@ -119,7 +131,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	err = nil
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
-		results, _, _ := index.SearchByVector(queries[i], k, allowList)
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, allowList)
 
 		since := time.Since(before)
 		len := len(results)
@@ -151,6 +163,7 @@ func hasDuplicates(results []uint64) bool {
 }
 
 func Test_NoRaceFlatIndex(t *testing.T) {
+	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -182,7 +195,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					t.Run("recall", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -191,7 +204,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -222,7 +235,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -231,7 +244,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall on filtered with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -288,13 +301,53 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}, store)
 			require.Nil(t, err)
 
-			index.Add(uint64(0), []float32{-1, 0})
+			index.Add(context.TODO(), uint64(0), []float32{-2, 0})
 
 			dist := index.QueryVectorDistancer([]float32{0, 0})
 			require.NotNil(t, dist)
 			distance, err := dist.DistanceToNode(0)
 			require.Nil(t, err)
 			require.Equal(t, distance, float32(1.))
+
+			// get distance for non-existing node above default cache size
+			_, err = dist.DistanceToNode(1001)
+			require.NotNil(t, err)
+		})
+	}
+}
+
+func TestConcurrentReads(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	dimensions := 256
+	vectors_size := 12000
+	queries_size := 100
+	k := 10
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	testinghelpers.Normalize(vectors)
+	testinghelpers.Normalize(queries)
+	distancer := distancer.NewCosineDistanceProvider()
+
+	truths := make([][]uint64, queries_size)
+	for i := range queries {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+	}
+
+	cores := runtime.GOMAXPROCS(0) * 2
+
+	concurrentReads := []int{1, 2, 4, 8, 16, 32, 64, 128, 256, cores - 1, cores, cores + 1}
+	for i := range concurrentReads {
+		t.Run("concurrent reads: "+strconv.Itoa(concurrentReads[i]), func(t *testing.T) {
+			targetRecall := float32(0.8)
+			recall, latency, err := run(ctx, dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
+			require.Nil(t, err)
+
+			fmt.Println(recall, latency)
+			assert.Greater(t, recall, targetRecall)
+			assert.Less(t, latency, float32(1_000_000))
 		})
 	}
 }

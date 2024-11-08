@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -30,7 +31,15 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, "create", "objects")
+	var (
+		class  = "*"
+		tenant = "*"
+	)
+	if object != nil {
+		class = object.Class
+		tenant = object.Tenant
+	}
+	err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +76,8 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	if _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal(err.Error())
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
+		return nil, NewErrInternal("%v", err)
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
@@ -137,7 +146,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			return "", NewErrInternal(err.Error())
+			return "", NewErrInternal("%v", err)
 		}
 	}
 

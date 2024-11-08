@@ -64,6 +64,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -121,6 +122,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -166,6 +168,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							"type": hnsw.PQEncoderTypeKMeans,
 						},
 					},
+					"filterStrategy": hnsw.FilterStrategyAcorn,
 				},
 			},
 			expected: UserConfig{
@@ -197,6 +200,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.FilterStrategyAcorn,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -262,6 +266,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,

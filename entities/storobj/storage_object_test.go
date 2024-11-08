@@ -374,6 +374,8 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
 			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
 		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	properties := map[string]interface{}{
 		"numberArray":  []float64{1.1, 2.1},
@@ -390,13 +392,15 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
 			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
 		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": 3, "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	before := FromObject(
 		&models.Object{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
-			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
 			Properties:         properties,
 		},
 		[]float32{1, 2, 0.7},
@@ -1002,6 +1006,19 @@ func TestObjectsByDocID(t *testing.T) {
 	}
 }
 
+func TestSkipMissingObjects(t *testing.T) {
+	bucket := genFakeBucket(t, 1000)
+	logger, _ := test.NewNullLogger()
+	ids := pickRandomIDsBetween(0, 1000, 100)
+	ids = append(ids, 1001, 1002, 1003)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	require.Nil(t, err)
+	require.Len(t, objs, 100)
+	for _, obj := range objs {
+		require.NotNil(t, obj)
+	}
+}
+
 func BenchmarkObjectsByDocID(b *testing.B) {
 	bucket := genFakeBucket(b, 10000)
 	logger, _ := test.NewNullLogger()
@@ -1095,7 +1112,10 @@ func (f *fakeBucket) GetBySecondary(_ int, _ []byte) ([]byte, error) {
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
 	docID := binary.LittleEndian.Uint64(docIDBytes)
-	objBytes := f.objects[uint64(docID)]
+	objBytes, ok := f.objects[docID]
+	if !ok {
+		return nil, nil, nil
+	}
 	if len(lsmBuf) < len(objBytes) {
 		lsmBuf = make([]byte, len(objBytes))
 	}

@@ -24,11 +24,11 @@ import (
 // look at ./vector/hnsw/index.go
 type VectorIndex interface {
 	Dump(labels ...string)
-	Add(id uint64, vector []float32) error
+	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
@@ -40,8 +40,16 @@ type VectorIndex interface {
 	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
+	// ContainsNode returns true if the index contains the node with the given id.
+	// It must return false if the node does not exist, or has a tombstone.
 	ContainsNode(id uint64) bool
 	AlreadyIndexed() uint64
+	// Iterate over all nodes in the index.
+	// Consistency is not guaranteed, as the
+	// index may be concurrently modified.
+	// If the callback returns false, the iteration will stop.
+	Iterate(fn func(id uint64) bool)
 	DistancerProvider() distancer.Provider
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	Stats() (common.IndexStats, error)
 }

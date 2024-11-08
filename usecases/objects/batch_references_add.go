@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,7 +32,12 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, "update", "batch/*")
+	shardNames := make([]string, len(refs))
+	for idx := range refs {
+		shardNames[idx] = refs[idx].Tenant
+	}
+
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards("", shardNames...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -328,5 +334,5 @@ func joinErrors(errors []error) error {
 		return nil
 	}
 
-	return fmt.Errorf(strings.Join(errorStrings, ", "))
+	return fmt.Errorf("%s", strings.Join(errorStrings, ", "))
 }

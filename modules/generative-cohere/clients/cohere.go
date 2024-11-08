@@ -68,11 +68,10 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	cohereUrl, err := v.getCohereUrl(ctx, settings.BaseURL())
+	cohereUrl, err := v.getCohereUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
@@ -119,7 +118,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 {
@@ -145,7 +144,10 @@ func (v *cohere) getParameters(cfg moduletools.ClassConfig, options interface{})
 	if p, ok := options.(cohereparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		baseURL := settings.BaseURL()
+		params.BaseURL = baseURL
+	}
 	if params.Model == "" {
 		model := settings.Model()
 		params.Model = model
@@ -179,7 +181,16 @@ func (v *cohere) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *cohere) getResponseParams(meta *meta) map[string]interface{} {
 	if meta != nil {
-		return map[string]interface{}{"cohere": map[string]interface{}{"meta": meta}}
+		return map[string]interface{}{cohereparams.Name: map[string]interface{}{"meta": meta}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[cohereparams.Name].(map[string]interface{}); ok {
+		if meta, ok := params["meta"].(*meta); ok {
+			return &responseParams{Meta: meta}
+		}
 	}
 	return nil
 }
@@ -277,4 +288,8 @@ type billedUnits struct {
 type tokens struct {
 	InputTokens  *float64 `json:"input_tokens,omitempty"`
 	OutputTokens *float64 `json:"output_tokens,omitempty"`
+}
+
+type responseParams struct {
+	Meta *meta `json:"meta,omitempty"`
 }

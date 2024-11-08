@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -83,11 +84,14 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 		{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
 		{relPath: sd.ShardVersionPath, data: sd.Version},
 	} {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
 		info := vFileInfo{
 			name: filepath.Base(x.relPath),
 			size: len(x.data),
 		}
-		if n, err = z.writeOne(info, x.relPath, bytes.NewReader(x.data)); err != nil {
+		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
 			return written, err
 		}
 		written += n
@@ -108,7 +112,7 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(relPath)
+		n, err := z.WriteRegular(ctx, relPath)
 		if err != nil {
 			return written, err
 		}
@@ -117,7 +121,10 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 	return written, nil
 }
 
-func (z *zip) WriteRegular(relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return written, err
+	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
 	info, err := os.Stat(absPath)
@@ -133,10 +140,13 @@ func (z *zip) WriteRegular(relPath string) (written int64, err error) {
 	}
 	defer f.Close()
 
-	return z.writeOne(info, relPath, f)
+	return z.writeOne(ctx, info, relPath, f)
 }
 
-func (z *zip) writeOne(info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
+func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return written, err
+	}
 	// write info header
 	header, err := tar.FileInfoHeader(info, info.Name())
 	if err != nil {
@@ -145,11 +155,15 @@ func (z *zip) writeOne(info fs.FileInfo, relPath string, r io.Reader) (written i
 	header.Name = relPath
 	header.ChangeTime = info.ModTime()
 	if err := z.w.WriteHeader(header); err != nil {
-		return written, fmt.Errorf("write header %s: %w", relPath, err)
+		return written, fmt.Errorf("write backup header in file %s: %s: %w", z.sourcePath, relPath, err)
 	}
 	// write bytes
 	written, err = io.Copy(z.w, r)
 	if err != nil {
+		if errors.Is(err, io.ErrClosedPipe) && ctx.Err() != nil {
+			// we ignore ErrClosedPipe in case the ctx was cancelled
+			return written, nil
+		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
 	return

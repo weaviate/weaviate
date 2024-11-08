@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"strings"
 	"testing"
 	"time"
 
@@ -203,10 +202,7 @@ func createClassTargetVectors(t *testing.T, client *wvt.Client, className string
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
-
-	// TODO shall be removed with the DB is idempotent
-	// delete class before trying to create in case it was existing.
-	if err != nil && !strings.Contains(err.Error(), "exists") {
+	if err != nil {
 		require.NoError(t, err)
 	}
 

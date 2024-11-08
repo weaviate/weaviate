@@ -16,24 +16,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
-
-func (h *hnsw) calculateOptimalSegments(dims int) int {
-	if dims >= 2048 && dims%8 == 0 {
-		return dims / 8
-	} else if dims >= 768 && dims%6 == 0 {
-		return dims / 6
-	} else if dims >= 256 && dims%4 == 0 {
-		return dims / 4
-	} else if dims%2 == 0 {
-		return dims / 2
-	}
-	return dims
-}
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
 	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
@@ -48,12 +35,18 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
 		cleanData := make([][]float32, 0, len(data))
-		for i := range data {
+		sampler := common.NewSparseFisherYatesIterator(len(data))
+		for !sampler.IsDone() {
+			// Sparse Fisher Yates sampling algorithm to choose random element
+			sampledIndex := sampler.Next()
+			if sampledIndex == nil {
+				break
+			}
 			// Rather than just taking the cache dump at face value, let's explicitly
 			// request the vectors. Otherwise we would miss any vector that's currently
 			// not in the cache, for example because the cache is not hot yet after a
 			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(i))
+			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
@@ -78,7 +71,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			dims := int(h.dims)
 
 			if cfg.PQ.Segments <= 0 {
-				cfg.PQ.Segments = h.calculateOptimalSegments(dims)
+				cfg.PQ.Segments = common.CalculateOptimalSegments(dims)
 				h.pqConfig.Segments = cfg.PQ.Segments
 			}
 
@@ -87,6 +80,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 				h.allocChecker)
 			if err != nil {
+				h.pqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		} else if cfg.SQ.Enabled {
@@ -95,6 +89,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
 				h.allocChecker)
 			if err != nil {
+				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		}

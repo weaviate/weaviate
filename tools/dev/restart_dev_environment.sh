@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
 
@@ -15,7 +15,7 @@ if [[ "$*" == *--transformers-passage-query* ]]; then
   ADDITIONAL_SERVICES+=('t2v-transformers-query')
 elif [[ "$*" == *--transformers* ]]; then
   ADDITIONAL_SERVICES+=('t2v-transformers')
-else 
+else
   ADDITIONAL_SERVICES+=('contextionary')
 fi
 if [[ "$*" == *--contextionary* ]]; then
@@ -64,6 +64,7 @@ fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
+echo "Deleting local persistent state. All the collections and tenants created will be removed"
 rm -rf data data-weaviate-0 data-weaviate-1 data-weaviate-2  backups-weaviate-0 backups-weaviate-1 backups-weaviate-2 connector_state.json schema_state.json
 
 docker compose -f $DOCKER_COMPOSE_FILE up -d "${ADDITIONAL_SERVICES[@]}"

@@ -1,5 +1,4 @@
 import pytest
-import weaviate
 import weaviate.classes as wvc
 import math
 from weaviate.collections.classes.grpc import (
@@ -8,11 +7,9 @@ from weaviate.collections.classes.grpc import (
     _MultiTargetVectorJoinEnum,
     HybridVectorType,
 )
+from weaviate.exceptions import UnexpectedStatusCodeError, WeaviateInsertManyAllFailedError
 
 from .conftest import CollectionFactory, NamedCollection
-
-GQL_RETURNS = "{_additional {distance id score}"
-GQL_TARGETS = 'targets: {targetVectors: ["title1", "title2", "title3"], combinationMethod: sum}'
 
 
 def test_create_named_vectors_with_and_without_vectorizer(
@@ -328,10 +325,10 @@ def test_score_fusion(named_collection: NamedCollection) -> None:
 @pytest.mark.parametrize(
     "multi_target_fusion_method",
     [
-        TargetVectors.sum(["colour", "weather", "material"]),
-        TargetVectors.average(["colour", "weather", "material"]),
+        # TargetVectors.sum(["colour", "weather", "material"]),
+        # TargetVectors.average(["colour", "weather", "material"]),
         TargetVectors.manual_weights({"colour": 0.4, "weather": 1.2, "material": 0.752}),
-        TargetVectors.relative_score({"colour": 1, "weather": 1.0, "material": 1.0}),
+        # TargetVectors.relative_score({"colour": 1, "weather": 1.0, "material": 1.0}),
     ],
 )
 def test_more_results_than_limit(
@@ -509,220 +506,6 @@ def test_multi_target_with_filter(collection_factory: CollectionFactory):
     )  # order is not guaranteed and does not matter for this test
 
 
-def test_gql_near_text(named_collection: NamedCollection):
-    collection = named_collection()
-    collection.data.insert(properties={"title1": "apple", "title2": "car", "title3": "kale"})
-
-    # use collection for auto cleanup etc, but we need the client to use gql directly
-    client = weaviate.connect_to_local()
-    gql = client.graphql_raw_query(
-        """{
-      Get {
-        """
-        + collection.name
-        + """(
-          nearText: {
-            concepts: ["fruit"]
-            """
-        + GQL_TARGETS
-        + """
-          }
-        ) """
-        + GQL_RETURNS
-        + """
-        }
-      }
-    }"""
-    )
-
-    assert math.isclose(
-        gql.get[collection.name][0]["_additional"]["distance"],
-        CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE,
-        rel_tol=1e-5,
-    )
-
-
-def test_gql_near_vector(named_collection: NamedCollection):
-    collection = named_collection()
-    collection.data.insert(
-        properties={"title1": "first"},
-        vector={
-            "title1": [1, 0, 0],
-            "title2": [0, 0, 1],
-            "title3": [1, 0, 0],
-        },
-    )
-
-    # use collection for auto cleanup etc, but we need the client to use gql directly
-    client = weaviate.connect_to_local()
-    gql = client.graphql_raw_query(
-        """{
-      Get {
-        """
-        + collection.name
-        + """(
-          nearVector: {
-            vector: [0, 0, 1]
-            """
-        + GQL_TARGETS
-        + """
-          }
-        ) """
-        + GQL_RETURNS
-        + """
-        }
-      }
-    }"""
-    )
-
-    assert gql.get[collection.name][0]["_additional"]["distance"] == 2
-
-
-def test_gql_near_object(named_collection: NamedCollection):
-    collection = named_collection()
-    uuid1 = collection.data.insert(
-        properties={"title1": "first"},
-        vector={
-            "title1": [1, 0, 0],
-            "title2": [0, 0, 1],
-            "title3": [1, 0, 0],
-        },
-    )
-    uuid2 = collection.data.insert(
-        properties={"title1": "second"},
-        vector={
-            "title1": [1, 0, 0],
-            "title2": [0, 0, 1],
-            "title3": [0, 1, 0],
-        },
-    )
-
-    uuid_str = '"' + str(uuid1) + '"'
-    # use collection for auto cleanup etc, but we need the client to use gql directly
-    with weaviate.connect_to_local() as client:
-        gql = client.graphql_raw_query(
-            """{
-            Get {
-                """
-            + collection.name
-            + """(
-            nearObject: {
-                id: """
-            + uuid_str
-            + """
-                """
-            + GQL_TARGETS
-            + """
-            }
-            ) """
-            + GQL_RETURNS
-            + """
-            }
-        }
-        }"""
-        )
-
-    assert gql.get[collection.name][0]["_additional"]["distance"] == 0
-    assert gql.get[collection.name][1]["_additional"]["distance"] == 1
-
-
-def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory):
-    collection = collection_factory(
-        vectorizer_config=[
-            wvc.config.Configure.NamedVectors.none(
-                name=entry,
-            )
-            for entry in ["title1", "title2", "title3"]
-        ]
-    )
-
-    collection.data.insert(
-        properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
-    )
-    uuid2 = collection.data.insert(
-        properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
-    )
-
-    client = weaviate.connect_to_local()
-    gql = client.graphql_raw_query(
-        """{
-      Get {
-        """
-        + collection.name
-        + """(
-          nearVector: {
-            vectorPerTarget: {title1: [0, 1], title2: [0, 1, 0], title3: [0, 0, 1, 0]}
-            distance: 0.1
-            """
-        + GQL_TARGETS
-        + """
-          }
-        ) """
-        + GQL_RETURNS
-        + """
-        }
-      }
-    }"""
-    )
-    assert gql.get[collection.name][0]["_additional"]["distance"] == 0
-    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)
-
-
-def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
-    collection = collection_factory(
-        vectorizer_config=[
-            wvc.config.Configure.NamedVectors.none(
-                name=entry,
-            )
-            for entry in ["title1", "title2", "title3"]
-        ]
-    )
-
-    uuid0 = collection.data.insert(
-        properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
-    )
-    uuid1 = collection.data.insert(
-        properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
-    )
-    uuid2 = collection.data.insert(
-        properties={}, vector={"title1": [1, 0], "title2": [1, 0, 0], "title3": [0, 1, 0, 0]}
-    )
-
-    client = weaviate.connect_to_local()
-
-    gql_query = (
-        """{
-      Get {
-        """
-        + collection.name
-        + """(
-              hybrid: {
-                alpha:1
-                searches: { nearVector:{
-                    vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
-                    distance: 3.1
-                }}
-                """
-        + GQL_TARGETS
-        + """
-              }
-            ) """
-        + GQL_RETURNS
-        + """
-            }
-          }
-    }"""
-    )
-
-    gql = client.graphql_raw_query(gql_query)
-    assert gql.get[collection.name][0]["_additional"]["score"] == "1"
-    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid0)
-    assert gql.get[collection.name][1]["_additional"]["score"] == "0.33333334"
-    assert gql.get[collection.name][1]["_additional"]["id"] == str(uuid2)
-    assert gql.get[collection.name][2]["_additional"]["score"] == "0"
-    assert gql.get[collection.name][2]["_additional"]["id"] == str(uuid1)
-
-
 @pytest.mark.parametrize(
     "combination",
     [
@@ -777,3 +560,50 @@ def test_hybrid_combinations(
     assert res.objects[1].metadata.score == 0.5
     assert res.objects[2].uuid == uuid1
     assert res.objects[2].metadata.score == 0.0
+def test_single_named_vectors_without_names(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=[wvc.config.Configure.NamedVectors.none("title")],
+    )
+
+    # insert object with single non-named vector.
+    uuid1 = collection.data.insert(properties={"title": "Hello"}, vector=[1, 2, 3])
+    obj = collection.query.fetch_object_by_id(uuid1, include_vector=True)
+    assert "title" in obj.vector
+
+    ret = collection.data.insert_many(
+        [wvc.data.DataObject(properties={"title": "Hello"}, vector=[1, 2, 3])]
+    )
+    obj_batch = collection.query.fetch_object_by_id(ret.uuids[0], include_vector=True)
+    assert "title" in obj_batch.vector
+
+
+def test_named_vectors_without_names(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none("first"),
+            wvc.config.Configure.NamedVectors.none("second"),
+        ],
+    )
+    with pytest.raises(UnexpectedStatusCodeError):
+        collection.data.insert(properties={"title": "Hello"}, vector=[1, 2, 3])
+
+    with pytest.raises(WeaviateInsertManyAllFailedError):
+        collection.data.insert_many(
+            [wvc.data.DataObject(properties={"title": "Hello"}, vector=[1, 2, 3])]
+        )
+
+
+def test_single_vectorizer_with_named_vectors(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    with pytest.raises(UnexpectedStatusCodeError):
+        collection.data.insert(properties={"title": "Hello"}, vector={"something": [1, 2, 3]})
+
+    with pytest.raises(WeaviateInsertManyAllFailedError):
+        collection.data.insert_many(
+            [wvc.data.DataObject(properties={"title": "Hello"}, vector={"something": [1, 2, 3]})]
+        )

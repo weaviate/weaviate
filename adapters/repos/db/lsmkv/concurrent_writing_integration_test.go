@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
-	"fmt"
 	"math/rand"
 	"reflect"
 	"sync"
@@ -91,7 +90,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 		}
 
 		if len(missingKeys) > 0 {
-			fmt.Printf("missing keys: %v\n", missingKeys)
+			t.Logf("missing keys: %v\n", missingKeys)
 		}
 		assert.Equal(t, amount, correct)
 	})
@@ -364,7 +363,8 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 	})
 
 	t.Run("verify reader", func(t *testing.T) {
-		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
+		reader := bucket.ReaderRoaringSetRange()
+		defer reader.Close()
 
 		for i := range keys {
 			// verify every 5th key to save time

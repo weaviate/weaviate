@@ -25,8 +25,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -1234,7 +1236,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("module config is immutable"),
+				expectedError: fmt.Errorf("can only update generative and reranker module configs"),
 			},
 			{
 				name: "updating vector index config",
@@ -1419,8 +1421,8 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
 		require.Nil(t, err)
 
-		nodes := fakeNodes{[]string{"node1", "node2"}}
-		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 1, false)
+		nodes := mocks.NewMockNodeSelector("node1", "node2")
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
 		require.Nil(t, err)
 
 		shardingBytes, err := shardingState.JSON()
@@ -1449,8 +1451,8 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 2)
 		require.Nil(t, err)
 
-		nodes := fakeNodes{[]string{"node1", "node2"}}
-		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 2, false)
+		nodes := mocks.NewMockNodeSelector("node1", "node2")
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
 		require.Nil(t, err)
 
 		shardingBytes, err := shardingState.JSON()
@@ -1597,4 +1599,64 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
+}
+
+func Test_SetClassDefaults(t *testing.T) {
+	globalCfg := replication.GlobalConfig{MinimumFactor: 3}
+	tests := []struct {
+		name           string
+		class          *models.Class
+		expectedError  string
+		expectedFactor int64
+	}{
+		{
+			name:           "ReplicationConfig is nil",
+			class:          &models.Class{},
+			expectedError:  "",
+			expectedFactor: 3,
+		},
+		{
+			name: "ReplicationConfig factor less than MinimumFactor",
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{
+					Factor: 2,
+				},
+			},
+			expectedError:  "invalid replication factor: setup requires a minimum replication factor of 3: got 2",
+			expectedFactor: 2,
+		},
+		{
+			name: "ReplicationConfig factor less than 1",
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{
+					Factor: 0,
+				},
+			},
+			expectedError:  "",
+			expectedFactor: 3,
+		},
+		{
+			name: "ReplicationConfig factor greater than or equal to MinimumFactor",
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{
+					Factor: 4,
+				},
+			},
+			expectedError:  "",
+			expectedFactor: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			err := handler.setClassDefaults(tt.class, globalCfg)
+			if tt.expectedError != "" {
+				assert.EqualError(t, err, tt.expectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
+		})
+	}
 }

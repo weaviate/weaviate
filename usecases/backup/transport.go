@@ -48,6 +48,12 @@ type Request struct {
 
 	// Compression is the compression configuration.
 	Compression
+
+	// Override bucket
+	Bucket string
+
+	// Additional path prefix override
+	Path string
 }
 
 type CanCommitResponse struct {
@@ -68,6 +74,10 @@ type StatusRequest struct {
 	ID string
 	// Backend specify on which backend to store backups (gcs, s3, ..)
 	Backend string
+	// Bucket specify the bucket name
+	Bucket string
+	// Path specify the path
+	Path string
 }
 
 type StatusResponse struct {
@@ -79,6 +89,5 @@ type StatusResponse struct {
 }
 
 type (
-	AbortRequest  StatusRequest
-	AbortResponse StatusResponse
+	AbortRequest StatusRequest
 )

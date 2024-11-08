@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -74,7 +76,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 			return nil, nil, err
 		}
 
-		res, dists, err := fa.objectVectorSearch(vec, allowList)
+		res, dists, err := fa.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
 		}
@@ -107,7 +109,7 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	}
 
 	if len(fa.params.SearchVector) > 0 {
-		foundIDs, _, err = fa.vectorSearch(allowList, fa.params.SearchVector)
+		foundIDs, _, err = fa.vectorSearch(ctx, allowList, fa.params.SearchVector)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +132,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
 		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
-	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
+	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}

@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -40,26 +42,38 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     "add",
-			expectedResource: "backups/s3/123",
+			expectedVerb:     authorization.CREATE,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"s3", "123"},
-			expectedVerb:     "get",
-			expectedResource: "backups/s3/123",
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     "restore",
-			expectedResource: "backups/s3/123/restore",
+			expectedVerb:     authorization.CREATE,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"s3", "123"},
-			expectedVerb:     "get",
-			expectedResource: "backups/s3/123/restore",
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
+		},
+		{
+			methodName:       "Cancel",
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     authorization.DELETE,
+			expectedResource: authorization.Cluster(),
+		},
+		{
+			methodName:       "List",
+			additionalArgs:   []interface{}{"s3"},
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
 		},
 	}
 
@@ -83,36 +97,22 @@ func Test_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := &authDenier{}
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				s := NewScheduler(authorizer, nil, nil, nil, nil, &fakeSchemaManger{}, logger)
 				require.NotNil(t, s)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(s, test.methodName, args...)
 
-				require.Len(t, authorizer.calls, 1, "authorizer must be called")
+				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 					"execution must abort with authorizer error")
-				assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-					authorizer.calls[0], "correct parameters must have been used on authorizer")
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
+					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}
 	})
-}
-
-type authorizeCall struct {
-	principal *models.Principal
-	verb      string
-	resource  string
-}
-
-type authDenier struct {
-	calls []authorizeCall
-}
-
-func (a *authDenier) Authorize(principal *models.Principal, verb, resource string) error {
-	a.calls = append(a.calls, authorizeCall{principal, verb, resource})
-	return errors.New("just a test fake")
 }
 
 // inspired by https://stackoverflow.com/a/33008200

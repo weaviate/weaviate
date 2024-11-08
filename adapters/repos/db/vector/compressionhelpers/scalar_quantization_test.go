@@ -177,7 +177,7 @@ func Test_NoRaceRandomSQDistanceByteToByte(t *testing.T) {
 		recall := float32(relevant) / float32(k*len(queries))
 		latency := float32(ellapsed.Microseconds()) / float32(len(queries))
 		fmt.Println(distancer.Type(), recall, latency)
-		assert.GreaterOrEqual(t, recall, float32(0.8), distancer.Type())
+		assert.GreaterOrEqual(t, recall, float32(0.95), distancer.Type())
 	}
 }
 

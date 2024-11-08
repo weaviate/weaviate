@@ -24,12 +24,13 @@ import (
 
 const (
 	DefaultOpenAIDocumentType    = "text"
-	DefaultOpenAIModel           = "ada"
+	DefaultOpenAIModel           = "text-embedding-3-small"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.openai.com"
 	DefaultApiVersion            = "2024-02-01"
+	LowerCaseInput               = false
 )
 
 const (
@@ -82,7 +83,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (cs *classSettings) Model() string {
@@ -96,6 +97,38 @@ func (cs *classSettings) Type() string {
 func (cs *classSettings) ModelVersion() string {
 	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
 	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
+}
+
+func (cs *classSettings) ModelStringForAction(action string) string {
+	if strings.HasPrefix(cs.Model(), "text-embedding-3") || cs.IsThirdPartyProvider() {
+		// indicates that we handle v3 models
+		return cs.Model()
+	}
+	if cs.ModelVersion() == "002" {
+		return cs.getModel002String(cs.Model())
+	}
+	return cs.getModel001String(cs.Type(), cs.Model(), action)
+}
+
+func (v *classSettings) getModel001String(docType, model, action string) string {
+	modelBaseString := "%s-search-%s-%s-001"
+	if action == "document" {
+		if docType == "code" {
+			return fmt.Sprintf(modelBaseString, docType, model, "code")
+		}
+		return fmt.Sprintf(modelBaseString, docType, model, "doc")
+
+	} else {
+		if docType == "code" {
+			return fmt.Sprintf(modelBaseString, docType, model, "text")
+		}
+		return fmt.Sprintf(modelBaseString, docType, model, "query")
+	}
+}
+
+func (v *classSettings) getModel002String(model string) string {
+	modelBaseString := "text-embedding-%s-002"
+	return fmt.Sprintf(modelBaseString, model)
 }
 
 func (cs *classSettings) ResourceName() string {
@@ -119,7 +152,7 @@ func (cs *classSettings) IsThirdPartyProvider() bool {
 }
 
 func (cs *classSettings) IsAzure() bool {
-	return cs.ResourceName() != "" && cs.DeploymentID() != ""
+	return cs.BaseClassSettings.GetPropertyAsBool("isAzure", false) || (cs.ResourceName() != "" && cs.DeploymentID() != "")
 }
 
 func (cs *classSettings) Dimensions() *int64 {
@@ -147,7 +180,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	dimensions := cs.Dimensions()
-	if dimensions != nil {
+	if !cs.IsThirdPartyProvider() && dimensions != nil {
 		if !basesettings.ValidateSetting[string](model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
@@ -162,9 +195,11 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
-	if err != nil {
-		return err
+	if cs.IsAzure() {
+		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

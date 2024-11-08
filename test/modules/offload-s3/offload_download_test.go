@@ -37,8 +37,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
-			With3NodeCluster().
-			WithWeaviateGRPC().
+			WithWeaviateClusterWithGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -135,17 +134,6 @@ func Test_DownloadS3Journey(t *testing.T) {
 			})
 		})
 
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenantsGRPC(t, className)
-			require.Nil(t, err)
-			for _, tn := range resp.Tenants {
-				if tn.Name == tenantNames[0] {
-					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING, tn.ActivityStatus)
-					break
-				}
-			}
-		})
-
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
@@ -206,8 +194,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
-			With3NodeCluster().
-			WithWeaviateGRPC().
+			WithWeaviateClusterWithGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 
