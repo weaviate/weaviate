@@ -197,7 +197,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
-		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
@@ -209,6 +209,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"keyword_ranking": keywordRanking,
 			"version":         s.versioner.Version(),
 			"additional":      additional,
+			// in addition the slowQueryReporter will extract any slow query details
+			// that may or may not have been written into the ctx
 		})
 	}()
 
@@ -284,8 +286,9 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
+
 	defer func() {
-		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
@@ -296,6 +299,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 			"version":    s.versioner.Version(),
 			"additional": additional,
 			"group_by":   groupBy,
+			// in addition the slowQueryReporter will extract any slow query details
+			// that may or may not have been written into the ctx
 		})
 	}()
 
