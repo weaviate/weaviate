@@ -719,7 +719,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			// sum of sizes (4+5+6) big enough compared to segment's size, cleaning considering 4+5+6
 			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
 			require.NoError(t, err2)
-			requireCandidateFound(t, idx2, 0, startIdx2, 1, lastIdx2, 3)
+			requireCandidateFound(t, idx2, 0, startIdx2, 3, lastIdx2, 1)
 			assertSegment(t, sg, idx2, "segment-0002.db", 20002)
 			require.NotNil(t, onCompleted2)
 			onCompleted2(19002)
@@ -749,7 +749,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			// sum of sizes (5+6+7) big enough compared to segment's size, cleaning considering 5+6+7
 			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
 			require.NoError(t, err2)
-			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 4)
+			requireCandidateFound(t, idx2, 1, startIdx2, 4, lastIdx2, 2)
 			assertSegment(t, sg, idx2, "segment-0004.db", 20004)
 			require.NotNil(t, onCompleted2)
 			onCompleted2(19004)
@@ -810,7 +810,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			// sum of sizes (7+8) big enough compared to segment's size, cleaning considering 7+8
 			idx2, startIdx2, lastIdx2, onCompleted2, err2 := sc.findCandidate()
 			require.NoError(t, err2)
-			requireCandidateFound(t, idx2, 1, startIdx2, 2, lastIdx2, 3)
+			requireCandidateFound(t, idx2, 1, startIdx2, 3, lastIdx2, 2)
 			assertSegment(t, sg, idx2, "segment-0006.db", 20006)
 			require.NotNil(t, onCompleted2)
 			onCompleted2(19006)
@@ -820,7 +820,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 			// sum of sizes (6+7+8) big enough compared to segment's size, cleaning considering 6+7+8
 			idx3, startIdx3, lastIdx3, onCompleted3, err3 := sc.findCandidate()
 			require.NoError(t, err3)
-			requireCandidateFound(t, idx3, 0, startIdx3, 1, lastIdx3, 3)
+			requireCandidateFound(t, idx3, 0, startIdx3, 3, lastIdx3, 1)
 			assertSegment(t, sg, idx3, "segment-0004.db", 40004)
 			require.NotNil(t, onCompleted3)
 			onCompleted3(39004)
