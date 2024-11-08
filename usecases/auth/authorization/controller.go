@@ -18,11 +18,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
-type Permission struct {
-	Action   string
-	Resource *string
-}
-
 type AuthzController struct {
 	rbac rbacManager
 }
@@ -43,7 +38,7 @@ func NewAuthzController(rbac rbacManager) *AuthzController {
 	return &AuthzController{rbac: rbac}
 }
 
-func (c *AuthzController) CreateRole(name string, permissions []*Permission) error {
+func (c *AuthzController) CreateRole(name string, permissions []*models.Permission) error {
 	return c.rbac.AddPolicies(roleToPolicies(name, permissions))
 }
 
@@ -97,18 +92,17 @@ func (c *AuthzController) DeleteRolesForUser(user string, roles []string) error 
 	return c.rbac.DeleteRolesForUser(user, roles)
 }
 
-func roleToPolicies(name string, permissions []*Permission) []*rbac.Policy {
+func roleToPolicies(name string, permissions []*models.Permission) []*rbac.Policy {
 	policies := []*rbac.Policy{}
 	for _, permission := range permissions {
-		action := permission.Action
-		domain := DomainByAction[action]
+		domain := DomainByAction[*permission.Action]
 		var resource string
-		if permission.Resource == nil || *permission.Resource == "" { // no filters
+		if permission.Collection == nil || *permission.Collection == "" { // no filters
 			resource = "*"
 		} else {
-			resource = *permission.Resource
+			resource = *permission.Collection
 		}
-		for _, verb := range Verbs(ActionsByDomain[domain][action]) {
+		for _, verb := range Verbs(ActionsByDomain[domain][*permission.Action]) {
 			policies = append(policies, &rbac.Policy{Name: name, Resource: resource, Verb: verb, Domain: string(domain)})
 		}
 	}
@@ -154,8 +148,8 @@ func rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
 				if containsAllElements(vs, action.Verbs()) {
 					for r := range resourcesByDomainByRole[role][domain] {
 						permissions = append(permissions, &models.Permission{
-							Action:   &names[idx],
-							Resource: &r,
+							Action:     &names[idx],
+							Collection: &r,
 						})
 					}
 				}
