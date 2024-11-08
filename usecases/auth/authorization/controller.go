@@ -14,60 +14,53 @@ package authorization
 import (
 	"errors"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
+type Permission struct {
+	Action   string
+	Resource *string
+}
+
 type AuthzController struct {
-	enforcer *rbac.Enforcer
+	rbac rbacManager
+}
+
+type rbacManager interface {
+	AddPolicies(policies []*rbac.Policy) error
+	GetPolicies(name *string) ([]*rbac.Policy, error)
+	RemovePolicies(policies []*rbac.Policy) error
+	AddRolesForUser(user string, roles []string) error
+	GetRolesForUser(user string) ([]string, error)
+	GetUsersForRole(role string) ([]string, error)
+	DeleteRolesForUser(user string, roles []string) error
 }
 
 var ErrRoleNotFound = errors.New("role not found")
 
-func NewAuthzController(casbin *casbin.SyncedCachedEnforcer) *AuthzController {
-	return &AuthzController{enforcer: rbac.NewEnforcer(casbin)}
+func NewAuthzController(rbac rbacManager) *AuthzController {
+	return &AuthzController{rbac: rbac}
 }
 
-func (m *AuthzController) Enforcer() *rbac.Enforcer {
-	return m.enforcer
+func (c *AuthzController) CreateRole(name string, permissions []*Permission) error {
+	return c.rbac.AddPolicies(c.roleToPolicies(name, permissions))
 }
 
-func (m *AuthzController) CreateRole(role *models.Role) error {
-	policies := []*rbac.Policy{}
-	for _, permission := range role.Permissions {
-		if permission.Resource == nil || *permission.Resource == "" { // no filters
-			action := *permission.Action
-			domain := DomainByAction[action]
-			for _, verb := range Verbs(ActionsByDomain[domain][action]) {
-				policies = append(policies, &rbac.Policy{Name: *role.Name, Resource: "*", Verb: verb, Domain: string(domain)})
-			}
-		} else {
-			resource := *permission.Resource // with filtering
-			action := *permission.Action
-			domain := DomainByAction[action]
-			for _, verb := range Verbs(ActionsByDomain[domain][action]) {
-				policies = append(policies, &rbac.Policy{Name: *role.Name, Resource: resource, Verb: verb, Domain: string(domain)}) // TODO: add filter to specific resource
-			}
-		}
-	}
-	return m.enforcer.AddPolicies(policies)
-}
-
-func (m *AuthzController) GetRoles() ([]*models.Role, error) {
-	policies, err := m.enforcer.GetPolicies(nil)
+func (c *AuthzController) GetRoles() ([]*models.Role, error) {
+	policies, err := c.rbac.GetPolicies(nil)
 	if err != nil {
 		return nil, err
 	}
-	return m.rolesFromPolicies(policies)
+	return c.rolesFromPolicies(policies)
 }
 
-func (m *AuthzController) GetRole(name string) (*models.Role, error) {
-	policies, err := m.enforcer.GetPolicies(&name)
+func (c *AuthzController) GetRole(name string) (*models.Role, error) {
+	policies, err := c.rbac.GetPolicies(&name)
 	if err != nil {
 		return nil, err
 	}
-	roles, err := m.rolesFromPolicies(policies)
+	roles, err := c.rolesFromPolicies(policies)
 	if err != nil {
 		return nil, err
 	}
@@ -77,18 +70,52 @@ func (m *AuthzController) GetRole(name string) (*models.Role, error) {
 	return roles[0], nil
 }
 
-func (m *AuthzController) DeleteRole(name string) error {
-	policies, err := m.enforcer.GetPolicies(&name)
+func (c *AuthzController) DeleteRole(name string) error {
+	policies, err := c.rbac.GetPolicies(&name)
 	if err != nil {
 		return err
 	}
-	if err := m.enforcer.RemovePolicies(policies); err != nil {
+	if err := c.rbac.RemovePolicies(policies); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *AuthzController) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
+func (c *AuthzController) AddRolesForUser(user string, roles []string) error {
+	return c.rbac.AddRolesForUser(user, roles)
+}
+
+func (c *AuthzController) GetRolesForUser(user string) ([]string, error) {
+	return c.rbac.GetRolesForUser(user)
+}
+
+func (c *AuthzController) GetUsersForRole(role string) ([]string, error) {
+	return c.rbac.GetUsersForRole(role)
+}
+
+func (c *AuthzController) DeleteRolesForUser(user string, roles []string) error {
+	return c.rbac.DeleteRolesForUser(user, roles)
+}
+
+func (c *AuthzController) roleToPolicies(name string, permissions []*Permission) []*rbac.Policy {
+	policies := []*rbac.Policy{}
+	for _, permission := range permissions {
+		action := permission.Action
+		domain := DomainByAction[action]
+		var resource string
+		if permission.Resource == nil || *permission.Resource == "" { // no filters
+			resource = "*"
+		} else {
+			resource = *permission.Resource
+		}
+		for _, verb := range Verbs(ActionsByDomain[domain][action]) {
+			policies = append(policies, &rbac.Policy{Name: name, Resource: resource, Verb: verb, Domain: string(domain)})
+		}
+	}
+	return policies
+}
+
+func (c *AuthzController) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
 	verbsByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 	resourcesByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 
