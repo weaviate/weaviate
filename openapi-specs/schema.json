@@ -2867,10 +2867,7 @@
           "200": {
             "description": "Role assigned users",
             "schema": {
-             "type": "array",
-              "items": {
-                  "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
