@@ -413,9 +413,10 @@ func makeTenant(name, status string) *models.Tenant {
 }
 
 func makeTenantWithDataVersion(name, status string, dataVersion int64) *models.Tenant {
+	// TODO replace with TenantResponse?
 	return &models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
-		DataVersion:    &dataVersion,
+		// DataVersion:    &dataVersion,
 	}
 }
