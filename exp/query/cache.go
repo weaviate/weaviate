@@ -17,6 +17,7 @@ var (
 
 const (
 	evictFraction = 0.1 // When evicting, remove 10% of max disk capacity.
+	CachePrefix   = "weaviate-cache"
 )
 
 // DiskCache is LRU disk based cache for tenants on-disk data.
@@ -24,7 +25,7 @@ type DiskCache struct {
 	// key: <collection>/<tenant>
 	tenants   map[string]*list.Element
 	evictList *list.List
-	mu        sync.Mutex
+	mu        sync.Mutex // TODO(kavi): Make it more fine-grained than global mutex
 
 	// more than this will start evicting the tenants
 	// maxCap in bytes.
@@ -37,7 +38,8 @@ func NewDiskCache(basePath string, maxCap int64) *DiskCache {
 	return &DiskCache{
 		tenants:   make(map[string]*list.Element),
 		evictList: list.New(),
-		basePath:  basePath,
+		basePath:  path.Join(basePath, CachePrefix),
+		maxCap:    maxCap,
 	}
 }
 
@@ -46,7 +48,7 @@ func (d *DiskCache) Tenant(collection, tenantID string) (*TenantCache, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if c, exists := d.tenants[d.tenantKey(collection, tenantID)]; exists {
+	if c, exists := d.tenants[d.TenantKey(collection, tenantID)]; exists {
 		d.evictList.MoveToFront(c)
 		c.Value.(*TenantCache).LastAccessed = time.Now()
 		return c.Value.(*TenantCache), nil
@@ -63,6 +65,7 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 
 	tc := &TenantCache{
 		TenantID:     tenantID,
+		Collection:   collection,
 		Version:      version,
 		LastAccessed: time.Now(),
 		basePath:     d.basePath,
@@ -70,14 +73,14 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 
 	_, err := os.Stat(tc.AbsolutePath())
 	if errors.Is(err, os.ErrNotExist) {
-		return ErrTenantDirectoryFound
+		return errors.Join(ErrTenantDirectoryFound, err)
 	}
 
 	c := d.evictList.PushFront(tc)
-	d.tenants[d.tenantKey(tc.Collection, tc.TenantID)] = c
+	d.tenants[d.TenantKey(tc.Collection, tc.TenantID)] = c
 
 	// evit if the size is getting filled up
-	// TODO(kavi): Worth doing it on different go routine?
+	// TODO(kavi): Worth doing it on different go routine? But will get complex with correctness
 	if d.usage() > d.maxCap {
 		if err := d.evict(); err != nil {
 			return err
@@ -113,13 +116,13 @@ func (d *DiskCache) evict() error {
 		if err := os.RemoveAll(t.AbsolutePath()); err != nil {
 			return err
 		}
-		delete(d.tenants, d.tenantKey(t.Collection, t.TenantID))
+		delete(d.tenants, d.TenantKey(t.Collection, t.TenantID))
 		d.evictList.Remove(e)
 	}
 	return nil
 }
 
-func (d *DiskCache) tenantKey(collection, tenantID string) string {
+func (d *DiskCache) TenantKey(collection, tenantID string) string {
 	return path.Join(collection, tenantID)
 }
 
