@@ -44,7 +44,7 @@ func NewAuthzController(rbac rbacManager) *AuthzController {
 }
 
 func (c *AuthzController) CreateRole(name string, permissions []*Permission) error {
-	return c.rbac.AddPolicies(c.roleToPolicies(name, permissions))
+	return c.rbac.AddPolicies(roleToPolicies(name, permissions))
 }
 
 func (c *AuthzController) GetRoles() ([]*models.Role, error) {
@@ -52,7 +52,7 @@ func (c *AuthzController) GetRoles() ([]*models.Role, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.rolesFromPolicies(policies)
+	return rolesFromPolicies(policies)
 }
 
 func (c *AuthzController) GetRole(name string) (*models.Role, error) {
@@ -60,12 +60,12 @@ func (c *AuthzController) GetRole(name string) (*models.Role, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles, err := c.rolesFromPolicies(policies)
+	if len(policies) == 0 {
+		return nil, ErrRoleNotFound
+	}
+	roles, err := rolesFromPolicies(policies)
 	if err != nil {
 		return nil, err
-	}
-	if len(roles) == 0 {
-		return nil, ErrRoleNotFound
 	}
 	return roles[0], nil
 }
@@ -97,7 +97,7 @@ func (c *AuthzController) DeleteRolesForUser(user string, roles []string) error 
 	return c.rbac.DeleteRolesForUser(user, roles)
 }
 
-func (c *AuthzController) roleToPolicies(name string, permissions []*Permission) []*rbac.Policy {
+func roleToPolicies(name string, permissions []*Permission) []*rbac.Policy {
 	policies := []*rbac.Policy{}
 	for _, permission := range permissions {
 		action := permission.Action
@@ -115,7 +115,7 @@ func (c *AuthzController) roleToPolicies(name string, permissions []*Permission)
 	return policies
 }
 
-func (c *AuthzController) rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
+func rolesFromPolicies(policies []*rbac.Policy) ([]*models.Role, error) {
 	verbsByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 	resourcesByDomainByRole := make(map[string]map[Domain]map[string]struct{})
 

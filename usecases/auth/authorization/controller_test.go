@@ -19,38 +19,45 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
-type fakeRbacController struct{}
+type fakeRbacManager struct{}
 
-func (f *fakeRbacController) AddPolicies(policies []*rbac.Policy) error {
+func (f *fakeRbacManager) AddPolicies(policies []*rbac.Policy) error {
 	return nil
 }
 
-func (f *fakeRbacController) GetPolicies(name *string) ([]*rbac.Policy, error) {
-	return nil, nil
+func (f *fakeRbacManager) GetPolicies(name *string) ([]*rbac.Policy, error) {
+	if name != nil && *name != "new-role" {
+		return nil, nil
+	}
+	return []*rbac.Policy{{
+		Name:     "new-role",
+		Resource: "*",
+		Verb:     "(C)|(R)|(U)|(D)",
+		Domain:   "roles",
+	}}, nil
 }
 
-func (f *fakeRbacController) RemovePolicies(policies []*rbac.Policy) error {
+func (f *fakeRbacManager) RemovePolicies(policies []*rbac.Policy) error {
 	return nil
 }
 
-func (f *fakeRbacController) AddRolesForUser(user string, roles []string) error {
+func (f *fakeRbacManager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (f *fakeRbacController) GetRolesForUser(user string) ([]string, error) {
+func (f *fakeRbacManager) GetRolesForUser(user string) ([]string, error) {
 	return nil, nil
 }
 
-func (f *fakeRbacController) GetUsersForRole(role string) ([]string, error) {
+func (f *fakeRbacManager) GetUsersForRole(role string) ([]string, error) {
 	return nil, nil
 }
 
-func (f *fakeRbacController) DeleteRolesForUser(user string, roles []string) error {
+func (f *fakeRbacManager) DeleteRolesForUser(user string, roles []string) error {
 	return nil
 }
 
 func Test_roleToPolicies(t *testing.T) {
-	controller := NewAuthzController(&fakeRbacController{})
 	tests := []struct {
 		name        string
 		permissions []*Permission
@@ -96,13 +103,12 @@ func Test_roleToPolicies(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		policies := controller.roleToPolicies(tt.name, tt.permissions)
+		policies := roleToPolicies(tt.name, tt.permissions)
 		require.Equal(t, tt.expected, policies)
 	}
 }
 
 func Test_rolesFromPolicies(t *testing.T) {
-	controller := NewAuthzController(&fakeRbacController{})
 	tests := []struct {
 		policies []*rbac.Policy
 		expected []*models.Role
@@ -124,10 +130,37 @@ func Test_rolesFromPolicies(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		roles, err := controller.rolesFromPolicies(tt.policies)
+		roles, err := rolesFromPolicies(tt.policies)
 		require.Nil(t, err)
 		require.Equal(t, tt.expected, roles)
 	}
+}
+
+func TestAuthzController(t *testing.T) {
+	controller := NewAuthzController(&fakeRbacManager{})
+
+	t.Run("get roles", func(t *testing.T) {
+		roles, err := controller.GetRoles()
+		require.Nil(t, err)
+		require.Equal(t, 1, len(roles))
+		require.Equal(t, "new-role", *roles[0].Name)
+		require.Equal(t, "manage_roles", *roles[0].Permissions[0].Action)
+		require.Equal(t, "*", *roles[0].Permissions[0].Resource)
+	})
+
+	t.Run("get existing role", func(t *testing.T) {
+		role, err := controller.GetRole("new-role")
+		require.Nil(t, err)
+		require.Equal(t, "new-role", *role.Name)
+		require.Equal(t, "manage_roles", *role.Permissions[0].Action)
+		require.Equal(t, "*", *role.Permissions[0].Resource)
+	})
+
+	t.Run("get non-existing role", func(t *testing.T) {
+		role, err := controller.GetRole("non-existing-role")
+		require.Nil(t, role)
+		require.Equal(t, ErrRoleNotFound, err)
+	})
 }
 
 func String(s string) *string {
