@@ -9,7 +9,7 @@ function build() {
   echo "Build containers (this will take the longest)..."
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
+  echo_red $1 $2
   docker compose -f "$1" build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
   echo "Start up docker compose setup..."
 }
@@ -52,6 +52,9 @@ function echo_red() {
 }
 
 build "$@" docker-compose-test.yml weaviate
+build "$@" docker-compose-auth-test.yml weaviate-auth
 surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+surpress_on_success docker compose -f docker-compose-auth-test.yml up --force-recreate -d weaviate-auth
 
 wait "$@" docker-compose-test.yml
+wait "$@" docker-compose-auth-test.yml
