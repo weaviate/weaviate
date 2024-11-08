@@ -387,8 +387,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			} else {
 				h.RLock()
 				docID := h.vectorDocIDMap[neighborID]
-				distance, err = h.distanceToFloatMultiNode(floatDistancer, docID, neighborID)
+				relative := h.vectorPositionMap[neighborID]
 				h.RUnlock()
+				distance, err = h.distanceToFloatMultiNode(floatDistancer, docID, relative)
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
@@ -489,8 +490,10 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 		id := results.Top().ID
 		h.RLock()
 		docID := h.vectorDocIDMap[id]
-		d, err := h.distanceToFloatMultiNode(distancer, docID, id)
+		relative := h.vectorPositionMap[id]
 		h.RUnlock()
+		d, err := h.distanceToFloatMultiNode(distancer, docID, relative)
+
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -572,7 +575,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 }
 
 func (h *hnsw) distanceToFloatMultiNode(distancer distancer.Distancer, docID uint64, vecID uint64) (float32, error) {
-	candidateVec, err := h.MultipleVectorForID(context.Background(), docID, vecID)
+	candidateVec, err := h.MultipleVectorForIDThunk(context.Background(), docID, vecID)
 	if err != nil {
 		return 0, err
 	}
@@ -1016,7 +1019,7 @@ func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
 	vecs := make([][]float32, len(vecIDs))
 	h.RLock()
 	for i, vecID := range vecIDs {
-		vec, err := h.MultipleVectorForID(context.Background(), docID, vecID) // should we use multiple vectors for id??
+		vec, err := h.MultipleVectorForIDThunk(context.Background(), docID, h.vectorPositionMap[vecID]) // should we use multiple vectors for id??
 		if err != nil {
 			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
 		}

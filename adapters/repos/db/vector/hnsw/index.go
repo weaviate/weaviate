@@ -166,13 +166,13 @@ type hnsw struct {
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
 
-	compressActionLock  *sync.RWMutex
-	className           string
-	shardName           string
-	VectorForIDThunk    common.VectorForID[float32]
-	MultipleVectorForID common.MultipleVectorForID[float32]
-	shardedNodeLocks    *common.ShardedRWLocks
-	store               *lsmkv.Store
+	compressActionLock       *sync.RWMutex
+	className                string
+	shardName                string
+	VectorForIDThunk         common.VectorForID[float32]
+	MultipleVectorForIDThunk common.MultipleVectorForID[float32]
+	shardedNodeLocks         *common.ShardedRWLocks
+	store                    *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
@@ -278,16 +278,16 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:             rand.Float64,
-		compressActionLock:   &sync.RWMutex{},
-		className:            cfg.ClassName,
-		VectorForIDThunk:     cfg.VectorForIDThunk,
-		MultipleVectorForID:  cfg.MultipleVectorForIDThunk,
-		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
-		pqConfig:             uc.PQ,
-		bqConfig:             uc.BQ,
-		sqConfig:             uc.SQ,
-		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
+		randFunc:                 rand.Float64,
+		compressActionLock:       &sync.RWMutex{},
+		className:                cfg.ClassName,
+		VectorForIDThunk:         cfg.VectorForIDThunk,
+		MultipleVectorForIDThunk: cfg.MultipleVectorForIDThunk,
+		TempVectorForIDThunk:     cfg.TempVectorForIDThunk,
+		pqConfig:                 uc.PQ,
+		bqConfig:                 uc.BQ,
+		sqConfig:                 uc.SQ,
+		shardedNodeLocks:         common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -496,8 +496,12 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	// ones
 	h.RLock()
 	docIDA := h.vectorDocIDMap[a]
-	vecA, err := h.MultipleVectorForID(context.Background(), docIDA, a)
+	relativeA := h.vectorPositionMap[a]
+	docIDB := h.vectorDocIDMap[b]
+	relativeB := h.vectorPositionMap[b]
 	h.RUnlock()
+
+	vecA, err := h.MultipleVectorForIDThunk(context.Background(), docIDA, relativeA)
 
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -514,9 +518,8 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	h.RLock()
-	vecB, err := h.MultipleVectorForID(context.Background(), h.vectorDocIDMap[b], b)
-	h.RUnlock()
+	vecB, err := h.MultipleVectorForIDThunk(context.Background(), docIDB, relativeB)
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -548,8 +551,10 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	h.RLock()
-	vecA, err := h.MultipleVectorForID(context.Background(), h.vectorDocIDMap[node], node)
+	docID := h.vectorDocIDMap[node]
+	relative := h.vectorPositionMap[node]
 	h.RUnlock()
+	vecA, err := h.MultipleVectorForIDThunk(context.Background(), docID, relative)
 
 	if err != nil {
 		var e storobj.ErrNotFound
