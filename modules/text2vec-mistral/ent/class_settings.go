@@ -13,18 +13,20 @@ package ent
 
 import (
 	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
+	// Default values for URL and model cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultMistralModel          = "mistral-embed"
 	DefaultBaseURL               = "https://api.mistral.ai/v1/embeddings"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	LowerCaseInput               = false
 )
 
 var (
@@ -40,7 +42,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (cs *classSettings) Model() string {

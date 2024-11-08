@@ -12,6 +12,8 @@
 package ent
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -20,11 +22,12 @@ import (
 const (
 	// TODO: replace docker internal host with actual host
 	DefaultBaseURL               = "https://embedding.labs.weaviate.io"
-	DefaultWeaviateModel         = "Snowflake/snowflake-arctic-embed-m-v1.5"
+	DefaultWeaviateModel         = SnowflakeArcticEmbedM
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	LowerCaseInput               = false
 )
 
 const (
@@ -39,7 +42,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (cs *classSettings) Model() string {
@@ -62,6 +65,20 @@ func (cs *classSettings) Dimensions() *int64 {
 func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
+	}
+
+	if cs.Model() == SnowflakeArcticEmbedM {
+		if err := cs.ValidateSnowflakeArctic(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cs *classSettings) ValidateSnowflakeArctic() error {
+	if cs.Dimensions() != nil && *cs.Dimensions() != 256 && *cs.Dimensions() != 768 {
+		return fmt.Errorf("available dimensions for model %v are: [256 768]. Got %v", cs.Model(), *cs.Dimensions())
 	}
 
 	return nil

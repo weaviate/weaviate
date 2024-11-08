@@ -29,7 +29,7 @@ import (
 // swagger:model BatchDelete
 type BatchDelete struct {
 
-	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
+	// If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// match

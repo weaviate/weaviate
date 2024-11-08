@@ -84,7 +84,7 @@ func parseNestedFilter(in *models.WhereFilter,
 			operator.Name())
 	}
 
-	if in.Operands == nil || len(in.Operands) == 0 {
+	if len(in.Operands) == 0 {
 		return nil, fmt.Errorf(
 			"operator '%s', but no operands set - add at least one operand",
 			operator.Name())

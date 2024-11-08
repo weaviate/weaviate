@@ -12,15 +12,11 @@
 package tests
 
 import (
-	"encoding/csv"
 	"fmt"
-	"io"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
@@ -32,92 +28,70 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 		dataFolderPath := "../../../test/helper/sample-schema/multimodal/data"
 		// Define class
 		className := "GoogleClipTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "image_title", DataType: []string{schema.DataTypeText.String()},
+		class := multimodal.BaseClass(className, true)
+		class.VectorConfig = map[string]models.VectorConfig{
+			"clip_google": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"imageFields":        []interface{}{multimodal.PropertyImage},
+						"vectorizeClassName": false,
+						"location":           location,
+						"projectId":          gcpProject,
+					},
 				},
-				{
-					Name: "image_description", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "video_title", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "video_description", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "image", DataType: []string{schema.DataTypeBlob.String()},
-				},
-				{
-					Name: "video", DataType: []string{schema.DataTypeBlob.String()},
-				},
+				VectorIndexType: "flat",
 			},
-			VectorConfig: map[string]models.VectorConfig{
-				"clip_google": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"imageFields":        []interface{}{"image"},
-							"vectorizeClassName": false,
-							"location":           location,
-							"projectId":          gcpProject,
-						},
+			"clip_google_128": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"imageFields":        []interface{}{multimodal.PropertyImage},
+						"vectorizeClassName": false,
+						"location":           location,
+						"projectId":          gcpProject,
+						"dimensions":         128,
 					},
-					VectorIndexType: "flat",
 				},
-				"clip_google_128": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"imageFields":        []interface{}{"image"},
-							"vectorizeClassName": false,
-							"location":           location,
-							"projectId":          gcpProject,
-							"dimensions":         128,
-						},
+				VectorIndexType: "flat",
+			},
+			"clip_google_256": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"imageFields":        []interface{}{multimodal.PropertyImage},
+						"vectorizeClassName": false,
+						"location":           location,
+						"projectId":          gcpProject,
+						"dimensions":         256,
 					},
-					VectorIndexType: "flat",
 				},
-				"clip_google_256": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"imageFields":        []interface{}{"image"},
-							"vectorizeClassName": false,
-							"location":           location,
-							"projectId":          gcpProject,
-							"dimensions":         256,
-						},
+				VectorIndexType: "flat",
+			},
+			"clip_google_video": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"videoFields":        []interface{}{multimodal.PropertyVideo},
+						"vectorizeClassName": false,
+						"location":           location,
+						"projectId":          gcpProject,
 					},
-					VectorIndexType: "flat",
 				},
-				"clip_google_video": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"videoFields":        []interface{}{"video"},
-							"vectorizeClassName": false,
-							"location":           location,
-							"projectId":          gcpProject,
+				VectorIndexType: "flat",
+			},
+			"clip_google_weights": {
+				Vectorizer: map[string]interface{}{
+					vectorizerName: map[string]interface{}{
+						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
+						"imageFields": []interface{}{multimodal.PropertyImage},
+						"weights": map[string]interface{}{
+							"textFields":  []interface{}{0.05, 0.05},
+							"imageFields": []interface{}{0.9},
 						},
+						"vectorizeClassName": false,
+						"location":           location,
+						"projectId":          gcpProject,
+						"dimensions":         512,
 					},
-					VectorIndexType: "flat",
 				},
-				"clip_google_weights": {
-					Vectorizer: map[string]interface{}{
-						vectorizerName: map[string]interface{}{
-							"textFields":  []interface{}{"image_title", "image_description"},
-							"imageFields": []interface{}{"image"},
-							"weights": map[string]interface{}{
-								"textFields":  []interface{}{0.05, 0.05},
-								"imageFields": []interface{}{0.9},
-							},
-							"vectorizeClassName": false,
-							"location":           location,
-							"projectId":          gcpProject,
-							"dimensions":         512,
-						},
-					},
-					VectorIndexType: "flat",
-				},
+				VectorIndexType: "flat",
 			},
 		}
 		// create schema
@@ -125,48 +99,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 		defer helper.DeleteClass(t, class.Class)
 
 		t.Run("import data", func(t *testing.T) {
-			f, err := multimodal.GetCSV(dataFolderPath)
-			require.NoError(t, err)
-			defer f.Close()
-			var objs []*models.Object
-			i := 0
-			csvReader := csv.NewReader(f)
-			for {
-				line, err := csvReader.Read()
-				if err == io.EOF {
-					break
-				}
-				require.NoError(t, err)
-				if i > 0 {
-					id := line[1]
-					imageTitle := line[2]
-					imageDescription := line[3]
-					imageBlob, err := multimodal.GetImageBlob(dataFolderPath, i)
-					require.NoError(t, err)
-					videoTitle := line[4]
-					videoDescription := line[5]
-					videoBlob, err := multimodal.GetVideoBlob(dataFolderPath, i)
-					require.NoError(t, err)
-					obj := &models.Object{
-						Class: class.Class,
-						ID:    strfmt.UUID(id),
-						Properties: map[string]interface{}{
-							"image_title":       imageTitle,
-							"image_description": imageDescription,
-							"image":             imageBlob,
-							"video_title":       videoTitle,
-							"video_description": videoDescription,
-							"video":             videoBlob,
-						},
-					}
-					objs = append(objs, obj)
-				}
-				i++
-			}
-			for _, obj := range objs {
-				helper.CreateObject(t, obj)
-				helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-			}
+			multimodal.InsertObjects(t, dataFolderPath, class.Class, true)
 		})
 
 		t.Run("nearImage", func(t *testing.T) {
@@ -179,7 +112,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					targetVectors: ["%s"]
 				}
 			`, blob, targetVector)
-			titleProperty := "image_title"
+			titleProperty := multimodal.PropertyImageTitle
 			titlePropertyValue := "waterfalls"
 			targetVectors := map[string]int{
 				"clip_google":         1408,
@@ -201,7 +134,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					targetVectors: ["%s"]
 				}
 			`, blob, targetVector)
-			titleProperty := "video_title"
+			titleProperty := multimodal.PropertyVideoTitle
 			titlePropertyValue := "dog"
 			targetVectors := map[string]int{
 				"clip_google":         1408,

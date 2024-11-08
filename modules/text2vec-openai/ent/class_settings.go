@@ -24,12 +24,13 @@ import (
 
 const (
 	DefaultOpenAIDocumentType    = "text"
-	DefaultOpenAIModel           = "ada"
+	DefaultOpenAIModel           = "text-embedding-3-small"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.openai.com"
 	DefaultApiVersion            = "2024-02-01"
+	LowerCaseInput               = false
 )
 
 const (
@@ -98,7 +99,7 @@ func (cs *classSettings) ModelVersion() string {
 	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
 }
 
-func (cs *classSettings) ModelString(action string) string {
+func (cs *classSettings) ModelStringForAction(action string) string {
 	if strings.HasPrefix(cs.Model(), "text-embedding-3") || cs.IsThirdPartyProvider() {
 		// indicates that we handle v3 models
 		return cs.Model()
