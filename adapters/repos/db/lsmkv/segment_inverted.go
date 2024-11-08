@@ -74,17 +74,14 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 		return s.invertedData.tombstones, nil
 	}
 
-	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
-
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
+	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.tombstoneOffset : s.invertedHeader.tombstoneOffset+8])
 
 	if bitmapSize == 0 {
 		s.invertedData.tombstonesLoaded = true
 		return nil, nil
 	}
 
-	bitmapStart := s.dataStartPos + keyLengths + 8
+	bitmapStart := s.dataStartPos + s.invertedHeader.tombstoneOffset + 8
 	bitmapEnd := bitmapStart + bitmapSize
 
 	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
@@ -104,16 +101,14 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 	}
 
 	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
-	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+bitmapSize : s.dataStartPos+keyLengths+8+bitmapSize+8])
+	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.propertyLengthsOffset : s.invertedHeader.propertyLengthsOffset+8])
 
 	if propertyLenghtsSize == 0 {
 		s.invertedData.propertyLenghtsLoaded = true
 		return nil, nil
 	}
 
-	propertyLenghtsStart := s.dataStartPos + keyLengths + bitmapSize + 8 + 8
+	propertyLenghtsStart := s.invertedHeader.propertyLengthsOffset + 8
 	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
 
 	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
