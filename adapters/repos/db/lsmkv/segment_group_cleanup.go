@@ -355,7 +355,12 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 					// not the left one, it is unknown what was last segment used for cleanup of removed
 					// left segment, therefore compacted segment will be cleaned again using all newer segments.
 					possibleStartIdx := idx + 1
+					// in case of using segments that were already used for cleanup, process them in reverse
+					// order starting with newest ones, to maximize the chance of finding redundant entries
+					// as soon as possible (leaving segments that were already used for cleanup as last ones)
+					reverseOrder := true
 					if size == storedSize {
+						reverseOrder = false
 						// size not changed (not compacted), clean using only newly created segments,
 						// skipping segments already processed in previous cleanup
 						for i := idx + 1; i < count; i++ {
@@ -378,6 +383,10 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 						candidateIdx = idx
 						startIdx = possibleStartIdx
 						lastIdx = count - 1
+
+						if reverseOrder {
+							startIdx, lastIdx = lastIdx, startIdx
+						}
 					}
 				}
 			}
@@ -497,17 +506,23 @@ type keyExistsOnUpperSegmentsFunc func(key []byte) (bool, error)
 
 func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyExistsOnUpperSegmentsFunc {
 	return func(key []byte) (bool, error) {
-		// current len could be higher than the one stored in bolt db as last processed one.
-		// that is acceptable and not considered an issue.
-
+		// asc order by default
 		i := startIdx
+		updateI := func() { i++ }
+		if startIdx > lastIdx {
+			// dest order
+			i = lastIdx
+			updateI = func() { i-- }
+		}
+
 		segAtPos := func() *segment {
 			sg.maintenanceLock.RLock()
 			defer sg.maintenanceLock.RUnlock()
 
-			if i <= lastIdx {
-				i++
-				return sg.segments[i-1]
+			if i >= startIdx && i <= lastIdx {
+				j := i
+				updateI()
+				return sg.segments[j]
 			}
 			return nil
 		}
