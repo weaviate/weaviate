@@ -26,6 +26,6 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && (keyMatch5(r.obj, p.obj) || regexMatch(r.obj, p.obj)) && r.act == p.act
+	m = g(r.sub, p.sub) && (keyMatch5(r.obj, p.obj) || regexMatch(r.obj, p.obj)) && regexMatch(r.act, p.act)
 `
 )
