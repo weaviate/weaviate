@@ -20,37 +20,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *segment) hasKey(key []byte) bool {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
-		return false
-	}
-
-	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return false
-	}
-
-	_, err := s.index.Get(key)
-	return err == nil
-}
-
-func (s *segment) getDocCount(key []byte) uint64 {
-	if s.strategy != segmentindex.StrategyMapCollection && s.strategy != segmentindex.StrategyInverted {
-		return 0
-	}
-
-	node, err := s.index.Get(key)
-	if err != nil {
-		return 0
-	}
-
-	buffer := make([]byte, 8)
-	if err = s.copyNode(buffer, nodeOffset{node.Start, node.Start + 8}); err != nil {
-		return 0
-	}
-
-	return binary.LittleEndian.Uint64(buffer)
-}
-
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
 	if s.mmapContents {
@@ -74,7 +43,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.propertyLenghts[data.DocIds[0]]
+		propLength := s.invertedData.propertyLenghts[data.DocIds[0]]
 		tf := float32(data.Tfs[0])
 		entries[0] = &terms.BlockEntry{
 			Offset:    0,
@@ -351,7 +320,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Con
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.segment.propertyLenghts[s.blockDataDecoded.DocIds[s.blockDataIdx]]
+	propLength := s.segment.invertedData.propertyLenghts[s.blockDataDecoded.DocIds[s.blockDataIdx]]
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(propLength)/averagePropLength))
 	s.Metrics.DocCountAdded++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {

@@ -65,7 +65,7 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
 		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false, s.segment.invertedKeyLength, s.segment.invertedValueLength); err != nil {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
 				return nil, nil, err
 			}
 		} else {
@@ -103,7 +103,7 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
 		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false, s.segment.invertedKeyLength, s.segment.invertedValueLength); err != nil {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
 				return nil, nil, err
 			}
 		} else {
@@ -144,7 +144,7 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
 		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false, s.segment.invertedKeyLength, s.segment.invertedValueLength); err != nil {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
 				return nil, nil, err
 			}
 		} else {

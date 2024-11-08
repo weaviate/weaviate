@@ -14,15 +14,13 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -57,14 +55,8 @@ type segment struct {
 	calcCountNetAdditions bool // see bucket for more datails
 	countNetAdditions     int
 
-	tombstones       *sroar.Bitmap
-	tombstonesLoaded bool
-
-	propertyLenghts       map[uint64]uint32
-	propertyLenghtsLoaded bool
-
-	invertedKeyLength   uint16
-	invertedValueLength uint16
+	invertedHeader *segmentInvertedHeader
+	invertedData   *segmentInvertedData
 }
 
 type diskIndex interface {
@@ -134,12 +126,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
 
-	var invertedKeyLength, invertedValueLength uint16
+	var invertedHeader *segmentInvertedHeader
 	if header.Strategy == segmentindex.StrategyInverted {
-		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos : dataStartPos+8])
-
-		dataStartPos += 8
-		dataEndPos = dataStartPos + keysLength
+		invertedHeader, err = LoadInvertedHeader(contents[16 : 16+segmentInvertedHeaderSize+4])
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+		dataStartPos = invertedHeader.keysOffset
+		dataEndPos = invertedHeader.tombstoneOffset
 	}
 
 	seg := &segment{
@@ -160,8 +154,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:          mmapContents,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
-		invertedKeyLength:     invertedKeyLength,
-		invertedValueLength:   invertedValueLength,
+		invertedHeader:        invertedHeader,
+		invertedData:          &segmentInvertedData{},
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -380,68 +374,4 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 
 	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
 	return bufio.NewReader(r), nil
-}
-
-func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
-	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
-	}
-
-	if s.tombstonesLoaded {
-		return s.tombstones, nil
-	}
-
-	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
-
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
-
-	if bitmapSize == 0 {
-		s.tombstonesLoaded = true
-		return nil, nil
-	}
-
-	bitmapStart := s.dataStartPos + keyLengths + 8
-	bitmapEnd := bitmapStart + bitmapSize
-
-	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
-
-	s.tombstones = bitmap
-	s.tombstonesLoaded = true
-	return s.tombstones, nil
-}
-
-func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
-	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("property only supported for inverted strategy")
-	}
-
-	if s.propertyLenghtsLoaded {
-		return s.propertyLenghts, nil
-	}
-
-	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
-	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+bitmapSize : s.dataStartPos+keyLengths+8+bitmapSize+8])
-
-	if propertyLenghtsSize == 0 {
-		s.propertyLenghtsLoaded = true
-		return nil, nil
-	}
-
-	propertyLenghtsStart := s.dataStartPos + keyLengths + bitmapSize + 8 + 8
-	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
-
-	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
-
-	propLenghts := map[uint64]uint32{}
-	err := e.Decode(&propLenghts)
-	if err != nil {
-		return nil, fmt.Errorf("decode property lengths: %w", err)
-	}
-
-	s.propertyLenghtsLoaded = true
-	s.propertyLenghts = propLenghts
-	return s.propertyLenghts, nil
 }
