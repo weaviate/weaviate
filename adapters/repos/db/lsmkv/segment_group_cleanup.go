@@ -423,6 +423,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		return false, nil
 	}
 
+	var err error
 	candidateIdx, startIdx, lastIdx, onCompleted, err := c.findCandidate()
 	if err != nil {
 		return false, err
@@ -460,8 +461,32 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	}
 
 	oldSegment := c.sg.segmentAtPos(candidateIdx)
-	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentID(oldSegment.path)+".db.tmp")
+	segmentId := segmentID(oldSegment.path)
+	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+".db.tmp")
 	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
+
+	start := time.Now()
+	c.sg.logger.WithFields(logrus.Fields{
+		"action":       "lsm_cleanup",
+		"path":         c.sg.dir,
+		"candidateIdx": candidateIdx,
+		"startIdx":     startIdx,
+		"lastIdx":      lastIdx,
+		"segmentId":    segmentId,
+	}).Info("cleanup started with candidate")
+	defer func() {
+		l := c.sg.logger.WithFields(logrus.Fields{
+			"action":    "lsm_cleanup",
+			"path":      c.sg.dir,
+			"segmentId": segmentId,
+			"took":      time.Since(start),
+		})
+		if err == nil {
+			l.Info("clenaup finished")
+		} else {
+			l.WithError(err).Error("cleanup failed")
+		}
+	}()
 
 	file, err := os.Create(tmpSegmentPath)
 	if err != nil {
@@ -473,26 +498,31 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
 			oldSegment.secondaryIndexCount, scratchSpacePath)
-		if err := c.do(shouldAbort); err != nil {
+		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
 	default:
-		return false, fmt.Errorf("unsported strategy %q", c.sg.strategy)
+		err = fmt.Errorf("unsported strategy %q", c.sg.strategy)
+		return false, err
 	}
 
-	if err := file.Sync(); err != nil {
-		return false, fmt.Errorf("fsync cleaned segment file: %w", err)
+	if err = file.Sync(); err != nil {
+		err = fmt.Errorf("fsync cleaned segment file: %w", err)
+		return false, err
 	}
-	if err := file.Close(); err != nil {
-		return false, fmt.Errorf("close cleaned segment file: %w", err)
+	if err = file.Close(); err != nil {
+		err = fmt.Errorf("close cleaned segment file: %w", err)
+		return false, err
 	}
 
 	segment, err := c.sg.replaceSegment(candidateIdx, tmpSegmentPath)
 	if err != nil {
-		return false, fmt.Errorf("replace compacted segments: %w", err)
+		err = fmt.Errorf("replace compacted segments: %w", err)
+		return false, err
 	}
-	if err := onCompleted(segment.size); err != nil {
-		return false, fmt.Errorf("callback cleaned segment file: %w", err)
+	if err = onCompleted(segment.size); err != nil {
+		err = fmt.Errorf("callback cleaned segment file: %w", err)
+		return false, err
 	}
 
 	return true, nil
