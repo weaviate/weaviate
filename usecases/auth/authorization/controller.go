@@ -65,6 +65,33 @@ func (c *AuthzController) GetRole(name string) (*models.Role, error) {
 	return roles[0], nil
 }
 
+func (m *AuthzController) GetRolesByName(names ...string) ([]*models.Role, error) {
+	var roles []*models.Role
+	for _, name := range names {
+		policies, err := m.rbac.GetPolicies(&name)
+		if err != nil {
+			return nil, err
+		}
+		role, err := rolesFromPolicies(policies)
+		if err != nil {
+			return nil, err
+		}
+		if len(role) == 0 {
+			return nil, ErrRoleNotFound
+		}
+		roles = append(roles, role[0])
+	}
+	return roles, nil
+}
+
+func (m *AuthzController) GetRolesForUser(user string) ([]*models.Role, error) {
+	roleNames, err := m.rbac.GetRolesForUser(user)
+	if err != nil {
+		return nil, err
+	}
+	return m.GetRolesByName(roleNames...)
+}
+
 func (c *AuthzController) DeleteRole(name string) error {
 	policies, err := c.rbac.GetPolicies(&name)
 	if err != nil {
@@ -78,10 +105,6 @@ func (c *AuthzController) DeleteRole(name string) error {
 
 func (c *AuthzController) AddRolesForUser(user string, roles []string) error {
 	return c.rbac.AddRolesForUser(user, roles)
-}
-
-func (c *AuthzController) GetRolesForUser(user string) ([]string, error) {
-	return c.rbac.GetRolesForUser(user)
 }
 
 func (c *AuthzController) GetUsersForRole(role string) ([]string, error) {

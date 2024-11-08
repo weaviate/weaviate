@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,9 +37,10 @@ type authzController interface {
 	GetRole(roleID string) (*models.Role, error)
 	DeleteRole(roleID string) error
 	AddRolesForUser(userID string, roles []string) error
-	GetRolesForUser(userID string) ([]string, error)
+	GetRolesForUser(user string) ([]*models.Role, error)
 	GetUsersForRole(roleID string) ([]string, error)
 	DeleteRolesForUser(userID string, roles []string) error
+	GetRolesByName(names ...string) ([]*models.Role, error)
 }
 
 func setupAuthZHandlers(api *operations.WeaviateAPI, controller authzController, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
@@ -105,15 +108,19 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	role, err := h.controller.GetRole(params.ID)
+	roles, err := h.controller.GetRolesByName(params.ID)
 	if err != nil {
 		if err == authorization.ErrRoleNotFound {
 			return authz.NewGetRoleNotFound()
 		}
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
+	if len(roles) != 1 {
+		err := fmt.Errorf("expected one role but got %d", len(roles))
+		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
 
-	return authz.NewGetRoleOK().WithPayload(role)
+	return authz.NewGetRoleOK().WithPayload(roles[0])
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
@@ -167,7 +174,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	return authz.NewGetRolesForUserOK().WithPayload(users)
+	return authz.NewGetUsersForRoleOK().WithPayload(users)
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {

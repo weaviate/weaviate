@@ -52,6 +52,29 @@ def test_rbac_roles_admin(
         assert client.roles.by_name(role_name) is None
 
 
+def test_rbac_users(request: SubRequest):
+    with weaviate.connect_to_local(
+        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
+    ) as client:
+        database_permissions = RBAC.actions.database.CREATE_COLLECTIONS
+        num_roles = 2
+        role_names = [_sanitize_role_name(request.node.name) + str(i) for i in range(num_roles)]
+        for role_name in role_names:
+            client.roles.delete(role_name)
+            client.roles.create(
+                name=role_name,
+                permissions=RBAC.permissions.database(database_permissions),
+            )
+            client.roles.assign(user="admin-user", roles=role_name)
+
+        roles = client.roles.by_user("admin-user")
+        all_returned_names = [role.name for role in roles]
+        assert all(name in all_returned_names for name in role_names)
+
+        for role_name in role_names:
+            client.roles.delete(role_name)
+
+
 def _sanitize_role_name(name: str) -> str:
     return (
         name.replace("[", "")
