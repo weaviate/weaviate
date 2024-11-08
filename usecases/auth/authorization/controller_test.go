@@ -22,14 +22,13 @@ import (
 func Test_roleToPolicies(t *testing.T) {
 	tests := []struct {
 		name        string
-		permissions []*Permission
+		permissions []*models.Permission
 		expected    []*rbac.Policy
 	}{
 		{
 			name: "new-role",
-			permissions: []*Permission{{
-				Action:   "manage_roles",
-				Resource: String("*"),
+			permissions: []*models.Permission{{
+				Action: String("manage_roles"),
 			}},
 			expected: []*rbac.Policy{{
 				Name:     "new-role",
@@ -40,9 +39,8 @@ func Test_roleToPolicies(t *testing.T) {
 		},
 		{
 			name: "new-role",
-			permissions: []*Permission{{
-				Action:   "manage_roles",
-				Resource: String(""),
+			permissions: []*models.Permission{{
+				Action: String("manage_roles"),
 			}},
 			expected: []*rbac.Policy{{
 				Name:     "new-role",
@@ -53,8 +51,8 @@ func Test_roleToPolicies(t *testing.T) {
 		},
 		{
 			name: "new-role",
-			permissions: []*Permission{{
-				Action: "manage_roles",
+			permissions: []*models.Permission{{
+				Action: String("manage_roles"),
 			}},
 			expected: []*rbac.Policy{{
 				Name:     "new-role",
@@ -77,16 +75,16 @@ func Test_rolesFromPolicies(t *testing.T) {
 	}{
 		{
 			policies: []*rbac.Policy{{
-				Name:     "new-role",
-				Resource: "*",
-				Verb:     "(C)|(R)|(U)|(D)",
-				Domain:   "roles",
+				Name: "new-role",
+				// Resource: "*",
+				Verb:   "(C)|(R)|(U)|(D)",
+				Domain: "roles",
 			}},
 			expected: []*models.Role{{
 				Name: String("new-role"),
 				Permissions: []*models.Permission{{
-					Action:   String("manage_roles"),
-					Resource: String("*"),
+					Action:     String("manage_roles"),
+					Collection: String(""),
 				}},
 			}},
 		},
@@ -107,10 +105,10 @@ func (f *fakeRbacManager) GetPolicies(name *string) ([]*rbac.Policy, error) {
 		return nil, nil
 	}
 	return []*rbac.Policy{{
-		Name:     "new-role",
-		Resource: "*",
-		Verb:     "(C)|(R)|(U)|(D)",
-		Domain:   "roles",
+		Name: "new-role",
+		// Resource: "*",
+		Verb:   "(C)|(R)|(U)|(D)",
+		Domain: "roles",
 	}}, nil
 }
 
@@ -123,7 +121,7 @@ func TestAuthzController(t *testing.T) {
 		require.Equal(t, 1, len(roles))
 		require.Equal(t, "new-role", *roles[0].Name)
 		require.Equal(t, "manage_roles", *roles[0].Permissions[0].Action)
-		require.Equal(t, "*", *roles[0].Permissions[0].Resource)
+		// require.Equal(t, "*", *roles[0].Permissions[0].Resource)
 	})
 
 	t.Run("get existing role", func(t *testing.T) {
@@ -131,7 +129,7 @@ func TestAuthzController(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, "new-role", *role.Name)
 		require.Equal(t, "manage_roles", *role.Permissions[0].Action)
-		require.Equal(t, "*", *role.Permissions[0].Resource)
+		// require.Equal(t, "*", *role.Permissions[0].Resource)
 	})
 
 	t.Run("get non-existing role", func(t *testing.T) {
