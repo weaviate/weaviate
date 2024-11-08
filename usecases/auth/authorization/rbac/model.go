@@ -11,6 +11,12 @@
 
 package rbac
 
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
 const (
 	MODEL = `
 	[request_definition]
@@ -29,3 +35,25 @@ const (
 	m = g(r.sub, p.sub) && (keyMatch5(r.obj, p.obj) || regexMatch(r.obj, p.obj)) && regexMatch(r.act, p.act)
 `
 )
+
+func CreateStorage(filePath string) error {
+	if err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	_, err := os.Stat(filePath)
+	if err == nil { // file exists
+		return nil
+	}
+
+	if os.IsNotExist(err) {
+		file, err := os.Create(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+		defer file.Close()
+		return nil
+	}
+
+	return err
+}
