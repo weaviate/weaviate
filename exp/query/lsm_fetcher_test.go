@@ -185,3 +185,7 @@ func (m *mockCache) AddTenant(collection, tenantID string, version uint64) error
 	m.addCount++
 	return nil
 }
+
+func (m *mockCache) BasePath() string {
+	return m.basePath
+}

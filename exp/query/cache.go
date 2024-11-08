@@ -89,6 +89,13 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 	return nil
 }
 
+// BasePath returns base directory of cache data.
+// Useful for client to know where to copy the files from upstream when using
+// the cache.
+func (d *DiskCache) BasePath() string {
+	return d.basePath
+}
+
 // return total current usage of disk cache in bytes
 func (d *DiskCache) usage() int64 {
 	var sizeBytes int64
