@@ -30,7 +30,7 @@ type authZHandlers struct {
 }
 
 type authzController interface {
-	CreateRole(name string, permissions []*authorization.Permission) error
+	CreateRole(name string, permissions []*models.Permission) error
 	GetRoles() ([]*models.Role, error)
 	GetRole(roleID string) (*models.Role, error)
 	DeleteRole(roleID string) error
@@ -68,15 +68,8 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	if name == "" {
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
-	permissions := make([]*authorization.Permission, len(params.Body.Permissions))
-	for i, p := range params.Body.Permissions {
-		permissions[i] = &authorization.Permission{
-			Action:   *p.Action,
-			Resource: p.Resource,
-		}
-	}
 
-	err := h.controller.CreateRole(name, permissions)
+	err := h.controller.CreateRole(name, params.Body.Permissions)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
