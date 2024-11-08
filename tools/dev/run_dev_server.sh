@@ -67,6 +67,7 @@ case $CONFIG in
 
     local-single-node-rbac)
       AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHORIZATION_ENABLE_RBAC=true \
       AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
       AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
       AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
@@ -77,7 +78,6 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
-      AUTHORIZATION_ENABLE_RBAC=true \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

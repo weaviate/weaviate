@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -51,8 +50,7 @@ type State struct {
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.Client
 	Authorizer      authorization.Authorizer
-	AuthzController *authorization.AuthzController
-	RBACEnforcer    *rbac.Enforcer
+	AuthzController authorization.Controller
 
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock

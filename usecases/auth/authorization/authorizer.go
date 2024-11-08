@@ -12,11 +12,7 @@
 package authorization
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Authorizer always makes a yes/no decision on a specific resource. Which
@@ -24,19 +20,6 @@ import (
 // ...) is hidden through this interface
 type Authorizer interface {
 	Authorize(principal *models.Principal, verb string, resources ...string) error
-}
-
-// New Authorizer based on the application-wide config
-func New(cfg config.Config, RBACEnforcer *rbac.Enforcer, logger logrus.FieldLogger) Authorizer {
-	if cfg.Authorization.AdminList.Enabled {
-		return adminlist.New(cfg.Authorization.AdminList)
-	}
-
-	if cfg.EnableRBACEnforcer {
-		return rbac.New(RBACEnforcer, logger)
-	}
-
-	return &DummyAuthorizer{}
 }
 
 // DummyAuthorizer is a pluggable Authorizer which can be used if no specific
