@@ -56,6 +56,7 @@ type Object struct {
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
 	Vectors           map[string][]float32 `json:"vectors"`
+	Multivectors	  map[string][][]float32 `json:"multivectors"`
 }
 
 func New(docID uint64) *Object {
@@ -65,7 +66,7 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors models.MultiVectors) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -85,12 +86,21 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors)
 		}
 	}
 
+	var multivects map[string][][]float32
+	if multivectors != nil {
+		multivects = make(map[string][][]float32)
+		for targetVector, vectors := range multivectors {
+			multivects[targetVector] = vectors
+		}
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
+		Multivectors: multivects,
 	}
 }
 
