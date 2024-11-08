@@ -1370,7 +1370,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if shard != nil {
 				defer release()
-				objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+				localCtx := helpers.InitSlowQueryDetails(ctx)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
@@ -1476,7 +1478,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	shard ShardLike,
 ) ([]*storobj.Object, []float32, error) {
 	ctx = helpers.InitSlowQueryDetails(ctx)
-	helpers.WriteSlowQueryDetail(ctx, "is_coordinator", true)
+	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
@@ -1567,7 +1569,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				defer release()
 
 				localCtx := helpers.InitSlowQueryDetails(ctx)
-				helpers.WriteSlowQueryDetail(localCtx, "is_coordinator", true)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				localShardResult, localShardScores, err := shard.ObjectVectorSearch(
 					localCtx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
@@ -1686,7 +1688,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	defer release()
 
 	ctx = helpers.InitSlowQueryDetails(ctx)
-	helpers.WriteSlowQueryDetail(ctx, "is_coordinator", false)
+	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search

@@ -319,7 +319,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 			return nil, nil, err
 		}
 		allowList = list
-		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
+		took := time.Since(beforeFilter)
+		s.metrics.FilteredVectorFilter(took)
+		helpers.AnnotateSlowQueryLog(ctx, "filters_build_allow_list_took", took)
 	}
 
 	queue, err := s.getIndexQueue(targetVector)
@@ -360,6 +362,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "vector_search_took", time.Since(beforeVector))
 
 	if groupBy != nil {
 		return s.groupResults(ctx, ids, dists, groupBy, additional)
@@ -372,9 +375,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
 		}
+		took := time.Since(beforeSort)
 		if filters != nil {
-			s.metrics.FilteredVectorSort(time.Since(beforeSort))
+			s.metrics.FilteredVectorSort(took)
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_took", took)
 	}
 
 	beforeObjects := time.Now()
@@ -385,9 +390,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		return nil, nil, err
 	}
 
+	took := time.Since(beforeObjects)
 	if filters != nil {
-		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
+		s.metrics.FilteredVectorObjects(took)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 
 	return objs, dists, nil
 }
