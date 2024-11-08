@@ -510,6 +510,9 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 		return nil, nil
 	}
 
+	q.m.Lock()
+	defer q.m.Unlock()
+
 	if q.partialChunkRecordCount == 0 {
 		return nil, nil
 	}
@@ -525,7 +528,7 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 
 	q.Logger.Debug("partial chunk is stale, scheduling")
 
-	err := q.promoteChunk()
+	err := q.promoteChunkNoLock()
 	if err != nil {
 		return nil, err
 	}
