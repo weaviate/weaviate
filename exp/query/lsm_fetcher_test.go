@@ -50,52 +50,86 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 }
 
 func TestLSMFetcher_withCache(t *testing.T) {
-	root := path.Join(os.TempDir(), t.Name())
-	defer func() {
-		os.RemoveAll(root)
-	}()
+	testCollection := "test-collection"
+	testTenant := "test-tenant"
 
-	ctx := context.Background()
-	upstream := newMockDownloader(t)
-	cache := newMockCache(t, root)
-	f := NewLSMFetcherWithCache(root, upstream, cache, testLogger())
+	cases := []struct {
+		name                string
+		version             uint64
+		expectedCacheHit    int
+		expectedUpstreamHit int
+		addTenant           bool
+		addTenantVersion    uint64
+	}{
+		{
+			name:                "version-0 should always download from upstream",
+			version:             0,
+			expectedCacheHit:    0,
+			expectedUpstreamHit: 1,
+		},
+		{
+			name:                "cache-miss should download from upstream, independent of version",
+			version:             127,
+			expectedCacheHit:    0,
+			expectedUpstreamHit: 1,
+		},
+		{
+			name:                "cache hit and version is outdated, download from upstream",
+			version:             2,
+			expectedCacheHit:    1,
+			expectedUpstreamHit: 1,
+			addTenant:           true,
+			addTenantVersion:    1, // outdated version
+		},
+		{
+			name:                "cache hit and version is matched, return from cache",
+			version:             2,
+			expectedCacheHit:    1,
+			expectedUpstreamHit: 0, // no upstream call
+			addTenant:           true,
+			addTenantVersion:    2, // version matched
+		},
+	}
 
-	// passing version 0, should always download from upstream
-	kv, gotFullpath, err := f.Fetch(ctx, "test-collection", "test-tenant", 0)
-	expectedFullpath := path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
-	require.NoError(t, err)
-	assert.NotNil(t, kv)
-	assert.Equal(t, expectedFullpath, gotFullpath)
-	assert.Equal(t, 1, upstream.count) // upstream called.
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := path.Join(os.TempDir(), t.Name())
+			defer func() {
+				os.RemoveAll(root)
+			}()
 
-	// if cache miss, download from upstream
-	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 127)
-	expectedFullpath = path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
-	require.NoError(t, err)
-	assert.NotNil(t, kv)
-	assert.Equal(t, expectedFullpath, gotFullpath)
-	assert.Equal(t, 2, upstream.count)      // upstream called.
-	assert.Equal(t, 0, cache.cacheHitCount) // shouldn't hit the cache
+			ctx := context.Background()
+			upstream := newMockDownloader(t)
+			cache := newMockCache(t, root)
+			f := NewLSMFetcherWithCache(root, upstream, cache, testLogger())
 
-	// if cache hit and version is not matched, download from upstream
-	err = cache.AddTenant("test-collection", "test-tenant", 1)
-	require.NoError(t, err)
-	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 2) // version mismatch
-	expectedFullpath = path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
-	require.NoError(t, err)
-	assert.NotNil(t, kv)
-	assert.Equal(t, expectedFullpath, gotFullpath)
-	assert.Equal(t, 3, upstream.count)      // upstream called.
-	assert.Equal(t, 1, cache.cacheHitCount) // hit the cache, but still called upstream because of version mismatch
+			if tc.addTenant {
+				err := cache.AddTenant(testCollection, testTenant, tc.addTenantVersion)
+				require.NoError(t, err)
+			}
 
-	// if cache hit and version is matched, return from the cache
-	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 1) // version match
-	expectedFullpath = path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
-	require.NoError(t, err)
-	assert.NotNil(t, kv)
-	assert.Equal(t, expectedFullpath, gotFullpath)
-	assert.Equal(t, 3, upstream.count)      // upstream not called.
-	assert.Equal(t, 2, cache.cacheHitCount) // hit the cache,
+			kv, gotFullpath, err := f.Fetch(ctx, testCollection, testTenant, tc.version)
+			expectedFullpath := path.Join(root, testCollection, testTenant, defaultLSMRoot)
+			require.NoError(t, err)
+			assert.NotNil(t, kv)
+			assert.Equal(t, expectedFullpath, gotFullpath)
+			assert.Equal(t, tc.expectedUpstreamHit, upstream.count)   // upstream called?
+			assert.Equal(t, tc.expectedCacheHit, cache.cacheHitCount) // cache hit?
+
+			// after first `Fetch` next `Fetch` should always hit the cache
+			// Fetcher should have populated the cache after it got from the upstream (except if version==0)
+			if tc.version != 0 {
+				previous := cache.cacheHitCount
+				kv, gotFullpath, err = f.Fetch(ctx, testCollection, testTenant, tc.version)
+				expectedFullpath = path.Join(root, testCollection, testTenant, defaultLSMRoot)
+				require.NoError(t, err)
+				assert.NotNil(t, kv)
+				assert.Equal(t, expectedFullpath, gotFullpath)
+				assert.Equal(t, tc.expectedUpstreamHit, upstream.count) // shouldn't change upstream count
+				assert.Equal(t, previous+1, cache.cacheHitCount)        // cacheHit should be previous + 1
+			}
+		})
+	}
 }
 
 type mockDownloader struct {

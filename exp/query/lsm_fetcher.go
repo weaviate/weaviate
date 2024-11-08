@@ -85,20 +85,25 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 			strings.ToLower(collection),
 			strings.ToLower(tenant),
 		)
-		if download {
-			// src - s3://<collection>/<tenant>/<node>/
-			// dst (local) - <data-path/<collection>/<tenant>
-			l.log.WithFields(logrus.Fields{
-				"collection": collection,
-				"tenant":     tenant,
-				"nodeName":   nodeName,
-				"dst":        tenantPath,
-			}).Debug("starting download to path")
-			if err := l.upstream.DownloadToPath(ctx, collection, tenant, nodeName, tenantPath); err != nil {
-				return nil, "", err
-			}
+		// src - s3://<collection>/<tenant>/<node>/
+		// dst (local) - <data-path/<collection>/<tenant>
+		l.log.WithFields(logrus.Fields{
+			"collection": collection,
+			"tenant":     tenant,
+			"nodeName":   nodeName,
+			"dst":        tenantPath,
+		}).Debug("starting download to path")
+		if err := l.upstream.DownloadToPath(ctx, collection, tenant, nodeName, tenantPath); err != nil {
+			return nil, "", err
 		}
 
+	}
+
+	// populate the cache before returning
+	if l.cache != nil {
+		if err := l.cache.AddTenant(collection, tenant, version); err != nil {
+			return nil, "", fmt.Errorf("failed populate the cache: %w", err)
+		}
 	}
 
 	lsmPath := path.Join(tenantPath, defaultLSMRoot)
