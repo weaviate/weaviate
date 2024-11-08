@@ -19,45 +19,48 @@ import (
 )
 
 type Config struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
-	Group   bool   `json:"group_classes" yaml:"group_classes"`
+	Enabled                    bool   `json:"enabled" yaml:"enabled"`
+	Tool                       string `json:"tool" yaml:"tool"`
+	Port                       int    `json:"port" yaml:"port"`
+	Group                      bool   `json:"group_classes" yaml:"group_classes"`
+	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
 }
 
 type PrometheusMetrics struct {
-	BatchTime                         *prometheus.HistogramVec
-	BatchSizeBytes                    *prometheus.SummaryVec
-	BatchSizeObjects                  prometheus.Summary
-	BatchSizeTenants                  prometheus.Summary
-	BatchDeleteTime                   *prometheus.SummaryVec
-	BatchCount                        *prometheus.CounterVec
-	BatchCountBytes                   *prometheus.CounterVec
-	ObjectsTime                       *prometheus.SummaryVec
-	LSMBloomFilters                   *prometheus.SummaryVec
-	AsyncOperations                   *prometheus.GaugeVec
-	LSMSegmentCount                   *prometheus.GaugeVec
-	LSMSegmentCountByLevel            *prometheus.GaugeVec
-	LSMSegmentObjects                 *prometheus.GaugeVec
-	LSMSegmentSize                    *prometheus.GaugeVec
-	LSMMemtableSize                   *prometheus.GaugeVec
-	LSMMemtableDurations              *prometheus.SummaryVec
-	ObjectCount                       *prometheus.GaugeVec
-	QueriesCount                      *prometheus.GaugeVec
-	RequestsTotal                     *prometheus.GaugeVec
-	QueriesDurations                  *prometheus.HistogramVec
-	QueriesFilteredVectorDurations    *prometheus.SummaryVec
-	QueryDimensions                   *prometheus.CounterVec
-	QueryDimensionsCombined           prometheus.Counter
-	GoroutinesCount                   *prometheus.GaugeVec
-	BackupRestoreDurations            *prometheus.SummaryVec
-	BackupStoreDurations              *prometheus.SummaryVec
-	BucketPauseDurations              *prometheus.SummaryVec
-	BackupRestoreClassDurations       *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations *prometheus.SummaryVec
-	BackupRestoreDataTransferred      *prometheus.CounterVec
-	BackupStoreDataTransferred        *prometheus.CounterVec
+	BatchTime                           *prometheus.HistogramVec
+	BatchSizeBytes                      *prometheus.SummaryVec
+	BatchSizeObjects                    prometheus.Summary
+	BatchSizeTenants                    prometheus.Summary
+	BatchDeleteTime                     *prometheus.SummaryVec
+	BatchCount                          *prometheus.CounterVec
+	BatchCountBytes                     *prometheus.CounterVec
+	ObjectsTime                         *prometheus.SummaryVec
+	LSMBloomFilters                     *prometheus.SummaryVec
+	AsyncOperations                     *prometheus.GaugeVec
+	LSMSegmentCount                     *prometheus.GaugeVec
+	LSMObjectsBucketSegmentCount        *prometheus.GaugeVec
+	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
+	LSMSegmentCountByLevel              *prometheus.GaugeVec
+	LSMSegmentObjects                   *prometheus.GaugeVec
+	LSMSegmentSize                      *prometheus.GaugeVec
+	LSMMemtableSize                     *prometheus.GaugeVec
+	LSMMemtableDurations                *prometheus.SummaryVec
+	ObjectCount                         *prometheus.GaugeVec
+	QueriesCount                        *prometheus.GaugeVec
+	RequestsTotal                       *prometheus.GaugeVec
+	QueriesDurations                    *prometheus.HistogramVec
+	QueriesFilteredVectorDurations      *prometheus.SummaryVec
+	QueryDimensions                     *prometheus.CounterVec
+	QueryDimensionsCombined             prometheus.Counter
+	GoroutinesCount                     *prometheus.GaugeVec
+	BackupRestoreDurations              *prometheus.SummaryVec
+	BackupStoreDurations                *prometheus.SummaryVec
+	BucketPauseDurations                *prometheus.SummaryVec
+	BackupRestoreClassDurations         *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
+	BackupRestoreDataTransferred        *prometheus.CounterVec
+	BackupStoreDataTransferred          *prometheus.CounterVec
 
 	// offload metric
 	TenantCloudOffloadDurations       *prometheus.SummaryVec
@@ -114,6 +117,9 @@ type PrometheusMetrics struct {
 	TombstoneDeleteListSize       *prometheus.GaugeVec
 
 	Group bool
+	// Keeping metering to only the critical buckets (objects, vectors_compressed)
+	// helps cut down on noise when monitoring
+	LSMCriticalBucketsOnly bool
 
 	// Deprecated metrics, keeping around because the classification features
 	// seems to sill use the old logic. However, those metrics are not actually
@@ -233,6 +239,7 @@ func init() {
 
 func InitConfig(cfg Config) {
 	metrics.Group = cfg.Group
+	metrics.LSMCriticalBucketsOnly = cfg.MonitorCriticalBucketsOnly
 }
 
 func GetMetrics() *PrometheusMetrics {
@@ -318,6 +325,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
 			Help: "Number of currently present segments per shard",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMObjectsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_objects_bucket_segment_count",
+			Help: "Number of segments per shard in the objects bucket",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMCompressedVecsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_compressed_vecs_bucket_segment_count",
+			Help: "Number of segments per shard in the vectors_compressed bucket",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMBloomFilters: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "lsm_bloom_filters_duration_ms",
