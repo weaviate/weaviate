@@ -38,6 +38,7 @@ import (
 
 const (
 	TargetQuerier = "querier"
+	GBtoByes      = 1 << 30
 )
 
 // TODO: We want this to be part of original `cmd/weaviate-server`.
@@ -91,7 +92,7 @@ func main() {
 		if opts.Query.NoCache {
 			lsm = query.NewLSMFetcher(opts.Query.DataPath, s3module, log)
 		} else {
-			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*1<<30)
+			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes)
 			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
 		}
 
