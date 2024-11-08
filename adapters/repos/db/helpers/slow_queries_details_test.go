@@ -19,7 +19,7 @@ func TestSlowQueryDetailsJourney(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			WriteSlowQueryDetail(ctx, fmt.Sprintf("key_%d", i), fmt.Sprintf("value_%d", i))
+			AnnotateSlowQueryLog(ctx, fmt.Sprintf("key_%d", i), fmt.Sprintf("value_%d", i))
 		}()
 	}
 
