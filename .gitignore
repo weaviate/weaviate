@@ -89,7 +89,6 @@ docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out
 /cmd/weaviate-server/build_artifacts/
-rbac/*.csv
 
 esbackups/
 **/generated_testdata/

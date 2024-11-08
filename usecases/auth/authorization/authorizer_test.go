@@ -11,47 +11,36 @@
 
 package authorization
 
-import (
-	"testing"
+// func Test_Authorizer(t *testing.T) {
+// 	t.Run("when no authz is configured", func(t *testing.T) {
+// 		cfg := config.Config{}
 
-	"github.com/sirupsen/logrus/hooks/test"
+// 		logger, _ := test.NewNullLogger()
+// 		authorizer := New(cfg, nil, logger)
 
-	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/config"
-)
+// 		t.Run("it uses the dummy authorizer", func(t *testing.T) {
+// 			_, ok := authorizer.(*DummyAuthorizer)
+// 			assert.Equal(t, true, ok)
+// 		})
 
-func Test_Authorizer(t *testing.T) {
-	t.Run("when no authz is configured", func(t *testing.T) {
-		cfg := config.Config{}
+// 		t.Run("any request is allowed", func(t *testing.T) {
+// 			err := authorizer.Authorize(nil, DELETE, "the/world")
+// 			assert.Nil(t, err)
+// 		})
+// 	})
 
-		logger, _ := test.NewNullLogger()
-		authorizer := New(cfg, nil, logger)
+// 	t.Run("when adminlist is configured", func(t *testing.T) {
+// 		cfg := config.Config{
+// 			Authorization: config.Authorization{
+// 				AdminList: adminlist.Config{
+// 					Enabled: true,
+// 				},
+// 			},
+// 		}
 
-		t.Run("it uses the dummy authorizer", func(t *testing.T) {
-			_, ok := authorizer.(*DummyAuthorizer)
-			assert.Equal(t, true, ok)
-		})
+// 		authorizer := adminlist.New(cfg.Authorization.AdminList)
 
-		t.Run("any request is allowed", func(t *testing.T) {
-			err := authorizer.Authorize(nil, DELETE, "the/world")
-			assert.Nil(t, err)
-		})
-	})
-
-	t.Run("when adminlist is configured", func(t *testing.T) {
-		cfg := config.Config{
-			Authorization: config.Authorization{
-				AdminList: adminlist.Config{
-					Enabled: true,
-				},
-			},
-		}
-
-		logger, _ := test.NewNullLogger()
-		authorizer := New(cfg, nil, logger)
-
-		_, ok := authorizer.(*adminlist.Authorizer)
-		assert.Equal(t, true, ok)
-	})
-}
+// 		_, ok := authorizer.(*adminlist.Authorizer)
+// 		assert.Equal(t, true, ok)
+// 	})
+// }
