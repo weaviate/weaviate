@@ -135,7 +135,7 @@ func TestAuthzController(t *testing.T) {
 	t.Run("get non-existing role", func(t *testing.T) {
 		role, err := controller.GetRole("non-existing-role")
 		require.Nil(t, role)
-		require.Equal(t, ErrRoleNotFound, err)
+		require.ErrorAs(t, err, &ErrRoleNotFound)
 	})
 }
 
