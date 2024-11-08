@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -25,10 +26,20 @@ import (
 
 func TestAuthzRoles(t *testing.T) {
 	t.Parallel()
+
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+	existingRole := "admin"
+
+	testRole := "test-role"
+	testAction := "create_collections"
+
+	clientAuth := helper.CreateAuth(existingKey)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser("testing-user", "testing-key", "admin").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -40,55 +51,92 @@ func TestAuthzRoles(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("get all roles before create", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth("testing-key"))
+		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("create role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.CreateRole(
 			authz.NewCreateRoleParams().WithBody(&models.Role{
-				Name: makeStrPtr("test-role"),
+				Name: &testRole,
 				Permissions: []*models.Permission{{
-					Action: makeStrPtr("create_collections"),
+					Action: &testAction,
 				}},
 			}),
-			helper.CreateAuth("testing-key"),
+			clientAuth,
 		)
 		require.Nil(t, err)
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth("testing-key"))
+		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
+		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, "test-role", *res.Payload.Name)
+		require.Equal(t, testRole, *res.Payload.Name)
 		require.Equal(t, 1, len(res.Payload.Permissions))
-		require.Equal(t, "create_collections", *res.Payload.Permissions[0].Action)
+		require.Equal(t, testAction, *res.Payload.Permissions[0].Action)
+	})
+
+	t.Run("assign role to user", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AssignRole(
+			authz.NewAssignRoleParams().WithID(existingUser).WithBody(authz.AssignRoleBody{Roles: []string{testRole}}),
+			clientAuth,
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("get roles for user after assignment", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 2, len(res.Payload))
+
+		names := make([]string, 2)
+		for i, role := range res.Payload {
+			names[i] = *role.Name
+		}
+		sort.Strings(names)
+
+		roles := []string{existingRole, testRole}
+		sort.Strings(roles)
+
+		require.Equal(t, roles, names)
+	})
+
+	t.Run("get users for role after assignment", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRole), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingUser, res.Payload[0])
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
+		_, err = helper.Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(testRole), clientAuth)
 		require.Nil(t, err)
 	})
 
+	t.Run("get roles for user after deletion", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingRole, *res.Payload[0].Name)
+	})
+
 	t.Run("get all roles after delete", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth("testing-key"))
+		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 	})
 
 	t.Run("get non-existent role by name", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("test-role"), helper.CreateAuth("testing-key"))
+		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
 		require.NotNil(t, err)
+		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})
-}
-
-func makeStrPtr(s string) *string {
-	return &s
 }

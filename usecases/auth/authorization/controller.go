@@ -13,6 +13,7 @@ package authorization
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
@@ -30,6 +31,7 @@ type rbacManager interface {
 	GetRolesForUser(user string) ([]string, error)
 	GetUsersForRole(role string) ([]string, error)
 	DeleteRolesForUser(user string, roles []string) error
+	DeleteRoleFromUsers(role string) error
 }
 
 var ErrRoleNotFound = errors.New("role not found")
@@ -56,7 +58,7 @@ func (c *AuthzController) GetRole(name string) (*models.Role, error) {
 		return nil, err
 	}
 	if len(policies) == 0 {
-		return nil, ErrRoleNotFound
+		return nil, fmt.Errorf("%w: %s", ErrRoleNotFound, name)
 	}
 	roles, err := rolesFromPolicies(policies)
 	if err != nil {
@@ -77,7 +79,7 @@ func (m *AuthzController) GetRolesByName(names ...string) ([]*models.Role, error
 			return nil, err
 		}
 		if len(role) == 0 {
-			return nil, ErrRoleNotFound
+			return nil, fmt.Errorf("%w: %s", ErrRoleNotFound, name)
 		}
 		roles = append(roles, role[0])
 	}
@@ -93,6 +95,10 @@ func (m *AuthzController) GetRolesForUser(user string) ([]*models.Role, error) {
 }
 
 func (c *AuthzController) DeleteRole(name string) error {
+	err := c.rbac.DeleteRoleFromUsers(name)
+	if err != nil {
+		return err
+	}
 	policies, err := c.rbac.GetPolicies(&name)
 	if err != nil {
 		return err
