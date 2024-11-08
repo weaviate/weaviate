@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -95,8 +96,17 @@ func TestAuthzRoles(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
-		require.Equal(t, existingRole, *res.Payload[0].Name)
-		require.Equal(t, testRole, *res.Payload[1].Name)
+
+		names := make([]string, 2)
+		for i, role := range res.Payload {
+			names[i] = *role.Name
+		}
+		sort.Strings(names)
+
+		roles := []string{existingRole, testRole}
+		sort.Strings(roles)
+
+		require.Equal(t, roles, names)
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
