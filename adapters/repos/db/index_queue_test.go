@@ -1229,7 +1229,9 @@ func newDummyStore(t *testing.T) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
 	storeDir := t.TempDir()
 	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	return store
 }
