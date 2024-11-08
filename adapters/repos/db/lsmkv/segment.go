@@ -438,7 +438,7 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 	propLenghts := map[uint64]uint32{}
 	err := e.Decode(&propLenghts)
 	if err != nil {
-		return nil, fmt.Errorf("decode property lenghts: %w", err)
+		return nil, fmt.Errorf("decode property lengths: %w", err)
 	}
 
 	s.propertyLenghtsLoaded = true

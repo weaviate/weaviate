@@ -96,7 +96,7 @@ func (s *segment) collectionStratParseDataInverted(in []byte) ([]value, error) {
 	offset := 0
 
 	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
-	offset += 8
+	// offset += 8
 
 	values := make([]value, valuesLen)
 

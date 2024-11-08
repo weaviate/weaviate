@@ -71,7 +71,7 @@ func (b *BlockData) Encode() []byte {
 	offset += 2
 
 	offset += copy(out[offset:], b.DocIds)
-	offset += copy(out[offset:], b.Tfs)
+	copy(out[offset:], b.Tfs)
 	return out
 }
 

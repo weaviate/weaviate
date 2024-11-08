@@ -93,7 +93,7 @@ func (c *compactorInverted) do() error {
 
 	propertyLengthsSize, err := c.writePropertyLengths(propertyLengths)
 	if err != nil {
-		return errors.Wrap(err, "write property lenghts")
+		return errors.Wrap(err, "write property lengths")
 	}
 
 	if err := c.writeIndices(kis); err != nil {

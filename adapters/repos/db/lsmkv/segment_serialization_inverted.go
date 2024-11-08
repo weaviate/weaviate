@@ -243,34 +243,6 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 	return out
 }
 
-func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.DocPointerWithScore {
-	out := make([]*terms.DocPointerWithScore, blockSize)
-
-	docIds, tfs := packedDecode(encodedBlock, blockSize)
-
-	for j := 0; j < blockSize; j++ {
-		docId := docIds[j]
-		tf := float32(tfs[j])
-		// pl := float32(propLengths[j])
-
-		out[j] = &terms.DocPointerWithScore{
-			Id:        docId,
-			Frequency: tf,
-			// PropLength: pl,
-		}
-	}
-
-	return out
-}
-
-func convertFromBlockReusable(encodedBlock *terms.BlockData, blockSize int, decoded *terms.BlockDataDecoded, docIdOnly bool) {
-	if docIdOnly {
-		deltaDecode(unpackDeltasReusable(encodedBlock.DocIds, blockSize, decoded.DocIds))
-	} else {
-		unpackDeltasReusable(encodedBlock.Tfs, blockSize, decoded.Tfs)
-	}
-}
-
 func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDecoded {
 	out := &terms.BlockDataDecoded{
 		DocIds: make([]uint64, blockSize),
