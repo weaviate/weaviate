@@ -654,10 +654,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -6788,10 +6785,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {

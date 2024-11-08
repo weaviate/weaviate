@@ -86,7 +86,7 @@ GetRolesForUserOK describes a response with status code 200, with default header
 Role assigned users
 */
 type GetRolesForUserOK struct {
-	Payload []string
+	Payload models.RolesListResponse
 }
 
 // IsSuccess returns true when this get roles for user o k response has a 2xx status code
@@ -127,7 +127,7 @@ func (o *GetRolesForUserOK) String() string {
 	return fmt.Sprintf("[GET /authz/users/{id}/roles][%d] getRolesForUserOK  %+v", 200, o.Payload)
 }
 
-func (o *GetRolesForUserOK) GetPayload() []string {
+func (o *GetRolesForUserOK) GetPayload() models.RolesListResponse {
 	return o.Payload
 }
 
