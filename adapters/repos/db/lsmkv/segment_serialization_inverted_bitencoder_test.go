@@ -74,7 +74,7 @@ func varintEncode(docIds, termFreqs []uint64) []byte {
 	binary.LittleEndian.PutUint16(buffer[offset:], uint16(len(termFreqsBuf)))
 	offset += 2
 	copy(buffer[offset:], termFreqsBuf)
-	offset += len(termFreqsBuf)
+	// offset += len(termFreqsBuf)
 	return buffer
 }
 
