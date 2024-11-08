@@ -836,7 +836,7 @@ func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-				if err := segmentDecoded[j].FromBytesInverted(v.value, false, segmentsDisk[i].invertedKeyLength, segmentsDisk[i].invertedValueLength); err != nil {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
 				docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])

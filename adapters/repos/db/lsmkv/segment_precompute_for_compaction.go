@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
@@ -77,12 +76,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
 
-	var invertedKeyLength, invertedValueLength uint16
+	var invertedHeader *segmentInvertedHeader
 	if header.Strategy == segmentindex.StrategyInverted {
-		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos : dataStartPos+8])
-
-		dataStartPos += 8
-		dataEndPos = dataStartPos + keysLength
+		invertedHeader, err = LoadInvertedHeader(contents[16 : 16+segmentInvertedHeaderSize+4])
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+		dataStartPos = invertedHeader.keysOffset
+		dataEndPos = invertedHeader.tombstoneOffset
 	}
 
 	seg := &segment{
@@ -106,8 +107,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
-		invertedKeyLength:     invertedKeyLength,
-		invertedValueLength:   invertedValueLength,
+		invertedHeader:        invertedHeader,
+		invertedData:          &segmentInvertedData{},
 	}
 
 	if seg.secondaryIndexCount > 0 {
