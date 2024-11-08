@@ -47,7 +47,7 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 
 Validate an Object based on a schema.
 
-Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
+Validate an object's schema and meta-data without creating it. <br/><br/>If the schema of the object is valid, the request should return nothing with a plain RESTful request. Otherwise, an error object will be returned.
 */
 type ObjectsValidate struct {
 	Context *middleware.Context

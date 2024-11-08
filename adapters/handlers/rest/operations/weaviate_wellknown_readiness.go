@@ -45,6 +45,8 @@ func NewWeaviateWellknownReadiness(ctx *middleware.Context, handler WeaviateWell
 /*
 	WeaviateWellknownReadiness swagger:route GET /.well-known/ready weaviateWellknownReadiness
 
+Get application readiness.
+
 Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
 type WeaviateWellknownReadiness struct {
