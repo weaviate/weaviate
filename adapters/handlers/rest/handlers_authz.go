@@ -13,12 +13,12 @@ package rest
 
 import (
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -30,11 +30,14 @@ type authZHandlers struct {
 }
 
 type authzController interface {
-	CreateRole(role *models.Role) error
+	CreateRole(name string, permissions []*authorization.Permission) error
 	GetRoles() ([]*models.Role, error)
 	GetRole(roleID string) (*models.Role, error)
 	DeleteRole(roleID string) error
-	Enforcer() *rbac.Enforcer
+	AddRolesForUser(userID string, roles []string) error
+	GetRolesForUser(userID string) ([]string, error)
+	GetUsersForRole(roleID string) ([]string, error)
+	DeleteRolesForUser(userID string, roles []string) error
 }
 
 func setupAuthZHandlers(api *operations.WeaviateAPI, controller authzController, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
@@ -61,7 +64,19 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	err := h.controller.CreateRole(params.Body)
+	name := *params.Body.Name
+	if name == "" {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
+	}
+	permissions := make([]*authorization.Permission, len(params.Body.Permissions))
+	for i, p := range params.Body.Permissions {
+		permissions[i] = &authorization.Permission{
+			Action:   *p.Action,
+			Resource: p.Resource,
+		}
+	}
+
+	err := h.controller.CreateRole(name, permissions)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -127,7 +142,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.controller.Enforcer().AddRolesForUser(params.ID, params.Body.Roles); err != nil {
+	if err := h.controller.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -140,7 +155,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	roles, err := h.controller.Enforcer().GetRolesForUser(params.ID)
+	roles, err := h.controller.GetRolesForUser(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -154,7 +169,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	users, err := h.controller.Enforcer().GetUsersForRole(params.ID)
+	users, err := h.controller.GetUsersForRole(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -168,7 +183,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.controller.Enforcer().DeleteRolesForUser(params.ID, params.Body.Roles); err != nil {
+	if err := h.controller.DeleteRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 

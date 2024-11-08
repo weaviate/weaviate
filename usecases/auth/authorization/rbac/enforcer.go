@@ -12,8 +12,6 @@
 package rbac
 
 import (
-	"fmt"
-
 	"github.com/casbin/casbin/v2"
 )
 
@@ -27,94 +25,4 @@ func NewEnforcer(casbin *casbin.SyncedCachedEnforcer) *Enforcer {
 
 func (e *Enforcer) enforce(username, resource, verb string) (bool, error) {
 	return e.casbin.Enforce(username, resource, verb)
-}
-
-func (e *Enforcer) AddPolicies(policies []*Policy) error {
-	for _, policy := range policies {
-		if _, err := e.casbin.AddPolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain); err != nil {
-			return err
-		}
-	}
-	if err := e.casbin.SavePolicy(); err != nil {
-		return err
-	}
-	if err := e.casbin.InvalidateCache(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *Enforcer) SavePolicy() error {
-	return e.casbin.SavePolicy()
-}
-
-func (e *Enforcer) InvalidateCache() error {
-	return e.casbin.InvalidateCache()
-}
-
-func (e *Enforcer) GetPolicies(name *string) ([]*Policy, error) {
-	ps, err := e.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	policies := []*Policy{}
-	for _, p := range ps {
-		if name != nil && p[0] != *name {
-			continue
-		}
-		policies = append(policies, &Policy{Name: p[0], Resource: p[1], Verb: p[2], Domain: p[3]})
-	}
-	return policies, nil
-}
-
-func (e *Enforcer) RemovePolicies(policies []*Policy) error {
-	for _, policy := range policies {
-		ok, err := e.casbin.RemovePolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("failed to remove policy %v", policy)
-		}
-	}
-	if err := e.casbin.SavePolicy(); err != nil {
-		return err
-	}
-
-	if err := e.casbin.InvalidateCache(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *Enforcer) AddRolesForUser(user string, roles []string) error {
-	for _, role := range roles {
-		if _, err := e.casbin.AddRoleForUser(user, role); err != nil {
-			return err
-		}
-	}
-	if err := e.casbin.SavePolicy(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (e *Enforcer) GetRolesForUser(user string) ([]string, error) {
-	return e.casbin.GetRolesForUser(user)
-}
-
-func (e *Enforcer) GetUsersForRole(role string) ([]string, error) {
-	return e.casbin.GetUsersForRole(role)
-}
-
-func (e *Enforcer) DeleteRolesForUser(user string, role []string) error {
-	for _, role := range role {
-		if _, err := e.casbin.DeleteRoleForUser(user, role); err != nil {
-			return err
-		}
-	}
-	if err := e.casbin.SavePolicy(); err != nil {
-		return err
-	}
-	return nil
 }
