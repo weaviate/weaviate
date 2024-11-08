@@ -105,6 +105,7 @@ import (
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -793,14 +794,15 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	rbac, err := authorization.InitRBAC(appState.ServerConfig.Config.Authentication.APIKey,
+	casbin, err := authorization.InitRBAC(appState.ServerConfig.Config.Authentication.APIKey,
 		filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir))
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("RBAC enforcer not initialized")
 	}
-	appState.AuthzController = authorization.NewAuthzController(rbac)
+	appState.AuthzController = authorization.NewAuthzController(rbac.NewManager(casbin))
+	appState.RBACEnforcer = rbac.NewEnforcer(casbin)
 	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
