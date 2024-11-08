@@ -60,10 +60,6 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 		return nil
 	}
 
-	defer func() {
-		q.metrics.Preload(start, counter)
-	}()
-
 	ctx := context.Background()
 
 	maxDocID := s.Counter().Get()

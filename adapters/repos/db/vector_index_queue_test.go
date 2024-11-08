@@ -11,6 +11,8 @@
 
 package db
 
+import "math/rand"
+
 // func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
 // 	t.Helper()
 // 	ch := make(chan job)
@@ -57,14 +59,14 @@ package db
 // 	require.NoError(t, err)
 // }
 
-// func randVector(dim int) []float32 {
-// 	vec := make([]float32, dim)
-// 	for i := range vec {
-// 		vec[i] = rand.Float32()
-// 	}
+func randVector(dim int) []float32 {
+	vec := make([]float32, dim)
+	for i := range vec {
+		vec[i] = rand.Float32()
+	}
 
-// 	return vec
-// }
+	return vec
+}
 
 // func TestIndexQueue(t *testing.T) {
 // 	ctx, cancel := context.WithCancel(context.Background())

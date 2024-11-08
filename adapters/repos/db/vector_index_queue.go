@@ -88,6 +88,15 @@ func NewVectorIndexQueue(
 	return &viq, nil
 }
 
+func (iq *VectorIndexQueue) Close() error {
+	if iq == nil {
+		// the queue is nil when the shard is not fully initialized
+		return nil
+	}
+
+	return iq.DiskQueue.Close()
+}
+
 func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 	iq.index.RLock()
 	defer iq.index.RUnlock()
@@ -299,7 +308,7 @@ func (t *Task) Execute(ctx context.Context) error {
 		return t.idx.Delete(t.id)
 	}
 
-	return errors.Errorf("unknown operation: %d", t.Op)
+	return errors.Errorf("unknown operation: %d", t.Op())
 }
 
 func (t *Task) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
@@ -343,5 +352,5 @@ func (tg *TaskGroup) Execute(ctx context.Context) error {
 		return tg.idx.Delete(tg.ids...)
 	}
 
-	return errors.Errorf("unknown operation: %d", tg.Op)
+	return errors.Errorf("unknown operation: %d", tg.Op())
 }
