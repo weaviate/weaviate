@@ -1010,11 +1010,17 @@ func (p *Provider) HasMultipleVectorizers() bool {
 }
 
 func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	if module := p.GetByName(backend); module != nil {
+	module := p.GetByName(backend)
+	if module != nil {
 		if module.Type() == modulecapabilities.Backup {
-			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
-				return backend, nil
+			module_backend, ok := module.(modulecapabilities.BackupBackend)
+			if ok {
+				return module_backend, nil
+			} else {
+				return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
 			}
+		} else {
+			return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
 		}
 	}
 	return nil, errors.Errorf("backup: %s not found", backend)

@@ -49,7 +49,7 @@ type ClientService interface {
 /*
 MetaGet returns meta information of the current weaviate instance
 
-Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
+Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
 func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*MetaGetOK, error) {
 	// TODO: Validate the params before sending

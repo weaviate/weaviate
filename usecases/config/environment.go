@@ -58,6 +58,9 @@ func FromEnv(config *Config) error {
 			// not about classes or shards.
 			config.Monitoring.Group = true
 		}
+		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY")) {
+			config.Monitoring.MonitorCriticalBucketsOnly = true
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {

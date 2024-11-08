@@ -28,10 +28,10 @@ import (
 // swagger:model BM25Config
 type BM25Config struct {
 
-	// calibrates term-weight scaling based on the document length
+	// Calibrates term-weight scaling based on the document length (default: 0.75).
 	B float32 `json:"b,omitempty"`
 
-	// calibrates term-weight scaling based on the term frequency within a document
+	// Calibrates term-weight scaling based on the term frequency within a document (default: 1.2).
 	K1 float32 `json:"k1,omitempty"`
 }
 

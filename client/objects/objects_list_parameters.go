@@ -75,13 +75,13 @@ type ObjectsListParams struct {
 
 	/* After.
 
-	   The starting ID of the result window.
+	   A threshold UUID of the objects to retrieve after, using an UUID-based ordering. This object is not part of the set. <br/><br/>Must be used with `class`, typically in conjunction with `limit`. <br/><br/>Note `after` cannot be used with `offset` or `sort`. <br/><br/>For a null value similar to offset=0, set an empty string in the request, i.e. `after=` or `after`.
 	*/
 	After *string
 
 	/* Class.
 
-	   Class parameter specifies the class from which to query objects
+	   The collection from which to query objects.  <br/><br/>Note that if `class` is not provided, the response will not include any objects.
 	*/
 	Class *string
 
@@ -93,7 +93,7 @@ type ObjectsListParams struct {
 
 	/* Limit.
 
-	   The maximum number of items to be returned per page. Default value is set in Weaviate config.
+	   The maximum number of items to be returned per page. The default is 25 unless set otherwise as an environment variable.
 
 	   Format: int64
 	*/
@@ -101,7 +101,7 @@ type ObjectsListParams struct {
 
 	/* Offset.
 
-	   The starting index of the result window. Default value is 0.
+	   The starting index of the result window. Note `offset` will retrieve `offset+limit` results and return `limit` results from the object with index `offset` onwards. Limited by the value of `QUERY_MAXIMUM_RESULTS`. <br/><br/>Should be used in conjunction with `limit`. <br/><br/>Cannot be used with `after`.
 
 	   Format: int64
 	*/
@@ -109,13 +109,13 @@ type ObjectsListParams struct {
 
 	/* Order.
 
-	   Order parameter to tell how to order (asc or desc) data within given field
+	   Order parameter to tell how to order (asc or desc) data within given field. Should be used in conjunction with `sort` parameter. If providing multiple `sort` values, provide multiple `order` values in corresponding order, e.g.: `sort=author_name,title&order=desc,asc`.
 	*/
 	Order *string
 
 	/* Sort.
 
-	   Sort parameter to pass an information about the names of the sort fields
+	   Name(s) of the property to sort by - e.g. `city`, or `country,city`.
 	*/
 	Sort *string
 

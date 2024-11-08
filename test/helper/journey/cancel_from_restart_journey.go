@@ -75,7 +75,7 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	})
 
 	t.Run("validate that backup was set to CANCELED on restart", func(t *testing.T) {
-		resp, err := helper.CreateBackupStatus(t, backend, backupID)
+		resp, err := helper.CreateBackupStatus(t, backend, backupID, "", "")
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Payload)

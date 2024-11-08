@@ -19,6 +19,8 @@ import (
 )
 
 const (
+	// Default values for model, WaitForModel, useGPU and useCache cannot be changed before we solve how old classes
+	// that have the defaults NOT set will handle the change
 	DefaultHuggingFaceModel      = "sentence-transformers/msmarco-bert-base-dot-v5"
 	DefaultOptionWaitForModel    = false
 	DefaultOptionUseGPU          = false

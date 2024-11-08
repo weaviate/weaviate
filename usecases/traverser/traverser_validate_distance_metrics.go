@@ -133,7 +133,7 @@ func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
 	}
 	errorMsg = strings.TrimSuffix(errorMsg, ",")
 
-	return fmt.Errorf(errorMsg)
+	return errors.New(errorMsg)
 }
 
 func certaintyUnsupportedError(distType string) error {

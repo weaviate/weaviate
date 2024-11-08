@@ -25,6 +25,10 @@ import (
 func (m *HuggingFaceModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
+		"model":              ent.DefaultHuggingFaceModel,
+		"waitForModel":       ent.DefaultOptionWaitForModel,
+		"useGPU":             ent.DefaultOptionUseGPU,
+		"useCache":           ent.DefaultOptionUseCache,
 	}
 }
 

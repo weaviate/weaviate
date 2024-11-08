@@ -92,7 +92,7 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 /*
 GraphqlPost gets a response based on graph q l
 
-Get an object based on GraphQL
+Get a response based on a GraphQL query
 */
 func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending

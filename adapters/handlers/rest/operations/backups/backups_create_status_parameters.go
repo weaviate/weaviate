@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 )
@@ -46,11 +47,19 @@ type BackupsCreateStatusParams struct {
 	  In: path
 	*/
 	Backend string
+	/*Name of the bucket, container, volume, etc
+	  In: query
+	*/
+	Bucket *string
 	/*The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	  Required: true
 	  In: path
 	*/
 	ID string
+	/*The path within the bucket
+	  In: query
+	*/
+	Path *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -62,13 +71,25 @@ func (o *BackupsCreateStatusParams) BindRequest(r *http.Request, route *middlewa
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
+	qBucket, qhkBucket, _ := qs.GetOK("bucket")
+	if err := o.bindBucket(qBucket, qhkBucket, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qPath, qhkPath, _ := qs.GetOK("path")
+	if err := o.bindPath(qPath, qhkPath, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -91,6 +112,24 @@ func (o *BackupsCreateStatusParams) bindBackend(rawData []string, hasKey bool, f
 	return nil
 }
 
+// bindBucket binds and validates parameter Bucket from query.
+func (o *BackupsCreateStatusParams) bindBucket(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.Bucket = &raw
+
+	return nil
+}
+
 // bindID binds and validates parameter ID from path.
 func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
@@ -101,6 +140,24 @@ func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, format
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindPath binds and validates parameter Path from query.
+func (o *BackupsCreateStatusParams) bindPath(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.Path = &raw
 
 	return nil
 }
