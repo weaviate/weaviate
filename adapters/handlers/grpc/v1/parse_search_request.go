@@ -662,8 +662,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
+			linkedClass := getClass(linkedClassName)
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -750,8 +751,9 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
+			linkedClass := getClass(linkedClassName)
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
