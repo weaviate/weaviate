@@ -75,7 +75,7 @@ type API struct {
 	// not the lsm subdir.
 	cachedTenantLsmkvStores sync.Map
 
-	vectorizer text2vecbase.TextVectorizer
+	vectorizer text2vecbase.TextVectorizer[[]float32]
 	stopwords  *stopwords.Detector
 }
 
@@ -88,7 +88,7 @@ type SchemaQuerier interface {
 func NewAPI(
 	schema SchemaQuerier,
 	offload *modsloads3.Module,
-	vectorizer text2vecbase.TextVectorizer,
+	vectorizer text2vecbase.TextVectorizer[[]float32],
 	stopwords *stopwords.Detector,
 	config *Config,
 	log logrus.FieldLogger,

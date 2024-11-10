@@ -74,10 +74,10 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult struct {
+type VectorizationResult[T []float32 | [][]float32] struct {
 	Text       []string
 	Dimensions int
-	Vector     [][]float32
+	Vector     []T
 	Errors     []error
 }
 

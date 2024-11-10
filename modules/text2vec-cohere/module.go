@@ -48,7 +48,7 @@ func New() *CohereModule {
 }
 
 type CohereModule struct {
-	vectorizer                   text2vecbase.TextVectorizerBatch
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher

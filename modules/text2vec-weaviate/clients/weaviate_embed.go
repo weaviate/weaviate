@@ -76,7 +76,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
 	return res, nil, 0, err
@@ -84,7 +84,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, true, config)
 }
@@ -100,7 +100,7 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, isSearchQuery bool, config ent.VectorizationConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, isSearchQuery, config.Dimensions))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -146,7 +146,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
 		Vector:     resBody.Embeddings,
