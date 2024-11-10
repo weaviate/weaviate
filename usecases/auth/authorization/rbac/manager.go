@@ -70,6 +70,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 }
 
 func (m *manager) CreateRoles(roles ...*models.Role) error {
+	// TODO: block overriding existing roles
 	for idx := range roles {
 		for _, permission := range roles[idx].Permissions {
 			// TODO verify slice position to avoid panics
@@ -93,8 +94,9 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 				resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 			}
 
-			roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
-			if _, err := m.AddPolicy(roleName, resource, verb, string(domain)); err != nil {
+			// TODO prefix roles names
+			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
+			if _, err := m.AddNamedPolicy("p", *roles[idx].Name, resource, verb, string(domain)); err != nil {
 				return err
 			}
 		}
@@ -110,58 +112,43 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 
 func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 	roles := []*models.Role{}
+	rolesMap := make(map[string][]*models.Permission)
 	if len(names) == 0 {
 		// get all roles
-		polices, err := m.GetPolicy()
+		polices, err := m.GetNamedPolicy("p")
 		if err != nil {
 			return nil, err
 		}
 
-		rolesMap := make(map[string][]*models.Permission)
-
 		for _, policy := range polices {
-			// TODO handle "*"
-			permission := &models.Permission{
-				Action: &policy[2],
-			}
-
-			domain := policy[3]
-			splits := strings.Split(policy[1], "/")
-			switch domain {
-			case collections:
-				permission.Collection = &splits[1]
-			case tenants:
-				permission.Tenant = &splits[3]
-			case objects:
-				permission.Object = &splits[4]
-			case rolesD:
-			case cluster:
-			case "*":
-			}
-
-			rolesMap[policy[0]] = append(rolesMap[policy[0]], permission)
+			rolesMap[policy[0]] = append(rolesMap[policy[0]], permission(policy))
 		}
+	} else {
+		for _, name := range names {
+			polices, err := m.GetFilteredNamedPolicy("p", 0, name) //fmt.Sprintf("'%s' == p.sub", name)
+			if err != nil {
+				return nil, err
+			}
 
-		for roleName, perms := range rolesMap {
-			roles = append(roles, &models.Role{
-				Name:        &roleName,
-				Permissions: perms,
-			})
+			for _, policy := range polices {
+				rolesMap[name] = append(rolesMap[name], permission(policy))
+			}
 		}
 	}
 
-	// for _, p := range ps {
-	// 	if name != nil && p[0] != *name {
-	// 		continue
-	// 	}
-	// 	policies = append(policies, &Policy{Name: p[0], Resource: p[1], Verb: p[2], Domain: p[3]})
-	// }
+	for roleName, perms := range rolesMap {
+		roles = append(roles, &models.Role{
+			Name:        &roleName,
+			Permissions: perms,
+		})
+	}
 	return roles, nil
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {
+	// TODO: block deleting built in roles
 	for _, role := range roles {
-		ok, err := m.RemovePolicy(role)
+		ok, err := m.RemoveFilteredNamedPolicy("p", 0, role)
 		if err != nil {
 			return err
 		}
