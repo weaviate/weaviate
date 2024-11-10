@@ -24,7 +24,7 @@ import (
 )
 
 type manager struct {
-	*casbin.SyncedCachedEnforcer
+	casbin *casbin.SyncedCachedEnforcer
 	logger logrus.FieldLogger
 }
 
@@ -50,7 +50,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 			"action":   verb,
 		}).Debug("checking for role")
 
-		allow, err := m.Enforce(principal.Username, resource, verb)
+		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"user":     principal.Username,
@@ -96,15 +96,15 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 
 			// TODO prefix roles names
 			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
-			if _, err := m.AddNamedPolicy("p", *roles[idx].Name, resource, verb, string(domain)); err != nil {
+			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, resource, verb, string(domain)); err != nil {
 				return err
 			}
 		}
 	}
-	if err := m.SavePolicy(); err != nil {
+	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
-	if err := m.InvalidateCache(); err != nil {
+	if err := m.casbin.InvalidateCache(); err != nil {
 		return err
 	}
 	return nil
@@ -115,7 +115,7 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 	rolesMap := make(map[string][]*models.Permission)
 	if len(names) == 0 {
 		// get all roles
-		polices, err := m.GetNamedPolicy("p")
+		polices, err := m.casbin.GetNamedPolicy("p")
 		if err != nil {
 			return nil, err
 		}
@@ -125,11 +125,13 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 		}
 	} else {
 		for _, name := range names {
-			polices, err := m.GetFilteredNamedPolicy("p", 0, name) //fmt.Sprintf("'%s' == p.sub", name)
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name) //fmt.Sprintf("'%s' == p.sub", name)
 			if err != nil {
 				return nil, err
 			}
-
+			if len(polices) == 0 {
+				return nil, fmt.Errorf("%w: %s", authorization.ErrRoleNotFound, name)
+			}
 			for _, policy := range polices {
 				rolesMap[name] = append(rolesMap[name], permission(policy))
 			}
@@ -148,7 +150,7 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 func (m *manager) DeleteRoles(roles ...string) error {
 	// TODO: block deleting built in roles
 	for _, role := range roles {
-		ok, err := m.RemoveFilteredNamedPolicy("p", 0, role)
+		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
 		if err != nil {
 			return err
 		}
@@ -156,44 +158,46 @@ func (m *manager) DeleteRoles(roles ...string) error {
 			return fmt.Errorf("failed to remove policy %v", role)
 		}
 	}
-	if err := m.SavePolicy(); err != nil {
+	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
 
-	return m.InvalidateCache()
+	return m.casbin.InvalidateCache()
 }
 
 func (m *manager) AddRolesForUser(user string, roles []string) error {
-	userName := fmt.Sprintf("%s%s", userPrefix, user)
+	// userName := fmt.Sprintf("%s%s", userPrefix, user)
 	for _, role := range roles {
-		roleName := fmt.Sprintf("%s%s", rolePrefix, role)
-		if _, err := m.AddRoleForUser(userName, roleName); err != nil {
+		// roleName := fmt.Sprintf("%s%s", rolePrefix, role)
+		if _, err := m.casbin.AddRoleForUser(user, role); err != nil {
 			return err
 		}
 	}
 
-	return m.SavePolicy()
+	return m.casbin.SavePolicy()
 }
 
 func (m *manager) GetRolesForUser(user string) ([]*models.Role, error) {
-	// roles, err := m.GetRoleManager().GetRoles(user)
-	// return m.GetRolesForUser(user)
-	return nil, nil
+	rolesNames, err := m.casbin.GetRolesForUser(user)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.GetRoles(rolesNames...)
 }
 
 func (m *manager) GetUsersForRole(role string) ([]string, error) {
-	// return m.GetUsersForRole(role)
-	return nil, nil
+	return m.casbin.GetUsersForRole(role)
 }
 
 func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
 	for _, role := range roles {
-		if _, err := m.DeleteRoleForUser(user, role); err != nil {
+		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
 			return err
 		}
 	}
-	if err := m.SavePolicy(); err != nil {
+	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
-	return m.InvalidateCache()
+	return m.casbin.InvalidateCache()
 }
