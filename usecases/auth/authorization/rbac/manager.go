@@ -32,43 +32,6 @@ func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manage
 	return &manager{casbin, logger}
 }
 
-// Authorize will give full access (to any resource!) if the user is part of
-// the admin list or no access at all if they are not
-func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
-	if m == nil {
-		return fmt.Errorf("rbac enforcer expected but not set up")
-	}
-	if principal == nil {
-		return fmt.Errorf("user is unauthenticated")
-	}
-
-	// TODO batch enforce
-	for _, resource := range resources {
-		m.logger.WithFields(logrus.Fields{
-			"user":     principal.Username,
-			"resource": resource,
-			"action":   verb,
-		}).Debug("checking for role")
-
-		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
-		if err != nil {
-			m.logger.WithFields(logrus.Fields{
-				"user":     principal.Username,
-				"resource": resource,
-				"action":   verb,
-			}).WithError(err).Error("failed to enforce policy")
-			return err
-		}
-
-		// TODO audit-log ?
-		if allow {
-			return nil
-		}
-	}
-
-	return errors.NewForbidden(principal, verb, resources...)
-}
-
 func (m *manager) CreateRoles(roles ...*models.Role) error {
 	// TODO: block overriding existing roles
 	for idx := range roles {
@@ -200,4 +163,41 @@ func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
 		return err
 	}
 	return m.casbin.InvalidateCache()
+}
+
+// Authorize will give full access (to any resource!) if the user is part of
+// the admin list or no access at all if they are not
+func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
+	if m == nil {
+		return fmt.Errorf("rbac enforcer expected but not set up")
+	}
+	if principal == nil {
+		return fmt.Errorf("user is unauthenticated")
+	}
+
+	// TODO batch enforce
+	for _, resource := range resources {
+		m.logger.WithFields(logrus.Fields{
+			"user":     principal.Username,
+			"resource": resource,
+			"action":   verb,
+		}).Debug("checking for role")
+
+		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
+		if err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"user":     principal.Username,
+				"resource": resource,
+				"action":   verb,
+			}).WithError(err).Error("failed to enforce policy")
+			return err
+		}
+
+		// TODO audit-log ?
+		if allow {
+			return nil
+		}
+	}
+
+	return errors.NewForbidden(principal, verb, resources...)
 }
