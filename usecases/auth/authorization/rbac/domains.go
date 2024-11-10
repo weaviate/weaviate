@@ -12,6 +12,10 @@
 package rbac
 
 import (
+	"fmt"
+	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -30,4 +34,34 @@ var builtInRoles = map[string]string{
 	"viewer": authorization.READ,
 	"editor": authorization.CRU,
 	"admin":  authorization.CRUD,
+}
+
+func permission(policy []string) *models.Permission {
+	domain := policy[3]
+	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
+	action = strings.ReplaceAll(action, "_*", "")
+	permission := &models.Permission{
+		Action: &action,
+	}
+
+	splits := strings.Split(policy[1], "/")
+	switch domain {
+	case collections:
+		permission.Collection = &splits[1]
+	case tenants:
+		permission.Tenant = &splits[3]
+	case objects:
+		permission.Object = &splits[4]
+	case rolesD:
+	case cluster:
+
+	case "*":
+		all := "*"
+		permission.Collection = &all
+		permission.Tenant = &all
+		permission.Object = &all
+		// permission.Roles = &splits[4]
+	}
+
+	return permission
 }
