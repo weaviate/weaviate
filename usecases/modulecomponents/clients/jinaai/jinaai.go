@@ -60,17 +60,17 @@ type jinaErrorDetail struct {
 	Detail string `json:"detail,omitempty"` // in case of error detail holds the error message
 }
 
-type embedding struct {
+type embedding[T []float32] struct {
 	jinaErrorDetail
 	Object string                  `json:"object"`
-	Data   []embeddingData         `json:"data,omitempty"`
+	Data   []embeddingData[T]      `json:"data,omitempty"`
 	Usage  *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
-type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
+type embeddingData[T []float32] struct {
+	Object    string `json:"object"`
+	Index     int    `json:"index"`
+	Embedding T      `json:"embedding"`
 }
 
 type Settings struct {
@@ -86,7 +86,7 @@ func buildUrl(settings Settings) (string, error) {
 	return url.JoinPath(host, path)
 }
 
-type Client struct {
+type Client[T []float32] struct {
 	jinaAIApiKey string
 	httpClient   *http.Client
 	buildUrlFn   func(settings Settings) (string, error)
@@ -95,8 +95,12 @@ type Client struct {
 	logger       logrus.FieldLogger
 }
 
-func New(jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client {
-	return &Client{
+func New(jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client[[]float32] {
+	return new(jinaAIApiKey, timeout, logger)
+}
+
+func new[T []float32](jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client[T] {
+	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
@@ -108,16 +112,16 @@ func New(jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int,
 	}
 }
 
-func (c *Client) Vectorize(ctx context.Context, input []string,
+func (c *Client[T]) Vectorize(ctx context.Context, input []string,
 	settings Settings,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error) {
 	res, usage, err := c.vectorize(ctx, input, settings)
 	return res, nil, usage, err
 }
 
-func (c *Client) vectorize(ctx context.Context,
+func (c *Client[T]) vectorize(ctx context.Context,
 	input []string, settings Settings,
-) (*modulecomponents.VectorizationResult, int, error) {
+) (*modulecomponents.VectorizationResult[T], int, error) {
 	model := settings.Model
 	task := settings.Task
 	dimensions := settings.Dimensions
@@ -154,7 +158,7 @@ func (c *Client) vectorize(ctx context.Context,
 		return nil, 0, errors.Wrap(err, "read response body")
 	}
 
-	var resBody embedding
+	var resBody embedding[T]
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
@@ -164,21 +168,21 @@ func (c *Client) vectorize(ctx context.Context,
 	}
 
 	texts := make([]string, len(resBody.Data))
-	embeddings := make([][]float32, len(resBody.Data))
+	embeddings := make([]T, len(resBody.Data))
 	for i := range resBody.Data {
 		index := resBody.Data[i].Index
 		texts[index] = resBody.Data[i].Object
 		embeddings[index] = resBody.Data[i].Embedding
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[T]{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
 	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
 }
 
-func (c *Client) getError(statusCode int, errorMessage string) error {
+func (c *Client[T]) getError(statusCode int, errorMessage string) error {
 	endpoint := "JinaAI API"
 	if errorMessage != "" {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, errorMessage)
@@ -186,7 +190,7 @@ func (c *Client) getError(statusCode int, errorMessage string) error {
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (c *Client) getEmbeddingsRequest(input []string, model string, task Task, dimensions *int64) embeddingsRequest {
+func (c *Client[T]) getEmbeddingsRequest(input []string, model string, task Task, dimensions *int64) embeddingsRequest {
 	req := embeddingsRequest{Input: input, Model: model, EmbeddingType: embeddingTypeFloat, Normalized: false}
 	if strings.Contains(model, "v3") {
 		// v3 models require taskType and dimensions params
@@ -196,15 +200,15 @@ func (c *Client) getEmbeddingsRequest(input []string, model string, task Task, d
 	return req
 }
 
-func (c *Client) getApiKeyHeaderAndValue(apiKey string) (string, string) {
+func (c *Client[T]) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (c *Client) getApiKey(ctx context.Context) (string, error) {
+func (c *Client[T]) getApiKey(ctx context.Context) (string, error) {
 	return c.getApiKeyFromContext(ctx, "X-Jinaai-Api-Key", "JINAAI_APIKEY")
 }
 
-func (c *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+func (c *Client[T]) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
 	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -214,7 +218,7 @@ func (c *Client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+func (c *Client[T]) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
 	key, err := c.getApiKey(ctx)
 	if err != nil {
 		return [32]byte{}
@@ -222,7 +226,7 @@ func (c *Client) GetApiKeyHash(ctx context.Context, config moduletools.ClassConf
 	return sha256.Sum256([]byte(key))
 }
 
-func (c *Client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+func (c *Client[T]) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Jinaai", c.defaultRPM, 0)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
