@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -26,14 +27,38 @@ const (
 	tenants     = "tenants"
 	objects     = "objects"
 
-	rolePrefix = "r_"
-	userPrefix = "u_"
+	// rolePrefix = "r_"
+	// userPrefix = "u_"
 )
 
 var builtInRoles = map[string]string{
 	"viewer": authorization.READ,
 	"editor": authorization.CRU,
 	"admin":  authorization.CRUD,
+}
+
+func policy(permission *models.Permission) (resource, verb, domain string) {
+	// TODO verify slice position to avoid panics
+	domain = strings.Split(*permission.Action, "_")[1]
+	verb = strings.ToUpper(string(string(*permission.Action)[0]))
+	if verb == "M" {
+		verb = authorization.CRUD
+	}
+
+	resource = ""
+	switch domain {
+	case rolesD:
+		resource = authorization.Roles()[0]
+	case cluster:
+		resource = authorization.Cluster()
+	case collections:
+		resource = authorization.Collections(*permission.Collection)[0]
+	case tenants:
+		resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
+	case objects:
+		resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
+	}
+	return
 }
 
 func permission(policy []string) *models.Permission {
@@ -53,14 +78,14 @@ func permission(policy []string) *models.Permission {
 	case objects:
 		permission.Object = &splits[4]
 	case rolesD:
-	case cluster:
+		// permission.Roles = &splits[4]
+	// case cluster:
 
 	case "*":
 		all := "*"
 		permission.Collection = &all
 		permission.Tenant = &all
 		permission.Object = &all
-		// permission.Roles = &splits[4]
 	}
 
 	return permission

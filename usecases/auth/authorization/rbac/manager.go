@@ -13,10 +13,8 @@ package rbac
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/casbin/casbin/v2"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -36,30 +34,10 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 	// TODO: block overriding existing roles
 	for idx := range roles {
 		for _, permission := range roles[idx].Permissions {
-			// TODO verify slice position to avoid panics
-			domain := strings.Split(*permission.Action, "_")[1]
-			verb := strings.ToUpper(string(string(*permission.Action)[0]))
-			if verb == "M" {
-				verb = authorization.CRUD
-			}
-
-			resource := ""
-			switch domain {
-			case rolesD:
-				resource = authorization.Roles()[0]
-			case cluster:
-				resource = authorization.Cluster()
-			case collections:
-				resource = authorization.Collections(*permission.Collection)[0]
-			case tenants:
-				resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
-			case objects:
-				resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
-			}
-
 			// TODO prefix roles names
 			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
-			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, resource, verb, string(domain)); err != nil {
+			resource, verb, domain := policy(permission)
+			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, resource, verb, domain); err != nil {
 				return err
 			}
 		}
@@ -74,8 +52,12 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 }
 
 func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
-	roles := []*models.Role{}
-	rolesMap := make(map[string][]*models.Permission)
+	var (
+		roles            = []*models.Role{}
+		rolesPermissions = make(map[string][]*models.Permission)
+	)
+	// TODO sort by name
+
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
@@ -84,11 +66,11 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 		}
 
 		for _, policy := range polices {
-			rolesMap[policy[0]] = append(rolesMap[policy[0]], permission(policy))
+			rolesPermissions[policy[0]] = append(rolesPermissions[policy[0]], permission(policy))
 		}
 	} else {
 		for _, name := range names {
-			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name) //fmt.Sprintf("'%s' == p.sub", name)
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name) // fmt.Sprintf("'%s' == p.sub", name)
 			if err != nil {
 				return nil, err
 			}
@@ -96,12 +78,12 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 				return nil, fmt.Errorf("%w: %s", authorization.ErrRoleNotFound, name)
 			}
 			for _, policy := range polices {
-				rolesMap[name] = append(rolesMap[name], permission(policy))
+				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
 			}
 		}
 	}
 
-	for roleName, perms := range rolesMap {
+	for roleName, perms := range rolesPermissions {
 		roles = append(roles, &models.Role{
 			Name:        &roleName,
 			Permissions: perms,
