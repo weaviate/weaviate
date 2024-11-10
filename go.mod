@@ -69,11 +69,9 @@ require (
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-
-	github.com/rapidsai/cuvs/go v0.0.0-00010101000000-000000000000
 	github.com/prometheus/common v0.60.0
+	github.com/rapidsai/cuvs/go v0.0.0-00010101000000-000000000000
 	github.com/tailor-inc/graphql v0.4.1
-
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
@@ -85,6 +83,8 @@ require (
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
+
+require github.com/ikawaha/kagome-dict/ipa v1.2.0
 
 require (
 	cloud.google.com/go v0.115.1 // indirect
@@ -154,7 +154,6 @@ require (
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/ikawaha/kagome-dict v1.1.0 // indirect
-	github.com/ikawaha/kagome-dict/ipa v1.2.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/karrick/godirwalk v1.15.3 // indirect
@@ -218,6 +217,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-
-go 1.22
-
+go 1.22.4

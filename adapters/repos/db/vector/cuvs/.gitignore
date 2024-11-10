@@ -1,2 +1,4 @@
 *.nsys-rep
 *.prof
+*.txt
+store

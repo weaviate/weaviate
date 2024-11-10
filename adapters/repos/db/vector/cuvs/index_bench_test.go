@@ -16,6 +16,7 @@ package cuvs_index
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -25,6 +26,8 @@ import (
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 
 	"github.com/weaviate/hdf5"
@@ -80,189 +83,196 @@ func TestPareto(t *testing.T) {
 	}
 
 	paretoConfigurations := []cagraConfig{
-		cagraConfig{
+		{
+			graphDegree:             64,
+			intermediateGraphDegree: 128,
+			buildAlgo:               cagra.NnDescent,
+			itopkSize:               32,
+			searchWidth:             64,
+		},
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             1,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             1,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             1,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             4,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             4,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             8,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             8,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               64,
 			searchWidth:             8,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             16,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             16,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               512,
 			searchWidth:             16,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             32,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             32,
 		},
-		cagraConfig{
+		{
 			graphDegree:             64,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             32,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 32,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               256,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               256,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 64,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               256,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               512,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               256,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             32,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               128,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             64,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               128,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             64,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               32,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             64,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
 			itopkSize:               128,
 			searchWidth:             64,
 		},
-		cagraConfig{
+		{
 			graphDegree:             64,
 			intermediateGraphDegree: 128,
 			buildAlgo:               cagra.NnDescent,
@@ -273,7 +283,14 @@ func TestPareto(t *testing.T) {
 
 	var benchResults []BenchResult
 
-	for _, config := range paretoConfigurations {
+	for i, config := range paretoConfigurations {
+
+		memoryResource := cuvs.NewCuvsPoolMemory(60, 100, true)
+
+		memoryResource.Instantiate()
+
+		defer memoryResource.Release()
+
 		indexParams, err := cagra.CreateIndexParams()
 
 		if err != nil {
@@ -295,6 +312,16 @@ func TestPareto(t *testing.T) {
 
 		benchResults = append(benchResults, benchResult)
 
+		fmt.Printf("Config: %+v\n", paretoConfigurations[i])
+		fmt.Printf("Result: %+v\n", benchResult)
+
+	}
+
+	for i, _ := range benchResults {
+		println("--------------------------------")
+		fmt.Printf("Config: %+v\n", paretoConfigurations[i])
+		fmt.Printf("Result: %+v\n", benchResults[i])
+		println("--------------------------------")
 	}
 
 }
@@ -311,7 +338,15 @@ func TestBench(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2}, cuvsEnt.UserConfig{}, nil)
+	store, err := lsmkv.New("store", "~/wv-data", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		t.Fatal("failed to create store")
+	}
+
+	defer store.Shutdown(context.Background())
+
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
 		panic(err)
 	}
@@ -329,7 +364,6 @@ func TestBench(t *testing.T) {
 	dataset, err := file.OpenDataset("train")
 	testdataset, err := file.OpenDataset("test")
 	neighborsdataset, err := file.OpenDataset("neighbors")
-	// distancesdataset, err := file.OpenDataset("distances")
 
 	if err != nil {
 		t.Fatalf("Error opening dataset: %v\n", err)
@@ -350,25 +384,27 @@ func TestBench(t *testing.T) {
 	// }
 	// defer pprof.StopCPUProfile()
 
-	QueryTime, QueryQPS, QueryRecall := QueryVectors(index, testdataset, neighborsdataset)
+	QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset)
 
-	result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
-	println(result.BuildQPS)
+	// result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
+	println("BuildQPS: ", BuildQPS)
+	println("BuildTime: ", BuildTime)
+	println("QueryTime: ", QueryTime)
+	println("QueryQPS: ", QueryQPS)
+	println("QueryRecall: ", QueryRecall)
+
 	// return result
 
 }
 
 func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagra.SearchParams) BenchResult {
-	defer cuvsIndexParams.Close()
-	defer cuvsSearchParams.Close()
+
 	logger, _ := test.NewNullLogger()
 
 	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams}, cuvsEnt.UserConfig{}, nil)
 	if err != nil {
 		panic(err)
 	}
-
-	defer index.cuvsIndex.Close()
 
 	index.PostStartup()
 
@@ -398,9 +434,15 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 	}
 	defer f.Close()
 
-	QueryTime, QueryQPS, QueryRecall := QueryVectors(index, testdataset, neighborsdataset)
+	QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset)
 
 	result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
+
+	err = index.Shutdown(context.TODO())
+
+	if err != nil {
+		panic(err)
+	}
 
 	return result
 
@@ -462,7 +504,6 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 		var chunkData [][]float32
 
 		if byteSize == 4 {
-			println("byte size 4")
 			chunkData1D := make([]float32, batchRows*dimensions)
 
 			if err := dataset.ReadSubset(&chunkData1D, memspace, dataspace); err != nil {
@@ -552,7 +593,7 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 		// 	}
 		// }
 
-		println("chunk data vector len: ", len(chunkData[0]))
+		// println("chunk data vector len: ", len(chunkData[0]))
 
 		for i := range chunkData {
 
@@ -587,7 +628,7 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 		// }
 		// log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
 
-		err := index.AddBatch(context.Background(), ids, chunkData)
+		err := index.AddBatch(context.TODO(), ids, chunkData)
 		if err != nil {
 			panic(err)
 		}
@@ -596,11 +637,11 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 
 	}
 
-	log.Printf("chunkData range: [%f, %f]", minValC, maxValC)
+	// log.Printf("chunkData range: [%f, %f]", minValC, maxValC)
 
 	elapsed := time.Since(start)
-	println("elapsed time: ", elapsed.Seconds())
-	println("QPS: ", float64(rows)/elapsed.Seconds())
+	// println("elapsed time: ", elapsed.Seconds())
+	// println("QPS: ", float64(rows)/elapsed.Seconds())
 
 	time := elapsed.Seconds()
 	qps := float64(rows) / time
@@ -615,10 +656,10 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 
 	ideal_neighbors_dataspace := ideal_neighbors.Space()
 
-	dims_ideal, _, _ := ideal_neighbors_dataspace.SimpleExtentDims()
+	// dims_ideal, _, _ := ideal_neighbors_dataspace.SimpleExtentDims()
 	// print dims
-	println(dims_ideal[0])
-	println(dims_ideal[1])
+	// println(dims_ideal[0])
+	// println(dims_ideal[1])
 
 	if len(dims) != 2 {
 		log.Fatal("expected 2 dimensions")
@@ -797,10 +838,10 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 	println(numCorrect)
 
 	elapsed := time.Since(start)
-	println("elapsed time (query): ", elapsed.Seconds())
-	println(float64(rows))
-	println("recall: ", float64(numCorrect)/float64(rows*uint(K)))
-	println("QPS: ", float64(rows)/elapsed.Seconds())
+	// println("elapsed time (query): ", elapsed.Seconds())
+	// println(float64(rows))
+	// println("recall: ", float64(numCorrect)/float64(rows*uint(K)))
+	// println("QPS: ", float64(rows)/elapsed.Seconds())
 
 	time := float64(elapsed.Seconds())
 

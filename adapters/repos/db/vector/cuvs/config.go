@@ -23,6 +23,7 @@ type Config struct {
 	ID               string
 	TargetVector     string
 	Logger           logrus.FieldLogger
+	RootPath         string
 	DistanceMetric   cuvs.Distance
 	CuvsIndexParams  *cagra.IndexParams
 	CuvsSearchParams *cagra.SearchParams
@@ -33,6 +34,10 @@ func (c Config) Validate() error {
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")
+	}
+
+	if c.RootPath == "" {
+		ec.Addf("rootPath cannot be empty")
 	}
 
 	// if c.DistanceMetric == nil {
