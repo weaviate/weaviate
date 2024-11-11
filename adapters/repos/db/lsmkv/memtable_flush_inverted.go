@@ -88,7 +88,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		Version:               0,
 		BlockSize:             uint8(segmentindex.SegmentInvertedDefaultBlockSize),
 		DataFieldCount:        uint8(segmentindex.SegmentInvertedDefaultFieldCount),
-		DataFields:            []varenc.VarEncDataType{varenc.VarIntUint64Delta, varenc.VarIntUint64},
+		DataFields:            []varenc.VarEncDataType{varenc.DeltaVarIntUint64, varenc.VarIntUint64},
 	}
 
 	n, err := header.WriteTo(f)

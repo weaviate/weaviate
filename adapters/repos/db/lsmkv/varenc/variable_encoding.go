@@ -20,6 +20,16 @@ const (
 	SimpleUint8
 	SimpleFloat64
 	SimpleFloat32
-	VarIntUint64      = 0x40
-	VarIntUint64Delta = 0x41
+	VarIntUint64 // Variable length encoding for uint64
+
+	// Add new data types here
+	DeltaVarIntUint64 = VarIntUint64 + 64
 )
+
+type VarEncEncoder[T any] interface {
+	Init(expectedCount int)
+	Encode(values []T) []byte
+	Decode(data []byte) []T
+	EncodeReusable(values []T, buf []byte)
+	DecodeReusable(data []byte, values []T)
+}
