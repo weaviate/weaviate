@@ -86,16 +86,18 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 	if l.cache != nil {
 		basePath = l.cache.BasePath()
 		c, err := l.cache.Tenant(collection, tenant)
+		if err != nil && !errors.Is(err, ErrTenantNotFound) {
+			return nil, "", fmt.Errorf("failed to get tenant from cache: %w", err)
+		}
+
 		if err == nil && version != 0 && c.Version >= version {
 			tenantPath = c.AbsolutePath()
 			download = false
 		}
+
 		if err == nil && version != 0 && c.Version < version {
 			// oldVersion is used to cleanup previous version of tenant data.
 			oldVersion = c.Version
-		}
-		if err != nil && !errors.Is(err, ErrTenantNotFound) {
-			return nil, "", err
 		}
 	}
 
