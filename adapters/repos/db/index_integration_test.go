@@ -78,9 +78,9 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 5, len(indexFilesAfterRecreate))
+	assert.Equal(t, 6, len(indexFilesAfterRecreate))
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -233,9 +233,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 99, afterVectorConfig.EF)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 5, len(indexFilesAfterRecreate))
+	assert.Equal(t, 6, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
 	assert.NotNil(t, beforeDeleteObj1)
 	assert.NotNil(t, beforeDeleteObj2)
@@ -710,7 +710,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
 	ctx := context.Background()
 	var cfg hnsw.UserConfig
@@ -753,7 +752,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -763,7 +762,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	shard.Queue().Wait()
 
 	// wait until the index is compressed
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.VectorIndex().Compressed() {
 			break
@@ -774,7 +773,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	require.Nil(t, err)
 
 	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -785,7 +784,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	shard.Queue().Wait()
 
 	// wait until the index is compressed
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.VectorIndex().Compressed() {
 			break

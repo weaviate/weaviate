@@ -50,7 +50,8 @@ func NewVectorIndexQueue(
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
-		shard: shard,
+		shard:     shard,
+		scheduler: shard.scheduler,
 	}
 	viq.vectorIndex = index
 

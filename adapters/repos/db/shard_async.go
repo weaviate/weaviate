@@ -66,8 +66,8 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	var counter int
 
-	vectorIndex := s.getVectorIndex(targetVector)
-	if vectorIndex == nil {
+	vectorIndex, err := s.getVectorIndex(targetVector)
+	if err != nil {
 		s.index.logger.Warn("preload queue: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
@@ -192,8 +192,8 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	start := time.Now()
 
-	vectorIndex := s.getVectorIndex(targetVector)
-	if vectorIndex == nil {
+	vectorIndex, err := s.getVectorIndex(targetVector)
+	if err != nil {
 		s.index.logger.Warn("repair index: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.

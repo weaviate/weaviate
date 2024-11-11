@@ -356,6 +356,24 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
+func (s *Shard) getVectorIndex(targetVector string) (VectorIndex, error) {
+	if s.hasTargetVectors() {
+		if targetVector == "" {
+			return nil, fmt.Errorf("vector index: missing target vector")
+		}
+		vidx, ok := s.vectorIndexes[targetVector]
+		if !ok {
+			return nil, fmt.Errorf("vector index for target vector: %s doesn't exist", targetVector)
+		}
+		return vidx, nil
+	}
+	if targetVector != "" {
+		return nil, fmt.Errorf("vector index: target vector not found: %q", targetVector)
+	}
+
+	return s.vectorIndex, nil
+}
+
 func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	if s.hasTargetVectors() {
 		if targetVector == "" {
@@ -415,10 +433,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 		var (
 			ids   []uint64
 			dists []float32
-			err   error
 		)
 		eg.Go(func() error {
-			vidx := s.getVectorIndex(targetVector)
+			vidx, err := s.getVectorIndex(targetVector)
+			if err != nil {
+				return err
+			}
 
 			if limit < 0 {
 				ids, dists, err = vidx.SearchByVectorDistance(

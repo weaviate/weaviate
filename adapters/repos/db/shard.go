@@ -268,13 +268,6 @@ func (s *Shard) pathHashTree() string {
 	return path.Join(s.path(), "hashtree")
 }
 
-func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
-	if targetVector != "" {
-		return s.vectorIndexes[targetVector]
-	}
-	return s.vectorIndex
-}
-
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
