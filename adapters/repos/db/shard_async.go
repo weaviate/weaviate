@@ -107,7 +107,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 			return nil
 		}
 
-		err = q.Insert(batch...)
+		err = q.Insert(ctx, batch...)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 	}
 
 	if len(batch) > 0 {
-		err = q.Insert(batch...)
+		err = q.Insert(ctx, batch...)
 		if err != nil {
 			return errors.Wrap(err, "insert batch")
 		}
@@ -249,7 +249,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			return nil
 		}
 
-		err = q.Insert(batch...)
+		err = q.Insert(ctx, batch...)
 		if err != nil {
 			return err
 		}
@@ -262,7 +262,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	}
 
 	if len(batch) > 0 {
-		err = q.Insert(batch...)
+		err = q.Insert(ctx, batch...)
 		if err != nil {
 			return errors.Wrap(err, "insert batch")
 		}

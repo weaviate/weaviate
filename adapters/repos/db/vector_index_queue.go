@@ -91,7 +91,18 @@ func (iq *VectorIndexQueue) Close() error {
 	return iq.DiskQueue.Close()
 }
 
-func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
+func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
+	if !asyncEnabled() {
+		ids := make([]uint64, len(vectors))
+		vecs := make([][]float32, len(vectors))
+		for i, v := range vectors {
+			ids[i] = v.ID
+			vecs[i] = v.Vector
+		}
+
+		return iq.vectorIndex.AddBatch(ctx, ids, vecs)
+	}
+
 	var buf []byte
 
 	for i, v := range vectors {
@@ -136,6 +147,10 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
+	if !asyncEnabled() {
+		return iq.vectorIndex.Delete(ids...)
+	}
+
 	var buf []byte
 
 	for _, id := range ids {
