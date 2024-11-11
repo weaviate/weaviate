@@ -77,7 +77,7 @@ func permission(policy []string) *models.Permission {
 	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
 	if domain == "objects" {
 		action += "_collection"
-	} else if domain == "tenants" {
+	} else if domain == "objects_tenant" {
 		action += "_tenants"
 	}
 
@@ -94,12 +94,13 @@ func permission(policy []string) *models.Permission {
 		permission.Collection = &splits[1]
 	case tenants:
 		permission.Tenant = &splits[3]
+		permission.Collection = &splits[1]
 	case objects:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
 	case rolesD:
-		permission.Role = &splits[4]
+		permission.Role = &splits[1]
 	// case cluster:
 
 	case "*":
