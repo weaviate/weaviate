@@ -115,15 +115,15 @@ func Shards(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 {
-		return []string{fmt.Sprintf("collection/%s/shards/*", class)}
+		return []string{fmt.Sprintf("collections/%s/shards/*", class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("collection/%s/shards/*", class)
+			resources[idx] = fmt.Sprintf("collections/%s/shards/*", class)
 		} else {
-			resources[idx] = fmt.Sprintf("collection/%s/shards/%s", class, shards[idx])
+			resources[idx] = fmt.Sprintf("collections/%s/shards/%s", class, shards[idx])
 		}
 	}
 

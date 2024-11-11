@@ -31,13 +31,43 @@ const (
 	// userPrefix = "u_"
 )
 
+const (
+	manageRoles   = "manage_roles"
+	manageCluster = "manage_cluster"
+
+	createCollections = "create_collections"
+	readCollections   = "read_collections"
+	updateCollections = "update_collections"
+	deleteCollections = "delete_collections"
+
+	createTenants = "create_tenants"
+	readTenants   = "read_tenants"
+	updateTenants = "update_tenants"
+	deleteTenants = "delete_tenants"
+)
+
 var builtInRoles = map[string]string{
 	"viewer": authorization.READ,
 	"editor": authorization.CRU,
 	"admin":  authorization.CRUD,
 }
 
-func policy(permission *models.Permission) (resource, verb, domain string) {
+type Policy struct {
+	resource string
+	verb     string
+	domain   string
+}
+
+func newPolicy(policy []string) *Policy {
+	return &Policy{
+		resource: policy[1],
+		verb:     policy[2],
+		domain:   policy[3],
+	}
+}
+
+func policy(permission *models.Permission) *Policy {
+	var resource, verb, domain string
 	// TODO verify slice position to avoid panics
 	domain = strings.Split(*permission.Action, "_")[1]
 	verb = strings.ToUpper(string(string(*permission.Action)[0]))
@@ -47,7 +77,11 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 
 	switch domain {
 	case rolesD:
-		resource = authorization.Roles()[0]
+		if permission.Role == nil {
+			resource = authorization.Roles()[0]
+		} else {
+			resource = authorization.Roles(*permission.Role)[0]
+		}
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
@@ -57,49 +91,57 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 			resource = authorization.Collections(*permission.Collection)[0]
 		}
 	case tenants:
-		if permission.Collection == nil || permission.Tenant == nil {
+		if permission.Collection == nil && permission.Tenant == nil {
 			resource = authorization.Shards("*", "*")[0]
+		} else if permission.Collection != nil && permission.Tenant == nil {
+			resource = authorization.Shards(*permission.Collection, "*")[0]
+		} else if permission.Collection == nil && permission.Tenant != nil {
+			resource = authorization.Shards("*", *permission.Tenant)[0]
 		} else {
 			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
 		}
 	case objects:
-		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
+		if permission.Collection == nil && permission.Tenant == nil && permission.Object == nil {
 			resource = authorization.Objects("*", "*", "*")
+		} else if permission.Collection != nil && permission.Tenant == nil && permission.Object == nil {
+			resource = authorization.Objects(*permission.Collection, "*", "*")
+		} else if permission.Collection != nil && permission.Tenant != nil && permission.Object == nil {
+			resource = authorization.Objects(*permission.Collection, *permission.Tenant, "*")
 		} else {
 			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 		}
 	}
-	return
+	return &Policy{
+		resource: resource,
+		verb:     verb,
+		domain:   domain,
+	}
 }
 
 func permission(policy []string) *models.Permission {
-	domain := policy[3]
-	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
-	if domain == "objects" {
-		action += "_collection"
-	} else if domain == "tenants" {
-		action += "_tenants"
-	}
+	mapped := newPolicy(policy)
 
+	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.verb], mapped.domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
 	}
 
-	splits := strings.Split(policy[1], "/")
+	splits := strings.Split(mapped.resource, "/")
 	all := "*"
 
-	switch domain {
+	switch mapped.domain {
 	case collections:
 		permission.Collection = &splits[1]
 	case tenants:
+		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 	case objects:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
 	case rolesD:
-		permission.Role = &splits[4]
+		permission.Role = &splits[1]
 	// case cluster:
 
 	case "*":
