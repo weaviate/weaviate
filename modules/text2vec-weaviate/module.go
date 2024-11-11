@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,11 +29,19 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-weaviate/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-weaviate/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-weaviate"
+
+var batchSettings = batch.Settings{
+	TokenMultiplier:    0,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 200,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
+}
 
 type WeaviateEmbedModule struct {
 	vectorizer                   text2vecbase.TextVectorizerBatch
@@ -95,7 +105,10 @@ func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.D
 	apiKey := os.Getenv("WEAVIATE_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
+	)
 	m.metaProvider = client
 
 	return nil

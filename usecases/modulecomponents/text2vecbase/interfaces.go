@@ -44,7 +44,7 @@ type BatchVectorizer struct {
 	client           BatchClient
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 	batchVectorizer  *batch.Batch
-	tokenizerFunc    tokenizerFuncType
+	tokenizerFunc    batch.TokenizerFuncType
 }
 
 type BatchClient interface {

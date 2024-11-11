@@ -146,7 +146,7 @@ func TestDistributedBackups(t *testing.T) {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("backup deadline exceeded")
 					}
-					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "fake-backend", backupID)
+					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "fake-backend", backupID, "", "")
 					assert.Nil(t, err, "expected nil err, got: %s", err)
 					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break
@@ -183,7 +183,7 @@ func TestDistributedBackups(t *testing.T) {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("restore deadline exceeded")
 					}
-					resp, err := node.scheduler.RestorationStatus(ctx, &models.Principal{}, "fake-backend", backupID)
+					resp, err := node.scheduler.RestorationStatus(ctx, &models.Principal{}, "fake-backend", backupID, "", "")
 					assert.Nil(t, err, "expected nil err, got: %s", err)
 					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break

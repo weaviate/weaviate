@@ -224,15 +224,15 @@ var testSchemaInfo = &mockSchemaInfo{
 	},
 }
 
-func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, error) {
+func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	info, ok := m.tenantinfo[tenant]
 	if !ok || info.collection != collection {
-		return "", ErrInvalidTenant
+		return "", 0, ErrInvalidTenant
 	}
-	return info.status, nil
+	return info.status, 0, nil
 }
 
 func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*models.Class, error) {

@@ -38,7 +38,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
@@ -82,10 +82,6 @@ func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.Cla
 	return [32]byte{}
 }
 
-func (c *fakeBatchClient) HasTokenLimit() bool { return false }
-
-func (c *fakeBatchClient) ReturnsRateLimit() bool { return false }
-
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizeClassName    bool
@@ -95,6 +91,10 @@ type fakeClassConfig struct {
 	// module specific settings
 	Model   string
 	baseURL string
+}
+
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {
@@ -135,4 +135,16 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }

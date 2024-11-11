@@ -28,7 +28,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		params.Limit = 20
 	}
 
-	err := t.authorizer.Authorize(principal, authorization.GET, authorization.ALL_TRAVERSAL)
+	err := t.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
 	if err != nil {
 		return nil, err
 	}
