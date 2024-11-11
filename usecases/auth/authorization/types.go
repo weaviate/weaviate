@@ -32,6 +32,15 @@ const (
 	DELETE = "D"
 )
 
+var Actions = map[string]string{
+	CRUD:   "manage",
+	CRU:    "view",
+	CREATE: "create",
+	READ:   "read",
+	UPDATE: "update",
+	DELETE: "delete",
+}
+
 // Cluster returns a string representing the cluster authorization scope.
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.

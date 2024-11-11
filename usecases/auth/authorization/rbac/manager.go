@@ -15,20 +15,31 @@ import (
 	"fmt"
 
 	"github.com/casbin/casbin/v2"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-type Manager struct {
+type manager struct {
 	casbin *casbin.SyncedCachedEnforcer
+	logger logrus.FieldLogger
 }
 
-func NewManager(casbin *casbin.SyncedCachedEnforcer) *Manager {
-	return &Manager{casbin: casbin}
+func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manager {
+	return &manager{casbin, logger}
 }
 
-func (m *Manager) AddPolicies(policies []*Policy) error {
-	for _, policy := range policies {
-		if _, err := m.casbin.AddPolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain); err != nil {
-			return err
+func (m *manager) CreateRoles(roles ...*models.Role) error {
+	// TODO: block overriding existing roles
+	for idx := range roles {
+		for _, permission := range roles[idx].Permissions {
+			// TODO prefix roles names
+			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
+			resource, verb, domain := policy(permission)
+			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, resource, verb, domain); err != nil {
+				return err
+			}
 		}
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
@@ -40,71 +51,92 @@ func (m *Manager) AddPolicies(policies []*Policy) error {
 	return nil
 }
 
-func (m *Manager) SavePolicy() error {
-	return m.casbin.SavePolicy()
-}
+func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
+	var (
+		roles            = []*models.Role{}
+		rolesPermissions = make(map[string][]*models.Permission)
+	)
+	// TODO sort by name
 
-func (m *Manager) InvalidateCache() error {
-	return m.casbin.InvalidateCache()
-}
-
-func (m *Manager) GetPolicies(name *string) ([]*Policy, error) {
-	ps, err := m.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-	policies := []*Policy{}
-	for _, p := range ps {
-		if name != nil && p[0] != *name {
-			continue
+	if len(names) == 0 {
+		// get all roles
+		polices, err := m.casbin.GetNamedPolicy("p")
+		if err != nil {
+			return nil, err
 		}
-		policies = append(policies, &Policy{Name: p[0], Resource: p[1], Verb: p[2], Domain: p[3]})
+
+		for _, policy := range polices {
+			rolesPermissions[policy[0]] = append(rolesPermissions[policy[0]], permission(policy))
+		}
+	} else {
+		for _, name := range names {
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name) // fmt.Sprintf("'%s' == p.sub", name)
+			if err != nil {
+				return nil, err
+			}
+			if len(polices) == 0 {
+				return nil, fmt.Errorf("%w: %s", authorization.ErrRoleNotFound, name)
+			}
+			for _, policy := range polices {
+				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
+			}
+		}
 	}
-	return policies, nil
+
+	for roleName, perms := range rolesPermissions {
+		roles = append(roles, &models.Role{
+			Name:        &roleName,
+			Permissions: perms,
+		})
+	}
+	return roles, nil
 }
 
-func (m *Manager) RemovePolicies(policies []*Policy) error {
-	for _, policy := range policies {
-		ok, err := m.casbin.RemovePolicy(policy.Name, policy.Resource, policy.Verb, policy.Domain)
+func (m *manager) DeleteRoles(roles ...string) error {
+	// TODO: block deleting built in roles
+	for _, role := range roles {
+		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("failed to remove policy %v", policy)
+			return fmt.Errorf("failed to remove policy %v", role)
 		}
 	}
 	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
 
-	if err := m.casbin.InvalidateCache(); err != nil {
-		return err
-	}
-	return nil
+	return m.casbin.InvalidateCache()
 }
 
-func (m *Manager) AddRolesForUser(user string, roles []string) error {
+func (m *manager) AddRolesForUser(user string, roles []string) error {
+	// userName := fmt.Sprintf("%s%s", userPrefix, user)
 	for _, role := range roles {
+		// roleName := fmt.Sprintf("%s%s", rolePrefix, role)
 		if _, err := m.casbin.AddRoleForUser(user, role); err != nil {
 			return err
 		}
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return err
+
+	return m.casbin.SavePolicy()
+}
+
+func (m *manager) GetRolesForUser(user string) ([]*models.Role, error) {
+	rolesNames, err := m.casbin.GetRolesForUser(user)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+
+	return m.GetRoles(rolesNames...)
 }
 
-func (m *Manager) GetRolesForUser(user string) ([]string, error) {
-	return m.casbin.GetRolesForUser(user)
-}
-
-func (m *Manager) GetUsersForRole(role string) ([]string, error) {
+func (m *manager) GetUsersForRole(role string) ([]string, error) {
 	return m.casbin.GetUsersForRole(role)
 }
 
-func (m *Manager) DeleteRolesForUser(user string, role []string) error {
-	for _, role := range role {
+func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
+	for _, role := range roles {
 		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
 			return err
 		}
@@ -112,21 +144,41 @@ func (m *Manager) DeleteRolesForUser(user string, role []string) error {
 	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
-	return nil
+	return m.casbin.InvalidateCache()
 }
 
-func (m *Manager) DeleteRoleFromUsers(role string) error {
-	users, err := m.casbin.GetUsersForRole(role)
-	if err != nil {
-		return err
+// Authorize verify if the user has access to a resource to do specific action
+func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
+	if m == nil {
+		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
-	for _, user := range users {
-		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
+	if principal == nil {
+		return fmt.Errorf("user is unauthenticated")
+	}
+
+	// TODO batch enforce
+	for _, resource := range resources {
+		m.logger.WithFields(logrus.Fields{
+			"user":     principal.Username,
+			"resource": resource,
+			"action":   verb,
+		}).Debug("checking for role")
+
+		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
+		if err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"user":     principal.Username,
+				"resource": resource,
+				"action":   verb,
+			}).WithError(err).Error("failed to enforce policy")
 			return err
 		}
+
+		// TODO audit-log ?
+		if allow {
+			return nil
+		}
 	}
-	if err := m.casbin.SavePolicy(); err != nil {
-		return err
-	}
-	return nil
+
+	return errors.NewForbidden(principal, verb, resources...)
 }

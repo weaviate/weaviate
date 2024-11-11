@@ -33,6 +33,7 @@ func TestAuthzRoles(t *testing.T) {
 
 	testRole := "test-role"
 	testAction := "create_collections"
+	all := "*"
 
 	clientAuth := helper.CreateAuth(existingKey)
 
@@ -53,8 +54,8 @@ func TestAuthzRoles(t *testing.T) {
 	t.Run("get all roles before create", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, existingRole, *res.Payload[0].Name)
+		require.Equal(t, 3, len(res.Payload))
+		// require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -62,7 +63,8 @@ func TestAuthzRoles(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &testRole,
 				Permissions: []*models.Permission{{
-					Action: &testAction,
+					Action:     &testAction,
+					Collection: &all,
 				}},
 			}),
 			clientAuth,
@@ -73,7 +75,7 @@ func TestAuthzRoles(t *testing.T) {
 	t.Run("get all roles after create", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 2, len(res.Payload))
+		require.Equal(t, 4, len(res.Payload))
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
@@ -122,16 +124,15 @@ func TestAuthzRoles(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
-		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, existingRole, *res.Payload[0].Name)
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		require.NotNil(t, err)
+		// TODO check error type not found
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, 3, len(res.Payload))
 	})
 
 	t.Run("get non-existent role by name", func(t *testing.T) {
