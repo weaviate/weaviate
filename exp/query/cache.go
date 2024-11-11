@@ -14,6 +14,7 @@ package query
 import (
 	"container/list"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -154,5 +155,5 @@ type TenantCache struct {
 }
 
 func (tc *TenantCache) AbsolutePath() string {
-	return path.Join(tc.basePath, tc.Collection, tc.TenantID)
+	return path.Join(tc.basePath, tc.Collection, tc.TenantID, fmt.Sprintf("%d", tc.Version))
 }

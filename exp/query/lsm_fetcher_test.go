@@ -13,6 +13,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -37,15 +38,15 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 
 	// used without cache, so every `Fetch()` should download tenant data from upstream
 	kv, gotFullpath, err := f.Fetch(ctx, "test-collection", "test-tenant", 0)
-	expectedFullpath := path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
+	expectedFullpath := path.Join(root, "test-collection", "test-tenant", "0", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
 	assert.Equal(t, expectedFullpath, gotFullpath)
 	assert.Equal(t, 1, downloader.count)
 
-	// Any version number is irrelevent if cache is disabled and still should download from upstream
+	// Any version number is irrelevant if cache is disabled and still should download from upstream
 	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 111) // non-zero version number
-	expectedFullpath = path.Join(root, "test-collection", "test-tenant", defaultLSMRoot)
+	expectedFullpath = path.Join(root, "test-collection", "test-tenant", "111", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
 	assert.Equal(t, expectedFullpath, gotFullpath)
@@ -53,7 +54,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 
 	// Fetching different tenant should also download from upstream
 	kv, gotFullpath, err = f.Fetch(ctx, "test-collection2", "test-tenant2", 111) // non-zero version number
-	expectedFullpath = path.Join(root, "test-collection2", "test-tenant2", defaultLSMRoot)
+	expectedFullpath = path.Join(root, "test-collection2", "test-tenant2", "111", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
 	assert.Equal(t, expectedFullpath, gotFullpath)
@@ -113,6 +114,7 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			upstream := newMockDownloader(t)
 			cache := newMockCache(t, root)
 			f := NewLSMFetcherWithCache(root, upstream, cache, testLogger())
+			versionStr := fmt.Sprintf("%d", tc.version)
 
 			if tc.addTenant {
 				err := cache.AddTenant(testCollection, testTenant, tc.addTenantVersion)
@@ -120,7 +122,7 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			}
 
 			kv, gotFullpath, err := f.Fetch(ctx, testCollection, testTenant, tc.version)
-			expectedFullpath := path.Join(root, testCollection, testTenant, defaultLSMRoot)
+			expectedFullpath := path.Join(root, testCollection, testTenant, versionStr, defaultLSMRoot)
 			require.NoError(t, err)
 			assert.NotNil(t, kv)
 			assert.Equal(t, expectedFullpath, gotFullpath)
@@ -132,7 +134,7 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			if tc.version != 0 {
 				previous := cache.cacheHitCount
 				kv, gotFullpath, err = f.Fetch(ctx, testCollection, testTenant, tc.version)
-				expectedFullpath = path.Join(root, testCollection, testTenant, defaultLSMRoot)
+				expectedFullpath = path.Join(root, testCollection, testTenant, versionStr, defaultLSMRoot)
 				require.NoError(t, err)
 				assert.NotNil(t, kv)
 				assert.Equal(t, expectedFullpath, gotFullpath)
