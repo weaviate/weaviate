@@ -63,7 +63,7 @@ type Store struct {
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
-	shardCompactionObjectsCallbacks, shardCompactionNonObjectsCallbacks,
+	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
@@ -75,7 +75,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:        logger,
 		metrics:       metrics,
 	}
-	s.initCycleCallbacks(shardCompactionObjectsCallbacks, shardCompactionNonObjectsCallbacks, shardFlushCallbacks)
+	s.initCycleCallbacks(shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
 }
@@ -182,9 +182,9 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return nil
 	}
 
-	compactionCallbacks := s.cycleCallbacks.compactionNonObjectsCallbacks
-	if bucketName == helpers.ObjectsBucketLSM {
-		compactionCallbacks = s.cycleCallbacks.compactionObjectsCallbacks
+	compactionCallbacks := s.cycleCallbacks.compactionCallbacks
+	if bucketName == helpers.ObjectsBucketLSM && s.cycleCallbacks.compactionAuxCallbacks != nil {
+		compactionCallbacks = s.cycleCallbacks.compactionAuxCallbacks
 	}
 
 	// bucket can be concurrently loaded with another buckets but
@@ -385,9 +385,9 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
-	compactionCallbacks := s.cycleCallbacks.compactionNonObjectsCallbacks
-	if bucketName == helpers.ObjectsBucketLSM {
-		compactionCallbacks = s.cycleCallbacks.compactionObjectsCallbacks
+	compactionCallbacks := s.cycleCallbacks.compactionCallbacks
+	if bucketName == helpers.ObjectsBucketLSM && s.cycleCallbacks.compactionAuxCallbacks != nil {
+		compactionCallbacks = s.cycleCallbacks.compactionAuxCallbacks
 	}
 
 	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,

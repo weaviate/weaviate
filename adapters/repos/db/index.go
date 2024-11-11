@@ -292,8 +292,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, err
 	}
 
-	index.cycleCallbacks.compactionObjectsCycle.Start()
-	index.cycleCallbacks.compactionNonObjectsCycle.Start()
+	index.cycleCallbacks.compactionCycle.Start()
+	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
@@ -593,6 +593,7 @@ type IndexConfig struct {
 	MemtablesMinActiveSeconds      int
 	MemtablesMaxActiveSeconds      int
 	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
@@ -2214,10 +2215,10 @@ func (i *Index) Shutdown(ctx context.Context) error {
 }
 
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
-	if err := i.cycleCallbacks.compactionObjectsCycle.StopAndWait(ctx); err != nil {
+	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
 	}
-	if err := i.cycleCallbacks.compactionNonObjectsCycle.StopAndWait(ctx); err != nil {
+	if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
 	}
 	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {

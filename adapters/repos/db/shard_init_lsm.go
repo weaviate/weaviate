@@ -121,8 +121,8 @@ func (s *Shard) initLSMStore() error {
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
-		s.cycleCallbacks.compactionObjectsCallbacks,
-		s.cycleCallbacks.compactionNonObjectsCallbacks,
+		s.cycleCallbacks.compactionCallbacks,
+		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)
 	if err != nil {
 		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
