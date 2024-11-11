@@ -115,7 +115,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
 	if opt.StaleTimeout <= 0 {
-		opt.StaleTimeout = 5 * time.Second
+		opt.StaleTimeout = 1 * time.Second
 	}
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize

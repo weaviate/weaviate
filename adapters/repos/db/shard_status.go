@@ -54,6 +54,9 @@ func (s *Shard) GetStatusNoLoad() storagestate.Status {
 
 // isReadOnly returns an error if shard is readOnly and nil otherwise
 func (s *Shard) isReadOnly() error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
 	if s.status.Status == storagestate.StatusReadOnly {
 		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
 	}

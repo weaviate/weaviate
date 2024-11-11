@@ -205,6 +205,7 @@ func (s *Scheduler) Wait(id string) {
 		return
 	}
 
+	q.scheduled.Wait()
 	q.activeTasks.Wait()
 }
 
@@ -265,6 +266,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
+		// mark it as scheduled
+		q.MarkAsScheduled()
+
 		// run the before-schedule hook if it is implemented
 		if hook, ok := q.q.(BeforeScheduleHook); ok {
 			if skip := hook.BeforeSchedule(); skip {
@@ -273,10 +277,12 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		}
 
 		if q.Paused() {
+			q.MarkAsUnscheduled()
 			continue
 		}
 
 		if q.q.Size() == 0 {
+			q.MarkAsUnscheduled()
 			continue
 		}
 
@@ -284,6 +290,8 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
+
+		q.MarkAsUnscheduled()
 
 		nothingScheduled = count <= 0
 	}
@@ -410,12 +418,14 @@ type queueState struct {
 	m           sync.RWMutex
 	q           Queue
 	paused      bool
+	scheduled   *common.SharedGauge
 	activeTasks *common.SharedGauge
 }
 
 func newQueueState(q Queue) *queueState {
 	return &queueState{
 		q:           q,
+		scheduled:   common.NewSharedGauge(),
 		activeTasks: common.NewSharedGauge(),
 	}
 }
@@ -425,4 +435,25 @@ func (qs *queueState) Paused() bool {
 	defer qs.m.RUnlock()
 
 	return qs.paused
+}
+
+func (qs *queueState) Scheduled() bool {
+	qs.m.RLock()
+	defer qs.m.RUnlock()
+
+	return qs.scheduled.Count() > 0
+}
+
+func (qs *queueState) MarkAsScheduled() {
+	qs.m.Lock()
+	defer qs.m.Unlock()
+
+	qs.scheduled.Incr()
+}
+
+func (qs *queueState) MarkAsUnscheduled() {
+	qs.m.Lock()
+	defer qs.m.Unlock()
+
+	qs.scheduled.Decr()
 }
