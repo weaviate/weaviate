@@ -76,14 +76,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
 
-	var invertedHeader *segmentInvertedHeader
+	var invertedHeader *segmentindex.HeaderInverted
 	if header.Strategy == segmentindex.StrategyInverted {
-		invertedHeader, err = LoadInvertedHeader(contents[16 : 16+segmentInvertedHeaderSize+4])
+		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
 		if err != nil {
 			return nil, errors.Wrap(err, "load inverted header")
 		}
-		dataStartPos = invertedHeader.keysOffset
-		dataEndPos = invertedHeader.tombstoneOffset
+		dataStartPos = invertedHeader.KeysOffset
+		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
 	seg := &segment{
