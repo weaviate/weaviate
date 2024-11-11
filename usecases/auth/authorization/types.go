@@ -12,10 +12,13 @@
 package authorization
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
 )
+
+var ErrRoleNotFound = errors.New("role not found")
 
 const (
 	// CRUD allow all actions on a resource

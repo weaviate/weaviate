@@ -55,7 +55,17 @@ func TestAuthzRoles(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(res.Payload))
-		// require.Equal(t, existingRole, *res.Payload[0].Name)
+
+		builtInRoles := []string{"viewer", "editor", "admin"}
+		sort.Strings(builtInRoles)
+
+		names := make([]string, 3)
+		for i, role := range res.Payload {
+			names[i] = *role.Name
+		}
+		sort.Strings(names)
+
+		require.Equal(t, builtInRoles, names)
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -124,9 +134,10 @@ func TestAuthzRoles(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
-		require.NotNil(t, err)
-		// TODO check error type not found
+		roles, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(roles.Payload))
+		require.Equal(t, existingRole, *roles.Payload[0].Name)
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {

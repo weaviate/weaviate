@@ -86,25 +86,41 @@ func permission(policy []string) *models.Permission {
 		Action: &action,
 	}
 
-	splits := strings.Split(policy[1], "/")
 	all := "*"
-
-	switch domain {
-	case collections:
-		permission.Collection = &splits[1]
-	case tenants:
-		permission.Tenant = &splits[3]
-	case objects:
-		permission.Object = &splits[4]
-	case rolesD:
-		permission.Role = &splits[4]
-	// case cluster:
-
-	case "*":
-		permission.Collection = &all
-		permission.Tenant = &all
-		permission.Object = &all
-		permission.Role = &all
+	if policy[1] == "*" {
+		switch domain {
+		case collections:
+			permission.Collection = &all
+		case tenants:
+			permission.Tenant = &all
+		case objects:
+			permission.Object = &all
+		case rolesD:
+			permission.Role = &all
+		case "*":
+			permission.Collection = &all
+			permission.Tenant = &all
+			permission.Object = &all
+			permission.Role = &all
+		}
+	} else {
+		splits := strings.Split(policy[1], "/")
+		switch domain {
+		case collections:
+			permission.Collection = &splits[1]
+		case tenants:
+			permission.Tenant = &splits[3]
+		case objects:
+			permission.Object = &splits[4]
+		case rolesD:
+			permission.Role = &splits[4]
+		case "*":
+			all := "*"
+			permission.Collection = &all
+			permission.Tenant = &all
+			permission.Object = &all
+			permission.Role = &all
+		}
 	}
 
 	return permission

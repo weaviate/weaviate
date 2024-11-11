@@ -14,19 +14,31 @@ package rbac
 import (
 	"fmt"
 
-	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 type manager struct {
-	casbin *casbin.SyncedCachedEnforcer
+	casbin enforcer
 	logger logrus.FieldLogger
 }
 
-func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manager {
+type enforcer interface {
+	AddNamedPolicy(ptype string, params ...any) (bool, error)
+	GetNamedPolicy(ptype string) ([][]string, error)
+	GetFilteredNamedPolicy(ptype string, fieldIndex int, fieldValues ...string) ([][]string, error)
+	RemoveFilteredNamedPolicy(ptype string, fieldIndex int, fieldValues ...string) (bool, error)
+	SavePolicy() error
+	InvalidateCache() error
+	AddRoleForUser(user string, role string, domains ...string) (bool, error)
+	GetRolesForUser(user string, domains ...string) ([]string, error)
+	DeleteRoleForUser(user string, role string, domains ...string) (bool, error)
+	GetUsersForRole(role string, domains ...string) ([]string, error)
+	Enforce(rvals ...interface{}) (bool, error)
+}
+
+func New(casbin enforcer, logger logrus.FieldLogger) *manager {
 	return &manager{casbin, logger}
 }
 
@@ -75,7 +87,7 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 				return nil, err
 			}
 			if len(polices) == 0 {
-				return nil, fmt.Errorf("%w: %s", authorization.ErrRoleNotFound, name)
+				continue
 			}
 			for _, policy := range polices {
 				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
