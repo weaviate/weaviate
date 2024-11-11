@@ -41,7 +41,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && globMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && regexMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 )
 
