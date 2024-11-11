@@ -5281,6 +5281,11 @@ func init() {
           "type": "string",
           "default": "*"
         },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
         "tenant": {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
@@ -11711,6 +11716,11 @@ func init() {
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         },
