@@ -45,18 +45,29 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 		verb = authorization.CRUD
 	}
 
-	resource = ""
 	switch domain {
 	case rolesD:
 		resource = authorization.Roles()[0]
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
-		resource = authorization.Collections(*permission.Collection)[0]
+		if permission.Collection == nil {
+			resource = authorization.Collections("*")[0]
+		} else {
+			resource = authorization.Collections(*permission.Collection)[0]
+		}
 	case tenants:
-		resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
+		if permission.Collection == nil || permission.Tenant == nil {
+			resource = authorization.Shards("*", "*")[0]
+		} else {
+			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
+		}
 	case objects:
-		resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
+		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
+			resource = authorization.Objects("*", "*", "*")
+		} else {
+			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
+		}
 	}
 	return
 }
@@ -64,12 +75,20 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 func permission(policy []string) *models.Permission {
 	domain := policy[3]
 	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
+	if domain == "objects" {
+		action += "_collection"
+	} else if domain == "tenants" {
+		action += "_tenants"
+	}
+
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
 	}
 
 	splits := strings.Split(policy[1], "/")
+	all := "*"
+
 	switch domain {
 	case collections:
 		permission.Collection = &splits[1]
@@ -79,9 +98,9 @@ func permission(policy []string) *models.Permission {
 		permission.Object = &splits[4]
 	case rolesD:
 		permission.Role = &splits[4]
+	// case cluster:
 
 	case "*":
-		all := "*"
 		permission.Collection = &all
 		permission.Tenant = &all
 		permission.Object = &all
