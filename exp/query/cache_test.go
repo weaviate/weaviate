@@ -26,13 +26,14 @@ func TestCache_Tenant(t *testing.T) {
 		os.RemoveAll(path.Join(root, CachePrefix))
 	}()
 
+	versionStr := "0"
 	c := NewDiskCache(root, 100) // 100 bytes max cap
 
 	// add tenant1
 	collection1 := "test-collection1"
 	tenant1 := "test-tenant1"
 	key1 := c.TenantKey(collection1, tenant1)
-	createTempFileWithSize(t, path.Join(root, CachePrefix, key1), t.Name(), 30)
+	createTempFileWithSize(t, path.Join(root, CachePrefix, key1, versionStr), t.Name(), 30)
 	require.NoError(t, c.AddTenant(collection1, tenant1, 0))
 
 	// make sure the tenant1 is cached
@@ -45,7 +46,7 @@ func TestCache_Tenant(t *testing.T) {
 	collection2 := "test-collection2"
 	tenant2 := "test-tenant2"
 	key2 := c.TenantKey(collection2, tenant2)
-	createTempFileWithSize(t, path.Join(root, CachePrefix, key2), t.Name(), 70)
+	createTempFileWithSize(t, path.Join(root, CachePrefix, key2, versionStr), t.Name(), 70)
 	require.NoError(t, c.AddTenant(collection2, tenant2, 0))
 
 	// make sure the tenant2 is cached
@@ -61,7 +62,7 @@ func TestCache_Tenant(t *testing.T) {
 	collection3 := "test-collection3"
 	tenant3 := "test-tenant3"
 	key3 := c.TenantKey(collection3, tenant3)
-	createTempFileWithSize(t, path.Join(root, CachePrefix, key3), t.Name(), 70)
+	createTempFileWithSize(t, path.Join(root, CachePrefix, key3, versionStr), t.Name(), 70)
 	require.NoError(t, c.AddTenant(collection3, tenant3, 0))
 
 	// make sure the tenant3 is cached and other two tenants are evicted

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -29,6 +30,8 @@ const (
 	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
 	// TODO(kavi): Make it dynamic.
 	nodeName = "weaviate-0"
+
+	tmpDownloadPrefix = "lsm-tmp" // used to download tenant data on temp location
 )
 
 // LSMFetcher fetches the tenant's LSM data using given `upstream` without or without local cache.
@@ -72,13 +75,14 @@ func NewLSMFetcherWithCache(basePath string, upstream LSMDownloader, cache LSMCa
 // It works in following modes
 // 1. If cache is nil, fetch from upstream.
 // 2. If cache is enabled and not found in cache, fetch from upstream.
-// 3. If cache is enabled and found in the cache but local version is outdated, fetch from the upstream
+// 3. If cache is enabled and found in the cache but local version is outdated, fetch from the upstream and remove old version.
 // 4. if cache is enabled, found in the cache and local version is up to date, return from the cache.
 func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, version uint64) (*lsmkv.Store, string, error) {
 	var (
 		basePath          = l.basePath
 		tenantPath string = ""
 		download   bool   = true
+		oldVersion uint64
 	)
 
 	if l.cache != nil {
@@ -88,44 +92,81 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 			tenantPath = c.AbsolutePath()
 			download = false
 		}
+		if err == nil && version != 0 && c.Version < version {
+			// oldVersion is used to cleanup previous version of tenant data.
+			oldVersion = c.Version
+		}
 		if err != nil && !errors.Is(err, ErrTenantNotFound) {
 			return nil, "", err
 		}
 	}
 
 	if download {
-		tenantPath = path.Join(
-			basePath,
-			strings.ToLower(collection),
-			strings.ToLower(tenant),
-		)
-		// src - s3://<collection>/<tenant>/<node>/
-		// dst (local) - <data-path/<collection>/<tenant>
-		l.log.WithFields(logrus.Fields{
-			"collection": collection,
-			"tenant":     tenant,
-			"nodeName":   nodeName,
-			"dst":        tenantPath,
-		}).Debug("starting download to path")
-		if err := l.upstream.DownloadToPath(ctx, collection, tenant, nodeName, tenantPath); err != nil {
+		var err error
+		tenantPath, err = l.download(ctx, basePath, collection, tenant, version)
+		if err != nil {
 			return nil, "", err
 		}
 
-	}
+		// remove old version
+		if oldVersion > 0 {
+			if l.remove(ctx, basePath, collection, tenant, oldVersion); err != nil {
+				return nil, "", err
+			}
+		}
 
-	// populate the cache before returning
-	if l.cache != nil {
-		if err := l.cache.AddTenant(collection, tenant, version); err != nil {
-			return nil, "", fmt.Errorf("failed populate the cache: %w", err)
+		// populate the cache before returning
+		if l.cache != nil {
+			if err := l.cache.AddTenant(collection, tenant, version); err != nil {
+				return nil, "", fmt.Errorf("failed populate the cache: %w", err)
+			}
 		}
 	}
 
 	lsmPath := path.Join(tenantPath, defaultLSMRoot)
-
 	store, err := lsmkv.New(lsmPath, lsmPath, l.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
 
 	return store, lsmPath, nil
+}
+
+func (l *LSMFetcher) download(ctx context.Context, basePath string, collection, tenant string, version uint64) (string, error) {
+	versionStr := fmt.Sprintf("%d", version)
+
+	tenantPath := path.Join(
+		basePath,
+		strings.ToLower(collection),
+		strings.ToLower(tenant),
+		versionStr,
+	)
+
+	// src - s3://<collection>/<tenant>/<node>/
+	// dst (local) - <data-path/<collection>/<tenant>
+	l.log.WithFields(logrus.Fields{
+		"collection": collection,
+		"tenant":     tenant,
+		"nodeName":   nodeName,
+		"dst":        tenantPath,
+	}).Debug("starting download to path")
+	if err := l.upstream.DownloadToPath(ctx, collection, tenant, nodeName, tenantPath); err != nil {
+		return "", err
+	}
+
+	return tenantPath, nil
+}
+
+func (l *LSMFetcher) remove(ctx context.Context, basePath string, collection, tenant string, version uint64) error {
+	dst := path.Join(
+		basePath,
+		strings.ToLower(collection),
+		strings.ToLower(tenant),
+		fmt.Sprintf("%d", version),
+	)
+
+	if err := os.RemoveAll(dst); err != nil {
+		return fmt.Errorf("failed to remove old version(%d) of tenant(%s/%s): %w", version, collection, tenant, err)
+	}
+	return nil
 }
