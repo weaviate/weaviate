@@ -132,8 +132,8 @@ func (d *DiskCache) evict() error {
 		e := d.evictList.Back()
 		if e == nil {
 			// NOTE: Shouldn't happen.
-			// This mean, we still have disk space filling up, but tenant list is empty.
-			break
+			// This mean, we still have disk space filling up, but tenant eviction list is empty.
+			panic("cache: max capacity reached. But couldn't find any tenant to evict")
 		}
 		t := e.Value.(*TenantCache)
 		if err := os.RemoveAll(t.AbsolutePath()); err != nil {
