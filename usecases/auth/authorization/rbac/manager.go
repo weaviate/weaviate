@@ -147,8 +147,7 @@ func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
 	return m.casbin.InvalidateCache()
 }
 
-// Authorize will give full access (to any resource!) if the user is part of
-// the admin list or no access at all if they are not
+// Authorize verify if the user has access to a resource to do specific action
 func (m *manager) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	if m == nil {
 		return fmt.Errorf("rbac enforcer expected but not set up")
