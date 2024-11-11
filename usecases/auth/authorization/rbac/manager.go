@@ -36,7 +36,10 @@ func (m *manager) CreateRoles(roles ...*models.Role) error {
 		for _, permission := range roles[idx].Permissions {
 			// TODO prefix roles names
 			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
-			resource, verb, domain := policy(permission)
+			resource, verb, domain, err := policy(permission)
+			if err != nil {
+				return err
+			}
 			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, resource, verb, domain); err != nil {
 				return err
 			}
