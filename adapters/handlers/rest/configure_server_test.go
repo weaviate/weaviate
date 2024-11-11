@@ -16,22 +16,23 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_AdminListAuthorizer(t *testing.T) {
+func Test_DummyAuthorizer(t *testing.T) {
 	t.Run("when no authz is configured", func(t *testing.T) {
-		cfg := adminlist.Config{}
-
-		authorizer := adminlist.New(cfg)
+		authorizer := authorization.DummyAuthorizer{}
 
 		t.Run("any request is allowed", func(t *testing.T) {
 			err := authorizer.Authorize(nil, "delete", "the/world")
 			assert.Nil(t, err)
 		})
 	})
+}
 
+func Test_AdminListAuthorizer(t *testing.T) {
 	t.Run("when adminlist is configured", func(t *testing.T) {
 		cfg := config.Config{
 			Authorization: config.Authorization{
