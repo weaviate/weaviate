@@ -283,9 +283,14 @@ func (q *DiskQueue) ensureChunk() error {
 				return errors.Wrap(err, "failed to write size")
 			}
 
-			err = q.Flush()
+			err := q.w.Flush()
 			if err != nil {
-				return err
+				return errors.Wrap(err, "failed to flush")
+			}
+
+			err = q.f.Sync()
+			if err != nil {
+				return errors.Wrap(err, "failed to sync")
 			}
 		} else {
 			// place the cursor at the end of the file
