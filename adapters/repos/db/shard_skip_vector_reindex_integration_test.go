@@ -543,7 +543,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -578,7 +578,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -615,7 +615,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -655,7 +655,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -690,7 +690,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -727,7 +727,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
 				shard.Queue().Scheduler().TriggerSchedule()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
 
@@ -1013,7 +1013,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1043,7 +1043,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1093,7 +1093,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1137,7 +1137,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1179,7 +1179,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1222,7 +1222,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1268,7 +1268,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
 					shard.Queue().Scheduler().TriggerSchedule()
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
 
@@ -1297,9 +1297,11 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 		t.Run("async", func(t *testing.T) {
 			currentIndexing := os.Getenv("ASYNC_INDEXING")
+			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
 			t.Setenv("ASYNC_INDEXING", "true")
-			t.Setenv("ASYNC_STALE_TIMEOUT", "1ms")
+			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms")
 			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
+			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
 
 			runBatch(t)
 		})
