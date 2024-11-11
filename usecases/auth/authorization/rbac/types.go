@@ -111,6 +111,7 @@ func permission(policy []string) *models.Permission {
 			permission.Collection = &all
 			permission.Tenant = &all
 			permission.Object = &all
+			permission.Role = &all
 		}
 	}
 
