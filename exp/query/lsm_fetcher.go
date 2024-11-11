@@ -103,6 +103,9 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 
 	if download {
 		var err error
+		// TODO(kavi): Make this upstream download call efficient. Currently when say `n` tenants access `Fetch` at the same time causing cache-miss,
+		// then all `n` tenants can trigger upstream download.
+		// Use something like Go's `singleflight`(https://pkg.go.dev/golang.org/x/sync/singleflight) to do one upstream call and share the cache with other in-flight requests.
 		tenantPath, err = l.download(ctx, basePath, collection, tenant, version)
 		if err != nil {
 			return nil, "", err
