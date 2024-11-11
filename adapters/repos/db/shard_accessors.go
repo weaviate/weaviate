@@ -28,6 +28,10 @@ func (s *Shard) Queues() map[string]*VectorIndexQueue {
 	return s.queues
 }
 
+func (s *Shard) QueueForName(targetVector string) *VectorIndexQueue {
+	return s.queues[targetVector]
+}
+
 func (s *Shard) VectorIndex() VectorIndex {
 	return s.vectorIndex
 }
