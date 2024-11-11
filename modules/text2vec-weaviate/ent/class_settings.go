@@ -21,7 +21,7 @@ import (
 
 const (
 	// TODO: replace docker internal host with actual host
-	DefaultBaseURL               = "https://embedding.labs.weaviate.io"
+	DefaultBaseURL               = "https://api.embedding.weaviate.io"
 	DefaultWeaviateModel         = SnowflakeArcticEmbedM
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true

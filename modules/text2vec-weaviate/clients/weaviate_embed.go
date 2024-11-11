@@ -51,9 +51,10 @@ type embeddingsResponseError struct {
 }
 
 type metadata struct {
-	Model                 string  `json:"model,omitempty"`
-	TimeTakenInference    float32 `json:"time_taken_inference,omitempty"`
-	NumEmbeddingsInferred int     `json:"num_embeddings_inferred,omitempty"`
+	Model                 string                 `json:"model,omitempty"`
+	TimeTakenInference    float32                `json:"time_taken_inference,omitempty"`
+	NumEmbeddingsInferred int                    `json:"num_embeddings_inferred,omitempty"`
+	Usage                 modulecomponents.Usage `json:"usage,omitempty"`
 }
 
 type vectorizer struct {
