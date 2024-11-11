@@ -92,8 +92,11 @@ func permission(policy []string) *models.Permission {
 		case collections:
 			permission.Collection = &all
 		case tenants:
+			permission.Collection = &all
 			permission.Tenant = &all
 		case objects:
+			permission.Collection = &all
+			permission.Tenant = &all
 			permission.Object = &all
 		case rolesD:
 			permission.Role = &all
@@ -109,9 +112,12 @@ func permission(policy []string) *models.Permission {
 		case collections:
 			permission.Collection = &splits[1]
 		case tenants:
+			permission.Collection = &splits[1]
 			permission.Tenant = &splits[3]
 		case objects:
-			permission.Object = &splits[4]
+			permission.Collection = &splits[1]
+			permission.Tenant = &splits[3]
+			permission.Object = &splits[5]
 		case rolesD:
 			permission.Role = &splits[4]
 		case "*":
