@@ -45,7 +45,6 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 		verb = authorization.CRUD
 	}
 
-	resource = ""
 	switch domain {
 	case rolesD:
 		resource = authorization.Roles()[0]
@@ -53,21 +52,22 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 		resource = authorization.Cluster()
 	case collections:
 		if permission.Collection == nil {
-			return
+			resource = authorization.Collections("*")[0]
+		} else {
+			resource = authorization.Collections(*permission.Collection)[0]
 		}
-		resource = authorization.Collections(*permission.Collection)[0]
 	case tenants:
 		if permission.Collection == nil || permission.Tenant == nil {
-			return
+			resource = authorization.Shards("*", "*")[0]
+		} else {
+			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
 		}
-
-		resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
 	case objects:
 		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
-			return
+			resource = authorization.Objects("*", "*", "*")
+		} else {
+			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 		}
-
-		resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 	}
 	return
 }
@@ -86,33 +86,25 @@ func permission(policy []string) *models.Permission {
 		Action: &action,
 	}
 
-	noResource := policy[1] == ""
 	splits := strings.Split(policy[1], "/")
 	all := "*"
 
-	if noResource {
+	switch domain {
+	case collections:
+		permission.Collection = &splits[1]
+	case tenants:
+		permission.Tenant = &splits[3]
+	case objects:
+		permission.Object = &splits[4]
+	case rolesD:
+		permission.Role = &splits[4]
+	// case cluster:
+
+	case "*":
 		permission.Collection = &all
 		permission.Tenant = &all
 		permission.Object = &all
 		permission.Role = &all
-	} else {
-		switch domain {
-		case collections:
-			permission.Collection = &splits[1]
-		case tenants:
-			permission.Tenant = &splits[3]
-		case objects:
-			permission.Object = &splits[4]
-		case rolesD:
-			permission.Role = &splits[4]
-		// case cluster:
-
-		case "*":
-			permission.Collection = &all
-			permission.Tenant = &all
-			permission.Object = &all
-			permission.Role = &all
-		}
 	}
 
 	return permission
