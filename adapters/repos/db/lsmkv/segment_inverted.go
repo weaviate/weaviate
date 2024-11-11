@@ -19,21 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
-
-// inverted hesder size is 27 bytes
-var segmentInvertedHeaderSize = 27
-
-type segmentInvertedHeader struct {
-	keysOffset            uint64
-	tombstoneOffset       uint64
-	propertyLengthsOffset uint64
-	version               uint8
-	blockSize             uint8
-	dataFieldCount        uint8
-	dataFields            []varenc.VarEncDataType
-}
 
 type segmentInvertedData struct {
 	tombstones       *sroar.Bitmap
@@ -41,28 +27,6 @@ type segmentInvertedData struct {
 
 	propertyLenghts       map[uint64]uint32
 	propertyLenghtsLoaded bool
-}
-
-func LoadInvertedHeader(headerBytes []byte) (*segmentInvertedHeader, error) {
-	header := &segmentInvertedHeader{}
-
-	header.keysOffset = binary.LittleEndian.Uint64(headerBytes[0:8])
-	header.tombstoneOffset = binary.LittleEndian.Uint64(headerBytes[8:16])
-	header.propertyLengthsOffset = binary.LittleEndian.Uint64(headerBytes[16:24])
-	header.version = headerBytes[24]
-	header.blockSize = headerBytes[25]
-	header.dataFieldCount = headerBytes[26]
-
-	header.dataFields = make([]varenc.VarEncDataType, header.dataFieldCount)
-	if header.dataFieldCount > 4 {
-		return nil, fmt.Errorf("data field count too large")
-	}
-
-	for i, b := range headerBytes {
-		header.dataFields[i] = varenc.VarEncDataType(b)
-	}
-
-	return header, nil
 }
 
 func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
@@ -74,14 +38,14 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 		return s.invertedData.tombstones, nil
 	}
 
-	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.tombstoneOffset : s.invertedHeader.tombstoneOffset+8])
+	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.TombstoneOffset : s.invertedHeader.TombstoneOffset+8])
 
 	if bitmapSize == 0 {
 		s.invertedData.tombstonesLoaded = true
 		return nil, nil
 	}
 
-	bitmapStart := s.dataStartPos + s.invertedHeader.tombstoneOffset + 8
+	bitmapStart := s.dataStartPos + s.invertedHeader.TombstoneOffset + 8
 	bitmapEnd := bitmapStart + bitmapSize
 
 	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
@@ -101,14 +65,14 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 	}
 
 	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.propertyLengthsOffset : s.invertedHeader.propertyLengthsOffset+8])
+	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
 
 	if propertyLenghtsSize == 0 {
 		s.invertedData.propertyLenghtsLoaded = true
 		return nil, nil
 	}
 
-	propertyLenghtsStart := s.invertedHeader.propertyLengthsOffset + 8
+	propertyLenghtsStart := s.invertedHeader.PropertyLengthsOffset + 8
 	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
 
 	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
