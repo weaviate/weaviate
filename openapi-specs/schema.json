@@ -27,10 +27,25 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
-        "resource": {
+        "object": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *"
+        },
+        "tenant": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
+        },
+        "collection": {
           "type": "string",
           "default": "*",
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+        },
+        "role": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
         },
         "action": {
           "type": "string",
@@ -2857,10 +2872,7 @@
           "200": {
             "description": "Role assigned users",
             "schema": {
-             "type": "array",
-              "items": {
-                  "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {

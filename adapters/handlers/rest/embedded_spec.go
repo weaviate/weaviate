@@ -654,10 +654,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -5274,8 +5271,23 @@ func init() {
             "delete_objects_tenant"
           ]
         },
-        "resource": {
+        "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "object": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -6778,10 +6790,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -11700,8 +11709,23 @@ func init() {
             "delete_objects_tenant"
           ]
         },
-        "resource": {
+        "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "object": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
