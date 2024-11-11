@@ -541,6 +541,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
+			})
+
 			t.Run("verify initial docID and timestamps", func(t *testing.T) {
 				expectedNextDocID := uint64(1)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -568,6 +574,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.PutObject(ctx, updObj)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify same docID, changed create & update timestamps", func(t *testing.T) {
@@ -599,6 +611,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.PutObject(ctx, altUpdObj)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -635,6 +653,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				require.NoError(t, err)
 			})
 
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
+			})
+
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 				expectedNextDocID := uint64(2)
 				require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -662,6 +686,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.MergeObject(ctx, mergeDoc)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify same docID, changed update timestamp", func(t *testing.T) {
@@ -693,6 +723,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 				err := shard.MergeObject(ctx, altMergeDoc)
 				require.NoError(t, err)
+			})
+
+			t.Run("wait for queue to be empty", func(t *testing.T) {
+				shard.Queue().Scheduler().TriggerSchedule()
+				time.Sleep(10 * time.Millisecond)
+				shard.Queue().Wait()
 			})
 
 			t.Run("verify changed docID, changed update timestamp", func(t *testing.T) {
@@ -975,6 +1011,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify initial docID and timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(1)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -997,6 +1039,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("add 2nd batch", func(t *testing.T) {
@@ -1043,6 +1091,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1081,6 +1135,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1115,6 +1175,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("verify same docID, same timestamps", func(t *testing.T) {
@@ -1152,6 +1218,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					for i := range errs {
 						require.NoError(t, errs[i])
 					}
+				})
+
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1194,6 +1266,12 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 					}
 				})
 
+				t.Run("wait for queue to be empty", func(t *testing.T) {
+					shard.Queue().Scheduler().TriggerSchedule()
+					time.Sleep(10 * time.Millisecond)
+					shard.Queue().Wait()
+				})
+
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
 					expectedNextDocID := uint64(2)
 					require.Equal(t, expectedNextDocID, shard.Counter().Get())
@@ -1220,6 +1298,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		t.Run("async", func(t *testing.T) {
 			currentIndexing := os.Getenv("ASYNC_INDEXING")
 			t.Setenv("ASYNC_INDEXING", "true")
+			t.Setenv("ASYNC_STALE_TIMEOUT", "1ms")
 			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
 
 			runBatch(t)

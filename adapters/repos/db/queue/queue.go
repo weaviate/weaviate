@@ -115,7 +115,12 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
 	if opt.StaleTimeout <= 0 {
-		opt.StaleTimeout = 1 * time.Second
+		d, err := time.ParseDuration(os.Getenv("ASYNC_STALE_TIMEOUT"))
+		if err == nil {
+			opt.StaleTimeout = d
+		} else {
+			opt.StaleTimeout = 1 * time.Second
+		}
 	}
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
@@ -237,6 +242,10 @@ func (q *DiskQueue) Push(record []byte) error {
 	q.recordCount++
 
 	return nil
+}
+
+func (q *DiskQueue) Scheduler() *Scheduler {
+	return q.scheduler
 }
 
 func (q *DiskQueue) ensureChunk() error {
