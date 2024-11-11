@@ -143,6 +143,11 @@ func policy(permission *models.Permission) (*Policy, error) {
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
+
+	resource = strings.ReplaceAll(resource, "*", ".*")
+	if resource[len(resource)-1] != '*' {
+		resource += "$"
+	}
 	return &Policy{
 		resource: resource,
 		verb:     verb,
