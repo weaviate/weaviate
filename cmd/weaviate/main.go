@@ -92,7 +92,8 @@ func main() {
 		if opts.Query.NoCache {
 			lsm = query.NewLSMFetcher(opts.Query.DataPath, s3module, log)
 		} else {
-			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes)
+			metrics := query.NewCacheMetrics(opts.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
+			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes, metrics)
 			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
 		}
 
