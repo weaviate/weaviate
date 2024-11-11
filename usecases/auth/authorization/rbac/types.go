@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	rolesD      = "roles"
-	cluster     = "cluster"
-	collections = "collections"
-	tenants     = "tenants"
-	objects     = "objects"
+	rolesD            = "roles"
+	cluster           = "cluster"
+	collections       = "collections"
+	tenants           = "tenants"
+	objectsCollection = "objects_collection"
+	objectsTenants    = "objects_tenants"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -37,14 +38,17 @@ var builtInRoles = map[string]string{
 	"admin":  authorization.CRUD,
 }
 
-func policy(permission *models.Permission) (resource, verb, domain string) {
+func policy(permission *models.Permission) (string, string, string, error) {
 	// TODO verify slice position to avoid panics
-	domain = strings.Split(*permission.Action, "_")[1]
-	verb = strings.ToUpper(string(string(*permission.Action)[0]))
+	action, domain, found := strings.Cut(*permission.Action, "_")
+	if !found {
+		return "", "", "", fmt.Errorf("invalid action")
+	}
+	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
 		verb = authorization.CRUD
 	}
-
+	var resource string
 	switch domain {
 	case rolesD:
 		resource = authorization.Roles()[0]
@@ -62,24 +66,19 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 		} else {
 			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
 		}
-	case objects:
+	case objectsCollection, objectsTenants:
 		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
 			resource = authorization.Objects("*", "*", "*")
 		} else {
 			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 		}
 	}
-	return
+	return resource, verb, domain, nil
 }
 
 func permission(policy []string) *models.Permission {
 	domain := policy[3]
 	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
-	if domain == "objects" {
-		action += "_collection"
-	} else if domain == "objects_tenant" {
-		action += "_tenants"
-	}
 
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
@@ -95,7 +94,7 @@ func permission(policy []string) *models.Permission {
 	case tenants:
 		permission.Tenant = &splits[3]
 		permission.Collection = &splits[1]
-	case objects:
+	case objectsTenants, objectsCollection:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
