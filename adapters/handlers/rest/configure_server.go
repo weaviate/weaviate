@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -106,8 +109,27 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State) authorization.Authorizer {
-	return authorization.New(appState.ServerConfig.Config, appState.RBACEnforcer, appState.Logger)
+func configureAuthorizer(appState *state.State) error {
+	if appState.ServerConfig.Config.EnableRBACEnforcer {
+		rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
+		casbin, err := rbac.Init(appState.ServerConfig.Config.Authentication.APIKey, rbacStoragePath)
+		if err != nil {
+			return err
+		}
+
+		rbacController := rbac.New(casbin, appState.Logger)
+		appState.Authorizer = rbacController
+		appState.AuthzController = rbacController
+		return nil
+	}
+
+	if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
+		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
+		return nil
+	}
+
+	appState.Authorizer = &authorization.DummyAuthorizer{}
+	return nil
 }
 
 func timeTillDeadline(ctx context.Context) string {
