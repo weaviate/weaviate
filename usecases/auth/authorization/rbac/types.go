@@ -95,7 +95,9 @@ func permission(policy []string) *models.Permission {
 	case tenants:
 		permission.Tenant = &splits[3]
 	case objects:
-		permission.Object = &splits[4]
+		permission.Collection = &splits[1]
+		permission.Tenant = &splits[3]
+		permission.Object = &splits[5]
 	case rolesD:
 		permission.Role = &splits[4]
 	// case cluster:
