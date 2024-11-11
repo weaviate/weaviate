@@ -54,7 +54,7 @@ func LoadHeaderInverted(headerBytes []byte) (*HeaderInverted, error) {
 	header.DataFieldCount = headerBytes[26]
 
 	header.DataFields = make([]varenc.VarEncDataType, header.DataFieldCount)
-	for i, b := range headerBytes {
+	for i, b := range headerBytes[27:] {
 		header.DataFields[i] = varenc.VarEncDataType(b)
 	}
 
@@ -86,7 +86,13 @@ func (h *HeaderInverted) WriteTo(w io.Writer) (int64, error) {
 		return 0, err
 	}
 
-	return 29, nil
+	for _, df := range h.DataFields {
+		if err := binary.Write(w, binary.LittleEndian, df); err != nil {
+			return 0, err
+		}
+	}
+
+	return int64(SegmentInvertedDefaultHeaderSize + len(h.DataFields)), nil
 }
 
 func ParseHeaderInverted(r io.Reader) (*HeaderInverted, error) {
