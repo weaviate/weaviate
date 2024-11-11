@@ -30,8 +30,6 @@ const (
 	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
 	// TODO(kavi): Make it dynamic.
 	nodeName = "weaviate-0"
-
-	tmpDownloadPrefix = "lsm-tmp" // used to download tenant data on temp location
 )
 
 // LSMFetcher fetches the tenant's LSM data using given `upstream` without or without local cache.
