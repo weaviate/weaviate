@@ -45,7 +45,7 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 		return nil, nil
 	}
 
-	bitmapStart := s.dataStartPos + s.invertedHeader.TombstoneOffset + 8
+	bitmapStart := s.invertedHeader.TombstoneOffset + 8
 	bitmapEnd := bitmapStart + bitmapSize
 
 	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
