@@ -89,8 +89,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	if err != nil {
 		return nil, nil, err
 	}
-	headerSize := int(n)
-	totalWritten := headerSize
+	totalWritten := int(n)
 
 	n, err = headerInverted.WriteTo(f)
 	if err != nil {
