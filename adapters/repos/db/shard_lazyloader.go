@@ -444,9 +444,14 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
 }
 
-func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+func (l *LazyLoadShard) ConvertQueue(targetVector string) error {
 	l.mustLoad()
-	return l.shard.PreloadQueue(targetVector)
+	return l.shard.ConvertQueue(targetVector)
+}
+
+func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
+	l.mustLoad()
+	return l.shard.FillQueue(targetVector, from)
 }
 
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {

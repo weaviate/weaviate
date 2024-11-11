@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -42,13 +41,7 @@ type VectorIndexQueue struct {
 	// indicate if the index is being upgraded
 	upgrading atomic.Bool
 
-	// prevents replacing the index while
-	// the queue is dequeuing vectors
-	index struct {
-		sync.RWMutex
-
-		i VectorIndex
-	}
+	vectorIndex VectorIndex
 }
 
 func NewVectorIndexQueue(
@@ -59,7 +52,7 @@ func NewVectorIndexQueue(
 	viq := VectorIndexQueue{
 		shard: shard,
 	}
-	viq.index.i = index
+	viq.vectorIndex = index
 
 	logger := shard.index.logger.WithField("component", "vector_index_queue").
 		WithField("shard_id", shard.ID()).
@@ -72,7 +65,7 @@ func NewVectorIndexQueue(
 			Scheduler: shard.scheduler,
 			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
 			TaskDecoder: &vectorIndexQueueDecoder{
-				idx: index,
+				q: &viq,
 			},
 		},
 	)
@@ -98,9 +91,6 @@ func (iq *VectorIndexQueue) Close() error {
 }
 
 func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
-	iq.index.RLock()
-	defer iq.index.RUnlock()
-
 	var buf []byte
 
 	for i, v := range vectors {
@@ -110,7 +100,7 @@ func (iq *VectorIndexQueue) Insert(vectors ...common.VectorRecord) error {
 		}
 
 		// delegate the validation to the index
-		err := iq.index.i.ValidateBeforeInsert(v.Vector)
+		err := iq.vectorIndex.ValidateBeforeInsert(v.Vector)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -177,9 +167,6 @@ func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 // updates the shard status to 'indexing' if the queue is not empty
 // and the status is 'ready' otherwise.
 func (iq *VectorIndexQueue) updateShardStatus() bool {
-	iq.index.RLock()
-	defer iq.index.RUnlock()
-
 	if iq.Size() == 0 {
 		_, _ = iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 		return false /* do not skip, let the scheduler decide what to do */
@@ -202,10 +189,7 @@ type upgradableIndexer interface {
 
 // triggers compression if the index is ready to be upgraded
 func (iq *VectorIndexQueue) checkCompressionSettings() {
-	iq.index.RLock()
-	defer iq.index.RUnlock()
-
-	ci, ok := iq.index.i.(upgradableIndexer)
+	ci, ok := iq.vectorIndex.(upgradableIndexer)
 	if !ok {
 		return
 	}
@@ -215,7 +199,7 @@ func (iq *VectorIndexQueue) checkCompressionSettings() {
 		return
 	}
 
-	if iq.index.i.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if iq.vectorIndex.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.upgrading.Store(true)
 		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
 
@@ -231,14 +215,14 @@ func (iq *VectorIndexQueue) checkCompressionSettings() {
 	}
 }
 
+// ResetWith resets the queue with the given vector index.
+// The queue must be paused before calling this method.
 func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
-	iq.index.Lock()
-	iq.index.i = vidx
-	iq.index.Unlock()
+	iq.vectorIndex = vidx
 }
 
 type vectorIndexQueueDecoder struct {
-	idx VectorIndex
+	q *VectorIndexQueue
 }
 
 func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
@@ -267,7 +251,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			op:     op,
 			id:     uint64(id),
 			vector: vec,
-			idx:    v.idx,
+			idx:    v.q.vectorIndex,
 		}, nil
 	case vectorIndexQueueDeleteOp:
 		// decode id
@@ -276,7 +260,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		return &Task{
 			op:  op,
 			id:  uint64(id),
-			idx: v.idx,
+			idx: v.q.vectorIndex,
 		}, nil
 	}
 

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -53,7 +54,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 5, len(indexFilesBeforeDelete))
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
 }
 
@@ -108,6 +109,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}
 	// create index with data
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
+
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -115,7 +121,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -174,7 +180,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	err = index.addProperty(context.TODO(), &models.Property{
@@ -275,6 +281,10 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -282,7 +292,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -356,13 +366,17 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 
 	// create index
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, cpFile, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, cpFile, nil)
 	require.Nil(t, err)
 
 	// at this point the shard is not loaded yet.
@@ -422,6 +436,10 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 
 	// create index
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -429,7 +447,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, cpFile, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, cpFile, nil)
 	require.Nil(t, err)
 
 	// force the index to load the shard
@@ -474,6 +492,10 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	logger, _ := test.NewNullLogger()
 	shardState := singleShardState()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
 
 	idx, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:              rootDir,
@@ -483,7 +505,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, scheduler, nil, nil)
 	require.Nil(t, err)
 	return idx
 }
@@ -803,7 +825,7 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestIndex_PreloadQueue(t *testing.T) {
+func TestIndex_ConvertQueue(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := context.Background()
@@ -835,7 +857,7 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	q.ResetWith(shard.VectorIndex())
 	q.Resume()
 
-	err := shard.PreloadQueue("")
+	err := shard.ConvertQueue("")
 	require.Nil(t, err)
 
 	// wait until the queue is empty
@@ -860,7 +882,7 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestIndex_PreloadQueueTargetVector(t *testing.T) {
+func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := context.Background()
@@ -901,7 +923,7 @@ func TestIndex_PreloadQueueTargetVector(t *testing.T) {
 	q.ResetWith(vectorIndex)
 	q.Resume()
 
-	err := shard.PreloadQueue("foo")
+	err := shard.ConvertQueue("foo")
 	require.Nil(t, err)
 
 	// wait until the queue is empty

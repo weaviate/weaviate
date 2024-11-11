@@ -107,7 +107,8 @@ type ShardLike interface {
 	Queue() *VectorIndexQueue
 	Queues() map[string]*VectorIndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
-	PreloadQueue(targetVector string) error
+	ConvertQueue(targetVector string) error
+	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 

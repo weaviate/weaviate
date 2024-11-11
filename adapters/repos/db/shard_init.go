@@ -137,16 +137,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if asyncEnabled() {
 		f := func() {
-			// preload unindexed objects in the background
+			// convert in-memory queues to on-disk queues in the background.
+			// no-op if the queues are already on disk.
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
-					err := s.PreloadQueue(targetVector)
+					err := s.ConvertQueue(targetVector)
 					if err != nil {
 						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 					}
 				}
 			} else {
-				err := s.PreloadQueue("")
+				err := s.ConvertQueue("")
 				if err != nil {
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}

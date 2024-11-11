@@ -24,9 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// PreloadQueue goes through the LSM store from the last checkpoint
-// and enqueues any unindexed vector.
-func (s *Shard) PreloadQueue(targetVector string) error {
+// ConvertQueue converts a legacy in-memory queue to an on-disk queue.
+// It detects if the queue has a checkpoint then it enqueues all the
+// remaining vectors to the on-disk queue, then deletes the checkpoint.
+func (s *Shard) ConvertQueue(targetVector string) error {
+	if !asyncEnabled() {
+		return nil
+	}
+
+	// load non-indexed vectors and add them to the queue
+	checkpoint, exists, err := s.indexCheckpoints.Get(s.ID(), targetVector)
+	if err != nil {
+		return errors.Wrap(err, "get last indexed id")
+	}
+	if !exists {
+		return nil
+	}
+
+	err = s.FillQueue(targetVector, checkpoint)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	// we can now safely remove the checkpoint
+	err = s.indexCheckpoints.Delete(s.ID(), targetVector)
+	if err != nil {
+		return errors.Wrap(err, "delete checkpoint")
+	}
+
+	return nil
+}
+
+// FillQueue is a helper function that enqueues all vectors from the
+// LSM store to the on-disk queue.
+func (s *Shard) FillQueue(targetVector string, from uint64) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -51,21 +82,12 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 		return nil
 	}
 
-	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := s.indexCheckpoints.Get(s.ID(), targetVector)
-	if err != nil {
-		return errors.Wrap(err, "get last indexed id")
-	}
-	if !exists {
-		return nil
-	}
-
 	ctx := context.Background()
 
 	maxDocID := s.Counter().Get()
 
 	var batch []common.VectorRecord
-	err = s.iterateOnLSMVectors(ctx, checkpoint, targetVector, func(id uint64, vector []float32) error {
+	err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
 		if vectorIndex.ContainsNode(id) {
 			return nil
 		}
@@ -105,13 +127,12 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 	}
 
 	s.index.logger.
-		WithField("checkpoint", checkpoint).
 		WithField("last_stored_id", maxDocID).
 		WithField("count", counter).
 		WithField("took", time.Since(start)).
 		WithField("shard_id", s.ID()).
 		WithField("target_vector", targetVector).
-		Info("enqueued vectors from last indexed checkpoint")
+		Info("enqueued vectors from LSM store")
 
 	return nil
 }
