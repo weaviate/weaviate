@@ -100,7 +100,7 @@ func (m *manager) DeleteRoles(roles ...string) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("failed to remove policy %v", role)
+			return nil // deletes are idempotent
 		}
 	}
 	if err := m.casbin.SavePolicy(); err != nil {

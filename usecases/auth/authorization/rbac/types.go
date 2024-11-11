@@ -52,10 +52,21 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
+		if permission.Collection == nil {
+			return
+		}
 		resource = authorization.Collections(*permission.Collection)[0]
 	case tenants:
+		if permission.Collection == nil || permission.Tenant == nil {
+			return
+		}
+
 		resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
 	case objects:
+		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
+			return
+		}
+
 		resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
 	}
 	return
@@ -64,28 +75,43 @@ func policy(permission *models.Permission) (resource, verb, domain string) {
 func permission(policy []string) *models.Permission {
 	domain := policy[3]
 	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
+	if domain == "objects" {
+		action += "_collection"
+	} else if domain == "tenants" {
+		action += "_tenants"
+	}
+
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
 	}
 
+	noResource := policy[1] == ""
 	splits := strings.Split(policy[1], "/")
-	switch domain {
-	case collections:
-		permission.Collection = &splits[1]
-	case tenants:
-		permission.Tenant = &splits[3]
-	case objects:
-		permission.Object = &splits[4]
-	case rolesD:
-		permission.Role = &splits[4]
+	all := "*"
 
-	case "*":
-		all := "*"
+	if noResource {
 		permission.Collection = &all
 		permission.Tenant = &all
 		permission.Object = &all
 		permission.Role = &all
+	} else {
+		switch domain {
+		case collections:
+			permission.Collection = &splits[1]
+		case tenants:
+			permission.Tenant = &splits[3]
+		case objects:
+			permission.Object = &splits[4]
+		case rolesD:
+			permission.Role = &splits[4]
+		// case cluster:
+
+		case "*":
+			permission.Collection = &all
+			permission.Tenant = &all
+			permission.Object = &all
+		}
 	}
 
 	return permission
