@@ -51,7 +51,7 @@ type compactorInverted struct {
 	propertyLenghtsToWrite map[uint64]uint32
 	propertyLenghtsToClean map[uint64]uint32
 
-	keysLen uint64
+	invertedHeader *segmentindex.HeaderInverted
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -78,24 +78,23 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	c.offset = segmentindex.HeaderSize
-
 	kis, tombstones, propertyLengths, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
-	c.keysLen = uint64(c.offset - segmentindex.HeaderSize - 8)
 
-	tombstoneSize, err := c.writeTombstones(tombstones)
+	tombstoneOffset := c.offset
+	_, err = c.writeTombstones(tombstones)
 	if err != nil {
 		return errors.Wrap(err, "write tombstones")
 	}
 
-	propertyLengthsSize, err := c.writePropertyLengths(propertyLengths)
+	propertyLengthsOffset := c.offset
+	_, err = c.writePropertyLengths(propertyLengths)
 	if err != nil {
 		return errors.Wrap(err, "write property lengths")
 	}
-
+	treeOffset := uint64(c.offset)
 	if err := c.writeIndices(kis); err != nil {
 		return errors.Wrap(err, "write index")
 	}
@@ -104,17 +103,12 @@ func (c *compactorInverted) do() error {
 	if err := c.bufw.Flush(); err != nil {
 		return errors.Wrap(err, "flush buffered")
 	}
-
-	var dataEnd uint64 = segmentindex.HeaderSize + 8 + 8 + uint64(tombstoneSize) + uint64(propertyLengthsSize)
-	if len(kis) > 0 {
-		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + 8 + uint64(tombstoneSize) + uint64(propertyLengthsSize)
-	}
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
-		dataEnd); err != nil {
+		treeOffset); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
-	if err := c.writeKeysLength(); err != nil {
+	if err := c.writeInvertedHeader(tombstoneOffset, propertyLengthsOffset); err != nil {
 		return errors.Wrap(err, "write keys length")
 	}
 
@@ -126,8 +120,28 @@ func (c *compactorInverted) init() error {
 	// we will seek to the beginning and overwrite the actual header at the very
 	// end
 
+	if len(c.c1.segment.invertedHeader.DataFields) != len(c.c2.segment.invertedHeader.DataFields) {
+		return errors.Errorf("inverted header data fields mismatch: %d != %d",
+			len(c.c1.segment.invertedHeader.DataFields),
+			len(c.c2.segment.invertedHeader.DataFields))
+	}
+
 	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
 		return errors.Wrap(err, "write empty header")
+	}
+	if _, err := c.bufw.Write(make([]byte, segmentindex.SegmentInvertedDefaultHeaderSize+len(c.c1.segment.invertedHeader.DataFields))); err != nil {
+		return errors.Wrap(err, "write empty inverted header")
+	}
+	c.offset = segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
+
+	c.invertedHeader = &segmentindex.HeaderInverted{
+		KeysOffset:            uint64(c.offset),
+		TombstoneOffset:       0,
+		PropertyLengthsOffset: 0,
+		Version:               0,
+		BlockSize:             uint8(segmentindex.SegmentInvertedDefaultBlockSize),
+		DataFieldCount:        uint8(len(c.c1.segment.invertedHeader.DataFields)),
+		DataFields:            c.c1.segment.invertedHeader.DataFields,
 	}
 
 	return nil
@@ -149,8 +163,8 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	if _, err := c.bufw.Write(tombstonesBuffer); err != nil {
 		return 0, err
 	}
-
-	return len(tombstonesBuffer), nil
+	c.offset += len(tombstonesBuffer) + 8
+	return len(tombstonesBuffer) + 8, nil
 }
 
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
@@ -174,20 +188,11 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	if _, err := c.bufw.Write(b.Bytes()); err != nil {
 		return 0, err
 	}
-
-	return b.Len(), nil
+	c.offset += b.Len() + 8
+	return b.Len() + 8, nil
 }
 
 func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[uint64]uint32, error) {
-	// placeholder for the keys length
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, 0)
-	if _, err := c.bufw.Write(buf); err != nil {
-		return nil, nil, nil, err
-	}
-
-	c.offset += 8
-
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -341,20 +346,22 @@ func (c *compactorInverted) writeHeader(level, version, secondaryIndices uint16,
 	return nil
 }
 
-// writeKeysLength assumes that everything has been written to the underlying
+// writeInvertedHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorInverted) writeKeysLength() error {
+func (c *compactorInverted) writeInvertedHeader(tombstoneOffset, propertyLengthsOffset int) error {
 	if _, err := c.w.Seek(16, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write header")
+		return errors.Wrap(err, "seek to beginning to write inverted header")
 	}
 
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, c.keysLen)
+	c.invertedHeader.TombstoneOffset = uint64(tombstoneOffset)
+	c.invertedHeader.PropertyLengthsOffset = uint64(propertyLengthsOffset)
 
-	_, err := c.w.Write(buf)
+	if _, err := c.invertedHeader.WriteTo(c.w); err != nil {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.

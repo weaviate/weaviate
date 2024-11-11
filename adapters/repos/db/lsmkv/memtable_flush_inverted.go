@@ -96,7 +96,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		return nil, nil, err
 	}
 	totalWritten += int(n)
-
 	keysStartOffset := totalWritten
 
 	buf := make([]byte, 8)
@@ -139,8 +138,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 			actuallyWritten++
 		}
 	}
-
-	keysLen := totalWritten - keysStartOffset
 
 	tombstoneOffset := totalWritten
 
@@ -195,7 +192,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	ff.Seek(16, io.SeekStart)
-	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
+	binary.LittleEndian.PutUint64(buf, uint64(keysStartOffset))
 	if _, err := ff.Write(buf); err != nil {
 		return nil, nil, err
 	}

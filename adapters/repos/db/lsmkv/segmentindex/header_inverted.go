@@ -19,12 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
-// HeaderSize describes the general offset in a segment until the data
-// starts, it is composed of 2 bytes for level, 2 bytes for version,
-// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
-// for the pointer to the index part
-
-// inverted header size is 27 bytes + 2 bytes per data field
 var (
 	SegmentInvertedDefaultHeaderSize = 27
 	SegmentInvertedDefaultBlockSize  = terms.BLOCK_SIZE
