@@ -35,7 +35,7 @@ type enforcer interface {
 	GetRolesForUser(user string, domains ...string) ([]string, error)
 	DeleteRoleForUser(user string, role string, domains ...string) (bool, error)
 	GetUsersForRole(role string, domains ...string) ([]string, error)
-	Enforce(rvals ...interface{}) (bool, error)
+	Enforce(rvals ...any) (bool, error)
 }
 
 func New(casbin enforcer, logger logrus.FieldLogger) *manager {
