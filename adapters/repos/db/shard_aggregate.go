@@ -24,7 +24,11 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 
 	// we only need the index queue for vector search
 	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.SearchVector != nil {
-		vectorIndex = s.getVectorIndex(params.TargetVector)
+		var err error
+		vectorIndex, err = s.getVectorIndex(params.TargetVector)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
