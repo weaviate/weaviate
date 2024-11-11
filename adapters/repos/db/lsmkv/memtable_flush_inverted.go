@@ -40,6 +40,8 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	tombstones := roaringset.NewBitmap()
 
 	docIdsLengths := make(map[uint64]uint32)
+	propLengthSum := uint64(0)
+	propLengthCount := uint64(0)
 
 	for i, mapNode := range flatA {
 		flat[i] = &binarySearchNodeMap{
@@ -54,6 +56,10 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				flat[i].values = append(flat[i].values, mapNode.values[j])
 				actuallyWritten++
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
+				if _, ok := docIdsLengths[docId]; !ok {
+					propLengthSum += uint64(fieldLength)
+					propLengthCount++
+				}
 				docIdsLengths[docId] = uint32(fieldLength)
 			} else {
 				tombstones.Set(docId)
@@ -154,6 +160,18 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	propLengthsOffset := totalWritten
 
 	b := new(bytes.Buffer)
+
+	binary.LittleEndian.PutUint64(buf, propLengthSum)
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+	totalWritten += 8
+
+	binary.LittleEndian.PutUint64(buf, propLengthCount)
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+	totalWritten += 8
 
 	e := gob.NewEncoder(b)
 

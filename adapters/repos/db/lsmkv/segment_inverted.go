@@ -27,6 +27,9 @@ type segmentInvertedData struct {
 
 	propertyLenghts       map[uint64]uint32
 	propertyLenghtsLoaded bool
+
+	avgPropertyLenghtsSum   uint64
+	avgPropertyLenghtsCount uint64
 }
 
 func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
@@ -64,15 +67,18 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 		return s.invertedData.propertyLenghts, nil
 	}
 
-	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
-	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
+	s.invertedData.avgPropertyLenghtsSum = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
+	s.invertedData.avgPropertyLenghtsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
+
+	// read property lengths, the first 16 bytes are the propLengthCount and sum, the 8 bytes are the size of the gob encoded map
+	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+16 : s.invertedHeader.PropertyLengthsOffset+16+8])
 
 	if propertyLenghtsSize == 0 {
 		s.invertedData.propertyLenghtsLoaded = true
 		return nil, nil
 	}
 
-	propertyLenghtsStart := s.invertedHeader.PropertyLengthsOffset + 8
+	propertyLenghtsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
 	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
 
 	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))

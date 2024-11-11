@@ -78,10 +78,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	kis, tombstones, propertyLengths, err := c.writeKeys()
+	kis, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
+
+	tombstones, propertyLengths := c.computeTombstonesAndPropLenghts()
 
 	tombstoneOffset := c.offset
 	_, err = c.writeTombstones(tombstones)
@@ -167,6 +169,13 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 	return len(tombstonesBuffer) + 8, nil
 }
 
+func (c *compactorInverted) combinePropertyLengths() (uint64, uint64) {
+	count := c.c1.segment.invertedData.avgPropertyLenghtsCount + c.c2.segment.invertedData.avgPropertyLenghtsCount
+	sum := c.c1.segment.invertedData.avgPropertyLenghtsSum + c.c2.segment.invertedData.avgPropertyLenghtsSum
+
+	return count, sum
+}
+
 func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
 	b := new(bytes.Buffer)
 
@@ -178,7 +187,19 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 		return 0, err
 	}
 
+	count, sum := c.combinePropertyLengths()
+
 	buf := make([]byte, 8)
+
+	binary.LittleEndian.PutUint64(buf, sum)
+	if _, err := c.bufw.Write(buf); err != nil {
+		return 0, err
+	}
+
+	binary.LittleEndian.PutUint64(buf, count)
+	if _, err := c.bufw.Write(buf); err != nil {
+		return 0, err
+	}
 
 	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
 	if _, err := c.bufw.Write(buf); err != nil {
@@ -188,11 +209,11 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	if _, err := c.bufw.Write(b.Bytes()); err != nil {
 		return 0, err
 	}
-	c.offset += b.Len() + 8
-	return b.Len() + 8, nil
+	c.offset += b.Len() + 8 + 8 + 8
+	return b.Len() + 8 + 8 + 8, nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[uint64]uint32, error) {
+func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -200,22 +221,22 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[
 
 	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "get tombstones")
+		return nil, errors.Wrap(err, "get tombstones")
 	}
 
 	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "get tombstones")
+		return nil, errors.Wrap(err, "get tombstones")
 	}
 
 	c.propertyLenghtsToWrite, err = c.c1.segment.GetPropertyLenghts()
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "get property lengths")
+		return nil, errors.Wrap(err, "get property lengths")
 	}
 
 	c.propertyLenghtsToClean, err = c.c2.segment.GetPropertyLenghts()
 	if err != nil {
-		return nil, nil, nil, errors.Wrap(err, "get property lengths")
+		return nil, errors.Wrap(err, "get property lengths")
 	}
 
 	// the (dummy) header was already written, this is our initial offset
@@ -239,13 +260,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[
 			mergedPairs, err := sim.
 				doKeepTombstonesReusable()
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, err
 			}
 
 			if values, skip := c.cleanupValues(mergedPairs); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key2, values)
 				if err != nil {
-					return nil, nil, nil, errors.Wrap(err, "write individual node (equal keys)")
+					return nil, errors.Wrap(err, "write individual node (equal keys)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -262,7 +283,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[
 			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key1, values)
 				if err != nil {
-					return nil, nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
+					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -273,7 +294,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[
 			// key 2 is smaller
 			ki, err := c.writeIndividualNode(c.offset, key2, value2)
 			if err != nil {
-				return nil, nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
+				return nil, errors.Wrap(err, "write individual node (key2 smaller)")
 			}
 
 			c.offset = ki.ValueEnd
@@ -282,9 +303,8 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, map[
 			key2, value2, _ = c.c2.next()
 		}
 	}
-	tombstones, propLengths := c.computeTombstonesAndPropLenghts()
 
-	return kis, tombstones, propLengths, nil
+	return kis, nil
 }
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
