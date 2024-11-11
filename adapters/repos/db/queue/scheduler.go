@@ -38,8 +38,9 @@ type Scheduler struct {
 
 	activeTasks *common.SharedGauge
 
-	wg    sync.WaitGroup
-	chans []chan Batch
+	wg        sync.WaitGroup
+	chans     []chan Batch
+	triggerCh chan struct{}
 }
 
 type SchedulerOptions struct {
@@ -71,6 +72,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
+	s.triggerCh = make(chan struct{})
 
 	return &s
 }
@@ -227,7 +229,16 @@ func (s *Scheduler) runScheduler() {
 			return
 		case <-t.C:
 			s.schedule()
+		case <-s.triggerCh:
+			s.schedule()
 		}
+	}
+}
+
+func (s *Scheduler) TriggerSchedule() {
+	select {
+	case s.triggerCh <- struct{}{}:
+	default:
 	}
 }
 
