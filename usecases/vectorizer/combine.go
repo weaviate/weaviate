@@ -11,14 +11,21 @@
 
 package vectorizer
 
-import "github.com/weaviate/weaviate/usecases/modulecomponents/types"
+import (
+	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
+)
 
 // CombineVectors combines all of the vector into sum of their parts
 func CombineVectors[T types.Vector](vectors []T) T {
-	return CombineVectorsWithWeights(vectors, nil)
+	switch any(vectors).(type) {
+	case [][]float32:
+		return any(CombineVectorsWithWeights(any(vectors).([][]float32), nil)).(T)
+	default:
+		return nil
+	}
 }
 
-func CombineVectorsWithWeights[T []float32](vectors []T, weights T) T {
+func CombineVectorsWithWeights(vectors [][]float32, weights []float32) []float32 {
 	maxVectorLength := 0
 	for i := range vectors {
 		if len(vectors[i]) > maxVectorLength {
