@@ -111,19 +111,23 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 			return nil, "", err
 		}
 
-		// remove old version
-		if oldVersion > 0 {
-			if l.remove(ctx, basePath, collection, tenant, oldVersion); err != nil {
-				return nil, "", err
-			}
-		}
-
 		// populate the cache before returning
 		if l.cache != nil {
 			if err := l.cache.AddTenant(collection, tenant, version); err != nil {
 				return nil, "", fmt.Errorf("failed populate the cache: %w", err)
 			}
 		}
+
+		// remove old version
+		if oldVersion > 0 {
+			// NOTE: Removing old version can be tricky, even though all new lookup returns new version path.
+			// There can be some clients still using old versions. We can leave without removing and delete only if eviction is needed.
+			// But still that doesn't remove above stated problem.
+			if l.remove(ctx, basePath, collection, tenant, oldVersion); err != nil {
+				return nil, "", err
+			}
+		}
+
 	}
 
 	lsmPath := path.Join(tenantPath, defaultLSMRoot)
