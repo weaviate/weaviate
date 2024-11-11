@@ -48,38 +48,37 @@ func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 	}
 }
 
-func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error) {
-	respPayload := []Response{}
+func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, []string, uint64, error) {
+	respPayload := Response{}
 
-	path := t.schemaPrefix + "/" + collection + "/tenants"
+	path := t.schemaPrefix + "/" + collection + "/tenants/" + tenant
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
 	resp, err := t.client.Get(u)
 	if err != nil {
-		return "", 0, err
+		return "", nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
-		return "", 0, err
+		return "", nil, 0, err
 	}
 
 	var rerr error
-	for _, v := range respPayload {
-		for _, e := range v.Error {
+	if respPayload.Error != nil {
+		for _, e := range respPayload.Error {
 			rerr = errors.Join(rerr, errors.New(e.Message))
 		}
-		if strings.EqualFold(v.Name, tenant) {
-			return v.Status, 0, nil
-		}
-
+	}
+	if strings.EqualFold(respPayload.Name, tenant) {
+		return respPayload.Status, respPayload.BelongsToNodes, 0, nil
 	}
 
 	if rerr != nil {
-		return "", 0, rerr
+		return "", nil, 0, rerr
 	}
 
-	return "", 0, ErrTenantNotFound
+	return "", nil, 0, ErrTenantNotFound
 }
 
 // Collection returns details about single collection from the schema.
@@ -121,9 +120,10 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 }
 
 type Response struct {
-	Error  []ErrorResponse `json:"error,omitempty"`
-	Status string          `json:"activityStatus"`
-	Name   string          `json:"name"`
+	Error          []ErrorResponse `json:"error,omitempty"`
+	BelongsToNodes []string        `json:"belongsToNodes"`
+	Status         string          `json:"activityStatus"`
+	Name           string          `json:"name"`
 }
 
 type ErrorResponse struct {

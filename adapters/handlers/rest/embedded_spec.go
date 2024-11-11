@@ -5902,6 +5902,13 @@ func init() {
         },
         {
           "properties": {
+            "belongsToNodes": {
+              "description": "The list of nodes that owns that tenant data.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "dataVersion": {
               "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
               "type": "integer",
@@ -12421,6 +12428,13 @@ func init() {
         },
         {
           "properties": {
+            "belongsToNodes": {
+              "description": "The list of nodes that owns that tenant data.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "dataVersion": {
               "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
               "type": "integer",

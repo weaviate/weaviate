@@ -38,11 +38,14 @@ import (
 const (
 	TenantOffLoadingStatus = "FROZEN"
 
+	defaultLSMRoot = "lsm"
+
 	maxQueryObjectsLimit = 10
 )
 
 var (
-	ErrInvalidTenant = errors.New("invalid tenant status")
+	ErrInvalidTenant          = errors.New("invalid tenant status")
+	ErrTenantBelongsToNoNodes = errors.New("tenant belongs to no nodes")
 
 	// Sentinel error to mark if limit is reached when iterating on objects bucket. not user facing.
 	errLimitReached = errors.New("limit reached")
@@ -61,8 +64,8 @@ type API struct {
 }
 
 type SchemaQuerier interface {
-	// TenantStatus returns (STATUS, VERSION) tuple
-	TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error)
+	// TenantStatus returns (STATUS, BELONGSTONODES, VERSION) tuple
+	TenantStatus(ctx context.Context, collection, tenant string) (string, []string, uint64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
 }
 
@@ -87,7 +90,15 @@ func NewAPI(
 
 // Search serves vector search over the offloaded tenant on object storage.
 func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
-	info, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
+	// Expectations
+	// 0. Check if tenant status == FROZEN
+	// 1. Build local path `/<datapath>/<collection>/<tenant>` from search request
+	// 2. If it doesn't exist, fetch from object store to same path as above
+	// 3. If it doesn't exist on object store, return 404
+	// 4. Once in the local disk, load the index
+	// 5. Searve the search.
+
+	info, belongsToNodes, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +107,15 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	store, localPath, err := a.lsm.Fetch(ctx, req.Collection, req.Tenant, tenantVersion)
+	// We will always pick the first node in the belongsToNodes list. We recommend not using replication if tenants are
+	// offloaded to S3 to avoid write discrepancy issues.
+	// TODO(lre): This is not ideal as it breaks HA guarantuess on ONE/QUORUM if clients are not using replication.
+	// Think of a better way to support this.
+	if len(belongsToNodes) == 0 {
+		return nil, fmt.Errorf("tenant %q belongs to no nodes, impossible to locate in s3: %w", req.Tenant, ErrTenantBelongsToNoNodes)
+	}
+
+	store, localPath, err := a.lsm.Fetch(ctx, belongsToNodes[0], req.Collection, req.Tenant, tenantVersion)
 	if err != nil {
 		return nil, err
 	}
