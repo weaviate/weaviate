@@ -20,89 +20,90 @@ import (
 
 func TestGlobMatchAuthZ(t *testing.T) {
 	// allow all
-	testGlobMatch(t, authorization.Roles()[0], ".*", true)
-	testGlobMatch(t, authorization.Collections()[0], ".*", true)
-	testGlobMatch(t, authorization.Collections("ABC")[0], ".*", true)
-	testGlobMatch(t, authorization.Shards("")[0], ".*", true)
-	testGlobMatch(t, authorization.Shards("ABC", "ABC")[0], ".*", true)
-	testGlobMatch(t, authorization.Objects("", "", ""), ".*", true)
-	testGlobMatch(t, authorization.Objects("", "Tenant1", ""), ".*", true)
+	testRegexMatch(t, authorization.Roles()[0], ".*", true)
+	testRegexMatch(t, authorization.Collections()[0], ".*", true)
+	testRegexMatch(t, authorization.Collections("ABC")[0], ".*", true)
+	testRegexMatch(t, authorization.Shards("")[0], ".*", true)
+	testRegexMatch(t, authorization.Shards("ABC", "ABC")[0], ".*", true)
+	testRegexMatch(t, authorization.Objects("", "", ""), ".*", true)
+	testRegexMatch(t, authorization.Objects("", "Tenant1", ""), ".*", true)
 
 	// class level
-	testGlobMatch(t, authorization.Collections("ABC")[0], "collections/.*", true)
-	testGlobMatch(t, authorization.Collections("ABC")[0], "collections/ABC", true)
-	testGlobMatch(t, authorization.Collections("Class2")[0], "collections/Class1", false)
+	testRegexMatch(t, authorization.Collections("ABC")[0], "collections/.*", true)
+	testRegexMatch(t, authorization.Collections("ABC")[0], "collections/ABC", true)
+	testRegexMatch(t, authorization.Collections("Class1")[0], "collections/Class1$", true)
+	testRegexMatch(t, authorization.Collections("Class2")[0], "collections/Class1$", false)
 
 	// tenants level
-	testGlobMatch(t, authorization.Shards("")[0], "collections/.*", true)
-	testGlobMatch(t, authorization.Shards("ABC", "Tenant1")[0], "collections/.*/shards/.*", true)
-	testGlobMatch(t, authorization.Shards("Class1", "Tenant1")[0], "collections/.*/shards/Tenant1*", true)
+	testRegexMatch(t, authorization.Shards("")[0], "collections/.*", true)
+	testRegexMatch(t, authorization.Shards("ABC", "Tenant1")[0], "collections/.*/shards/.*", true)
+	testRegexMatch(t, authorization.Shards("Class1", "Tenant1")[0], "collections/.*/shards/Tenant1.*", true)
 
-	testGlobMatch(t, authorization.Shards("Class1", "Tenant2")[0], "collections/.*/shards/Tenant1/.*", false)
-	testGlobMatch(t, authorization.Shards("Class1", "Tenant2")[0], "collections/Class2/shards/Tenant1/.*", false)
+	testRegexMatch(t, authorization.Shards("Class1", "Tenant2")[0], "collections/.*/shards/Tenant1/.*", false)
+	testRegexMatch(t, authorization.Shards("Class1", "Tenant2")[0], "collections/Class2/shards/Tenant1/.*", false)
 
-	testGlobMatch(t, authorization.Shards("")[0], "collections/Class1", false)
-	testGlobMatch(t, authorization.Shards("Class1", "tenant1")[0], "collections/Class1", true)
+	testRegexMatch(t, authorization.Shards("")[0], "collections/Class1", false)
+	testRegexMatch(t, authorization.Shards("Class1", "tenant1")[0], "collections/Class1", true)
 
 	// Objects level
-	testGlobMatch(t, authorization.Objects("", "", ""), "collections/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", ""), "collections/.*/shards/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", ""), "collections/.*/shards/Tenant1/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/Tenant1/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/abc", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", true)
-	testGlobMatch(t, authorization.Objects("ABCD", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", false)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abcd"), "collections/ABC/shards/Tenant1/objects/abc$", false)
+	testRegexMatch(t, authorization.Objects("", "", ""), "collections/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", ""), "collections/.*/shards/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", ""), "collections/.*/shards/Tenant1/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/Tenant1/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/abc", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", true)
+	testRegexMatch(t, authorization.Objects("ABCD", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", false)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abcd"), "collections/ABC/shards/Tenant1/objects/abc$", false)
 
 	// Regex
-	testGlobMatch(t, authorization.Collections("ABCD")[0], authorization.Collections("ABC$")[0], false)
-	testGlobMatch(t, authorization.Collections("ABC")[0], authorization.Collections("ABC*")[0], true)
-	testGlobMatch(t, authorization.Collections("ABC")[0], authorization.Collections("ABC*")[0], true)
-	testGlobMatch(t, authorization.Collections("ABCD")[0], authorization.Collections("ABC*")[0], true)
-	testGlobMatch(t, authorization.Collections("ABCD")[0], authorization.Collections(".*")[0], true)
+	testRegexMatch(t, authorization.Collections("ABCD")[0], authorization.Collections("ABC$")[0], false)
+	testRegexMatch(t, authorization.Collections("ABC")[0], authorization.Collections("ABC*")[0], true)
+	testRegexMatch(t, authorization.Collections("ABC")[0], authorization.Collections("ABC*")[0], true)
+	testRegexMatch(t, authorization.Collections("ABCD")[0], authorization.Collections("ABC*")[0], true)
+	testRegexMatch(t, authorization.Collections("ABCD")[0], authorization.Collections(".*")[0], true)
 
 	// shards read on collections level permissions
-	testGlobMatch(t, authorization.Shards("ABC")[0], authorization.Collections("ABC*/.*")[0], true)
-	testGlobMatch(t, authorization.Shards("ABC")[0], "collections/ABC*/.*", true)
+	testRegexMatch(t, authorization.Shards("ABC")[0], authorization.Collections("ABC*/.*")[0], true)
+	testRegexMatch(t, authorization.Shards("ABC")[0], "collections/ABC*/.*", true)
 
-	testGlobMatch(t, authorization.Shards("ABCD")[0], authorization.Collections("*")[0], true)
-	testGlobMatch(t, authorization.Shards("ABC")[0], authorization.Collections(".*")[0], true)
-	testGlobMatch(t, authorization.Shards("ABC", "Tenant1")[0], "collections/ABC/shards/Tenant*", true)
-	testGlobMatch(t, authorization.Shards("ABC", "NTenant1")[0], "collections/ABC/shards/Tenant*", false)
+	testRegexMatch(t, authorization.Shards("ABCD")[0], authorization.Collections("*")[0], true)
+	testRegexMatch(t, authorization.Shards("ABC")[0], authorization.Collections(".*")[0], true)
+	testRegexMatch(t, authorization.Shards("ABC", "Tenant1")[0], "collections/ABC/shards/Tenant*", true)
+	testRegexMatch(t, authorization.Shards("ABC", "NTenant1")[0], "collections/ABC/shards/Tenant*", false)
 
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", ""), authorization.Collections("ABC.*")[0], true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", ""), authorization.Collections("ABC.*")[0], true)
 
 	// Empty strings
-	testGlobMatch(t, authorization.Objects("", "", ""), "collections/.*/shards/.*/objects/.*", true)
-	testGlobMatch(t, authorization.Objects("", "", ""), "collections/ABC/shards/Tenant1/objects/abc", false)
+	testRegexMatch(t, authorization.Objects("", "", ""), "collections/.*/shards/.*/objects/.*", true)
+	testRegexMatch(t, authorization.Objects("", "", ""), "collections/ABC/shards/Tenant1/objects/abc", false)
 
 	// Wildcard matching
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/.*/objects/.*", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/Tenant1/objects/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/.*/objects/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/.*/objects/.*", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/.*/shards/Tenant1/objects/.*", true)
 
 	// Exact matching
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", true)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abcd", false)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", true)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abcd", false)
 
 	// Mixed cases
-	testGlobMatch(t, authorization.Objects("abc", "tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", false)
-	testGlobMatch(t, authorization.Objects("ABC", "Tenant1", "ABC"), "collections/ABC/shards/Tenant1/objects/abc", false)
+	testRegexMatch(t, authorization.Objects("abc", "tenant1", "abc"), "collections/ABC/shards/Tenant1/objects/abc", false)
+	testRegexMatch(t, authorization.Objects("ABC", "Tenant1", "ABC"), "collections/ABC/shards/Tenant1/objects/abc", false)
 
 	// Special characters
-	testGlobMatch(t, authorization.Objects("ABC-123", "Tenant_1", "abc.def"), "collections/ABC-123/shards/Tenant_1/objects/abc.def", true)
-	testGlobMatch(t, authorization.Objects("ABC-123", "Tenant_1", "abc.def"), "collections/ABC-123/shards/Tenant_1/objects/abc_def", false)
+	testRegexMatch(t, authorization.Objects("ABC-123", "Tenant_1", "abc.def"), "collections/ABC-123/shards/Tenant_1/objects/abc.def", true)
+	testRegexMatch(t, authorization.Objects("ABC-123", "Tenant_1", "abc.def"), "collections/ABC-123/shards/Tenant_1/objects/abc_def", false)
 }
 
-func testGlobMatch(t *testing.T, key1 string, key2 string, res bool) {
-	t.Helper()
-	myRes := casbinutil.RegexMatch(key1, key2)
-	// if err != nil {
-	// 	panic(err)
-	// }
+func TestGlobMatchAuthZUsingPermissions(t *testing.T) {
+	// TODO : after merge
+}
 
-	if myRes != res {
+func testRegexMatch(t *testing.T, key1 string, key2 string, res bool) {
+	t.Helper()
+
+	if res != casbinutil.RegexMatch(key1, key2) {
 		t.Errorf("%s < %s: %t, supposed to be %t", key1, key2, !res, res)
 	}
 }
