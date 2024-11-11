@@ -18,105 +18,140 @@ import (
 )
 
 const (
-	// HEAD: Represents the HTTP HEAD method, which is used to retrieve metadata of a resource without
-	// fetching the resource itself.
-	HEAD = "head"
-	// VALIDATE: Represents a custom action to validate a resource.
-	// This is not a standard HTTP method but can be used for specific validation operations.
-	VALIDATE = "validate"
-	// LIST: Represents a custom action to list resources.
-	// This is not a standard HTTP method but can be used to list multiple resources.
-	LIST = "list"
-	// GET: Represents the HTTP GET method, which is used to retrieve a resource.
-	GET = "get"
-	// ADD: Represents a custom action to add a resource.
-	// This is not a standard HTTP method but can be used for specific add operations.
-	ADD = "add"
-	// CREATE: Represents the HTTP POST method, which is used to create a new resource.
-	CREATE = "create"
-	// RESTORE: Represents a custom action to restore a resource.
-	// This is not a standard HTTP method but can be used for specific restore operations.
-	RESTORE = "restore"
-	// DELETE: Represents the HTTP DELETE method, which is used to delete a resource.
-	DELETE = "delete"
-	// UPDATE: Represents the HTTP PUT method, which is used to update an existing resource.
-	UPDATE = "update"
+
+	// TODO shall be added if the user can CRUD the resource on permission creation
+	// // CRUD allow all actions on a resource
+	// CRUD = "(C)|(R)|(U)|(D)"
+
+	// CREATE Represents the action to create a new resource.
+	CREATE = "C"
+	// READ Represents the action to retrieve a resource.
+	READ = "R"
+	// UPDATE Represents the action to update an existing resource.
+	UPDATE = "U"
+	// DELETE Represents the action to delete a resource.
+	DELETE = "D"
 )
 
-const (
-	// ALL_SCHEMA represents all schema-related resources.
-	ALL_SCHEMA = "schema/*"
-	// SCHEMA_TENANTS represents the schema tenants resource.
-	SCHEMA_TENANTS = "schema/tenants"
-	// SCHEMA_OBJECTS represents the schema objects resource.
-	SCHEMA_OBJECTS = "schema/objects"
-	// ALL_TRAVERSAL represents all traversal-related resources.
-	ALL_TRAVERSAL = "traversal/*"
-	// ALL_CLASSIFICATIONS represents all classification-related resources.
-	ALL_CLASSIFICATIONS = "classifications/*"
-	// NODES represents the nodes resource.
-	NODES = "nodes"
-	// CLUSTER represents the cluster resource.
-	CLUSTER = "cluster"
-	// ALL_BATCH represents all batch-related resources.
-	ALL_BATCH = "batch/*"
-	// BATCH_OBJECTS represents the batch objects resource.
-	BATCH_OBJECTS = "batch/objects"
-	// OBJECTS represents the objects resource.
-	OBJECTS = "objects"
-)
-
-// SchemaShard returns the path for a specific schema shard.
-// Parameters:
-// - class: The class name.
-// - shard: The shard name.
-// Returns: The formatted schema shard path.
-func SchemaShard(class, shard string) string {
-	if class != "" && shard != "" {
-		return fmt.Sprintf("schema/%s/shards/%s", class, shard)
-	}
-
-	return fmt.Sprintf("schema/%s/shards", class)
+// Cluster returns a string representing the cluster authorization scope.
+// The returned string is "cluster/*", which can be used to specify that
+// the authorization applies to all resources within the cluster.
+func Cluster() string {
+	return "cluster/*"
 }
 
-// Objects returns the path for a specific object or class.
+// Roles generates a list of role resource strings based on the provided role names.
+// If no role names are provided, it returns a default role resource string "roles/*".
+//
 // Parameters:
-// - class: The class name (optional).
-// - id: The object ID (optional).
-// Returns: The formatted objects path.
-func Objects(class string, id strfmt.UUID) string {
-	if class != "" && id != "" {
-		return fmt.Sprintf("objects/%s/%s", class, id.String())
+//
+//	roles - A variadic parameter representing the role names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted role resource string.
+func Roles(roles ...string) []string {
+	if len(roles) == 0 {
+		return []string{
+			"roles/*",
+		}
 	}
 
-	if id != "" {
-		return fmt.Sprintf("objects/%s", id.String())
+	resources := make([]string, len(roles))
+	for idx := range roles {
+		resources[idx] = fmt.Sprintf("roles/%s", roles[idx])
 	}
 
-	if class != "" {
-		return fmt.Sprintf("objects/%s", class)
-	}
-
-	return OBJECTS
+	return resources
 }
 
-// Backup returns the path for a specific backup.
+// Collections generates a list of resource strings for the given classes.
+// If no classes are provided, it returns a default resource string "collections/*".
+// Each class is formatted as "collection/{class}".
+//
 // Parameters:
-// - backend: The backup backend name.
-// - id: The backup ID (optional).
-// Returns: The formatted backup path.
-func Backup(backend, id string) string {
-	if id == "" {
-		return fmt.Sprintf("backups/%s", backend)
+//
+//	classes - a variadic parameter representing the class names.
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths.
+func Collections(classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && classes[0] == "") {
+		return []string{"collections/*"}
 	}
-	return fmt.Sprintf("backups/%s/%s", backend, id)
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		resources[idx] = fmt.Sprintf("collections/%s", classes[idx])
+	}
+
+	return resources
 }
 
-// Restore returns the path for restoring a specific backup.
+// Shards generates a list of shard resource strings for a given class and shards.
+// If the class is an empty string, it defaults to "*". If no shards are provided,
+// it returns a single resource string with a wildcard for shards. If shards are
+// provided, it returns a list of resource strings for each shard.
+//
 // Parameters:
-// - backend: The backup backend name.
-// - id: The backup ID.
-// Returns: The formatted restore path.
-func Restore(backend, id string) string {
-	return fmt.Sprintf("backups/%s/%s/restore", backend, id)
+//   - class: The class name for the resource. If empty, defaults to "*".
+//   - shards: A variadic list of shard names. If empty, a wildcard is used.
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths for the given class and shards.
+func Shards(class string, shards ...string) []string {
+	if class == "" {
+		class = "*"
+	}
+
+	if len(shards) == 0 {
+		return []string{fmt.Sprintf("collection/%s/shards/*", class)}
+	}
+
+	resources := make([]string, len(shards))
+	for idx := range shards {
+		if shards[idx] == "" {
+			resources[idx] = fmt.Sprintf("collection/%s/shards/*", class)
+		} else {
+			resources[idx] = fmt.Sprintf("collection/%s/shards/%s", class, shards[idx])
+		}
+	}
+
+	return resources
+}
+
+// Objects generates a string representing a path to objects within a collection and shard.
+// The path format varies based on the provided class, shard, and id parameters.
+//
+// Parameters:
+// - class: the class of the collection (string)
+// - shard: the shard identifier (string)
+// - id: the unique identifier of the object (strfmt.UUID)
+//
+// Returns:
+// - A string representing the path to the objects, with wildcards (*) used for any empty parameters.
+//
+// Example outputs:
+// - "collections/*/shards/*/objects/*" if all parameters are empty
+// - "collections/*/shards/*/objects/{id}" if only id is provided
+// - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
+func Objects(class, shard string, id strfmt.UUID) string {
+	if class == "" && shard == "" && id == "" {
+		return "collections/*/shards/*/objects/*"
+	} else if class == "" && shard == "" {
+		return fmt.Sprintf("collections/*/shards/*/objects/%s", id)
+	} else if class == "" && id == "" {
+		return fmt.Sprintf("collections/*/shards/%s/objects/*", shard)
+	} else if shard == "" && id == "" {
+		return fmt.Sprintf("collections/%s/shards/*/objects/*", class)
+	} else if class == "" {
+		return fmt.Sprintf("collections/*/shards/%s/objects/%s", shard, id)
+	} else if shard == "" {
+		return fmt.Sprintf("collections/%s/shards/*/objects/%s", class, id)
+	} else if id == "" {
+		return fmt.Sprintf("collections/%s/shards/%s/objects/*", class, shard)
+	}
+	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
 }

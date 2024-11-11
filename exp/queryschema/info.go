@@ -48,7 +48,7 @@ func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 	}
 }
 
-func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, error) {
+func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error) {
 	respPayload := []Response{}
 
 	path := t.schemaPrefix + "/" + collection + "/tenants"
@@ -56,12 +56,12 @@ func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string
 
 	resp, err := t.client.Get(u)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 
 	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	var rerr error
@@ -70,16 +70,16 @@ func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string
 			rerr = errors.Join(rerr, errors.New(e.Message))
 		}
 		if strings.EqualFold(v.Name, tenant) {
-			return v.Status, nil
+			return v.Status, 0, nil
 		}
 
 	}
 
 	if rerr != nil {
-		return "", rerr
+		return "", 0, rerr
 	}
 
-	return "", ErrTenantNotFound
+	return "", 0, ErrTenantNotFound
 }
 
 // Collection returns details about single collection from the schema.
@@ -95,6 +95,23 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode/100 != 2 {
+		var (
+			rerr  error
+			eresp Response
+		)
+		if err := json.NewDecoder(resp.Body).Decode(&eresp); err != nil {
+			return nil, err
+		}
+		if len(eresp.Error) == 0 {
+			return nil, errors.New("status code is non-200 but error is not set")
+		}
+		for _, e := range eresp.Error {
+			rerr = errors.Join(rerr, errors.New(e.Message))
+		}
+		return nil, rerr
+	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&classResp); err != nil {
 		return nil, err

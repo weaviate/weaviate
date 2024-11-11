@@ -29,7 +29,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.NoError(t, err)
 		assert.Equal(t, status, "FROZEN")
 	})
@@ -42,7 +42,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
 		require.Empty(t, status)
 	})
@@ -55,7 +55,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorContains(t, err, "some important error")
 		require.Empty(t, status)
 	})
@@ -68,7 +68,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
 		require.Empty(t, status)
 	})
