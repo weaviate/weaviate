@@ -84,8 +84,12 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 	}
 
 	_, err := os.Stat(tc.AbsolutePath())
-	if errors.Is(err, os.ErrNotExist) {
+	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return errors.Join(ErrTenantDirectoryFound, err)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get local path of the tenant: %w", err)
 	}
 
 	c := d.evictList.PushFront(tc)
