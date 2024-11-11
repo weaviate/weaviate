@@ -731,6 +731,10 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
+				if tt.asyncIndexing {
+					time.Sleep(1 * time.Second)
+				}
+
 				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
 				require.Nil(t, err)
 				require.Equal(t, res[0].ID, obj.ID)
@@ -746,6 +750,10 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+				if tt.asyncIndexing {
+					time.Sleep(1 * time.Second)
+				}
 
 				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[2]})
 				require.Nil(t, err)
@@ -764,6 +772,10 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
+				if tt.asyncIndexing {
+					time.Sleep(1 * time.Second)
+				}
+
 				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
 				require.Nil(t, err)
 				require.Len(t, res, 0) // no results because we are searching for target custom3 which the only object does not have
@@ -781,6 +793,10 @@ func TestDistributedVectorDistance(t *testing.T) {
 					}
 					ids[i] = obj.ID
 					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+				}
+
+				if tt.asyncIndexing {
+					time.Sleep(1 * time.Second)
 				}
 
 				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})

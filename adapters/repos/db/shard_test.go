@@ -231,7 +231,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -292,7 +292,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -368,7 +368,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 func TestShard_RepairIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
 		name           string

@@ -115,7 +115,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
 	if opt.StaleTimeout <= 0 {
-		d, err := time.ParseDuration(os.Getenv("ASYNC_STALE_TIMEOUT"))
+		d, err := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 		if err == nil {
 			opt.StaleTimeout = d
 		} else {
