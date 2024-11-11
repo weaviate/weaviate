@@ -439,6 +439,6 @@ func (f *fakeBackupBackend) reset() {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _, _ string) error {
+func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
