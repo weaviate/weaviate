@@ -115,7 +115,7 @@ func Test_policy(t *testing.T) {
 			name:       "all collections",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: pCollection("*"),
+				resource: pCollections("*"),
 				domain:   "collections",
 			},
 			tests: collectionsTests,
@@ -126,7 +126,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &Policy{
-				resource: pCollection("foo"),
+				resource: pCollections("foo"),
 				domain:   "collections",
 			},
 			tests: collectionsTests,

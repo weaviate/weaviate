@@ -111,7 +111,15 @@ func newPolicy(policy []string) *Policy {
 	}
 }
 
-func pCollection(collection string) string {
+func pRoles(role string) string {
+	if role == "" {
+		role = "*"
+	}
+	role = strings.ReplaceAll(role, "*", ".*")
+	return fmt.Sprintf("roles/%s", role)
+}
+
+func pCollections(collection string) string {
 	if collection == "" {
 		collection = "*"
 	}
@@ -177,7 +185,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Collection != nil {
 			collection = *permission.Collection
 		}
-		resource = pCollection(collection)
+		resource = pCollections(collection)
 	case tenants:
 		collection := "*"
 		tenant := "*"
