@@ -110,6 +110,10 @@ func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
 }
 
+func (db *DB) GetScheduler() *queue.Scheduler {
+	return db.scheduler
+}
+
 func (db *DB) WaitForStartup(ctx context.Context) error {
 	err := db.init(ctx)
 	if err != nil {

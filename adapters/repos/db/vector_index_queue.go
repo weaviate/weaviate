@@ -16,8 +16,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -59,15 +61,18 @@ func NewVectorIndexQueue(
 		WithField("shard_id", shard.ID()).
 		WithField("target_vector", targetVector)
 
+	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
+
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
-			ID:        fmt.Sprintf("vector_index_queue_%s", shard.vectorIndexID(targetVector)),
+			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), shard.vectorIndexID(targetVector)),
 			Logger:    logger,
 			Scheduler: shard.scheduler,
 			Dir:       filepath.Join(shard.path(), fmt.Sprintf("%s.queue.d", shard.vectorIndexID(targetVector))),
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},
+			StaleTimeout: staleTimeout,
 		},
 	)
 	if err != nil {

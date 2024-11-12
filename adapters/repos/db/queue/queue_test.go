@@ -103,7 +103,7 @@ func TestQueueDecodeTask(t *testing.T) {
 
 	t.Run("a few tasks", func(t *testing.T) {
 		exec := discardExecutor()
-		q := makeQueueSize(t, s, exec, 30)
+		q := makeQueueSize(t, s, exec, 50)
 
 		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
 
@@ -140,7 +140,7 @@ func TestQueueDecodeTask(t *testing.T) {
 
 	t.Run("many tasks", func(t *testing.T) {
 		exec := discardExecutor()
-		q := makeQueueSize(t, s, exec, 650)
+		q := makeQueueSize(t, s, exec, 660)
 		q.Pause()
 
 		// encode 120 records
@@ -213,7 +213,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.EqualValues(t, 120, size)
 
 		// promote the partial file
-		err = q.promoteChunk()
+		err = q.w.Promote()
 		require.NoError(t, err)
 
 		// check the number of files
@@ -233,7 +233,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.EqualValues(t, 120, size)
 
 		// promote again, no-op
-		err = q.promoteChunk()
+		err = q.w.Promote()
 		require.NoError(t, err)
 	})
 }

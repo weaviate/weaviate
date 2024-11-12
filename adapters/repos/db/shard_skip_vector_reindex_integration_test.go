@@ -542,7 +542,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -577,7 +577,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -614,7 +614,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -654,7 +654,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -689,7 +689,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -726,7 +726,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().TriggerSchedule()
+				shard.Queue().Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
 				shard.Queue().Wait()
 			})
@@ -1012,7 +1012,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1042,7 +1042,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1092,7 +1092,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1136,7 +1136,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1178,7 +1178,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1221,7 +1221,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})
@@ -1267,7 +1267,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().TriggerSchedule()
+					shard.Queue().Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
 					shard.Queue().Wait()
 				})

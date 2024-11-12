@@ -40,7 +40,7 @@ type Scheduler struct {
 
 	wg        sync.WaitGroup
 	chans     []chan Batch
-	triggerCh chan struct{}
+	triggerCh chan chan struct{}
 }
 
 type SchedulerOptions struct {
@@ -72,7 +72,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
-	s.triggerCh = make(chan struct{})
+	s.triggerCh = make(chan chan struct{})
 
 	return &s
 }
@@ -211,6 +211,10 @@ func (s *Scheduler) Wait(id string) {
 	q.activeTasks.Wait()
 }
 
+func (s *Scheduler) WaitAll() {
+	s.activeTasks.Wait()
+}
+
 func (s *Scheduler) getQueue(id string) *queueState {
 	s.queues.Lock()
 	defer s.queues.Unlock()
@@ -229,15 +233,22 @@ func (s *Scheduler) runScheduler() {
 			return
 		case <-t.C:
 			s.schedule()
-		case <-s.triggerCh:
-			s.schedule()
+		case ch := <-s.triggerCh:
+			s.scheduleQueues()
+			close(ch)
 		}
 	}
 }
 
-func (s *Scheduler) TriggerSchedule() {
+// Manually schedule the queues.
+func (s *Scheduler) Schedule(ctx context.Context) {
+	ch := make(chan struct{})
 	select {
-	case s.triggerCh <- struct{}{}:
+	case s.triggerCh <- ch:
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
 	default:
 	}
 }

@@ -115,7 +115,7 @@ func TestScheduler(t *testing.T) {
 		ch, e := streamExecutor()
 		q := makeQueue(t, s, e)
 		// override chunk size for testing
-		q.chunkSize = 9000
+		q.w.maxSize = 9000
 
 		// consume the channel in a separate goroutine
 		var res []uint64
@@ -170,7 +170,7 @@ func TestScheduler(t *testing.T) {
 		q.staleTimeout = 1 * time.Second
 
 		// override chunk size for testing
-		q.chunkSize = 90
+		q.w.maxSize = 90
 
 		var batch []uint64
 		for i := 0; i < 11; i++ {
