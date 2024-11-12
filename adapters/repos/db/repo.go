@@ -189,6 +189,7 @@ type Config struct {
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
+	HNSWFlatSearchConcurrency      int
 	VisitedListPoolMaxSize         int
 	TrackVectorDimensions          bool
 	ServerVersion                  string
