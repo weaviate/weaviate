@@ -11,7 +11,11 @@
 
 package modulecomponents
 
-import "time"
+import (
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
+)
 
 type RateLimits struct {
 	LastOverwrite        time.Time
@@ -74,7 +78,7 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult[T []float32 | [][]float32] struct {
+type VectorizationResult[T types.Vector] struct {
 	Text       []string
 	Dimensions int
 	Vector     []T
