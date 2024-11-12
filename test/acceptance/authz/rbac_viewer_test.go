@@ -1,0 +1,101 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package test
+
+import (
+	"bytes"
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/go-openapi/strfmt"
+
+	"github.com/stretchr/testify/require"
+)
+
+const UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
+
+func TestViewerEndpointsSchema(t *testing.T) {
+	endpoints := []struct {
+		endpoint string
+		methods  []string
+		success  []bool
+		arrayReq bool
+		body     map[string][]byte
+	}{
+		{endpoint: "/schema", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "/schema/RandomClass", methods: []string{"GET", "PUT", "DELETE"}, success: []bool{true, false, false}, arrayReq: false},
+		{endpoint: "/schema/RandomClass/properties", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "/schema/RandomClass/shards", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/schema/RandomClass/shards/name", methods: []string{"PUT"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "/schema/RandomClass/tenants", methods: []string{"GET", "POST", "PUT", "DELETE"}, success: []bool{true, false, false, false}, arrayReq: true},
+		{endpoint: "/schema/RandomClass/tenants/name", methods: []string{"HEAD"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "/objects/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
+	}
+
+	for _, endpoint := range endpoints {
+		if len(endpoint.methods) != len(endpoint.success) {
+			t.Fatalf("expected %d methods and success, got %d", len(endpoint.methods), len(endpoint.success))
+		}
+		for i, method := range endpoint.methods {
+			t.Run(endpoint.endpoint+method, func(t *testing.T) {
+				var req *http.Request
+				var err error
+				if method == "POST" || method == "PUT" || method == "PATCH" {
+					var body []byte
+					if bodyC, ok := endpoint.body[method]; ok {
+						body = bodyC
+					} else {
+						if endpoint.arrayReq {
+							body = []byte(`[]`)
+						} else {
+							body = []byte(`{}`)
+						}
+					}
+
+					reqBody := bytes.NewBuffer(body)
+					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, reqBody)
+					require.Nil(t, err)
+					req.Header.Set("Content-Type", "application/json")
+				} else if method == "DELETE" {
+					reqBody := strings.NewReader("[\n  \"\"\n]")
+					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, reqBody)
+					require.Nil(t, err)
+					req.Header.Set("Content-Type", "application/json")
+
+				} else {
+					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, nil)
+					require.Nil(t, err)
+				}
+
+				// Set the Authorization header with the viewer-key
+				req.Header.Set("Authorization", "Bearer viewer-key")
+
+				// Perform the request
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("request to %s failed: %v", endpoint.endpoint, err)
+				}
+				defer resp.Body.Close()
+
+				// Check if the response succeeded or failed as expected
+				if endpoint.success[i] && resp.StatusCode == 403 {
+					t.Errorf("expected success for %s %s, but got status %d", method, endpoint.endpoint, resp.StatusCode)
+				} else if !endpoint.success[i] && resp.StatusCode != 403 {
+					t.Errorf("expected failure for %s %s, but got status %d", method, endpoint.endpoint, resp.StatusCode)
+				}
+			})
+		}
+	}
+}
