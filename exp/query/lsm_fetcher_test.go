@@ -196,7 +196,6 @@ func newMockDownloader(t *testing.T) *mockDownloader {
 func (m *mockDownloader) DownloadToPath(ctx context.Context, collection, tenant, nodeName, path string) error {
 	createTempFileWithSize(m.t, path, "mock-lsm-downloader", fixedSize)
 	m.count++
-	fmt.Println("download from source", m.t.Name())
 	return nil
 }
 
