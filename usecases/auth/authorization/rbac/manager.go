@@ -17,7 +17,6 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -78,7 +77,7 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 				return nil, err
 			}
 			if len(polices) == 0 {
-				return nil, fmt.Errorf("%w: %s", authorization.ErrRoleNotFound, name)
+				continue
 			}
 			for _, policy := range polices {
 				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))

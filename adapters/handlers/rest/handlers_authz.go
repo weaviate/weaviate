@@ -97,10 +97,10 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
-		if errors.Is(err, authorization.ErrRoleNotFound) {
-			return authz.NewGetRoleNotFound()
-		}
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+	if len(roles) == 0 {
+		return authz.NewGetRoleNotFound()
 	}
 	if len(roles) != 1 {
 		err := fmt.Errorf("expected one role but got %d", len(roles))
