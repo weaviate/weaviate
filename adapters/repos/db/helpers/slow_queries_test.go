@@ -12,6 +12,7 @@
 package helpers
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -58,11 +59,12 @@ func TestBaseSlowReporter_LogIfSlow(t *testing.T) {
 			logger, hook := test.NewNullLogger()
 			logger.Error("Helloerror")
 			sq := NewSlowQueryReporter(tt.threshold, logger)
+			ctx := context.Background()
 
 			startTime := time.Now().Add(-time.Duration(tt.latencyMs) * time.Millisecond)
 
 			// Call method
-			sq.LogIfSlow(startTime, tt.fields)
+			sq.LogIfSlow(ctx, startTime, tt.fields)
 
 			// Assertions
 			if tt.expectLog {
