@@ -91,7 +91,10 @@ func Collections(classes ...string) []string {
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
-		resources[idx] = fmt.Sprintf("collections/%s", classes[idx])
+		if classes[idx] == "" {
+			classes[idx] = "*"
+		}
+		resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
 	}
 
 	return resources
@@ -115,16 +118,15 @@ func Shards(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("collections/%s/shards/*", class)}
+		return []string{fmt.Sprintf("collections/%s/shards/*/*", class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/*", class)
-		} else {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/%s", class, shards[idx])
+			shards[idx] = "*"
 		}
+		resources[idx] = fmt.Sprintf("collections/%s/shards/%s/*", class, shards[idx])
 	}
 
 	return resources
@@ -155,5 +157,5 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if id == "" {
 		id = "*"
 	}
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
+	return fmt.Sprintf("collections/%s/shards/%s/objects/%s/*", class, shard, id)
 }

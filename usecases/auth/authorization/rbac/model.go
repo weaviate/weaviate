@@ -41,7 +41,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && regexMatch(r.obj, p.obj) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && keyMatch5(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 )
 
@@ -103,11 +103,12 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 	}
 
 	// docs: https://casbin.org/docs/function/
+	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	// add pre existing roles
 	for name, verbs := range builtInRoles {
-		if _, err := enforcer.AddNamedPolicy("p", name, "**", verbs, "*"); err != nil {
+		if _, err := enforcer.AddNamedPolicy("p", name, ".*", verbs, "*"); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
 	}
