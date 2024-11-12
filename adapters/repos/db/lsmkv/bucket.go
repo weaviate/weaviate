@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -1445,7 +1446,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, ctx context.Context) ([][]terms.TermInterface, error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -1479,7 +1480,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	for j, segment := range segmentsDisk {
 		output[j] = make([]terms.TermInterface, len(query))
 		for i, key := range query {
-			output[j][i] = NewSegmentBlockMax(segment, []byte(key), i, idfs[i])
+			output[j][i] = NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], averagePropLength, config)
 		}
 	}
 	return output, nil

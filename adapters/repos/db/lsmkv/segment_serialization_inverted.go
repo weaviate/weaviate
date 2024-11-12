@@ -95,7 +95,7 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 	blockMetadata := make([]*terms.BlockEntry, blockCount)
 	blockDataEncoded := make([]*terms.BlockData, blockCount)
 
-	offset := uint64(0)
+	offset := uint32(0)
 
 	for i := 0; i < blockCount; i++ {
 		start := i * terms.BLOCK_SIZE
@@ -104,6 +104,8 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 			end = len(values)
 		}
 		maxImpact := float32(0)
+		MaxImpactTf := uint32(0)
+		MaxImpactPropLength := uint32(0)
 
 		for j := start; j < end; j++ {
 			tf := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4]))
@@ -112,6 +114,8 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 
 			if impact > maxImpact {
 				maxImpact = impact
+				MaxImpactTf = uint32(tf)
+				MaxImpactPropLength = uint32(pl)
 			}
 		}
 
@@ -119,12 +123,13 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 		blockDataEncoded[i] = encodeBlock(values[start:end])
 
 		blockMetadata[i] = &terms.BlockEntry{
-			MaxId:     maxId,
-			Offset:    offset,
-			MaxImpact: maxImpact,
+			MaxId:               maxId,
+			Offset:              offset,
+			MaxImpactTf:         MaxImpactTf,
+			MaxImpactPropLength: MaxImpactPropLength,
 		}
 
-		offset += uint64(blockDataEncoded[i].Size())
+		offset += uint32(blockDataEncoded[i].Size())
 	}
 
 	return blockMetadata, blockDataEncoded, tombstones

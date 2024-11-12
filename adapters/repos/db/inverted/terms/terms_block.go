@@ -13,7 +13,6 @@ package terms
 
 import (
 	"encoding/binary"
-	"math"
 )
 
 var (
@@ -22,9 +21,10 @@ var (
 )
 
 type BlockEntry struct {
-	Offset    uint64
-	MaxId     uint64
-	MaxImpact float32
+	MaxId               uint64
+	Offset              uint32
+	MaxImpactTf         uint32
+	MaxImpactPropLength uint32
 }
 
 func (b *BlockEntry) Size() int {
@@ -34,16 +34,18 @@ func (b *BlockEntry) Size() int {
 func (b *BlockEntry) Encode() []byte {
 	out := make([]byte, 20)
 	binary.LittleEndian.PutUint64(out, b.MaxId)
-	binary.LittleEndian.PutUint64(out[8:], b.Offset)
-	binary.LittleEndian.PutUint32(out[16:], math.Float32bits(b.MaxImpact))
+	binary.LittleEndian.PutUint32(out[8:], b.Offset)
+	binary.LittleEndian.PutUint32(out[12:], b.MaxImpactTf)
+	binary.LittleEndian.PutUint32(out[16:], b.MaxImpactPropLength)
 	return out
 }
 
 func DecodeBlockEntry(data []byte) *BlockEntry {
 	return &BlockEntry{
-		MaxId:     binary.LittleEndian.Uint64(data),
-		Offset:    binary.LittleEndian.Uint64(data[8:]),
-		MaxImpact: math.Float32frombits(binary.LittleEndian.Uint32(data[16:])),
+		MaxId:               binary.LittleEndian.Uint64(data),
+		Offset:              binary.LittleEndian.Uint32(data[8:]),
+		MaxImpactTf:         binary.LittleEndian.Uint32(data[12:]),
+		MaxImpactPropLength: binary.LittleEndian.Uint32(data[16:]),
 	}
 }
 
