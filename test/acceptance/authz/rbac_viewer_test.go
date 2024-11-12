@@ -53,6 +53,12 @@ func TestViewerEndpoints(t *testing.T) {
 		{endpoint: "/backups/backend", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "/backups/backend/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "/backups/backend/id/restore", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "/meta", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/cluster/statistics", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/nodes", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/graphql", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/classifications", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "/classifications/id", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 	}
 
 	for _, endpoint := range endpoints {
