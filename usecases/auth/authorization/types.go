@@ -146,20 +146,14 @@ func Shards(class string, shards ...string) []string {
 // - "collections/*/shards/*/objects/{id}" if only id is provided
 // - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
 func Objects(class, shard string, id strfmt.UUID) string {
-	if class == "" && shard == "" && id == "" {
-		return "collections/*/shards/*/objects/*"
-	} else if class == "" && shard == "" {
-		return fmt.Sprintf("collections/*/shards/*/objects/%s", id)
-	} else if class == "" && id == "" {
-		return fmt.Sprintf("collections/*/shards/%s/objects/*", shard)
-	} else if shard == "" && id == "" {
-		return fmt.Sprintf("collections/%s/shards/*/objects/*", class)
-	} else if class == "" {
-		return fmt.Sprintf("collections/*/shards/%s/objects/%s", shard, id)
-	} else if shard == "" {
-		return fmt.Sprintf("collections/%s/shards/*/objects/%s", class, id)
-	} else if id == "" {
-		return fmt.Sprintf("collections/%s/shards/%s/objects/*", class, shard)
+	if class == "" {
+		class = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	if id == "" {
+		id = "*"
 	}
 	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
 }

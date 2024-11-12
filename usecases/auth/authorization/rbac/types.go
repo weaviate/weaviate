@@ -21,11 +21,12 @@ import (
 )
 
 const (
-	rolesD      = "roles"
-	cluster     = "cluster"
-	collections = "collections"
-	tenants     = "tenants"
-	objects     = "objects"
+	rolesD             = "roles"
+	cluster            = "cluster"
+	collections        = "collections"
+	tenants            = "tenants"
+	objects_collection = "objects_collection"
+	objects_tenant     = "objects_tenant"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -44,6 +45,16 @@ const (
 	readTenants   = "read_tenants"
 	updateTenants = "update_tenants"
 	deleteTenants = "delete_tenants"
+
+	createObjectsCollection = "create_objects_collection"
+	readObjectsCollection   = "read_objects_collection"
+	updateObjectsCollection = "update_objects_collection"
+	deleteObjectsCollection = "delete_objects_collection"
+
+	createObjectsTenant = "create_objects_tenant"
+	readObjectsTenant   = "read_objects_tenant"
+	updateObjectsTenant = "update_objects_tenant"
+	deleteObjectsTenant = "delete_objects_tenant"
 )
 
 var builtInRoles = map[string]string{
@@ -69,7 +80,7 @@ func newPolicy(policy []string) *Policy {
 func policy(permission *models.Permission) *Policy {
 	var resource, verb, domain string
 	// TODO verify slice position to avoid panics
-	domain = strings.Split(*permission.Action, "_")[1]
+	_, domain, _ = strings.Cut(*permission.Action, "_")
 	verb = strings.ToUpper(string(string(*permission.Action)[0]))
 	if verb == "M" {
 		verb = authorization.CRUD
@@ -77,39 +88,53 @@ func policy(permission *models.Permission) *Policy {
 
 	switch domain {
 	case rolesD:
-		if permission.Role == nil {
-			resource = authorization.Roles()[0]
-		} else {
-			resource = authorization.Roles(*permission.Role)[0]
+		role := "*"
+		if permission.Role != nil {
+			role = *permission.Role
 		}
+		resource = authorization.Roles(role)[0]
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
-		if permission.Collection == nil {
-			resource = authorization.Collections("*")[0]
-		} else {
-			resource = authorization.Collections(*permission.Collection)[0]
+		collection := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
 		}
+		resource = authorization.Collections(collection)[0]
 	case tenants:
-		if permission.Collection == nil && permission.Tenant == nil {
-			resource = authorization.Shards("*", "*")[0]
-		} else if permission.Collection != nil && permission.Tenant == nil {
-			resource = authorization.Shards(*permission.Collection, "*")[0]
-		} else if permission.Collection == nil && permission.Tenant != nil {
-			resource = authorization.Shards("*", *permission.Tenant)[0]
-		} else {
-			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
+		collection := "*"
+		tenant := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
 		}
-	case objects:
-		if permission.Collection == nil && permission.Tenant == nil && permission.Object == nil {
-			resource = authorization.Objects("*", "*", "*")
-		} else if permission.Collection != nil && permission.Tenant == nil && permission.Object == nil {
-			resource = authorization.Objects(*permission.Collection, "*", "*")
-		} else if permission.Collection != nil && permission.Tenant != nil && permission.Object == nil {
-			resource = authorization.Objects(*permission.Collection, *permission.Tenant, "*")
-		} else {
-			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
+		if permission.Tenant != nil {
+			tenant = *permission.Tenant
 		}
+		resource = authorization.Shards(collection, tenant)[0]
+	case objects_collection:
+		collection := "*"
+		object := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		if permission.Object != nil {
+			object = *permission.Object
+		}
+		resource = authorization.Objects(collection, "*", strfmt.UUID(object))
+	case objects_tenant:
+		collection := "*"
+		tenant := "*"
+		object := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		if permission.Tenant != nil {
+			tenant = *permission.Tenant
+		}
+		if permission.Object != nil {
+			object = *permission.Object
+		}
+		resource = authorization.Objects(collection, tenant, strfmt.UUID(object))
 	}
 	return &Policy{
 		resource: resource,
@@ -136,7 +161,7 @@ func permission(policy []string) *models.Permission {
 	case tenants:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
-	case objects:
+	case objects_collection, objects_tenant:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]

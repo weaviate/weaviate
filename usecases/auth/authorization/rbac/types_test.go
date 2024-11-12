@@ -12,10 +12,67 @@
 package rbac
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+)
+
+type innerTest struct {
+	permissionAction string
+	testDescription  string
+	policyVerb       string
+}
+
+var (
+	foo = String("foo")
+	bar = String("bar")
+	baz = String("baz")
+	all = String("*")
+
+	createDesc = "create"
+	readDesc   = "read"
+	updateDesc = "update"
+	deleteDesc = "delete"
+	manageDesc = "manage"
+
+	createVerb = "C"
+	readVerb   = "R"
+	updateVerb = "U"
+	deleteVerb = "D"
+	manageVerb = "(C)|(R)|(U)|(D)"
+
+	rolesTests = []innerTest{
+		{permissionAction: manageRoles, testDescription: manageDesc, policyVerb: manageVerb},
+	}
+	clusterTests = []innerTest{
+		{permissionAction: manageCluster, testDescription: manageDesc, policyVerb: manageVerb},
+	}
+	collectionsTests = []innerTest{
+		{permissionAction: createCollections, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: readCollections, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: updateCollections, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: deleteCollections, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
+	tenantsTests = []innerTest{
+		{permissionAction: createTenants, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: readTenants, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: updateTenants, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: deleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
+	objectsCollectionTests = []innerTest{
+		{permissionAction: createObjectsCollection, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: readObjectsCollection, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: updateObjectsCollection, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: deleteObjectsCollection, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
+	objectsTenantTests = []innerTest{
+		{permissionAction: createObjectsTenant, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: readObjectsTenant, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: updateObjectsTenant, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: deleteObjectsTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
 )
 
 func Test_policy(t *testing.T) {
@@ -23,331 +80,235 @@ func Test_policy(t *testing.T) {
 		name       string
 		permission *models.Permission
 		policy     *Policy
+		tests      []innerTest
 	}{
 		{
-			name: "manage all roles",
-			permission: &models.Permission{
-				Action: String(manageRoles),
-			},
+			name:       "all roles",
+			permission: &models.Permission{},
 			policy: &Policy{
 				resource: "roles/*",
-				verb:     "(C)|(R)|(U)|(D)",
 				domain:   "roles",
 			},
+			tests: rolesTests,
 		},
 		{
-			name: "manage a role",
+			name: "a role",
 			permission: &models.Permission{
-				Action: String(manageRoles),
-				Role:   String("admin"),
+				Role: String("admin"),
 			},
 			policy: &Policy{
 				resource: "roles/admin",
-				verb:     "(C)|(R)|(U)|(D)",
 				domain:   "roles",
 			},
+			tests: rolesTests,
 		},
 		{
-			name: "manage cluster",
-			permission: &models.Permission{
-				Action: String(manageCluster),
-			},
+			name:       "manage cluster",
+			permission: &models.Permission{},
 			policy: &Policy{
 				resource: "cluster/*",
-				verb:     "(C)|(R)|(U)|(D)",
 				domain:   "cluster",
 			},
+			tests: clusterTests,
 		},
 		{
-			name: "create all collections",
-			permission: &models.Permission{
-				Action: String(createCollections),
-			},
+			name:       "all collections",
+			permission: &models.Permission{},
 			policy: &Policy{
 				resource: "collections/*",
-				verb:     "C",
 				domain:   "collections",
 			},
+			tests: collectionsTests,
 		},
 		{
-			name: "create a collection",
+			name: "a collection",
 			permission: &models.Permission{
-				Action:     String(createCollections),
-				Collection: String("foo"),
+				Collection: foo,
 			},
 			policy: &Policy{
 				resource: "collections/foo",
-				verb:     "C",
 				domain:   "collections",
 			},
+			tests: collectionsTests,
 		},
 		{
-			name: "read all collections",
-			permission: &models.Permission{
-				Action: String(readCollections),
-			},
-			policy: &Policy{
-				resource: "collections/*",
-				verb:     "R",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "read a collection",
-			permission: &models.Permission{
-				Action:     String(readCollections),
-				Collection: String("foo"),
-			},
-			policy: &Policy{
-				resource: "collections/foo",
-				verb:     "R",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "update all collections",
-			permission: &models.Permission{
-				Action: String(updateCollections),
-			},
-			policy: &Policy{
-				resource: "collections/*",
-				verb:     "U",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "update a collection",
-			permission: &models.Permission{
-				Action:     String(updateCollections),
-				Collection: String("foo"),
-			},
-			policy: &Policy{
-				resource: "collections/foo",
-				verb:     "U",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "delete all collections",
-			permission: &models.Permission{
-				Action: String(deleteCollections),
-			},
-			policy: &Policy{
-				resource: "collections/*",
-				verb:     "D",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "delete a collection",
-			permission: &models.Permission{
-				Action:     String(deleteCollections),
-				Collection: String("foo"),
-			},
-			policy: &Policy{
-				resource: "collections/foo",
-				verb:     "D",
-				domain:   "collections",
-			},
-		},
-		{
-			name: "create all tenants",
-			permission: &models.Permission{
-				Action: String(createTenants),
-			},
+			name:       "all tenants in all collections",
+			permission: &models.Permission{},
 			policy: &Policy{
 				resource: "collections/*/shards/*",
-				verb:     "C",
 				domain:   "tenants",
 			},
+			tests: tenantsTests,
 		},
 		{
-			name: "create all tenants in a collection",
+			name: "all tenants in a collection",
 			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("foo"),
+				Collection: foo,
 			},
 			policy: &Policy{
 				resource: "collections/foo/shards/*",
-				verb:     "C",
 				domain:   "tenants",
 			},
+			tests: tenantsTests,
 		},
 		{
-			name: "create a tenant in all collections",
+			name: "a tenant in all collections",
 			permission: &models.Permission{
-				Action: String(createTenants),
-				Tenant: String("bar"),
+				Tenant: bar,
 			},
 			policy: &Policy{
 				resource: "collections/*/shards/bar",
-				verb:     "C",
 				domain:   "tenants",
 			},
+			tests: tenantsTests,
 		},
 		{
-			name: "create a tenant in a collection",
+			name: "a tenant in a collection",
 			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("foo"),
-				Tenant:     String("bar"),
+				Collection: foo,
+				Tenant:     bar,
 			},
 			policy: &Policy{
 				resource: "collections/foo/shards/bar",
-				verb:     "C",
 				domain:   "tenants",
 			},
+			tests: tenantsTests,
 		},
 		{
-			name: "read all tenants",
-			permission: &models.Permission{
-				Action: String(readTenants),
-			},
+			name:       "all objects in all collections ST",
+			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "collections/*/shards/*",
-				verb:     "R",
-				domain:   "tenants",
+				resource: "collections/*/shards/*/objects/*",
+				domain:   "objects_collection",
 			},
+			tests: objectsCollectionTests,
 		},
 		{
-			name: "read all tenants in a collection",
+			name: "all objects in a collection ST",
 			permission: &models.Permission{
-				Action:     String(readTenants),
-				Collection: String("foo"),
+				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*",
-				verb:     "R",
-				domain:   "tenants",
+				resource: "collections/foo/shards/*/objects/*",
+				domain:   "objects_collection",
 			},
+			tests: objectsCollectionTests,
 		},
 		{
-			name: "read a tenant in all collections",
+			name: "an object in all collections ST",
 			permission: &models.Permission{
-				Action: String(readTenants),
-				Tenant: String("bar"),
+				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar",
-				verb:     "R",
-				domain:   "tenants",
+				resource: "collections/*/shards/*/objects/baz",
+				domain:   "objects_collection",
 			},
+			tests: objectsCollectionTests,
 		},
 		{
-			name: "read a tenant in a collection",
+			name: "an object in a collection ST",
 			permission: &models.Permission{
-				Action:     String(readTenants),
-				Collection: String("foo"),
-				Tenant:     String("bar"),
+				Collection: foo,
+				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/bar",
-				verb:     "R",
-				domain:   "tenants",
+				resource: "collections/foo/shards/*/objects/baz",
+				domain:   "objects_collection",
 			},
+			tests: objectsCollectionTests,
 		},
 		{
-			name: "update all tenants",
+			name: "all objects in all tenants in a collection MT",
 			permission: &models.Permission{
-				Action: String(updateTenants),
+				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/*",
-				verb:     "U",
-				domain:   "tenants",
+				resource: "collections/foo/shards/*/objects/*",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "update all tenants in a collection",
+			name: "all objects in a tenant in all collections MT",
 			permission: &models.Permission{
-				Action:     String(updateTenants),
-				Collection: String("foo"),
+				Tenant: bar,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*",
-				verb:     "U",
-				domain:   "tenants",
+				resource: "collections/*/shards/bar/objects/*",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "update a tenant in all collections",
+			name: "all objects in a tenant in a collection MT",
 			permission: &models.Permission{
-				Action: String(updateTenants),
-				Tenant: String("bar"),
+				Collection: foo,
+				Tenant:     bar,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar",
-				verb:     "U",
-				domain:   "tenants",
+				resource: "collections/foo/shards/bar/objects/*",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "update a tenant in a collection",
+			name: "an object in all tenants in all collections MT",
 			permission: &models.Permission{
-				Action:     String(updateTenants),
-				Collection: String("foo"),
-				Tenant:     String("bar"),
+				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/bar",
-				verb:     "U",
-				domain:   "tenants",
+				resource: "collections/*/shards/*/objects/baz",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "delete all tenants",
+			name: "an object in all tenants in a collection MT",
 			permission: &models.Permission{
-				Action: String(deleteTenants),
+				Collection: foo,
+				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/*",
-				verb:     "D",
-				domain:   "tenants",
+				resource: "collections/foo/shards/*/objects/baz",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "delete all tenants in a collection",
+			name: "an object in a tenant in all collections MT",
 			permission: &models.Permission{
-				Action:     String(deleteTenants),
-				Collection: String("foo"),
+				Tenant: bar,
+				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*",
-				verb:     "D",
-				domain:   "tenants",
+				resource: "collections/*/shards/bar/objects/baz",
+				domain:   "objects_tenant",
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name: "delete a tenant in all collections",
+			name: "an object in a tenant in a collection MT",
 			permission: &models.Permission{
-				Action: String(deleteTenants),
-				Tenant: String("bar"),
+				Collection: foo,
+				Tenant:     bar,
+				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar",
-				verb:     "D",
-				domain:   "tenants",
+				resource: "collections/foo/shards/bar/objects/baz",
+				domain:   "objects_tenant",
 			},
-		},
-		{
-			name: "delete a tenant in a collection",
-			permission: &models.Permission{
-				Action:     String(deleteTenants),
-				Collection: String("foo"),
-				Tenant:     String("bar"),
-			},
-			policy: &Policy{
-				resource: "collections/foo/shards/bar",
-				verb:     "D",
-				domain:   "tenants",
-			},
+			tests: objectsTenantTests,
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			policy := policy(tt.permission)
-			require.Equal(t, tt.policy, policy)
-		})
+		for _, ttt := range tt.tests {
+			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
+				tt.permission.Action = String(ttt.permissionAction)
+				tt.policy.verb = ttt.policyVerb
+				policy := policy(tt.permission)
+				require.Equal(t, tt.policy, policy)
+			})
+		}
 	}
 }
 
@@ -356,128 +317,211 @@ func Test_permission(t *testing.T) {
 		name       string
 		policy     []string
 		permission *models.Permission
+		tests      []innerTest
 	}{
 		{
-			name:   "manage all roles",
-			policy: []string{"p", "roles/*", "(C)|(R)|(U)|(D)", "roles"},
+			name:   "all roles",
+			policy: []string{"p", "roles/*", "", "roles"},
 			permission: &models.Permission{
-				Action: String(manageRoles),
-				Role:   String("*"),
+				Role: all,
+			},
+			tests: rolesTests,
+		},
+		{
+			name:   "a role",
+			policy: []string{"p", "roles/admin", "", "roles"},
+			permission: &models.Permission{
+				Role: String("admin"),
+			},
+			tests: rolesTests,
+		},
+		{
+			name:       "cluster",
+			policy:     []string{"p", "cluster/*", "", "cluster"},
+			permission: &models.Permission{},
+			tests:      clusterTests,
+		},
+		{
+			name:   "all collections",
+			policy: []string{"p", "collections/*", "", "collections"},
+			permission: &models.Permission{
+				Collection: all,
+			},
+			tests: collectionsTests,
+		},
+		{
+			name:   "a collection",
+			policy: []string{"p", "collections/foo", "", "collections"},
+			permission: &models.Permission{
+				Collection: foo,
+			},
+			tests: collectionsTests,
+		},
+		{
+			name:   "all tenants in all collections",
+			policy: []string{"p", "collections/*/shards/*", "", "tenants"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     all,
+			},
+			tests: tenantsTests,
+		},
+		{
+			name:   "all tenants in a collection",
+			policy: []string{"p", "collections/foo/shards/*", "", "tenants"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     all,
+			},
+			tests: tenantsTests,
+		},
+		{
+			name:   "a tenant in all collections",
+			policy: []string{"p", "collections/*/shards/bar", "", "tenants"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     bar,
+			},
+			tests: tenantsTests,
+		},
+		{
+			name:   "a tenant in a collection",
+			policy: []string{"p", "collections/foo/shards/bar", "", "tenants"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     bar,
+			},
+			tests: tenantsTests,
+		},
+		{
+			name:   "all objects in all collections ST",
+			policy: []string{"p", "collections/*/shards/*/objects/*", "", "objects_collection"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     all,
+				Object:     all,
+			},
+			tests: objectsCollectionTests,
+		},
+		{
+			name:   "all objects in a collection ST",
+			policy: []string{"p", "collections/foo/shards/*/objects/*", "", "objects_collection"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     all,
+				Object:     all,
+			},
+			tests: objectsCollectionTests,
+		},
+		{
+			name:   "an object in all collections ST",
+			policy: []string{"p", "collections/*/shards/*/objects/baz", "", "objects_collection"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     all,
+				Object:     baz,
+			},
+			tests: objectsCollectionTests,
+		},
+		{
+			name:   "an object in a collection ST",
+			policy: []string{"p", "collections/foo/shards/*/objects/baz", "", "objects_collection"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     all,
+				Object:     baz,
+			},
+			tests: objectsCollectionTests,
+		},
+		{
+			name:   "all objects in all tenants in all collections MT",
+			policy: []string{"p", "collections/*/shards/*/objects/*", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     all,
+				Object:     all,
+			},
+			tests: objectsTenantTests,
+		},
+		{
+			name:   "all objects in all tenants in a collection MT",
+			policy: []string{"p", "collections/foo/shards/*/objects/*", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     all,
+				Object:     all,
+			},
+			tests: objectsTenantTests,
+		},
+		{
+			name:   "all objects in a tenant in all collections MT",
+			policy: []string{"p", "collections/*/shards/bar/objects/*", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     bar,
+				Object:     all,
+			},
+			tests: objectsTenantTests,
+		},
+		{
+			name:   "all objects in a tenant in a collection MT",
+			policy: []string{"p", "collections/foo/shards/bar/objects/*", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     bar,
+				Object:     all,
+			},
+			tests: objectsTenantTests,
+		},
+		{
+			name:   "an object in all tenants in all collections MT",
+			policy: []string{"p", "collections/*/shards/*/objects/baz", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: all,
+				Tenant:     all,
+				Object:     baz,
+			},
+			tests: objectsTenantTests,
+		},
+		{
+			name:   "an object in all tenants in a collection MT",
+			policy: []string{"p", "collections/foo/shards/*/objects/baz", "", "objects_tenant"},
+			permission: &models.Permission{
+				Collection: foo,
+				Tenant:     all,
+				Object:     baz,
 			},
 		},
 		{
-			name:   "manage cluster",
-			policy: []string{"p", "cluster/*", "(C)|(R)|(U)|(D)", "cluster"},
+			name:   "an object in a tenant in all collections MT",
+			policy: []string{"p", "collections/*/shards/bar/objects/baz", "", "objects_tenant"},
 			permission: &models.Permission{
-				Action: String(manageCluster),
+				Collection: all,
+				Tenant:     bar,
+				Object:     baz,
 			},
+			tests: objectsTenantTests,
 		},
 		{
-			name:   "create all collections",
-			policy: []string{"p", "collections/*", "C", "collections"},
+			name:   "an object in a tenant in a collection MT",
+			policy: []string{"p", "collections/foo/shards/bar/objects/baz", "", "objects_tenant"},
 			permission: &models.Permission{
-				Action:     String(createCollections),
-				Collection: String("*"),
+				Collection: foo,
+				Tenant:     bar,
+				Object:     baz,
 			},
-		},
-		{
-			name:   "create a collection",
-			policy: []string{"p", "collections/foo", "C", "collections"},
-			permission: &models.Permission{
-				Action:     String(createCollections),
-				Collection: String("foo"),
-			},
-		},
-		{
-			name:   "read all collections",
-			policy: []string{"p", "collections/*", "R", "collections"},
-			permission: &models.Permission{
-				Action:     String(readCollections),
-				Collection: String("*"),
-			},
-		},
-		{
-			name:   "read a collection",
-			policy: []string{"p", "collections/foo", "R", "collections"},
-			permission: &models.Permission{
-				Action:     String(readCollections),
-				Collection: String("foo"),
-			},
-		},
-		{
-			name:   "update all collections",
-			policy: []string{"p", "collections/*", "U", "collections"},
-			permission: &models.Permission{
-				Action:     String(updateCollections),
-				Collection: String("*"),
-			},
-		},
-		{
-			name:   "update a collection",
-			policy: []string{"p", "collections/foo", "U", "collections"},
-			permission: &models.Permission{
-				Action:     String(updateCollections),
-				Collection: String("foo"),
-			},
-		},
-		{
-			name:   "delete all collections",
-			policy: []string{"p", "collections/*", "D", "collections"},
-			permission: &models.Permission{
-				Action:     String(deleteCollections),
-				Collection: String("*"),
-			},
-		},
-		{
-			name:   "delete a collection",
-			policy: []string{"p", "collections/foo", "D", "collections"},
-			permission: &models.Permission{
-				Action:     String(deleteCollections),
-				Collection: String("foo"),
-			},
-		},
-		{
-			name:   "create all tenants",
-			policy: []string{"p", "collections/*/shards/*", "C", "tenants"},
-			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("*"),
-				Tenant:     String("*"),
-			},
-		},
-		{
-			name:   "create all tenants in a collection",
-			policy: []string{"p", "collections/foo/shards/*", "C", "tenants"},
-			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("foo"),
-				Tenant:     String("*"),
-			},
-		},
-		{
-			name:   "create a tenant in all collections",
-			policy: []string{"p", "collections/*/shards/bar", "C", "tenants"},
-			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("*"),
-				Tenant:     String("bar"),
-			},
-		},
-		{
-			name:   "create a tenant in a collection",
-			policy: []string{"p", "collections/foo/shards/bar", "C", "tenants"},
-			permission: &models.Permission{
-				Action:     String(createTenants),
-				Collection: String("foo"),
-				Tenant:     String("bar"),
-			},
+			tests: objectsTenantTests,
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			permission := permission(tt.policy)
-			require.Equal(t, tt.permission, permission)
-		})
+		for _, ttt := range tt.tests {
+			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
+				tt.permission.Action = String(ttt.permissionAction)
+				tt.policy[2] = ttt.policyVerb
+				permission := permission(tt.policy)
+				require.Equal(t, tt.permission, permission)
+			})
+		}
 	}
 }
 
