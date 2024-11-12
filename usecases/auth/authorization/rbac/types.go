@@ -222,7 +222,7 @@ func pObjects(collection, shard, object string) string {
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s/*", collection, shard, object)
+	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", collection, shard, object)
 }
 
 func policy(permission *models.Permission) (*Policy, error) {
