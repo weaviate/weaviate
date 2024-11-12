@@ -12,10 +12,15 @@
 package hnsw
 
 import (
+	"fmt"
+	"sync"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -25,7 +30,6 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	if !h.shouldRescore() {
 		limit = k
 	}
-	results := priorityqueue.NewMax[any](limit)
 
 	h.RLock()
 	nodeSize := uint64(len(h.nodes))
@@ -38,48 +42,88 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 		compressorDistancer = distancer
 	}
 
-	it := allowList.Iterator()
-	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
-		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
-		// this if statement mitigates the problem but it doesn't resolve the issue
-		if candidate >= nodeSize {
-			h.logger.WithField("action", "flatSearch").
-				Debugf("trying to get candidate: %v but we only have: %v elements.",
-					candidate, nodeSize)
-			continue
-		}
-
-		h.shardedNodeLocks.RLock(candidate)
-		c := h.nodes[candidate]
-		h.shardedNodeLocks.RUnlock(candidate)
-
-		if c == nil || h.hasTombstone(candidate) {
-			continue
-		}
-
-		dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "flatSearch")
-			continue
-		}
-		if err != nil {
-			return nil, nil, err
-		}
+	results := priorityqueue.NewMax[any](limit)
+	resultsMu := &sync.Mutex{}
+	addResult := func(id uint64, dist float32) {
+		resultsMu.Lock()
+		defer resultsMu.Unlock()
 
 		if results.Len() < limit {
-			results.Insert(candidate, dist)
-		} else if results.Top().Dist > dist {
+			results.Insert(id, dist)
+			return
+		}
+
+		if results.Top().Dist > dist {
 			results.Pop()
-			results.Insert(candidate, dist)
+			results.Insert(id, dist)
 		}
 	}
 
+	// first extract all candidates, this reduces the amount of coordination
+	// needed for the workers
+	beforeExtractCandidates := time.Now()
+	candidates := make([]uint64, 0, allowList.Len())
+	it := allowList.Iterator()
+	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
+		candidates = append(candidates, candidate)
+	}
+	fmt.Printf("extract candidates took %s\n", time.Since(beforeExtractCandidates))
+
+	beforeDistances := time.Now()
+	workers := 4
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < workers; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(candidates); idPos += workers {
+				candidate := candidates[idPos]
+
+				// Hot fix for https://github.com/weaviate/weaviate/issues/1937
+				// this if statement mitigates the problem but it doesn't resolve the issue
+				if candidate >= nodeSize {
+					h.logger.WithField("action", "flatSearch").
+						Debugf("trying to get candidate: %v but we only have: %v elements.",
+							candidate, nodeSize)
+					return nil
+				}
+
+				h.shardedNodeLocks.RLock(candidate)
+				c := h.nodes[candidate]
+				h.shardedNodeLocks.RUnlock(candidate)
+
+				if c == nil || h.hasTombstone(candidate) {
+					return nil
+				}
+
+				dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					h.handleDeletedNode(e.DocID, "flatSearch")
+					return nil
+				}
+				if err != nil {
+					return err
+				}
+
+				addResult(candidate, dist)
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+	fmt.Printf("distance calculations took %s\n", time.Since(beforeDistances))
+
+	beforeRescore := time.Now()
 	if h.shouldRescore() {
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
 		h.rescore(results, k, compressorDistancer)
 		fn()
 	}
+	fmt.Printf("rescore took %s\n", time.Since(beforeRescore))
 
 	ids := make([]uint64, results.Len())
 	dists := make([]float32, results.Len())
