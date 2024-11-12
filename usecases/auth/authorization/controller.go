@@ -12,8 +12,6 @@
 package authorization
 
 import (
-	"errors"
-
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -26,5 +24,3 @@ type Controller interface {
 	GetUsersForRole(role string) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 }
-
-var ErrRoleNotFound = errors.New("role not found")
