@@ -16,12 +16,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -43,6 +44,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
 
 	deprecatedEndpoint := input.Class == ""
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
@@ -72,10 +77,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 	input.Class = res.ClassName
-
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
