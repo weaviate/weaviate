@@ -58,6 +58,8 @@ func testGraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 
+	waitForIndexing()
+
 	t.Run("running Get nearObject against shadowed objects", runningGetNearObjectWithShadowedObjects)
 	t.Run("running Aggregate nearObject against shadowed objects", runningAggregateNearObjectWithShadowedObjects)
 	t.Run("running Explore nearObject against shadowed objects", runningExploreNearObjectWithShadowedObjects)
@@ -79,6 +81,8 @@ func testGraphQL(t *testing.T) {
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
 	t.Run("import test data (cursor api)", addTestDataCursorSearch)
+
+	waitForIndexing()
 
 	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 
@@ -1108,6 +1112,8 @@ func addTestDataMultiShard(t *testing.T) {
 		helper.CreateObject(t, multiShard)
 		helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
 	}
+
+	waitForIndexing()
 }
 
 func addTestDataNearObjectSearch(t *testing.T) {
@@ -1274,4 +1280,11 @@ func mustParseYear(year string) time.Time {
 		panic(err)
 	}
 	return asTime
+}
+
+func waitForIndexing() {
+	// wait for the objects to be indexed
+	// TODO: remove this sleep when we have a better way
+	// to determine when the objects are indexed
+	time.Sleep(3 * time.Second)
 }
