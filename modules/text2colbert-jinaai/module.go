@@ -51,6 +51,8 @@ func New() *JinaAIModule {
 }
 
 type JinaAIModule struct {
+	// This needs to be changed to [][]float32 but it can't be done right now bc this interface type change
+	// is not possible now with the current implementation. Will change that later in next PR's
 	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments

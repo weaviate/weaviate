@@ -66,18 +66,14 @@ func (b BatchJob[T]) copy() BatchJob[T] {
 	}
 }
 
-type BatchClient[T []float32 | [][]float32] interface {
+type BatchClient[T types.Vector] interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
-func NewBatchVectorizer(client BatchClient[[]float32], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[[]float32] {
-	return newBatchVectorizer[[]float32](client, maxBatchTime, settings, logger, label)
-}
-
-func newBatchVectorizer[T []float32](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
+func NewBatchVectorizer[T types.Vector](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
 	batch := Batch[T]{
 		client:            client,
 		objectVectorizer:  objectsvectorizer.New(),
