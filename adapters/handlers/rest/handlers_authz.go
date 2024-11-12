@@ -39,8 +39,8 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Co
 	api.AuthzGetRolesHandler = authz.GetRolesHandlerFunc(h.getRoles)
 	api.AuthzGetRoleHandler = authz.GetRoleHandlerFunc(h.getRole)
 	api.AuthzDeleteRoleHandler = authz.DeleteRoleHandlerFunc(h.deleteRole)
-	api.AuthzAddPermissionHandler = authz.AddPermissionHandlerFunc(h.addPermission)
-	api.AuthzRemovedPermissionHandler = authz.RemovedPermissionHandlerFunc(h.removePermission)
+	api.AuthzAddPermissionsHandler = authz.AddPermissionsHandlerFunc(h.addPermissions)
+	api.AuthzRemovePermissionsHandler = authz.RemovePermissionsHandlerFunc(h.removePermissions)
 
 	// rbac users handlers
 	api.AuthzGetRolesForUserHandler = authz.GetRolesForUserHandlerFunc(h.getRolesForUser)
@@ -59,7 +59,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
-	err := h.controller.CreateRoles(params.Body)
+	err := h.controller.UpsertRoles(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -67,12 +67,35 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	return authz.NewCreateRoleCreated()
 }
 
-func (h *authZHandlers) addPermission(params authz.AddPermissionParams, principal *models.Principal) middleware.Responder {
-	panic("not implemented")
+func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
+	// TODO validate and audit log
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	err := h.controller.UpsertRoles(&models.Role{
+		Name:        params.Body.Name,
+		Permissions: params.Body.Permissions,
+	})
+	if err != nil {
+		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	return authz.NewAddPermissionsOK()
 }
 
-func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, principal *models.Principal) middleware.Responder {
-	panic("not implemented")
+func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
+	// TODO validate and audit log
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	err := h.controller.RemovePermissions(*params.Body.Name, params.Body.Permissions)
+	if err != nil {
+		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	return authz.NewRemovePermissionsOK()
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
