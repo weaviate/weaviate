@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -24,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
+func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if !h.shouldRescore() {
@@ -45,17 +46,15 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	aggregateMu := &sync.Mutex{}
 	results := priorityqueue.NewMax[any](limit)
 
+	beforeIter := time.Now()
 	// first extract all candidates, this reduces the amount of coordination
 	// needed for the workers
-	beforeExtractCandidates := time.Now()
 	candidates := make([]uint64, 0, allowList.Len())
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
 		candidates = append(candidates, candidate)
 	}
-	fmt.Printf("extract candidates took %s\n", time.Since(beforeExtractCandidates))
 
-	beforeDistances := time.Now()
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
 		workerID := workerID
@@ -108,15 +107,22 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
-	fmt.Printf("distance calculations took %s\n", time.Since(beforeDistances))
+	took := time.Since(beforeIter)
+	helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
 
 	beforeRescore := time.Now()
 	if h.shouldRescore() {
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
-		h.rescore(results, k, compressorDistancer)
+		if err := h.rescore(ctx, results, k, compressorDistancer); err != nil {
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_rescore")
+			took := time.Since(beforeRescore)
+			helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
+			return nil, nil, fmt.Errorf("flat search: %w", err)
+		}
 		fn()
+		took := time.Since(beforeRescore)
+		helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
 	}
-	fmt.Printf("rescore took %s\n", time.Since(beforeRescore))
 
 	ids := make([]uint64, results.Len())
 	dists := make([]float32, results.Len())

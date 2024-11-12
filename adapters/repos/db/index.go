@@ -293,6 +293,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	index.cycleCallbacks.compactionCycle.Start()
+	index.cycleCallbacks.compactionAuxCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
@@ -592,6 +593,7 @@ type IndexConfig struct {
 	MemtablesMinActiveSeconds      int
 	MemtablesMaxActiveSeconds      int
 	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
@@ -1411,7 +1413,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if shard != nil {
 				defer release()
-				objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+				localCtx := helpers.InitSlowQueryDetails(ctx)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
@@ -1516,6 +1520,8 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	ctx = helpers.InitSlowQueryDetails(ctx)
+	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
@@ -1605,8 +1611,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			if shard != nil {
 				defer release()
 
+				localCtx := helpers.InitSlowQueryDetails(ctx)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-					ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+					localCtx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -1720,6 +1728,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, err
 	}
 	defer release()
+
+	ctx = helpers.InitSlowQueryDetails(ctx)
+	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
@@ -2215,7 +2226,10 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop compaction cycle: %w", usecase, err)
+		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
+	}
+	if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
 	}
 	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
