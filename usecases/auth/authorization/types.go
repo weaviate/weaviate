@@ -96,7 +96,6 @@ func Collections(classes ...string) []string {
 		} else {
 			resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
 		}
-		resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
 	}
 
 	return resources
