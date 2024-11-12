@@ -426,7 +426,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				if h.compressed.Load() {
 					h.compressor.Prefetch(candidates.Top().ID)
 				} else {
-					h.cache.Prefetch(candidates.Top().ID)
+					//h.cache.Prefetch(candidates.Top().ID)
+					h.RLock()
+					docID := h.vectorDocIDMap[candidates.Top().ID]
+					relative := h.vectorPositionMap[candidates.Top().ID]
+					h.RUnlock()
+					h.cache.PrefetchMultiple(docID, relative)
 				}
 
 				// +1 because we have added one node size calculating the len
@@ -575,7 +580,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 }
 
 func (h *hnsw) distanceToFloatMultiNode(distancer distancer.Distancer, docID uint64, vecID uint64) (float32, error) {
-	candidateVec, err := h.MultipleVectorForIDThunk(context.Background(), docID, vecID)
+	candidateVec, err := h.multipleVectorForID(context.Background(), docID, vecID)
 	if err != nil {
 		return 0, err
 	}
@@ -1019,7 +1024,7 @@ func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
 	vecs := make([][]float32, len(vecIDs))
 	h.RLock()
 	for i, vecID := range vecIDs {
-		vec, err := h.MultipleVectorForIDThunk(context.Background(), docID, h.vectorPositionMap[vecID]) // should we use multiple vectors for id??
+		vec, err := h.multipleVectorForID(context.Background(), docID, h.vectorPositionMap[vecID]) // should we use multiple vectors for id??
 		if err != nil {
 			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
 		}

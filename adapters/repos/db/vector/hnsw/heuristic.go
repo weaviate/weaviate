@@ -82,7 +82,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 		errs := make([]error, len(ids))
 		h.RLock()
 		for i, id := range ids {
-			vecs[i], errs[i] = h.MultipleVectorForIDThunk(context.TODO(), h.vectorDocIDMap[id], h.vectorPositionMap[id])
+			vecs[i], errs[i] = h.multipleVectorForID(context.TODO(), h.vectorDocIDMap[id], h.vectorPositionMap[id])
 		}
 		h.RUnlock()
 

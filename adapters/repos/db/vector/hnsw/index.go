@@ -99,6 +99,7 @@ type hnsw struct {
 	nodes []*vertex
 
 	vectorForID          common.VectorForID[float32]
+	multipleVectorForID  common.MultipleVectorForID[float32]
 	TempVectorForIDThunk common.TempVectorForID
 	multiVectorForID     common.MultiVectorForID
 	trackDimensionsOnce  sync.Once
@@ -236,7 +237,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultipleVectorForIDThunk, uc.VectorCacheMaxObjects,
+	vectorCache := cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, cfg.MultipleVectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -255,6 +256,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		cache:               vectorCache,
 		waitForCachePrefill: cfg.WaitForCachePrefill,
 		vectorForID:         vectorCache.Get,
+		multipleVectorForID: vectorCache.GetMultiple,
 		multiVectorForID:    vectorCache.MultiGet,
 		id:                  cfg.ID,
 		rootPath:            cfg.RootPath,
@@ -501,7 +503,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	relativeB := h.vectorPositionMap[b]
 	h.RUnlock()
 
-	vecA, err := h.MultipleVectorForIDThunk(context.Background(), docIDA, relativeA)
+	vecA, err := h.multipleVectorForID(context.Background(), docIDA, relativeA)
 
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -518,7 +520,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.MultipleVectorForIDThunk(context.Background(), docIDB, relativeB)
+	vecB, err := h.multipleVectorForID(context.Background(), docIDB, relativeB)
 
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -554,7 +556,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	docID := h.vectorDocIDMap[node]
 	relative := h.vectorPositionMap[node]
 	h.RUnlock()
-	vecA, err := h.MultipleVectorForIDThunk(context.Background(), docID, relative)
+	vecA, err := h.multipleVectorForID(context.Background(), docID, relative)
 
 	if err != nil {
 		var e storobj.ErrNotFound

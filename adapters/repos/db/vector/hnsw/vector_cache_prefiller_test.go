@@ -160,6 +160,22 @@ func generateDummyVertices(amount int) []*vertex {
 	return out
 }
 
+func (f *fakeCache) GetMultiple(ctx context.Context, docID uint64, vecIDs uint64) ([]float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) MultiGetMultiple(ctx context.Context, docIDs []uint64, vecIDs []uint64) ([][]float32, []error) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PreloadMultiple(docID uint64, vecID uint64, vec []float32) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PrefetchMultiple(docID uint64, vecID uint64) {
+	panic("not implemented")
+}
+
 // maximum of 3 layers
 // if id % 15 == 0 -> layer 3
 // if id % 5 == 0 -> layer 2
