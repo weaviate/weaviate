@@ -37,6 +37,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithText2VecContextionary().
 		WithBackendFilesystem().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

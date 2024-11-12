@@ -157,6 +157,15 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			}
 		})
 	}
+
+	t.Run("wait for indexing to finish", func(t *testing.T) {
+		for _, node := range nodes {
+			time.Sleep(100 * time.Millisecond)
+			node.repo.GetScheduler().Schedule(context.Background())
+			node.repo.GetScheduler().WaitAll()
+		}
+	})
+
 	t.Run("query individually to check if all exist using random nodes", func(t *testing.T) {
 		for _, obj := range data {
 			node := nodes[rnd.Intn(len(nodes))]
