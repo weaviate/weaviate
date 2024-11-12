@@ -56,10 +56,121 @@ const (
 	deleteObjectsTenant = "delete_objects_tenant"
 )
 
-var builtInRoles = map[string]string{
-	"viewer": authorization.READ,
-	"editor": authorization.CRU,
-	"admin":  authorization.CRUD,
+var (
+	all = String("*")
+
+	manageAllRoles = &models.Permission{
+		Action: String(manageRoles),
+		Role:   all,
+	}
+	manageAllCluster = &models.Permission{
+		Action: String(manageCluster),
+	}
+
+	createAllCollections = &models.Permission{
+		Action:     String(createCollections),
+		Collection: all,
+	}
+	createAllObjectsCollection = &models.Permission{
+		Action:     String(createObjectsCollection),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	createAllObjectsTenant = &models.Permission{
+		Action:     String(createObjectsTenant),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	createAllTenants = &models.Permission{
+		Action:     String(createTenants),
+		Collection: all,
+		Tenant:     all,
+	}
+
+	readAllCollections = &models.Permission{
+		Action:     String(readCollections),
+		Collection: all,
+	}
+	readAllObjectsCollection = &models.Permission{
+		Action:     String(readObjectsCollection),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	readAllObjectsTenant = &models.Permission{
+		Action:     String(readObjectsTenant),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	readAllTenants = &models.Permission{
+		Action:     String(readTenants),
+		Collection: all,
+		Tenant:     all,
+	}
+
+	updateAllCollections = &models.Permission{
+		Action:     String(updateCollections),
+		Collection: all,
+	}
+	updateAllObjectsCollection = &models.Permission{
+		Action:     String(updateObjectsCollection),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	updateAllObjectsTenant = &models.Permission{
+		Action:     String(updateObjectsTenant),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	updateAllTenants = &models.Permission{
+		Action:     String(updateTenants),
+		Collection: all,
+		Tenant:     all,
+	}
+
+	deleteAllCollections = &models.Permission{
+		Action:     String(deleteCollections),
+		Collection: all,
+	}
+	deleteAllObjectsCollection = &models.Permission{
+		Action:     String(deleteObjectsCollection),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	deleteAllObjectsTenant = &models.Permission{
+		Action:     String(deleteObjectsTenant),
+		Collection: all,
+		Tenant:     all,
+		Object:     all,
+	}
+	deleteAllTenants = &models.Permission{
+		Action:     String(deleteTenants),
+		Collection: all,
+		Tenant:     all,
+	}
+)
+
+var builtInRoles = map[string][]*models.Permission{
+	"viewer": {readAllCollections, readAllObjectsCollection, readAllObjectsTenant, readAllTenants},
+	"editor": {
+		createAllCollections, readAllCollections, updateAllCollections,
+		createAllObjectsCollection, readAllObjectsCollection, updateAllObjectsCollection,
+		createAllObjectsTenant, readAllObjectsTenant, updateAllObjectsTenant,
+		createAllTenants, readAllTenants, updateAllTenants,
+	},
+	"admin": {
+		manageAllRoles, manageAllCluster,
+		createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections,
+		createAllObjectsCollection, readAllObjectsCollection, updateAllObjectsCollection, deleteAllObjectsCollection,
+		createAllObjectsTenant, readAllObjectsTenant, updateAllObjectsTenant, deleteAllObjectsTenant,
+		createAllTenants, readAllTenants, updateAllTenants, deleteAllTenants,
+	},
 }
 
 type Policy struct {
@@ -203,4 +314,8 @@ func permission(policy []string) *models.Permission {
 	}
 
 	return permission
+}
+
+func String(s string) *string {
+	return &s
 }
