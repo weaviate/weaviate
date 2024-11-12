@@ -305,7 +305,8 @@ func Test_policy(t *testing.T) {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = String(ttt.permissionAction)
 				tt.policy.verb = ttt.policyVerb
-				policy := policy(tt.permission)
+				policy, err := policy(tt.permission)
+				require.Nil(t, err)
 				require.Equal(t, tt.policy, policy)
 			})
 		}

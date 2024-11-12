@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	rolesD             = "roles"
-	cluster            = "cluster"
-	collections        = "collections"
-	tenants            = "tenants"
-	objects_collection = "objects_collection"
-	objects_tenant     = "objects_tenant"
+	rolesD            = "roles"
+	cluster           = "cluster"
+	collections       = "collections"
+	tenants           = "tenants"
+	objectsCollection = "objects_collection"
+	objectsTenant     = "objects_tenant"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -77,15 +77,20 @@ func newPolicy(policy []string) *Policy {
 	}
 }
 
-func policy(permission *models.Permission) *Policy {
-	var resource, verb, domain string
+func policy(permission *models.Permission) (*Policy, error) {
 	// TODO verify slice position to avoid panics
-	_, domain, _ = strings.Cut(*permission.Action, "_")
-	verb = strings.ToUpper(string(string(*permission.Action)[0]))
+	if permission.Action == nil {
+		return nil, fmt.Errorf("missing action")
+	}
+	action, domain, found := strings.Cut(*permission.Action, "_")
+	if !found {
+		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
+	}
+	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
 		verb = authorization.CRUD
 	}
-
+	var resource string
 	switch domain {
 	case rolesD:
 		role := "*"
@@ -111,7 +116,7 @@ func policy(permission *models.Permission) *Policy {
 			tenant = *permission.Tenant
 		}
 		resource = authorization.Shards(collection, tenant)[0]
-	case objects_collection:
+	case objectsCollection:
 		collection := "*"
 		object := "*"
 		if permission.Collection != nil {
@@ -121,7 +126,7 @@ func policy(permission *models.Permission) *Policy {
 			object = *permission.Object
 		}
 		resource = authorization.Objects(collection, "*", strfmt.UUID(object))
-	case objects_tenant:
+	case objectsTenant:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -135,12 +140,14 @@ func policy(permission *models.Permission) *Policy {
 			object = *permission.Object
 		}
 		resource = authorization.Objects(collection, tenant, strfmt.UUID(object))
+	default:
+		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
 	return &Policy{
 		resource: resource,
 		verb:     verb,
 		domain:   domain,
-	}
+	}, nil
 }
 
 func permission(policy []string) *models.Permission {
@@ -161,7 +168,7 @@ func permission(policy []string) *models.Permission {
 	case tenants:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
-	case objects_collection, objects_tenant:
+	case objectsCollection, objectsTenant:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
