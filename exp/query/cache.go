@@ -67,7 +67,7 @@ func NewDiskCache(basePath string, maxCap int64, metrics *CacheMetrics) *DiskCac
 // Tenant returns cached tenant info for given collection and tenantID.
 // Caller can use returned data to get abosolute path to access tenant data.
 func (d *DiskCache) Tenant(collection, tenantID string) (*TenantCache, error) {
-	timer := prometheus.NewTimer(d.metrics.OpsDuration.WithLabelValues(collection, tenantID, "get")) // "put" is the operation type, meaning the write path of the cache.
+	timer := prometheus.NewTimer(d.metrics.OpsDuration.WithLabelValues(collection, tenantID, "get")) // "get" is the operation type, meaning the read path of the cache.
 	defer timer.ObserveDuration()
 
 	d.tmu.RLock()
