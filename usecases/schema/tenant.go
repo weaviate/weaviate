@@ -199,14 +199,14 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
+	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenants...)...); err != nil {
+		return err
+	}
+
 	for i, name := range tenants {
 		if name == "" {
 			return fmt.Errorf("empty tenant name at index %d", i)
 		}
-	}
-
-	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenants...)...); err != nil {
-		return err
 	}
 
 	req := api.DeleteTenantsRequest{
