@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type innerTest struct {
@@ -37,11 +38,11 @@ var (
 	deleteDesc = "delete"
 	manageDesc = "manage"
 
-	createVerb = "C"
-	readVerb   = "R"
-	updateVerb = "U"
-	deleteVerb = "D"
-	manageVerb = "(C)|(R)|(U)|(D)"
+	createVerb = authorization.CREATE
+	readVerb   = authorization.READ
+	updateVerb = authorization.UPDATE
+	deleteVerb = authorization.DELETE
+	manageVerb = authorization.CRUD
 
 	rolesTests = []innerTest{
 		{permissionAction: manageRoles, testDescription: manageDesc, policyVerb: manageVerb},
