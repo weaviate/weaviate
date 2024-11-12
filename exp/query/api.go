@@ -351,9 +351,12 @@ func (a *API) FetchLSM(ctx context.Context, collection, tenant string, tenatVers
 		}
 	}
 
+	// TODO(kavi): Avoid creating store every time?
 	lsmPath := path.Join(dst, defaultLSMRoot)
-
-	store, err := lsmkv.New(lsmPath, lsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(lsmPath, lsmPath, a.log, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
@@ -443,7 +446,7 @@ func (a *API) EnsureLSM(
 		}
 	}
 
-	store, err := lsmkv.New(localLsmPath, localLsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(localLsmPath, localLsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
