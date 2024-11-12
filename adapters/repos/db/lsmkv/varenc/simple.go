@@ -13,7 +13,11 @@ package varenc
 
 import "encoding/binary"
 
-type SimpleEncoder[T any] struct {
+type UintTypes interface {
+	uint64 | uint32 | uint16 | uint8
+}
+
+type SimpleEncoder[T UintTypes] struct {
 	values      []T
 	buf         []byte
 	elementSize int
@@ -38,7 +42,7 @@ func (e *SimpleEncoder[T]) Init(expectedCount int) {
 	e.buf = make([]byte, 8+e.elementSize*expectedCount)
 }
 
-func (e *SimpleEncoder[T]) encode(value T, buf []byte) {
+func (e SimpleEncoder[T]) encode(value T, buf []byte) {
 	switch v := any(value).(type) {
 	case uint64:
 		binary.LittleEndian.PutUint64(buf, v)
@@ -51,7 +55,7 @@ func (e *SimpleEncoder[T]) encode(value T, buf []byte) {
 	}
 }
 
-func (e *SimpleEncoder[T]) decode(buf []byte, value *T) {
+func (e SimpleEncoder[T]) decode(buf []byte, value *T) {
 	switch len(buf) {
 	case 8:
 		*value = any(binary.LittleEndian.Uint64(buf)).(T)
@@ -64,7 +68,7 @@ func (e *SimpleEncoder[T]) decode(buf []byte, value *T) {
 	}
 }
 
-func (e *SimpleEncoder[T]) EncodeReusable(values []T, buf []byte) {
+func (e SimpleEncoder[T]) EncodeReusable(values []T, buf []byte) {
 	binary.LittleEndian.PutUint64(buf, uint64(len(values)))
 	len := e.elementSize
 	for i, value := range values {
@@ -72,7 +76,7 @@ func (e *SimpleEncoder[T]) EncodeReusable(values []T, buf []byte) {
 	}
 }
 
-func (e *SimpleEncoder[T]) DecodeReusable(data []byte, values []T) {
+func (e SimpleEncoder[T]) DecodeReusable(data []byte, values []T) {
 	count := binary.LittleEndian.Uint64(data)
 	len := e.elementSize
 	for i := 0; i < int(count); i++ {

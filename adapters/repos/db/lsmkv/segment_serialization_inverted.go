@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -43,6 +44,32 @@ func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	}
 
 	return out, values
+}
+
+func packedEncode(docIds, termFreqs []uint64) *terms.BlockData {
+	deltaEnc := varenc.VarIntDeltaEncoder{}
+	deltaEnc.Init(len(docIds))
+	docIdsPacked := deltaEnc.Encode(docIds)
+
+	tfEnc := varenc.VarIntEncoder{}
+	tfEnc.Init(len(termFreqs))
+	termFreqsPacked := tfEnc.Encode(termFreqs)
+
+	return &terms.BlockData{
+		DocIds: docIdsPacked,
+		Tfs:    termFreqsPacked,
+	}
+}
+
+func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64) {
+	deltaEnc := varenc.VarIntDeltaEncoder{}
+	deltaEnc.Init(numValues)
+	docIds := deltaEnc.Decode(values.DocIds)
+
+	tfEnc := varenc.VarIntEncoder{}
+	tfEnc.Init(numValues)
+	termFreqs := tfEnc.Decode(values.Tfs)
+	return docIds, termFreqs
 }
 
 func encodeBlock(nodes []MapPair) *terms.BlockData {

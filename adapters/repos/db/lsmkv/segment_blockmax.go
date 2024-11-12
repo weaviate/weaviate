@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -100,11 +101,11 @@ func (s *segment) loadBlockDataReusable(offsetStart, offsetEnd uint64, buf []byt
 }
 
 func decodeDocIdsReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
-	unpackDeltasReusableDelta(encoded.DocIds, blockSize, decoded.DocIds)
+	varenc.VarIntDeltaEncoder{}.DecodeReusable(encoded.DocIds, decoded.DocIds[:blockSize])
 }
 
 func decodeTfReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
-	unpackDeltasReusable(encoded.Tfs, blockSize, decoded.Tfs)
+	varenc.VarIntEncoder{}.DecodeReusable(encoded.Tfs, decoded.Tfs[:blockSize])
 }
 
 type BlockMetrics struct {
