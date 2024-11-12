@@ -102,7 +102,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, usage, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
 	return res, nil, usage, err
@@ -110,7 +110,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduleto
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	config := v.getVectorizationConfig(cfg)
 	res, _, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 	return res, err
@@ -118,7 +118,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model string, truncate bool, baseURL string, inputType inputType,
-) (*modulecomponents.VectorizationResult, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], int, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Input:      input,
 		Model:      model,
@@ -174,7 +174,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		vectors[i] = data.Embeddings
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
 		Dimensions: len(resBody.Data[0].Embeddings),
 		Vector:     vectors,
