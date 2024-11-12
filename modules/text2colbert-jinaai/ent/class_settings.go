@@ -20,7 +20,7 @@ import (
 const (
 	// Default values for URL (model is ok) cannot be changed before we solve how old classes that have the defaults
 	// NOT set will handle the change
-	DefaultJinaAIModel           = "jina-embeddings-v2-base-en"
+	DefaultJinaAIModel           = "jina-colbert-v2"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -28,7 +28,7 @@ const (
 	LowerCaseInput               = false
 )
 
-var DefaultDimensions int64 = 1024
+var DefaultDimensions int64 = 128
 
 type classSettings struct {
 	basesettings.BaseClassSettings
