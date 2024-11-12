@@ -334,7 +334,10 @@ func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) 
 	}
 
 	// TODO(kavi): Avoid creating store every time?
-	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(localPath, localPath, a.log, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
