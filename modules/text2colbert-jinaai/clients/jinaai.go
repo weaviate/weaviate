@@ -13,6 +13,8 @@ package clients
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,21 +32,22 @@ const (
 )
 
 type vectorizer struct {
-	client *jinaai.Client[[]float32]
+	client *jinaai.Client[[][]float32]
 	logger logrus.FieldLogger
 }
 
 func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		client: jinaai.New[[]float32](jinaAIApiKey, timeout, defaultRPM, defaultTPM, logger),
+		client: jinaai.New[[][]float32](jinaAIApiKey, timeout, defaultRPM, defaultTPM, logger),
 		logger: logger,
 	}
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[][]float32], *modulecomponents.RateLimits, int, error) {
 	settings := ent.NewClassSettings(cfg)
+
 	res, _, usage, err := v.client.Vectorize(ctx, input, jinaai.Settings{
 		BaseURL:    settings.BaseURL(),
 		Model:      settings.Model(),
@@ -56,9 +59,14 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult[[]float32], error) {
+) (*modulecomponents.VectorizationResult[[][]float32], error) {
+	// make sure that for ColBERT we get always one embedding back
+	// always sort the input and concatenate the string into one
+	// we have to do this bc there's no easy way of combining ColBERT embeddings
+	sort.Strings(input)
+	sortedInput := strings.Join(input, " ")
 	settings := ent.NewClassSettings(cfg)
-	res, _, _, err := v.client.Vectorize(ctx, input, jinaai.Settings{
+	res, _, _, err := v.client.Vectorize(ctx, []string{sortedInput}, jinaai.Settings{
 		BaseURL:    settings.BaseURL(),
 		Model:      settings.Model(),
 		Dimensions: settings.Dimensions(),

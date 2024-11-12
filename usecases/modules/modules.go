@@ -273,7 +273,8 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
 		modulecapabilities.Text2MultiVec,
-		modulecapabilities.Ref2Vec:
+		modulecapabilities.Ref2Vec,
+		modulecapabilities.Text2ColBERT:
 		return true
 	default:
 		return false

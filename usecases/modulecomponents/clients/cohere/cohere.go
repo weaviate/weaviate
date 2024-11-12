@@ -107,7 +107,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *Clien
 
 func (c *Client) Vectorize(ctx context.Context,
 	inputs []string, settings Settings,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	body, err := json.Marshal(c.getEmbeddingRequest(inputs, settings))
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -151,7 +151,7 @@ func (c *Client) Vectorize(ctx context.Context,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       inputs,
 		Dimensions: len(resBody.Embeddings.Float[0]),
 		Vector:     resBody.Embeddings.Float,

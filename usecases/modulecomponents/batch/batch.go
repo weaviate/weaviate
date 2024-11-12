@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
@@ -35,22 +36,22 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
-type BatchJob struct {
+type BatchJob[T types.Vector] struct {
 	texts      []string
 	tokens     []int
 	ctx        context.Context
 	wg         *sync.WaitGroup
 	errs       map[int]error
 	cfg        moduletools.ClassConfig
-	vecs       [][]float32
+	vecs       []T
 	skipObject []bool
 	startTime  time.Time
 	apiKeyHash [32]byte
 	tokenSum   int
 }
 
-func (b BatchJob) copy() BatchJob {
-	return BatchJob{
+func (b BatchJob[T]) copy() BatchJob[T] {
+	return BatchJob[T]{
 		texts:      b.texts,
 		tokens:     b.tokens,
 		ctx:        b.ctx,
@@ -65,18 +66,18 @@ func (b BatchJob) copy() BatchJob {
 	}
 }
 
-type BatchClient interface {
+type BatchClient[T types.Vector] interface {
 	Vectorize(ctx context.Context, input []string,
-		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error)
+		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch {
-	batch := Batch{
+func NewBatchVectorizer[T types.Vector](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
+	batch := Batch[T]{
 		client:            client,
 		objectVectorizer:  objectsvectorizer.New(),
-		jobQueueCh:        make(chan BatchJob, BatchChannelSize),
+		jobQueueCh:        make(chan BatchJob[T], BatchChannelSize),
 		maxBatchTime:      maxBatchTime,
 		settings:          settings,
 		concurrentBatches: atomic.Int32{},
@@ -107,10 +108,10 @@ type endOfBatchJob struct {
 	concurrentBatch   bool
 }
 
-type Batch struct {
-	client            BatchClient
+type Batch[T types.Vector] struct {
+	client            BatchClient[T]
 	objectVectorizer  *objectsvectorizer.ObjectVectorizer
-	jobQueueCh        chan BatchJob
+	jobQueueCh        chan BatchJob[T]
 	maxBatchTime      time.Duration
 	settings          Settings
 	rateLimitChannel  chan rateLimitJob
@@ -127,7 +128,7 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker() {
+func (b *Batch[T]) batchWorker() {
 	timePerToken := 0.0
 	objectsPerBatch := b.settings.MaxObjectsPerBatch
 
@@ -235,7 +236,7 @@ func (b *Batch) batchWorker() {
 }
 
 // updateState collects the latest updates from finished batches
-func (b *Batch) updateState(rateLimits map[[32]byte]*modulecomponents.RateLimits, timePerToken float64, objectsPerBatch int) (float64, int) {
+func (b *Batch[T]) updateState(rateLimits map[[32]byte]*modulecomponents.RateLimits, timePerToken float64, objectsPerBatch int) (float64, int) {
 	for _, rateLimit := range rateLimits {
 		rateLimit.CheckForReset()
 	}
@@ -280,7 +281,7 @@ timeLoop:
 	return timePerToken, objectsPerBatch
 }
 
-func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
+func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
 	maxTokensPerBatch := b.settings.MaxTokensPerBatch(job.cfg)
 	estimatedTokensInCurrentBatch := 0
 	numRequests := 0
@@ -415,7 +416,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Dec()
 }
 
-func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) (int, error) {
+func (b *Batch[T]) makeRequest(job BatchJob[T], texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) (int, error) {
 	beforeRequest := time.Now()
 	defer func() {
 		monitoring.GetMetrics().T2VRequestDuration.WithLabelValues(b.label).
@@ -452,8 +453,8 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 	return tokensUsed, err
 }
 
-func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string) ([][]float32, map[int]error) {
-	vecs := make([][]float32, len(skipObject))
+func (b *Batch[T]) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string) ([]T, map[int]error) {
+	vecs := make([]T, len(skipObject))
 	errs := make(map[int]error)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -467,7 +468,7 @@ func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassCon
 		Observe(float64(tokenSum))
 
 	beforeEnqueue := time.Now()
-	b.jobQueueCh <- BatchJob{
+	b.jobQueueCh <- BatchJob[T]{
 		ctx:        ctx,
 		wg:         &wg,
 		errs:       errs,
@@ -495,8 +496,8 @@ func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassCon
 
 type objectVectorizer func(context.Context, *models.Object, moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 
-func VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, logger logrus.FieldLogger, objectVectorizer objectVectorizer) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	vecs := make([][]float32, len(objs))
+func VectorizeBatch[T []float32](ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, logger logrus.FieldLogger, objectVectorizer objectVectorizer) ([]T, []models.AdditionalProperties, map[int]error) {
+	vecs := make([]T, len(objs))
 	// error should be the exception so dont preallocate
 	errs := make(map[int]error, 0)
 	errorLock := sync.Mutex{}

@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
 func TestClient(t *testing.T) {
@@ -36,12 +37,12 @@ func TestClient(t *testing.T) {
 
 		c := New("apiKey", 0, nullLogger())
 
-		expected := &modulecomponents.VectorizationResult[[]float32]{
+		expected := &modulecomponents.VectorizationResult[[][]float32]{
 			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}}},
 			Dimensions: 3,
 		}
-		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2", "baseURL": server.URL}})
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": ent.DefaultJinaAIModel, "baseURL": server.URL}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -83,12 +84,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationResult[[]float32]{
+		expected := &modulecomponents.VectorizationResult[[][]float32]{
 			Text:       []string{"This is my text"},
-			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}}},
 			Dimensions: 3,
 		}
-		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2", "baseURL": server.URL}})
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": ent.DefaultJinaAIModel, "baseURL": server.URL}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -118,7 +119,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{""})
 
-		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2"}})
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": ent.DefaultJinaAIModel}})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -161,7 +162,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	embeddingData := map[string]interface{}{
 		"object":    textInput,
 		"index":     0,
-		"embedding": []float32{0.1, 0.2, 0.3},
+		"embedding": [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
 	}
 	embedding := map[string]interface{}{
 		"object": "list",

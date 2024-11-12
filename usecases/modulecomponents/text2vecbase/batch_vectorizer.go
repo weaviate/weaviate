@@ -18,12 +18,17 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer {
-	vec := &BatchVectorizer{
+func New(client BatchClient[[]float32], batchVectorizer *batch.Batch[[]float32], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[[]float32] {
+	return newBatchVectorizer(client, batchVectorizer, tokenizerFunc)
+}
+
+func newBatchVectorizer[T types.Vector](client BatchClient[T], batchVectorizer *batch.Batch[T], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[T] {
+	vec := &BatchVectorizer[T]{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
@@ -33,14 +38,14 @@ func New(client BatchClient, batchVectorizer *batch.Batch, tokenizerFunc batch.T
 	return vec
 }
 
-func (v *BatchVectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
-) ([]float32, models.AdditionalProperties, error) {
+func (v *BatchVectorizer[T]) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
+) (T, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object, cfg, cs)
 	return vec, nil, err
 }
 
-func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
-) ([]float32, error) {
+func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig, cs objectsvectorizer.ClassSettings,
+) (T, error) {
 	text := v.objectVectorizer.Texts(ctx, object, cs)
 	res, _, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
 	if err != nil {
@@ -53,8 +58,8 @@ func (v *BatchVectorizer) object(ctx context.Context, object *models.Object, cfg
 	return res.Vector[0], nil
 }
 
-func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
-) ([][]float32, map[int]error) {
+func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
+) ([]T, map[int]error) {
 	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
 	if err != nil {
 		errs := make(map[int]error)
@@ -65,15 +70,15 @@ func (v *BatchVectorizer) ObjectBatch(ctx context.Context, objects []*models.Obj
 	}
 
 	if skipAll {
-		return make([][]float32, len(objects)), make(map[int]error)
+		return make([]T, len(objects)), make(map[int]error)
 	}
 
 	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }
 
-func (v *BatchVectorizer) Texts(ctx context.Context, inputs []string,
+func (v *BatchVectorizer[T]) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) (T, error) {
 	res, err := v.client.VectorizeQuery(ctx, inputs, cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")

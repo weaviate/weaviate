@@ -70,7 +70,7 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, limits, err := v.vectorize(ctx, input, config)
 	return res, limits, 0, err
@@ -78,13 +78,13 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	config := v.getVectorizationConfig(cfg)
 	res, _, err := v.vectorize(ctx, input, config)
 	return res, err
 }
 
-func (v *client) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+func (v *client) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, config.Instruction))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal body")
@@ -137,7 +137,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,

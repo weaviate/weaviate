@@ -94,7 +94,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &fakeBatchClientWithRL{} // has state
+			client := &fakeBatchClientWithRL[[]float32]{} // has state
 
 			v := NewBatchVectorizer(client, 1*time.Second,
 				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, ReturnsRateLimit: true, HasTokenLimit: true},
@@ -142,7 +142,7 @@ func TestBatchNoRLreturn(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &fakeBatchClientWithoutRL{defaultResetRate: tt.resetRate, defaultTPM: tt.tokenLimit} // has state
+			client := &fakeBatchClientWithoutRL[[]float32]{defaultResetRate: tt.resetRate, defaultTPM: tt.tokenLimit} // has state
 
 			v := NewBatchVectorizer(client, 1*time.Second,
 				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10},
@@ -175,7 +175,7 @@ func TestBatchNoRLreturn(t *testing.T) {
 }
 
 func TestBatchMultiple(t *testing.T) {
-	client := &fakeBatchClientWithRL{}
+	client := &fakeBatchClientWithRL[[]float32]{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
@@ -213,7 +213,7 @@ func TestBatchMultiple(t *testing.T) {
 }
 
 func TestBatchTimeouts(t *testing.T) {
-	client := &fakeBatchClientWithRL{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL[[]float32]{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
@@ -246,7 +246,7 @@ func TestBatchTimeouts(t *testing.T) {
 }
 
 func TestBatchRequestLimit(t *testing.T) {
-	client := &fakeBatchClientWithRL{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL[[]float32]{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
 	logger, _ := test.NewNullLogger()
