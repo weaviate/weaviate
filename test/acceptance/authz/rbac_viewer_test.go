@@ -25,7 +25,7 @@ import (
 
 const UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
 
-func TestViewerEndpointsSchema(t *testing.T) {
+func TestViewerEndpoints(t *testing.T) {
 	endpoints := []struct {
 		endpoint string
 		methods  []string
@@ -45,6 +45,11 @@ func TestViewerEndpointsSchema(t *testing.T) {
 		{endpoint: "/objects/RandomClass/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
 		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
 		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "/objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
+		{endpoint: "/objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "/objects/validate", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "/batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
+		{endpoint: "/batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true},
 	}
 
 	for _, endpoint := range endpoints {
