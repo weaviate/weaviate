@@ -50,6 +50,9 @@ func TestViewerEndpoints(t *testing.T) {
 		{endpoint: "/objects/validate", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "/batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
 		{endpoint: "/batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "/backups/backend", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "/backups/backend/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "/backups/backend/id/restore", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
 	}
 
 	for _, endpoint := range endpoints {
@@ -57,7 +60,7 @@ func TestViewerEndpoints(t *testing.T) {
 			t.Fatalf("expected %d methods and success, got %d", len(endpoint.methods), len(endpoint.success))
 		}
 		for i, method := range endpoint.methods {
-			t.Run(endpoint.endpoint+method, func(t *testing.T) {
+			t.Run(endpoint.endpoint+"_"+method, func(t *testing.T) {
 				var req *http.Request
 				var err error
 				if method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE" {
