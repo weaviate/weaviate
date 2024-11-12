@@ -266,7 +266,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
-		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
 			"shard":           s.ID(),
 			"tenant":          s.tenant(),
@@ -278,6 +278,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			"keyword_ranking": keywordRanking,
 			"version":         s.versioner.Version(),
 			"additional":      additional,
+			// in addition the slowQueryReporter will extract any slow query details
+			// that may or may not have been written into the ctx
 		})
 	}()
 
@@ -375,8 +377,9 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
+
 	defer func() {
-		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
@@ -387,6 +390,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			"version":    s.versioner.Version(),
 			"additional": additional,
 			"group_by":   groupBy,
+			// in addition the slowQueryReporter will extract any slow query details
+			// that may or may not have been written into the ctx
 		})
 	}()
 
@@ -400,7 +405,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			return nil, nil, err
 		}
 		allowList = list
-		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
+		took := time.Since(beforeFilter)
+		s.metrics.FilteredVectorFilter(took)
+		helpers.AnnotateSlowQueryLog(ctx, "filters_build_allow_list_took", took)
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
@@ -468,6 +475,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	if filters != nil {
 		s.metrics.FilteredVectorVector(time.Since(beforeVector))
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "vector_search_took", time.Since(beforeVector))
 
 	if groupBy != nil {
 		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional, properties)
@@ -484,9 +492,11 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
 		}
+		took := time.Since(beforeSort)
 		if filters != nil {
-			s.metrics.FilteredVectorSort(time.Since(beforeSort))
+			s.metrics.FilteredVectorSort(took)
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_took", took)
 	}
 
 	beforeObjects := time.Now()
@@ -497,9 +507,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 		return nil, nil, err
 	}
 
+	took := time.Since(beforeObjects)
 	if filters != nil {
-		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
+		s.metrics.FilteredVectorObjects(took)
 	}
+
+	helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
 	return objs, distCombined, nil
 }
 
