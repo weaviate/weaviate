@@ -59,7 +59,7 @@ func TestUnreachablePoints(t *testing.T) {
 			MaxConnections: 0,
 			EFConstruction: 0,
 			EF:             0,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
+		}, cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index
 		groundtruth := [][]uint64{{}, {2}, {}, {1, 2, 3, 4}, {}}
