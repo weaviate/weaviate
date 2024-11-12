@@ -104,15 +104,9 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	// add pre existing roles
-	for name, permission := range builtInRoles {
-		for _, permission := range permission {
-			policy, err := policy(permission)
-			if err != nil {
-				return nil, fmt.Errorf("policy: %w", err)
-			}
-			if _, err := enforcer.AddNamedPolicy("p", name, policy.resource, policy.verb, policy.domain); err != nil {
-				return nil, fmt.Errorf("add policy: %w", err)
-			}
+	for name, verb := range builtInPolicies {
+		if _, err := enforcer.AddNamedPolicy("p", name, "*", verb, "*"); err != nil {
+			return nil, fmt.Errorf("add policy: %w", err)
 		}
 	}
 
