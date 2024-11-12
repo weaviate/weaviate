@@ -25,44 +25,45 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// RemovedPermissionHandlerFunc turns a function with the right signature into a removed permission handler
-type RemovedPermissionHandlerFunc func(RemovedPermissionParams, *models.Principal) middleware.Responder
+// RemovePermissionsHandlerFunc turns a function with the right signature into a remove permissions handler
+type RemovePermissionsHandlerFunc func(RemovePermissionsParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn RemovedPermissionHandlerFunc) Handle(params RemovedPermissionParams, principal *models.Principal) middleware.Responder {
+func (fn RemovePermissionsHandlerFunc) Handle(params RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// RemovedPermissionHandler interface for that can handle valid removed permission params
-type RemovedPermissionHandler interface {
-	Handle(RemovedPermissionParams, *models.Principal) middleware.Responder
+// RemovePermissionsHandler interface for that can handle valid remove permissions params
+type RemovePermissionsHandler interface {
+	Handle(RemovePermissionsParams, *models.Principal) middleware.Responder
 }
 
-// NewRemovedPermission creates a new http.Handler for the removed permission operation
-func NewRemovedPermission(ctx *middleware.Context, handler RemovedPermissionHandler) *RemovedPermission {
-	return &RemovedPermission{Context: ctx, Handler: handler}
+// NewRemovePermissions creates a new http.Handler for the remove permissions operation
+func NewRemovePermissions(ctx *middleware.Context, handler RemovePermissionsHandler) *RemovePermissions {
+	return &RemovePermissions{Context: ctx, Handler: handler}
 }
 
 /*
-	RemovedPermission swagger:route POST /authz/roles/remove-permission authz removedPermission
+	RemovePermissions swagger:route POST /authz/roles/remove-permissions authz removePermissions
 
-remove permission from a role
+Remove permissions from a role. If this results in an empty role, the role will be deleted.
 */
-type RemovedPermission struct {
+type RemovePermissions struct {
 	Context *middleware.Context
-	Handler RemovedPermissionHandler
+	Handler RemovePermissionsHandler
 }
 
-func (o *RemovedPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *RemovePermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewRemovedPermissionParams()
+	var Params = NewRemovePermissionsParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -86,21 +87,27 @@ func (o *RemovedPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// RemovedPermissionBody removed permission body
+// RemovePermissionsBody remove permissions body
 //
-// swagger:model RemovedPermissionBody
-type RemovedPermissionBody struct {
+// swagger:model RemovePermissionsBody
+type RemovePermissionsBody struct {
 
-	// name
-	Name interface{} `json:"name,omitempty" yaml:"name,omitempty"`
+	// role name
+	// Required: true
+	Name *string `json:"name" yaml:"name"`
 
-	// permissions
+	// permissions to remove from the role
+	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
 }
 
-// Validate validates this removed permission body
-func (o *RemovedPermissionBody) Validate(formats strfmt.Registry) error {
+// Validate validates this remove permissions body
+func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := o.validateName(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := o.validatePermissions(formats); err != nil {
 		res = append(res, err)
@@ -112,9 +119,19 @@ func (o *RemovedPermissionBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *RemovedPermissionBody) validatePermissions(formats strfmt.Registry) error {
-	if swag.IsZero(o.Permissions) { // not required
-		return nil
+func (o *RemovePermissionsBody) validateName(formats strfmt.Registry) error {
+
+	if err := validate.Required("body"+"."+"name", "body", o.Name); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *RemovePermissionsBody) validatePermissions(formats strfmt.Registry) error {
+
+	if err := validate.Required("body"+"."+"permissions", "body", o.Permissions); err != nil {
+		return err
 	}
 
 	for i := 0; i < len(o.Permissions); i++ {
@@ -138,8 +155,8 @@ func (o *RemovedPermissionBody) validatePermissions(formats strfmt.Registry) err
 	return nil
 }
 
-// ContextValidate validate this removed permission body based on the context it is used
-func (o *RemovedPermissionBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this remove permissions body based on the context it is used
+func (o *RemovePermissionsBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := o.contextValidatePermissions(ctx, formats); err != nil {
@@ -152,7 +169,7 @@ func (o *RemovedPermissionBody) ContextValidate(ctx context.Context, formats str
 	return nil
 }
 
-func (o *RemovedPermissionBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
+func (o *RemovePermissionsBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(o.Permissions); i++ {
 
@@ -173,7 +190,7 @@ func (o *RemovedPermissionBody) contextValidatePermissions(ctx context.Context, 
 }
 
 // MarshalBinary interface implementation
-func (o *RemovedPermissionBody) MarshalBinary() ([]byte, error) {
+func (o *RemovePermissionsBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -181,8 +198,8 @@ func (o *RemovedPermissionBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *RemovedPermissionBody) UnmarshalBinary(b []byte) error {
-	var res RemovedPermissionBody
+func (o *RemovePermissionsBody) UnmarshalBinary(b []byte) error {
+	var res RemovePermissionsBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

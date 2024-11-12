@@ -29,7 +29,7 @@ func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manage
 	return &manager{casbin, logger}
 }
 
-func (m *manager) CreateRoles(roles ...*models.Role) error {
+func (m *manager) UpsertRoles(roles ...*models.Role) error {
 	// TODO: block overriding existing roles
 	for idx := range roles {
 		for _, permission := range roles[idx].Permissions {
@@ -101,6 +101,26 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 		})
 	}
 	return roles, nil
+}
+
+func (m *manager) RemovePermissions(role string, permissions []*models.Permission) error {
+	for _, permission := range permissions {
+		policy, err := policy(permission)
+		if err != nil {
+			return err
+		}
+		ok, err := m.casbin.RemoveNamedPolicy("p", role, policy.resource, policy.verb, policy.domain)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil // deletes are idempotent
+		}
+	}
+	if err := m.casbin.SavePolicy(); err != nil {
+		return err
+	}
+	return m.casbin.InvalidateCache()
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {

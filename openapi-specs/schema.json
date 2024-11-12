@@ -2578,12 +2578,12 @@
         }
       }
     },
-    "/authz/roles/add-permission":{
+    "/authz/roles/add-permissions":{
       "post": {
-        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
-        "operationId": "addPermission",
+        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "operationId": "addPermissions",
         "x-serviceIds": [
-          "weaviate.authz.add.role.permission"
+          "weaviate.authz.add.role.permissions"
         ],
         "tags": [
           "authz"
@@ -2596,21 +2596,26 @@
             "schema": {
               "type": "object",
               "properties": {
-                "name":{},
+                "name": {
+                  "type": "string",
+                  "description": "role name"
+                },
                 "permissions": {
                   "type":"array",
                   "items": {
                     "$ref": "#/definitions/Permission"
-                  }                  
+                  },
+                  "description": "permissions to be added to the role"
                 }
-              }
+              },
+              "required": ["name", "permissions"]
               
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission added successfully"
+          "200": {
+            "description": "Permissions added successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2636,12 +2641,12 @@
         }
       }
     },
-    "/authz/roles/remove-permission":{
+    "/authz/roles/remove-permissions":{
       "post": {
-        "summary": "remove permission from a role",
-        "operationId": "removedPermission",
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
         "x-serviceIds": [
-          "weaviate.authz.remove.role.permission"
+          "weaviate.authz.remove.role.permissions"
         ],
         "tags": [
           "authz"
@@ -2654,22 +2659,25 @@
             "schema": {
               "type": "object",
               "properties": {
-                "name":{},
+                "name": {
+                  "type": "string",
+                  "description": "role name"
+                },
                 "permissions": {
                   "type":"array",
                   "items": {
                     "$ref": "#/definitions/Permission"
-                  }
-                  
+                  },
+                  "description": "permissions to remove from the role"
                 }
-              }
-              
+              },
+              "required": ["name", "permissions"]
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission removed successfully"
+          "200": {
+            "description": "Permissions removed successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

@@ -26,19 +26,19 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewAddPermissionParams creates a new AddPermissionParams object
+// NewRemovePermissionsParams creates a new RemovePermissionsParams object
 //
 // There are no default values defined in the spec.
-func NewAddPermissionParams() AddPermissionParams {
+func NewRemovePermissionsParams() RemovePermissionsParams {
 
-	return AddPermissionParams{}
+	return RemovePermissionsParams{}
 }
 
-// AddPermissionParams contains all the bound params for the add permission operation
+// RemovePermissionsParams contains all the bound params for the remove permissions operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters addPermission
-type AddPermissionParams struct {
+// swagger:parameters removePermissions
+type RemovePermissionsParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -47,21 +47,21 @@ type AddPermissionParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body AddPermissionBody
+	Body RemovePermissionsBody
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewAddPermissionParams() beforehand.
-func (o *AddPermissionParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewRemovePermissionsParams() beforehand.
+func (o *RemovePermissionsParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body AddPermissionBody
+		var body RemovePermissionsBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))

@@ -16,11 +16,12 @@ import (
 )
 
 type Controller interface {
-	CreateRoles(roles ...*models.Role) error
+	UpsertRoles(roles ...*models.Role) error
 	GetRoles(names ...string) ([]*models.Role, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
 	GetRolesForUser(user string) ([]*models.Role, error)
 	GetUsersForRole(role string) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
+	RemovePermissions(role string, permissions []*models.Permission) error
 }

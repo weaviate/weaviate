@@ -22,15 +22,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// RemovedPermissionURL generates an URL for the removed permission operation
-type RemovedPermissionURL struct {
+// RemovePermissionsURL generates an URL for the remove permissions operation
+type RemovePermissionsURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *RemovedPermissionURL) WithBasePath(bp string) *RemovedPermissionURL {
+func (o *RemovePermissionsURL) WithBasePath(bp string) *RemovePermissionsURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -38,15 +38,15 @@ func (o *RemovedPermissionURL) WithBasePath(bp string) *RemovedPermissionURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *RemovedPermissionURL) SetBasePath(bp string) {
+func (o *RemovePermissionsURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *RemovedPermissionURL) Build() (*url.URL, error) {
+func (o *RemovePermissionsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles/remove-permission"
+	var _path = "/authz/roles/remove-permissions"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -58,7 +58,7 @@ func (o *RemovedPermissionURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *RemovedPermissionURL) Must(u *url.URL, err error) *url.URL {
+func (o *RemovePermissionsURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -69,17 +69,17 @@ func (o *RemovedPermissionURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *RemovedPermissionURL) String() string {
+func (o *RemovePermissionsURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *RemovedPermissionURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *RemovePermissionsURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on RemovedPermissionURL")
+		return nil, errors.New("scheme is required for a full url on RemovePermissionsURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on RemovedPermissionURL")
+		return nil, errors.New("host is required for a full url on RemovePermissionsURL")
 	}
 
 	base, err := o.Build()
@@ -93,6 +93,6 @@ func (o *RemovedPermissionURL) BuildFull(scheme, host string) (*url.URL, error) 
 }
 
 // StringFull returns the string representation of a complete url
-func (o *RemovedPermissionURL) StringFull(scheme, host string) string {
+func (o *RemovePermissionsURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

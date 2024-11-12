@@ -237,13 +237,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permission": {
+    "/authz/roles/add-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
-        "operationId": "addPermission",
+        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "operationId": "addPermissions",
         "parameters": [
           {
             "name": "body",
@@ -251,9 +251,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to be added to the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -264,8 +272,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission added successfully"
+          "200": {
+            "description": "Permissions added successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -290,17 +298,17 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.add.role.permission"
+          "weaviate.authz.add.role.permissions"
         ]
       }
     },
-    "/authz/roles/remove-permission": {
+    "/authz/roles/remove-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "remove permission from a role",
-        "operationId": "removedPermission",
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
         "parameters": [
           {
             "name": "body",
@@ -308,9 +316,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to remove from the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -321,8 +337,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission removed successfully"
+          "200": {
+            "description": "Permissions removed successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -347,7 +363,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.remove.role.permission"
+          "weaviate.authz.remove.role.permissions"
         ]
       }
     },
@@ -6373,13 +6389,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permission": {
+    "/authz/roles/add-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
-        "operationId": "addPermission",
+        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "operationId": "addPermissions",
         "parameters": [
           {
             "name": "body",
@@ -6387,9 +6403,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to be added to the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -6400,8 +6424,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission added successfully"
+          "200": {
+            "description": "Permissions added successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6426,17 +6450,17 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.add.role.permission"
+          "weaviate.authz.add.role.permissions"
         ]
       }
     },
-    "/authz/roles/remove-permission": {
+    "/authz/roles/remove-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "remove permission from a role",
-        "operationId": "removedPermission",
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
         "parameters": [
           {
             "name": "body",
@@ -6444,9 +6468,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to remove from the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -6457,8 +6489,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission removed successfully"
+          "200": {
+            "description": "Permissions removed successfully"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6483,7 +6515,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.remove.role.permission"
+          "weaviate.authz.remove.role.permissions"
         ]
       }
     },
