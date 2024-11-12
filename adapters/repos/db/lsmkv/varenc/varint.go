@@ -149,11 +149,11 @@ func (e *VarIntEncoder) Init(expectedCount int) {
 	e.buf = make([]byte, 8+8*expectedCount)
 }
 
-func (e *VarIntEncoder) EncodeReusable(values []uint64, buf []byte) {
+func (e VarIntEncoder) EncodeReusable(values []uint64, buf []byte) {
 	encodeReusable(values, buf, false)
 }
 
-func (e *VarIntEncoder) DecodeReusable(data []byte, values []uint64) {
+func (e VarIntEncoder) DecodeReusable(data []byte, values []uint64) {
 	decodeReusable(values, data, false)
 }
 
@@ -177,11 +177,11 @@ func (e *VarIntDeltaEncoder) Init(expectedCount int) {
 	e.buf = make([]byte, 8+8*expectedCount)
 }
 
-func (e *VarIntDeltaEncoder) EncodeReusable(values []uint64, buf []byte) {
+func (e VarIntDeltaEncoder) EncodeReusable(values []uint64, buf []byte) {
 	encodeReusable(values, buf, true)
 }
 
-func (e *VarIntDeltaEncoder) DecodeReusable(data []byte, values []uint64) {
+func (e VarIntDeltaEncoder) DecodeReusable(data []byte, values []uint64) {
 	decodeReusable(values, data, true)
 }
 
