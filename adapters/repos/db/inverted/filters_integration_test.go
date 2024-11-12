@@ -41,7 +41,9 @@ func Test_Filters_String(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"
@@ -309,7 +311,9 @@ func Test_Filters_Int(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 	defer store.Shutdown(context.Background())
 
@@ -1023,7 +1027,9 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	propName := "inverted-with-frequency"

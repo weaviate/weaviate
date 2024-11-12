@@ -72,8 +72,7 @@ func TestRecallGeo(t *testing.T) {
 		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 		require.Nil(t, err)
 		vectorIndex = index

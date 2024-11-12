@@ -778,7 +778,7 @@ func TestIndexQueue(t *testing.T) {
 					return container.Slice, nil
 				},
 			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 		defer index.Shutdown(context.Background())
 
 		q, err := NewIndexQueue("foo", "1", "", new(mockShard), index, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
@@ -1229,7 +1229,9 @@ func newDummyStore(t *testing.T) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
 	storeDir := t.TempDir()
 	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	return store
 }

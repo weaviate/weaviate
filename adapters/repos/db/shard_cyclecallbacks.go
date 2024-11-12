@@ -18,8 +18,10 @@ import (
 )
 
 type shardCycleCallbacks struct {
-	compactionCallbacks     cyclemanager.CycleCallbackGroup
-	compactionCallbacksCtrl cyclemanager.CycleCallbackCtrl
+	compactionCallbacks        cyclemanager.CycleCallbackGroup
+	compactionCallbacksCtrl    cyclemanager.CycleCallbackCtrl
+	compactionAuxCallbacks     cyclemanager.CycleCallbackGroup
+	compactionAuxCallbacksCtrl cyclemanager.CycleCallbackCtrl
 
 	flushCallbacks     cyclemanager.CycleCallbackGroup
 	flushCallbacksCtrl cyclemanager.CycleCallbackCtrl
@@ -39,11 +41,31 @@ func (s *Shard) initCycleCallbacks() {
 		return strings.Join(elems, "/")
 	}
 
-	compactionId := id("compaction")
-	compactionCallbacks := cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
-	compactionCallbacksCtrl := s.index.cycleCallbacks.compactionCallbacks.Register(
-		compactionId, compactionCallbacks.CycleCallback,
-		cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+	var compactionCallbacks cyclemanager.CycleCallbackGroup
+	var compactionCallbacksCtrl cyclemanager.CycleCallbackCtrl
+	var compactionAuxCallbacks cyclemanager.CycleCallbackGroup
+	var compactionAuxCallbacksCtrl cyclemanager.CycleCallbackCtrl
+
+	if s.index.cycleCallbacks.compactionAuxCallbacks == nil {
+		compactionId := id("compaction")
+		compactionCallbacks = cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
+		compactionCallbacksCtrl = s.index.cycleCallbacks.compactionCallbacks.Register(
+			compactionId, compactionCallbacks.CycleCallback,
+			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+		compactionAuxCallbacksCtrl = cyclemanager.NewCallbackCtrlNoop()
+	} else {
+		compactionId := id("compaction-non-objects")
+		compactionCallbacks = cyclemanager.NewCallbackGroup(compactionId, s.index.logger, 1)
+		compactionCallbacksCtrl = s.index.cycleCallbacks.compactionCallbacks.Register(
+			compactionId, compactionCallbacks.CycleCallback,
+			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+
+		compactionAuxId := id("compaction-objects")
+		compactionAuxCallbacks = cyclemanager.NewCallbackGroup(compactionAuxId, s.index.logger, 1)
+		compactionAuxCallbacksCtrl = s.index.cycleCallbacks.compactionAuxCallbacks.Register(
+			compactionAuxId, compactionAuxCallbacks.CycleCallback,
+			cyclemanager.WithIntervals(cyclemanager.CompactionCycleIntervals()))
+	}
 
 	flushId := id("flush")
 	flushCallbacks := cyclemanager.NewCallbackGroup(flushId, s.index.logger, 1)
@@ -82,8 +104,10 @@ func (s *Shard) initCycleCallbacks() {
 		geoPropsCommitLoggerCallbacksCtrl, geoPropsTombstoneCleanupCallbacksCtrl)
 
 	s.cycleCallbacks = &shardCycleCallbacks{
-		compactionCallbacks:     compactionCallbacks,
-		compactionCallbacksCtrl: compactionCallbacksCtrl,
+		compactionCallbacks:        compactionCallbacks,
+		compactionCallbacksCtrl:    compactionCallbacksCtrl,
+		compactionAuxCallbacks:     compactionAuxCallbacks,
+		compactionAuxCallbacksCtrl: compactionAuxCallbacksCtrl,
 
 		flushCallbacks:     flushCallbacks,
 		flushCallbacksCtrl: flushCallbacksCtrl,

@@ -84,26 +84,24 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                       string
-	targetVector             string
-	store                    *lsmkv.Store
-	logger                   logrus.FieldLogger
-	rootPath                 string
-	shardName                string
-	className                string
-	prometheusMetrics        *monitoring.PrometheusMetrics
-	vectorForIDThunk         common.VectorForID[float32]
-	tempVectorForIDThunk     common.TempVectorForID
-	distanceProvider         distancer.Provider
-	makeCommitLoggerThunk    hnsw.MakeCommitLogger
-	threshold                uint64
-	index                    VectorIndex
-	upgraded                 atomic.Bool
-	tombstoneCallbacks       cyclemanager.CycleCallbackGroup
-	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
-	hnswUC                   hnswent.UserConfig
-	db                       *bolt.DB
+	id                    string
+	targetVector          string
+	store                 *lsmkv.Store
+	logger                logrus.FieldLogger
+	rootPath              string
+	shardName             string
+	className             string
+	prometheusMetrics     *monitoring.PrometheusMetrics
+	vectorForIDThunk      common.VectorForID[float32]
+	tempVectorForIDThunk  common.TempVectorForID
+	distanceProvider      distancer.Provider
+	makeCommitLoggerThunk hnsw.MakeCommitLogger
+	threshold             uint64
+	index                 VectorIndex
+	upgraded              atomic.Bool
+	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	hnswUC                hnswent.UserConfig
+	db                    *bolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -130,23 +128,21 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	index := &dynamic{
-		id:                       cfg.ID,
-		targetVector:             cfg.TargetVector,
-		logger:                   logger,
-		rootPath:                 cfg.RootPath,
-		shardName:                cfg.ShardName,
-		className:                cfg.ClassName,
-		prometheusMetrics:        cfg.PrometheusMetrics,
-		vectorForIDThunk:         cfg.VectorForIDThunk,
-		tempVectorForIDThunk:     cfg.TempVectorForIDThunk,
-		distanceProvider:         cfg.DistanceProvider,
-		makeCommitLoggerThunk:    cfg.MakeCommitLoggerThunk,
-		store:                    store,
-		threshold:                uc.Threshold,
-		tombstoneCallbacks:       cfg.TombstoneCallbacks,
-		shardCompactionCallbacks: cfg.ShardCompactionCallbacks,
-		shardFlushCallbacks:      cfg.ShardFlushCallbacks,
-		hnswUC:                   uc.HnswUC,
+		id:                    cfg.ID,
+		targetVector:          cfg.TargetVector,
+		logger:                logger,
+		rootPath:              cfg.RootPath,
+		shardName:             cfg.ShardName,
+		className:             cfg.ClassName,
+		prometheusMetrics:     cfg.PrometheusMetrics,
+		vectorForIDThunk:      cfg.VectorForIDThunk,
+		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
+		distanceProvider:      cfg.DistanceProvider,
+		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
+		store:                 store,
+		threshold:             uc.Threshold,
+		tombstoneCallbacks:    cfg.TombstoneCallbacks,
+		hnswUC:                uc.HnswUC,
 	}
 
 	path := filepath.Join(cfg.RootPath, "index.db")
@@ -196,8 +192,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
-			index.shardCompactionCallbacks,
-			index.shardFlushCallbacks,
 			index.store,
 		)
 		if err != nil {
@@ -403,8 +397,6 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
-		dynamic.shardCompactionCallbacks,
-		dynamic.shardFlushCallbacks,
 		dynamic.store,
 	)
 	if err != nil {
