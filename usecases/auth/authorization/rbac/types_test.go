@@ -30,7 +30,6 @@ var (
 	foo = String("foo")
 	bar = String("bar")
 	baz = String("baz")
-	all = String("*")
 
 	createDesc = "create"
 	readDesc   = "read"
@@ -525,8 +524,4 @@ func Test_permission(t *testing.T) {
 			})
 		}
 	}
-}
-
-func String(s string) *string {
-	return &s
 }

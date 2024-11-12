@@ -124,9 +124,10 @@ func TestAuthzRoles(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
-		require.NotNil(t, err)
-		// TODO check error type not found
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Payload))
+		require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
