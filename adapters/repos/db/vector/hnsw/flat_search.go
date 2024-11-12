@@ -56,15 +56,13 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	fmt.Printf("extract candidates took %s\n", time.Since(beforeExtractCandidates))
 
 	beforeDistances := time.Now()
-	workers := 4
-
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
-	for workerID := 0; workerID < workers; workerID++ {
+	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
 			localResults := priorityqueue.NewMax[any](limit)
 			var e storobj.ErrNotFound
-			for idPos := workerID; idPos < len(candidates); idPos += workers {
+			for idPos := workerID; idPos < len(candidates); idPos += h.flatSearchConcurrency {
 				candidate := candidates[idPos]
 
 				// Hot fix for https://github.com/weaviate/weaviate/issues/1937
