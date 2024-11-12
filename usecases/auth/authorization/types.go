@@ -157,5 +157,5 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if id == "" {
 		id = "*"
 	}
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s/*", class, shard, id)
+	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
 }
