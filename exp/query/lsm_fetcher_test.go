@@ -172,7 +172,8 @@ func TestLSMFetcher_concurrentInflights(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-wait // wait till all groutines ready to fetch
-			fetcher.Fetch(ctx, testCollection, testTenant, testVersion)
+			_, _, err := fetcher.Fetch(ctx, testCollection, testTenant, testVersion)
+			require.NoError(t, err)
 		}()
 	}
 
