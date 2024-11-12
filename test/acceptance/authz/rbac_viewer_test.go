@@ -33,32 +33,38 @@ func TestViewerEndpoints(t *testing.T) {
 		arrayReq bool
 		body     map[string][]byte
 	}{
-		{endpoint: "/schema", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
-		{endpoint: "/schema/RandomClass", methods: []string{"GET", "PUT", "DELETE"}, success: []bool{true, false, false}, arrayReq: false},
-		{endpoint: "/schema/RandomClass/properties", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
-		{endpoint: "/schema/RandomClass/shards", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/schema/RandomClass/shards/name", methods: []string{"PUT"}, success: []bool{false}, arrayReq: false},
-		{endpoint: "/schema/RandomClass/tenants", methods: []string{"GET", "POST", "PUT", "DELETE"}, success: []bool{true, false, false, false}, arrayReq: true},
-		{endpoint: "/schema/RandomClass/tenants/name", methods: []string{"HEAD"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
-		{endpoint: "/objects/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
-		{endpoint: "/objects/RandomClass/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
-		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
-		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
-		{endpoint: "/objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
-		{endpoint: "/objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
-		{endpoint: "/objects/validate", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
-		{endpoint: "/batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true},
-		{endpoint: "/backups/backend", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
-		{endpoint: "/backups/backend/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
-		{endpoint: "/backups/backend/id/restore", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
-		{endpoint: "/meta", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/cluster/statistics", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/nodes", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/graphql", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
-		{endpoint: "/classifications", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
-		{endpoint: "/classifications/id", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "authz/roles", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"name\": \"n\", \"permissions\":[]}")}},
+		{endpoint: "authz/roles/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "authz/roles/id/users", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "authz/users/id/roles", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "authz/users/id/assign", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "authz/users/id/revoke", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "backups/backend", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "backups/backend/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "backups/backend/id/restore", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
+		{endpoint: "batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "classifications", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "classifications/id", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "cluster/statistics", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "graphql", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "objects/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
+		{endpoint: "objects/RandomClass/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
+		{endpoint: "objects/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
+		{endpoint: "objects/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
+		{endpoint: "objects/RandomClass/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "objects/validate", methods: []string{"POST"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "meta", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "nodes", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "schema", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
+		{endpoint: "schema/RandomClass", methods: []string{"GET", "PUT", "DELETE"}, success: []bool{true, false, false}, arrayReq: false},
+		{endpoint: "schema/RandomClass/properties", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "schema/RandomClass/shards", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
+		{endpoint: "schema/RandomClass/shards/name", methods: []string{"PUT"}, success: []bool{false}, arrayReq: false},
+		{endpoint: "schema/RandomClass/tenants", methods: []string{"GET", "POST", "PUT", "DELETE"}, success: []bool{true, false, false, false}, arrayReq: true},
+		{endpoint: "schema/RandomClass/tenants/name", methods: []string{"HEAD"}, success: []bool{true}, arrayReq: false},
 	}
 
 	for _, endpoint := range endpoints {
@@ -82,17 +88,17 @@ func TestViewerEndpoints(t *testing.T) {
 					}
 
 					reqBody := bytes.NewBuffer(body)
-					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, reqBody)
+					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, reqBody)
 					require.Nil(t, err)
 					req.Header.Set("Content-Type", "application/json")
 				} else if method == "DELETE" {
 					reqBody := strings.NewReader("[\n  \"\"\n]")
-					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, reqBody)
+					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, reqBody)
 					require.Nil(t, err)
 					req.Header.Set("Content-Type", "application/json")
 
 				} else {
-					req, err = http.NewRequest(method, "http://localhost:8081/v1"+endpoint.endpoint, nil)
+					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, nil)
 					require.Nil(t, err)
 				}
 
