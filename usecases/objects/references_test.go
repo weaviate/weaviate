@@ -299,7 +299,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 		{
 			Name: "authorization", Req: req,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
-			Stage: 1,
+			Stage: 0,
 		},
 		{
 			Name: "get schema",
@@ -461,7 +461,7 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 2,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
 		},
 		{
 			Name: "get schema",
