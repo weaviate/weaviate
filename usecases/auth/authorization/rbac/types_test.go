@@ -86,7 +86,7 @@ func Test_policy(t *testing.T) {
 			name:       "all roles",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "roles/*",
+				resource: pRoles("*"),
 				domain:   "roles",
 			},
 			tests: rolesTests,
@@ -97,7 +97,7 @@ func Test_policy(t *testing.T) {
 				Role: String("admin"),
 			},
 			policy: &Policy{
-				resource: "roles/admin",
+				resource: pRoles("admin"),
 				domain:   "roles",
 			},
 			tests: rolesTests,
@@ -115,7 +115,7 @@ func Test_policy(t *testing.T) {
 			name:       "all collections",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "collections/*",
+				resource: pCollections("*"),
 				domain:   "collections",
 			},
 			tests: collectionsTests,
@@ -126,7 +126,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/foo",
+				resource: pCollections("foo"),
 				domain:   "collections",
 			},
 			tests: collectionsTests,
@@ -135,7 +135,7 @@ func Test_policy(t *testing.T) {
 			name:       "all tenants in all collections",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "collections/*/shards/*",
+				resource: pShards("*", "*"),
 				domain:   "tenants",
 			},
 			tests: tenantsTests,
@@ -146,7 +146,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*",
+				resource: pShards("foo", "*"),
 				domain:   "tenants",
 			},
 			tests: tenantsTests,
@@ -157,7 +157,7 @@ func Test_policy(t *testing.T) {
 				Tenant: bar,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar",
+				resource: pShards("*", "bar"),
 				domain:   "tenants",
 			},
 			tests: tenantsTests,
@@ -169,7 +169,7 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/bar",
+				resource: pShards("foo", "bar"),
 				domain:   "tenants",
 			},
 			tests: tenantsTests,
@@ -178,7 +178,7 @@ func Test_policy(t *testing.T) {
 			name:       "all objects in all collections ST",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "collections/*/shards/*/objects/*",
+				resource: pObjects("*", "*", "*"),
 				domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
@@ -189,7 +189,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*/objects/*",
+				resource: pObjects("foo", "*", "*"),
 				domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
@@ -200,7 +200,7 @@ func Test_policy(t *testing.T) {
 				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/*/objects/baz",
+				resource: pObjects("*", "*", "baz"),
 				domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
@@ -212,7 +212,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*/objects/baz",
+				resource: pObjects("foo", "*", "baz"),
 				domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
@@ -223,7 +223,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*/objects/*",
+				resource: pObjects("foo", "*", "*"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -234,7 +234,7 @@ func Test_policy(t *testing.T) {
 				Tenant: bar,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar/objects/*",
+				resource: pObjects("*", "bar", "*"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -246,7 +246,7 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/bar/objects/*",
+				resource: pObjects("foo", "bar", "*"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -257,7 +257,7 @@ func Test_policy(t *testing.T) {
 				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/*/objects/baz",
+				resource: pObjects("*", "*", "baz"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -269,7 +269,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/*/objects/baz",
+				resource: pObjects("foo", "*", "baz"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -281,7 +281,7 @@ func Test_policy(t *testing.T) {
 				Object: baz,
 			},
 			policy: &Policy{
-				resource: "collections/*/shards/bar/objects/baz",
+				resource: pObjects("*", "bar", "baz"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
@@ -294,7 +294,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &Policy{
-				resource: "collections/foo/shards/bar/objects/baz",
+				resource: pObjects("foo", "bar", "baz"),
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
