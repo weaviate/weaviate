@@ -108,10 +108,6 @@ func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
 	bo.Position += uint32Len
 	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position]))
 
-	if bufLen == 0 {
-		return nil
-	}
-
 	bo.Position += bufLen
 	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
 	return subslice

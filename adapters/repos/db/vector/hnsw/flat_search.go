@@ -12,6 +12,10 @@
 package hnsw
 
 import (
+	"context"
+	"fmt"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -19,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
+func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if !h.shouldRescore() {
@@ -38,8 +42,16 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 		compressorDistancer = distancer
 	}
 
+	beforeIter := time.Now()
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
+		if err := ctx.Err(); err != nil {
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_iteration")
+			took := time.Since(beforeIter)
+			helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
+			return nil, nil, fmt.Errorf("flat search: iterating candidates: %w", err)
+		}
+
 		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
 		// this if statement mitigates the problem but it doesn't resolve the issue
 		if candidate >= nodeSize {
@@ -74,11 +86,21 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 			results.Insert(candidate, dist)
 		}
 	}
+	took := time.Since(beforeIter)
+	helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
 
+	beforeRescore := time.Now()
 	if h.shouldRescore() {
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
-		h.rescore(results, k, compressorDistancer)
+		if err := h.rescore(ctx, results, k, compressorDistancer); err != nil {
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_rescore")
+			took := time.Since(beforeRescore)
+			helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
+			return nil, nil, fmt.Errorf("flat search: %w", err)
+		}
 		fn()
+		took := time.Since(beforeRescore)
+		helpers.AnnotateSlowQueryLog(ctx, "flat_search_rescore_took", took)
 	}
 
 	ids := make([]uint64, results.Len())
