@@ -70,7 +70,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	err := h.controller.UpsertRoles(&models.Role{
@@ -87,7 +87,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	err := h.controller.RemovePermissions(*params.Body.Name, params.Body.Permissions)
