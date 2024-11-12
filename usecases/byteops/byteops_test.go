@@ -88,24 +88,32 @@ func TestReadAnWriteLargeBuffer(t *testing.T) {
 }
 
 func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
+	empty := []byte{}
+
 	t.Run("uint64 length indicator", func(t *testing.T) {
 		bufLen := uint64(mustRandIntn(1024))
 		buf := make([]byte, bufLen)
 		rand.Read(buf)
 
 		// uint64 length indicator + buffer + unrelated data at end of buffer
-		totalBuf := make([]byte, bufLen+16)
+		totalBuf := make([]byte, 8+bufLen+8+8)
 		bo := NewReadWriter(totalBuf)
 
-		assert.Nil(t, bo.CopyBytesToBufferWithUint64LengthIndicator(buf))
-		bo.WriteUint64(17)
+		// write
+		assert.NoError(t, bo.CopyBytesToBufferWithUint64LengthIndicator(buf))
 		assert.Equal(t, buf, totalBuf[8:8+bufLen])
+		bo.WriteUint64(17)
+		assert.NoError(t, bo.CopyBytesToBufferWithUint64LengthIndicator(empty))
 
 		// read
 		bo = NewReadWriter(totalBuf)
 		bufRead := bo.ReadBytesFromBufferWithUint64LengthIndicator()
 		assert.Len(t, bufRead, int(bufLen))
+		assert.Equal(t, buf, bufRead)
 		assert.Equal(t, uint64(17), bo.ReadUint64())
+		bufRead = bo.ReadBytesFromBufferWithUint64LengthIndicator()
+		assert.Len(t, bufRead, 0)
+		assert.NotNil(t, bufRead)
 
 		// discard
 		bo = NewReadWriter(totalBuf)
@@ -120,18 +128,24 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 		rand.Read(buf)
 
 		// uint32 length indicator + buffer + unrelated data at end of buffer
-		totalBuf := make([]byte, bufLen+8)
+		totalBuf := make([]byte, 4+bufLen+4+4)
 		bo := NewReadWriter(totalBuf)
 
-		assert.Nil(t, bo.CopyBytesToBufferWithUint32LengthIndicator(buf))
-		bo.WriteUint32(17)
+		// write
+		assert.NoError(t, bo.CopyBytesToBufferWithUint32LengthIndicator(buf))
 		assert.Equal(t, buf, totalBuf[4:4+bufLen])
+		bo.WriteUint32(17)
+		assert.NoError(t, bo.CopyBytesToBufferWithUint32LengthIndicator(empty))
 
 		// read
 		bo = NewReadWriter(totalBuf)
 		bufRead := bo.ReadBytesFromBufferWithUint32LengthIndicator()
 		assert.Len(t, bufRead, int(bufLen))
+		assert.Equal(t, buf, bufRead)
 		assert.Equal(t, uint32(17), bo.ReadUint32())
+		bufRead = bo.ReadBytesFromBufferWithUint32LengthIndicator()
+		assert.Len(t, bufRead, 0)
+		assert.NotNil(t, bufRead)
 
 		// discard
 		bo = NewReadWriter(totalBuf)
