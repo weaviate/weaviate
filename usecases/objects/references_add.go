@@ -16,13 +16,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -36,6 +37,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer m.metrics.AddReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
+
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
@@ -51,10 +56,6 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			return &Error{"source object deprecated", StatusInternalServerError, err}
 		}
 		input.Class = objectRes.Object().Class
-	}
-
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	unlock, err := m.locks.LockSchema()
