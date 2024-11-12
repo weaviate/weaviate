@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -112,6 +111,52 @@ func newPolicy(policy []string) *Policy {
 	}
 }
 
+func pRoles(role string) string {
+	if role == "" {
+		role = "*"
+	}
+	role = strings.ReplaceAll(role, "*", ".*")
+	return fmt.Sprintf("roles/%s", role)
+}
+
+func pCollections(collection string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	return fmt.Sprintf("collections/%s/*", collection)
+}
+
+func pShards(collection, shard string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+
+	return fmt.Sprintf("collections/%s/shards/%s/*", collection, shard)
+}
+
+func pObjects(collection, shard, object string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	if object == "" {
+		object = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	object = strings.ReplaceAll(object, "*", ".*")
+	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", collection, shard, object)
+}
+
 func policy(permission *models.Permission) (*Policy, error) {
 	// TODO verify slice position to avoid panics
 	if permission.Action == nil {
@@ -132,7 +177,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Role != nil {
 			role = *permission.Role
 		}
-		resource = authorization.Roles(role)[0]
+		resource = pRoles(role)
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
@@ -140,7 +185,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Collection != nil {
 			collection = *permission.Collection
 		}
-		resource = authorization.Collections(collection)[0]
+		resource = pCollections(collection)
 	case tenants:
 		collection := "*"
 		tenant := "*"
@@ -150,7 +195,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Tenant != nil {
 			tenant = *permission.Tenant
 		}
-		resource = authorization.Shards(collection, tenant)[0]
+		resource = pShards(collection, tenant)
 	case objectsCollection:
 		collection := "*"
 		object := "*"
@@ -160,7 +205,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Object != nil {
 			object = *permission.Object
 		}
-		resource = authorization.Objects(collection, "*", strfmt.UUID(object))
+		resource = pObjects(collection, "*", object)
 	case objectsTenant:
 		collection := "*"
 		tenant := "*"
@@ -174,10 +219,11 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Object != nil {
 			object = *permission.Object
 		}
-		resource = authorization.Objects(collection, tenant, strfmt.UUID(object))
+		resource = pObjects(collection, tenant, object)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
+
 	return &Policy{
 		resource: resource,
 		verb:     verb,

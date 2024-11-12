@@ -51,8 +51,8 @@ func TestCollections(t *testing.T) {
 	}{
 		{"No classes", []string{}, []string{"collections/*"}},
 		{"Single empty class", []string{""}, []string{"collections/*"}},
-		{"Single class", []string{"class1"}, []string{"collections/class1"}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{"collections/class1", "collections/class2"}},
+		{"Single class", []string{"class1"}, []string{"collections/class1/*"}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{"collections/class1/*", "collections/class2/*"}},
 	}
 
 	for _, tt := range tests {
@@ -70,12 +70,12 @@ func TestShards(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no shards", "", []string{}, []string{"collections/*/shards/*"}},
-		{"Class, no shards", "class1", []string{}, []string{"collections/class1/shards/*"}},
-		{"No class, single shard", "", []string{"shard1"}, []string{"collections/*/shards/shard1"}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{"collections/class1/shards/shard1"}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"collections/class1/shards/shard1", "collections/class1/shards/shard2"}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"collections/class1/shards/shard1", "collections/class1/shards/*"}},
+		{"No class, no shards", "", []string{}, []string{"collections/*/shards/*/*"}},
+		{"Class, no shards", "class1", []string{}, []string{"collections/class1/shards/*/*"}},
+		{"No class, single shard", "", []string{"shard1"}, []string{"collections/*/shards/shard1/*"}},
+		{"Class, single shard", "class1", []string{"shard1"}, []string{"collections/class1/shards/shard1/*"}},
+		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"collections/class1/shards/shard1/*", "collections/class1/shards/shard2/*"}},
+		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"collections/class1/shards/shard1/*", "collections/class1/shards/*/*"}},
 	}
 
 	for _, tt := range tests {
