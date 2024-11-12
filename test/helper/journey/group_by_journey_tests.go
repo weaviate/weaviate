@@ -52,6 +52,10 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			helper.CreateObject(t, obj)
 			helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
 		}
+
+		// wait for the objects to be indexed
+		// TODO: remove this sleep when we have a better way to determine when the objects are indexed
+		time.Sleep(3 * time.Second)
 	}
 	groupBy := func(t *testing.T, groupsCount, objectsPerGroup int) {
 		query := `
