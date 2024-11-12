@@ -86,7 +86,7 @@ func Test_policy(t *testing.T) {
 			name:       "all roles",
 			permission: &models.Permission{},
 			policy: &Policy{
-				resource: "roles/*",
+				resource: pRoles("*"),
 				domain:   "roles",
 			},
 			tests: rolesTests,
@@ -97,7 +97,7 @@ func Test_policy(t *testing.T) {
 				Role: String("admin"),
 			},
 			policy: &Policy{
-				resource: "roles/admin",
+				resource: pRoles("admin"),
 				domain:   "roles",
 			},
 			tests: rolesTests,
