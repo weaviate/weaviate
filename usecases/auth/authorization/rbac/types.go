@@ -26,10 +26,35 @@ const (
 	collections       = "collections"
 	tenants           = "tenants"
 	objectsCollection = "objects_collection"
-	objectsTenants    = "objects_tenants"
+	objectsTenant     = "objects_tenant"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
+)
+
+const (
+	manageRoles   = "manage_roles"
+	manageCluster = "manage_cluster"
+
+	createCollections = "create_collections"
+	readCollections   = "read_collections"
+	updateCollections = "update_collections"
+	deleteCollections = "delete_collections"
+
+	createTenants = "create_tenants"
+	readTenants   = "read_tenants"
+	updateTenants = "update_tenants"
+	deleteTenants = "delete_tenants"
+
+	createObjectsCollection = "create_objects_collection"
+	readObjectsCollection   = "read_objects_collection"
+	updateObjectsCollection = "update_objects_collection"
+	deleteObjectsCollection = "delete_objects_collection"
+
+	createObjectsTenant = "create_objects_tenant"
+	readObjectsTenant   = "read_objects_tenant"
+	updateObjectsTenant = "update_objects_tenant"
+	deleteObjectsTenant = "delete_objects_tenant"
 )
 
 var builtInRoles = map[string]string{
@@ -38,11 +63,28 @@ var builtInRoles = map[string]string{
 	"admin":  authorization.CRUD,
 }
 
-func policy(permission *models.Permission) (string, string, string, error) {
+type Policy struct {
+	resource string
+	verb     string
+	domain   string
+}
+
+func newPolicy(policy []string) *Policy {
+	return &Policy{
+		resource: policy[1],
+		verb:     policy[2],
+		domain:   policy[3],
+	}
+}
+
+func policy(permission *models.Permission) (*Policy, error) {
 	// TODO verify slice position to avoid panics
+	if permission.Action == nil {
+		return nil, fmt.Errorf("missing action")
+	}
 	action, domain, found := strings.Cut(*permission.Action, "_")
 	if !found {
-		return "", "", "", fmt.Errorf("invalid action")
+		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
 	}
 	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
@@ -51,50 +93,82 @@ func policy(permission *models.Permission) (string, string, string, error) {
 	var resource string
 	switch domain {
 	case rolesD:
-		resource = authorization.Roles()[0]
+		role := "*"
+		if permission.Role != nil {
+			role = *permission.Role
+		}
+		resource = authorization.Roles(role)[0]
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
-		if permission.Collection == nil {
-			resource = authorization.Collections("*")[0]
-		} else {
-			resource = authorization.Collections(*permission.Collection)[0]
+		collection := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
 		}
+		resource = authorization.Collections(collection)[0]
 	case tenants:
-		if permission.Collection == nil || permission.Tenant == nil {
-			resource = authorization.Shards("*", "*")[0]
-		} else {
-			resource = authorization.Shards(*permission.Collection, *permission.Tenant)[0]
+		collection := "*"
+		tenant := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
 		}
-	case objectsCollection, objectsTenants:
-		if permission.Collection == nil || permission.Tenant == nil || permission.Object == nil {
-			resource = authorization.Objects("*", "*", "*")
-		} else {
-			resource = authorization.Objects(*permission.Collection, *permission.Tenant, strfmt.UUID(*permission.Object))
+		if permission.Tenant != nil {
+			tenant = *permission.Tenant
 		}
+		resource = authorization.Shards(collection, tenant)[0]
+	case objectsCollection:
+		collection := "*"
+		object := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		if permission.Object != nil {
+			object = *permission.Object
+		}
+		resource = authorization.Objects(collection, "*", strfmt.UUID(object))
+	case objectsTenant:
+		collection := "*"
+		tenant := "*"
+		object := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		if permission.Tenant != nil {
+			tenant = *permission.Tenant
+		}
+		if permission.Object != nil {
+			object = *permission.Object
+		}
+		resource = authorization.Objects(collection, tenant, strfmt.UUID(object))
+	default:
+		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
-	return resource, verb, domain, nil
+	return &Policy{
+		resource: resource,
+		verb:     verb,
+		domain:   domain,
+	}, nil
 }
 
 func permission(policy []string) *models.Permission {
-	domain := policy[3]
-	action := fmt.Sprintf("%s_%s", authorization.Actions[policy[2]], domain)
+	mapped := newPolicy(policy)
 
+	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.verb], mapped.domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
 	}
 
-	splits := strings.Split(policy[1], "/")
+	splits := strings.Split(mapped.resource, "/")
 	all := "*"
 
-	switch domain {
+	switch mapped.domain {
 	case collections:
 		permission.Collection = &splits[1]
 	case tenants:
-		permission.Tenant = &splits[3]
 		permission.Collection = &splits[1]
-	case objectsTenants, objectsCollection:
+		permission.Tenant = &splits[3]
+	case objectsCollection, objectsTenant:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
