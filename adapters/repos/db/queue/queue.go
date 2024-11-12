@@ -170,14 +170,17 @@ func (q *DiskQueue) Close() error {
 	}
 
 	q.m.Lock()
-	defer q.m.Unlock()
-
 	if q.closed {
+		q.m.Unlock()
 		return errors.New("queue already closed")
 	}
 	q.closed = true
+	q.m.Unlock()
 
 	q.scheduler.UnregisterQueue(q.id)
+
+	q.m.Lock()
+	defer q.m.Unlock()
 
 	err := q.w.Flush()
 	if err != nil {
