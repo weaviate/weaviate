@@ -353,6 +353,7 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	}
 }
 
+// tenantresp
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
@@ -412,6 +413,7 @@ func makeTenant(name, status string) *models.Tenant {
 	}
 }
 
+// tenantresp
 func makeTenantWithDataVersion(name, status string, dataVersion int64) *models.Tenant {
 	// TODO replace with TenantResponse?
 	return &models.Tenant{

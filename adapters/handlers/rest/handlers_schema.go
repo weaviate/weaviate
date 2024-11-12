@@ -292,6 +292,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	return schema.NewTenantsGetOK().WithPayload(tenants)
 }
 
+// tenantresp
 func (s *schemaHandlers) getTenant(
 	params schema.TenantsGetOneParams,
 	principal *models.Principal,

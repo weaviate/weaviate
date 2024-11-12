@@ -118,6 +118,7 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 	return resp.Schema, nil
 }
 
+// tenantresp
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
 func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
@@ -149,6 +150,7 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
+	// TODO ensure Unmarshal back/forward compat?
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
 		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
