@@ -68,7 +68,12 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 		}
 
 		for _, policy := range polices {
-			rolesPermissions[policy[0]] = append(rolesPermissions[policy[0]], permission(policy))
+			name := policy[0]
+			if name == "admin" || name == "editor" || name == "viewer" {
+				rolesPermissions[name] = builtInPermissions[name]
+			} else {
+				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
+			}
 		}
 	} else {
 		for _, name := range names {
@@ -80,7 +85,11 @@ func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
 				continue
 			}
 			for _, policy := range polices {
-				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
+				if name == "admin" || name == "editor" || name == "viewer" {
+					rolesPermissions[name] = builtInPermissions[name]
+				} else {
+					rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
+				}
 			}
 		}
 	}
