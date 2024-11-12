@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modweaviateembed
+package modjinaai
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
-	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
@@ -28,22 +28,31 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-weaviate/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/clients"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-weaviate"
+const Name = "text2colbert-jinaai"
 
 var batchSettings = batch.Settings{
-	TokenMultiplier:    0,
+	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+	// using 30% more than the OpenAI model is a rough estimate but seems to work
+	TokenMultiplier:    1.3,
 	MaxTimePerBatch:    float64(10),
-	MaxObjectsPerBatch: 200,
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
-	HasTokenLimit:      false,
-	ReturnsRateLimit:   false,
+	MaxObjectsPerBatch: 512, // Info from jina
+	// real limit is 8192, but the vectorization times go up by A LOT if the batches are larger
+	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 2500 },
+	HasTokenLimit:     true,
+	ReturnsRateLimit:  false,
 }
 
-type WeaviateEmbedModule struct {
+func New() *JinaAIModule {
+	return &JinaAIModule{}
+}
+
+type JinaAIModule struct {
+	// This needs to be changed to [][]float32 but it can't be done right now bc this interface type change
+	// is not possible now with the current implementation. Will change that later in next PR's
 	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -53,19 +62,15 @@ type WeaviateEmbedModule struct {
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-func New() *WeaviateEmbedModule {
-	return &WeaviateEmbedModule{}
-}
-
-func (m *WeaviateEmbedModule) Name() string {
+func (m *JinaAIModule) Name() string {
 	return Name
 }
 
-func (m *WeaviateEmbedModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+func (m *JinaAIModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2ColBERT
 }
 
-func (m *WeaviateEmbedModule) Init(ctx context.Context,
+func (m *JinaAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -81,7 +86,7 @@ func (m *WeaviateEmbedModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module) error {
+func (m *JinaAIModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -99,11 +104,12 @@ func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module)
 	return nil
 }
 
-func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
+func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("WEAVIATE_APIKEY")
-	client := clients.New(apiKey, timeout, logger)
+	jinaAIApiKey := os.Getenv("JINAAI_APIKEY")
+
+	client := clients.New(jinaAIApiKey, timeout, logger)
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
@@ -114,51 +120,50 @@ func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.D
 	return nil
 }
 
-func (m *WeaviateEmbedModule) initAdditionalPropertiesProvider() error {
+func (m *JinaAIModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
-func (m *WeaviateEmbedModule) RootHandler() http.Handler {
+func (m *JinaAIModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *WeaviateEmbedModule) VectorizeObject(ctx context.Context,
+func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
-func (m *WeaviateEmbedModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
-
-	return vecs, nil, errs
-}
-
-func (m *WeaviateEmbedModule) MetaInfo() (map[string]interface{}, error) {
-	return m.metaProvider.MetaInfo()
-}
-
-func (m *WeaviateEmbedModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 
-func (m *WeaviateEmbedModule) VectorizeInput(ctx context.Context,
+func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
+}
+
+func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
+	return m.metaProvider.MetaInfo()
+}
+
+func (m *JinaAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+func (m *JinaAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *WeaviateEmbedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
-}
-
+// verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.InputVectorizer(New())
 )

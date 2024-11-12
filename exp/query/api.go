@@ -56,7 +56,7 @@ type API struct {
 	schema SchemaQuerier
 	lsm    *LSMFetcher
 
-	vectorizer text2vecbase.TextVectorizer
+	vectorizer text2vecbase.TextVectorizer[[]float32]
 	stopwords  *stopwords.Detector
 }
 
@@ -69,7 +69,7 @@ type SchemaQuerier interface {
 func NewAPI(
 	schema SchemaQuerier,
 	lsm *LSMFetcher,
-	vectorizer text2vecbase.TextVectorizer,
+	vectorizer text2vecbase.TextVectorizer[[]float32],
 	stopwords *stopwords.Detector,
 	config *Config,
 	log logrus.FieldLogger,

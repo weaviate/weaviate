@@ -38,7 +38,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
@@ -94,7 +94,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Mistral-Api-Key", []string{"some-key"})
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,

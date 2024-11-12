@@ -240,7 +240,7 @@ func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*mode
 	return &class, err
 }
 
-func newMockVectorizer(t *testing.T) text2vecbase.TextVectorizer {
+func newMockVectorizer(t *testing.T) text2vecbase.TextVectorizer[[]float32] {
 	f, err := os.Open(textVectorized)
 	require.NoError(t, err)
 	defer f.Close()

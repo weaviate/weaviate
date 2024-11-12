@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package jinaai
 
 import (
 	"context"
@@ -29,19 +29,77 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var defaultSettings = Settings{
+	BaseURL: "https://api.jina.ai",
+	Model:   "jina-embeddings-v2-base-en",
+}
+
+func TestBuildUrlFn(t *testing.T) {
+	t.Run("buildUrlFn returns default Jina AI URL", func(t *testing.T) {
+		settings := Settings{
+			Model:   "",
+			BaseURL: "https://api.jina.ai",
+		}
+		url, err := buildUrl(settings)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://api.jina.ai/v1/embeddings", url)
+	})
+
+	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
+		settings := Settings{
+			Model:   "",
+			BaseURL: "https://foobar.some.proxy",
+		}
+		url, err := buildUrl(settings)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
+	})
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKey", 0, nullLogger())
+		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2", "baseURL": server.URL}})
+		settings := Settings{
+			BaseURL: server.URL,
+			Model:   "jina-embedding-v2",
+		}
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when all is fine for ColBERT", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+
+		c := New[[][]float32]("apiKey", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
+
+		expected := &modulecomponents.VectorizationResult[[][]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][][]float32{{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}}},
+			Dimensions: 3,
+		}
+		settings := Settings{
+			BaseURL: server.URL,
+			Model:   "jina-colbert-v2",
+		}
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, settings)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -50,12 +108,15 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKey", 0, nullLogger())
+		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, defaultSettings)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -67,9 +128,12 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKey", 0, nullLogger())
+		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
-		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, defaultSettings)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to: JinaAI API failed with status: 500 error: nope, not gonna happen")
@@ -78,7 +142,10 @@ func TestClient(t *testing.T) {
 	t.Run("when JinaAI key is passed using X-Jinaai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", 0, nullLogger())
+		c := New[[]float32]("", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{"some-key"})
@@ -88,7 +155,10 @@ func TestClient(t *testing.T) {
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2", "baseURL": server.URL}})
+		settings := Settings{
+			Model: "jina-embedding-v2",
+		}
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, settings)
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -97,12 +167,15 @@ func TestClient(t *testing.T) {
 	t.Run("when JinaAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", 0, nullLogger())
+		c := New[[]float32]("", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, Settings{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -113,12 +186,18 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Jinaai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("", 0, nullLogger())
+		c := New[[]float32]("", 0, 0, 0, nullLogger())
+		c.buildUrlFn = func(settings Settings) (string, error) {
+			return server.URL, nil
+		}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{""})
 
-		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2"}})
+		settings := Settings{
+			Model: "jina-embedding-v2",
+		}
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, settings)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -158,10 +237,17 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	textInput := textInputArray[0].(string)
 	assert.Greater(f.t, len(textInput), 0)
 
+	var vector interface{}
+	vector = []float32{0.1, 0.2, 0.3}
+	model := b["model"].(string)
+	if model == "jina-colbert-v2" {
+		vector = [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}}
+	}
+
 	embeddingData := map[string]interface{}{
 		"object":    textInput,
 		"index":     0,
-		"embedding": []float32{0.1, 0.2, 0.3},
+		"embedding": vector,
 	}
 	embedding := map[string]interface{}{
 		"object": "list",
