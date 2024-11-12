@@ -25,7 +25,7 @@ func TestSerializeAndParseInvertedNodeTest(t *testing.T) {
 		t.Fatalf("error creating segment: %v", err)
 	}
 
-	sbm := NewSegmentBlockMax(seg, []byte("and"), 0, 1)
+	sbm := NewSegmentBlockMax(seg, []byte("and"), 0, 1, 1, nil, 10, schema.BM25Config{K1: 1.2, B: 0.75})
 
 	sbm.AdvanceAtLeast(100)
 	id, score, pair := sbm.Score(1, schema.BM25Config{K1: 1.2, B: 0.75})
