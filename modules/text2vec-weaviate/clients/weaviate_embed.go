@@ -79,7 +79,8 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
+	res, limits, _, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
+	return res, limits, 0, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
@@ -151,7 +152,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
 		Vector:     resBody.Embeddings,
-	}, nil, modulecomponents.GetTotalTokens(&resBody.Metadata.Usage), nil
+	}, nil, 0, nil
 }
 
 func (v *vectorizer) getWeaviateEmbedURL(ctx context.Context, baseURL string) string {
