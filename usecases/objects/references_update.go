@@ -16,13 +16,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -49,6 +50,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
@@ -63,10 +68,6 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 	input.Class = res.ClassName
-
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {

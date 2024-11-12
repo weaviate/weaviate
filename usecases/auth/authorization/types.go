@@ -59,7 +59,7 @@ func Cluster() string {
 //
 //	A slice of strings where each string is a formatted role resource string.
 func Roles(roles ...string) []string {
-	if len(roles) == 0 {
+	if len(roles) == 0 || (len(roles) == 1 && (roles[0] == "" || roles[0] == "*")) {
 		return []string{
 			"roles/*",
 		}
@@ -85,13 +85,17 @@ func Roles(roles ...string) []string {
 //
 //	A slice of strings representing the resource paths.
 func Collections(classes ...string) []string {
-	if len(classes) == 0 || (len(classes) == 1 && classes[0] == "") {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{"collections/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
-		resources[idx] = fmt.Sprintf("collections/%s", classes[idx])
+		if classes[idx] == "" {
+			resources[idx] = "collections/*"
+		} else {
+			resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
+		}
 	}
 
 	return resources
@@ -114,16 +118,16 @@ func Shards(class string, shards ...string) []string {
 		class = "*"
 	}
 
-	if len(shards) == 0 {
-		return []string{fmt.Sprintf("collections/%s/shards/*", class)}
+	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
+		return []string{fmt.Sprintf("collections/%s/shards/*/*", class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/*", class)
+			resources[idx] = fmt.Sprintf("collections/%s/shards/*/*", class)
 		} else {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/%s", class, shards[idx])
+			resources[idx] = fmt.Sprintf("collections/%s/shards/%s/*", class, shards[idx])
 		}
 	}
 

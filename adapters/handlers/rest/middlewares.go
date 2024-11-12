@@ -139,7 +139,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 				appState.ServerMetrics.ResponseBodySize,
 			)
 		}
-
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {

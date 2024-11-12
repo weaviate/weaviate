@@ -25,6 +25,8 @@ import (
 )
 
 const (
+	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
+	// docs: https://casbin.org/docs/syntax-for-models
 	MODEL = `
 	[request_definition]
 	r = sub, obj, act
@@ -39,7 +41,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && (keyMatch5(r.obj, p.obj) || regexMatch(r.obj, p.obj)) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && keyMatch5(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
 )
 
@@ -100,6 +102,7 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 		return nil, err
 	}
 
+	// docs: https://casbin.org/docs/function/
 	enforcer.AddNamedMatchingFunc("g", "keyMatch5", casbinutil.KeyMatch5)
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
