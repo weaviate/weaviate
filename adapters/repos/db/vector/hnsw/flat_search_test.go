@@ -113,7 +113,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 		mutex := sync.Mutex{}
 		compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-			results, _, _ := index.flatSearch(queries[i], k, 100, allowList)
+			results, _, _ := index.flatSearch(ctx, queries[i], k, 100, allowList)
 			mutex.Lock()
 			retrieved += k
 			relevant += testinghelpers.MatchesInLists(truths[i], results)
