@@ -58,7 +58,10 @@ func TestAPI_propertyFilters(t *testing.T) {
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
 
-	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 
@@ -158,7 +161,10 @@ func TestAPI_vectorSearch(t *testing.T) {
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
 
-	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 

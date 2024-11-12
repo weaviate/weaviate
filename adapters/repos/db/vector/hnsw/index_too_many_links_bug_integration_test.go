@@ -103,8 +103,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -238,8 +237,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
