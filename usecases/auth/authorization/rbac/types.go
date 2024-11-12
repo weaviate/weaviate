@@ -188,17 +188,40 @@ func newPolicy(policy []string) *Policy {
 }
 
 func pCollection(collection string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
 	return fmt.Sprintf("collections/%s/*", collection)
 }
 
 func pShards(collection, shard string) string {
-	// if shard != "*" {
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
 
-	// }
 	return fmt.Sprintf("collections/%s/shards/%s/*", collection, shard)
 }
 
 func pObjects(collection, shard, object string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	if object == "" {
+		object = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	object = strings.ReplaceAll(object, "*", ".*")
 	return fmt.Sprintf("collections/%s/shards/%s/objects/%s/*", collection, shard, object)
 }
 
@@ -269,10 +292,6 @@ func policy(permission *models.Permission) (*Policy, error) {
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
 
-	// resource = strings.ReplaceAll(resource, "*", ".*")
-	// if resource[len(resource)-1] != '*' &&  {
-	// 	resource += "$"
-	// }
 	return &Policy{
 		resource: resource,
 		verb:     verb,

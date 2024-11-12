@@ -71,9 +71,9 @@ func TestKeyMatch5AuthZ(t *testing.T) {
 	testKeyMatch5(t, authorization.Objects("ABCD", "", ""), pCollection("ABC.*"), true)
 	testKeyMatch5(t, authorization.Objects("BCD", "", ""), pCollection("ABC"), false)
 
-	testKeyMatch5(t, authorization.Collections("ABC")[0], pCollection("ABC.*"), true)
-	testKeyMatch5(t, authorization.Collections("ABC")[0], pCollection("ABC.*"), true)
-	testKeyMatch5(t, authorization.Collections("ABCD")[0], pCollection("ABC.*"), true)
+	testKeyMatch5(t, authorization.Collections("ABC")[0], pCollection("ABC*"), true)
+	testKeyMatch5(t, authorization.Collections("ABC")[0], pCollection("ABC*"), true)
+	testKeyMatch5(t, authorization.Collections("ABCD")[0], pCollection("ABC*"), true)
 
 	// shards read on collections level permissions
 	testKeyMatch5(t, authorization.Shards("ABC")[0], pCollection("ABC.*"), true)
