@@ -42,6 +42,9 @@ func TestViewerEndpointsSchema(t *testing.T) {
 		{endpoint: "/schema/RandomClass/tenants/name", methods: []string{"HEAD"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "/objects", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "/objects/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
+		{endpoint: "/objects/RandomClass/" + UUID1.String(), methods: []string{"GET", "HEAD", "DELETE", "PATCH", "PUT"}, success: []bool{true, true, false, false, false}, arrayReq: false, body: map[string][]byte{"PATCH": []byte(fmt.Sprintf("{\"class\": \"c\", \"id\":%q}", UUID1.String()))}},
+		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"DELETE", "POST"}, success: []bool{false, false}, arrayReq: false},
+		{endpoint: "/objects/" + UUID1.String() + "/references/prop", methods: []string{"PUT"}, success: []bool{false}, arrayReq: true},
 	}
 
 	for _, endpoint := range endpoints {
@@ -52,7 +55,7 @@ func TestViewerEndpointsSchema(t *testing.T) {
 			t.Run(endpoint.endpoint+method, func(t *testing.T) {
 				var req *http.Request
 				var err error
-				if method == "POST" || method == "PUT" || method == "PATCH" {
+				if method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE" {
 					var body []byte
 					if bodyC, ok := endpoint.body[method]; ok {
 						body = bodyC
