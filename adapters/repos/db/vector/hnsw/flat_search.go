@@ -42,22 +42,8 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 		compressorDistancer = distancer
 	}
 
+	aggregateMu := &sync.Mutex{}
 	results := priorityqueue.NewMax[any](limit)
-	resultsMu := &sync.Mutex{}
-	addResult := func(id uint64, dist float32) {
-		resultsMu.Lock()
-		defer resultsMu.Unlock()
-
-		if results.Len() < limit {
-			results.Insert(id, dist)
-			return
-		}
-
-		if results.Top().Dist > dist {
-			results.Pop()
-			results.Insert(id, dist)
-		}
-	}
 
 	// first extract all candidates, this reduces the amount of coordination
 	// needed for the workers
@@ -76,6 +62,8 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
+			localResults := priorityqueue.NewMax[any](limit)
+			var e storobj.ErrNotFound
 			for idPos := workerID; idPos < len(candidates); idPos += workers {
 				candidate := candidates[idPos]
 
@@ -97,7 +85,6 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 				}
 
 				dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
-				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
 					h.handleDeletedNode(e.DocID, "flatSearch")
 					return nil
@@ -106,8 +93,16 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 					return err
 				}
 
-				addResult(candidate, dist)
+				addResult(localResults, candidate, dist, limit)
 			}
+
+			aggregateMu.Lock()
+			defer aggregateMu.Unlock()
+			for localResults.Len() > 0 {
+				res := localResults.Pop()
+				addResult(results, res.ID, res.Dist, limit)
+			}
+
 			return nil
 		})
 	}
@@ -139,4 +134,16 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	}
 
 	return ids, dists, nil
+}
+
+func addResult(results *priorityqueue.Queue[any], id uint64, dist float32, limit int) {
+	if results.Len() < limit {
+		results.Insert(id, dist)
+		return
+	}
+
+	if results.Top().Dist > dist {
+		results.Pop()
+		results.Insert(id, dist)
+	}
 }
