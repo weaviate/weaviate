@@ -202,7 +202,6 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenants...)...); err != nil {
 		return err
 	}
-
 	for i, name := range tenants {
 		if name == "" {
 			return fmt.Errorf("empty tenant name at index %d", i)
