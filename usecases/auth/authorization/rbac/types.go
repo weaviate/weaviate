@@ -177,7 +177,7 @@ func policy(permission *models.Permission) (*Policy, error) {
 		if permission.Role != nil {
 			role = *permission.Role
 		}
-		resource = fmt.Sprintf("roles/%s", role)
+		resource = pRoles(role)
 	case cluster:
 		resource = authorization.Cluster()
 	case collections:
