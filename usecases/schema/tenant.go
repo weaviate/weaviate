@@ -221,6 +221,7 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 	return h.getTenants(class)
 }
 
+// tenantresp
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
 		return nil, err
@@ -305,6 +306,7 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
+// tenantresp
 func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
@@ -321,7 +323,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 			ts = append(ts, &models.Tenant{
 				Name:           name,
 				ActivityStatus: schema.ActivityStatus(physical.Status),
-				DataVersion:    &physical.DataVersion,
+				// DataVersion:    &physical.DataVersion,
 			})
 		}
 		return nil
