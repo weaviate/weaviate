@@ -45,13 +45,13 @@ func (m *Manager) GetUsersForRole(role string) ([]string, error) {
 	return m.authZ.GetUsersForRole(role)
 }
 
-func (m *Manager) UpsertRoles(c *cmd.ApplyRequest) error {
+func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.UpsertRoles(req.Roles...)
+	return m.authZ.UpsertRolesPermissions(req.Roles...)
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
