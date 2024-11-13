@@ -65,6 +65,8 @@ func TestCompression_AdaptSegments(t *testing.T) {
 		compose, err := docker.New().
 			WithWeaviate().
 			WithWeaviateEnv("ASYNC_INDEXING", "true").
+			WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms").
+			WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "1ms").
 			Start(ctx)
 		require.NoError(t, err)
 		defer func() {
