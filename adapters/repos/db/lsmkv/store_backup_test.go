@@ -257,7 +257,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
 		singleErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 		expectedErr := func(bucketsCount int) error {
-			ec := &errorcompounder.ErrorCompounder{}
+			ec := errorcompounder.New()
 			for i := 0; i < bucketsCount; i++ {
 				ec.Add(singleErr)
 			}
