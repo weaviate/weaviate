@@ -46,7 +46,7 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")
