@@ -27,7 +27,6 @@ import (
 //
 // swagger:model Vectors
 type Vectors map[string]Vector
-type MultiVectors map[string]MultiVector
 
 // Validate validates this vectors
 func (m Vectors) Validate(formats strfmt.Registry) error {

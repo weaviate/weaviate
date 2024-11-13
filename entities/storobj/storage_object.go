@@ -87,13 +87,13 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors,
 		}
 	}
 
-	var multivects map[string][][]float32
+	var multiVectors map[string][][]float32
 	var multiVectorCount int
 	if multivectors != nil {
 
-		multivects = make(map[string][][]float32)
+		multiVectors = make(map[string][][]float32)
 		for targetVector, vectors := range multivectors {
-			multivects[targetVector] = vectors
+			multiVectors[targetVector] = vectors
 			for _, vector := range vectors {
 				multiVectorCount += len(vector)
 			}
@@ -106,8 +106,8 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
-		MultiVectorLen:   multiVectorCount,
-		Multivectors:      multivects,
+		MultiVectorLen:    multiVectorCount,
+		Multivectors:      multiVectors,
 	}
 }
 
@@ -227,18 +227,17 @@ func FromBinaryOptional(data []byte,
 			_ = rw.ReadBytesFromBufferWithUint32LengthIndicator()
 			targetVectorsSegmentLength := rw.ReadUint32()
 			pos := rw.Position
-				rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
-			}
+			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		}
 	}
 
 	if rw.Position < uint64(len(rw.Buffer)) {
 		vectorWeightsCount := rw.ReadUint32()
 		ko.MultiVectorLen = int(vectorWeightsCount)
-		multivectorsLength := rw.ReadUint32()
+		multiVectorsLength := rw.ReadUint32()
 		if addProp.MultiVectors {
-			fmt.Printf("!!!! multivectorsLength: %d\n", multivectorsLength)
-			if multivectorsLength > 0 {
-				multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
+			if multiVectorsLength > 0 {
+				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
 				if err != nil {
 					return nil, errors.Wrap(err, "Could not copy multivectors")
 				}
@@ -1092,7 +1091,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		multiVectorWeightsCount := rw.ReadUint32()
 		ko.MultiVectorLen = int(multiVectorWeightsCount)
 		multivectorsLength := rw.ReadUint32()
-		fmt.Printf("!!!! multivectorsLength: %d\n", multivectorsLength)
 		if multivectorsLength > 0 {
 			multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
 			if err != nil {

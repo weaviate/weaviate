@@ -166,7 +166,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0,nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0, nil)
 
 		assert.Nil(t, err)
 	})
@@ -227,7 +227,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0,nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0, nil)
 		assert.Nil(t, err)
 	})
 
@@ -371,7 +371,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0,nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0, nil)
 		assert.Nil(t, err)
 	})
 
@@ -414,7 +414,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutObject(context.Background(), action, vector, nil, nil, 0,nil)
+		err := repo.PutObject(context.Background(), action, vector, nil, nil, 0, nil)
 
 		assert.Nil(t, err)
 	})
@@ -532,7 +532,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0,nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0, nil)
 
 		assert.Nil(t, err)
 	})
@@ -2018,7 +2018,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil, nil, nil, 0,nil)
+			}, nil, nil, nil, 0, nil)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -2525,7 +2525,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil, 0,nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil, 0, nil))
 	})
 
 	t.Run("Add object with different vector length", func(t *testing.T) {

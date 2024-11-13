@@ -99,7 +99,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0,nil)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -211,7 +211,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0,nil)
+		}, []float32{0, 1}, nil, nil, 0, nil)
 
 		require.Nil(t, err)
 	})
@@ -230,7 +230,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0,nil)
+		}, []float32{0, 1}, nil, nil, 0, nil)
 
 		require.Nil(t, err)
 	})

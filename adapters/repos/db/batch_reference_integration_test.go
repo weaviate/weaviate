@@ -125,7 +125,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.7}, nil, nil, 0,nil)
+			}, []float32{0.7}, nil, nil, 0, nil)
 			require.Nil(t, err)
 		}
 	})

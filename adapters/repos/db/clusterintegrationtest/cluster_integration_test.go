@@ -143,7 +143,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0,nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -151,7 +151,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0,nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0, nil)
 				require.Nil(t, err)
 
 			}
@@ -729,7 +729,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0,nil))
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0, nil))
 
 				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
 				require.Nil(t, err)

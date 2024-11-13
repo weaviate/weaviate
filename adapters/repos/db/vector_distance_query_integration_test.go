@@ -170,7 +170,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
 			nil,
 			0,
-		nil),
+			nil),
 		)
 
 		docId, err := docIdFromUUID(shards[0].(*Shard), ids[2])
