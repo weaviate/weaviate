@@ -17,43 +17,38 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
-type Searcher struct {
-	vectorizer bindVectorizer
+type Searcher[T types.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func NewSearcher(vectorizer bindVectorizer) *Searcher {
-	return &Searcher{vectorizer}
+func NewSearcher[T types.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer}
 }
 
-type bindVectorizer interface {
-	VectorizeDepth(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error)
+type bindVectorizer[T types.Embedding] interface {
+	VectorizeDepth(ctx context.Context, thermal string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearDepth"] = s.vectorForNearDepthParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearDepth"] = &vectorForParams[T]{s.vectorizer}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearDepthParam(ctx context.Context, params interface{},
-	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return s.vectorFromNearDepthParam(ctx, params.(*NearDepthParams), className, findVectorFn, cfg)
+type vectorForParams[T types.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func (s *Searcher) vectorFromNearDepthParam(ctx context.Context,
-	params *NearDepthParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeDepth(ctx, params.Depth, cfg)
+) (T, error) {
+	vector, err := v.vectorizer.VectorizeDepth(ctx, params.(*NearDepthParams).Depth, cfg)
 	if err != nil {
 		return nil, errors.Errorf("vectorize thermal: %v", err)
 	}
-
 	return vector, nil
 }
