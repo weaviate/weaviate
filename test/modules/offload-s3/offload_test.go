@@ -135,6 +135,15 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 			}
 		})
 
+		t.Run("verify tenant data version is 0", func(t *testing.T) {
+			for _, tn := range tenantNames {
+				resp, err := helper.GetOneTenant(t, className, tn)
+				require.Nil(t, err)
+				require.Equal(t, tn, resp.Payload.Name)
+				require.Equal(t, int64(0), *resp.Payload.DataVersion)
+			}
+		})
+
 		t.Run("updating tenant status", func(t *testing.T) {
 			tenants := []*models.Tenant{}
 			for i := range tenantNames {
@@ -180,6 +189,15 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 					}
 				}
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+		})
+
+		t.Run("verify tenant data version is 1 after freezing", func(t *testing.T) {
+			for _, tn := range tenantNames {
+				resp, err := helper.GetOneTenant(t, className, tn)
+				require.Nil(t, err)
+				require.Equal(t, tn, resp.Payload.Name)
+				require.Equal(t, int64(1), *resp.Payload.DataVersion)
+			}
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
