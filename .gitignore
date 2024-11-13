@@ -120,3 +120,4 @@ cmd/weaviate/weaviate
 /weaviate
 cmd/weaviate-server/weviate-server
 weaviate-server
+exp/query/testdata/lsmroot/lsm/meta.db
