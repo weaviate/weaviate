@@ -1111,7 +1111,6 @@ func addTestDataRansomNotes(t *testing.T) {
 func addTestDataMultiShard(t *testing.T) {
 	for _, multiShard := range multishard.Objects() {
 		helper.CreateObject(t, multiShard)
-		waitForIndexing()
 		helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
 	}
 }
