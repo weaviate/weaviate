@@ -42,6 +42,9 @@ type Permission struct {
 	// string or regex. if a specific object ID, if left empty it will be ALL or *
 	Object *string `json:"object,omitempty"`
 
+	// string or regex. if a specific role name, if left empty it will be ALL or *
+	Role *string `json:"role,omitempty"`
+
 	// string or regex. if a specific tenant name, if left empty it will be ALL or *
 	Tenant *string `json:"tenant,omitempty"`
 }

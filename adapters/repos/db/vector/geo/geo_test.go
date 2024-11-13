@@ -45,7 +45,6 @@ func TestGeoJourney(t *testing.T) {
 		DisablePersistence: true,
 		RootPath:           "doesnt-matter-persistence-is-off",
 	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
