@@ -24,11 +24,13 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadata"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -142,6 +144,8 @@ type Config struct {
 	// being frozen happen, with the goal of being able to alert the metadata nodes. This
 	// channel will be nil if the metadata server is not enabled.
 	ClassTenantDataEvents chan metadata.ClassTenant
+
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -184,6 +188,10 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	authZManager *rbac.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -223,6 +231,7 @@ func NewFSM(cfg Config) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
+		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 
