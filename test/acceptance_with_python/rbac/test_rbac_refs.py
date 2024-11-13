@@ -108,3 +108,5 @@ def test_rbac_users(request: SubRequest):
 
                 client.roles.revoke(user="custom-user", roles=role.name)
                 client.roles.delete(role.name)
+
+        client.collections.delete(["target", "source"])
