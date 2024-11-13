@@ -91,16 +91,14 @@ var (
 	admin           = "admin"
 	BuiltInRoles    = []string{viewer, editor, admin}
 	builtInPolicies = map[string]string{
-		"no-rights": "",
-		viewer:      authorization.READ,
-		editor:      authorization.CRU,
-		admin:       authorization.CRUD,
+		viewer: authorization.READ,
+		editor: authorization.CRU,
+		admin:  authorization.CRUD,
 	}
 	builtInPermissions = map[string][]*models.Permission{
-		"no-rights": {},
-		viewer:      {readAllCollections},
-		editor:      {createAllCollections, readAllCollections, updateAllCollections},
-		admin:       {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		viewer: {readAllCollections},
+		editor: {createAllCollections, readAllCollections, updateAllCollections},
+		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
 	}
 )
 
