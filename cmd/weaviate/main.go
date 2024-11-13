@@ -38,6 +38,7 @@ import (
 
 const (
 	TargetQuerier = "querier"
+	GBtoByes      = 1 << 30
 )
 
 // TODO: We want this to be part of original `cmd/weaviate-server`.
@@ -87,9 +88,18 @@ func main() {
 			}).Fatal("failed to create stopwords detector for querier")
 		}
 
+		var lsm *query.LSMFetcher
+		if opts.Query.NoCache {
+			lsm = query.NewLSMFetcher(opts.Query.DataPath, s3module, log)
+		} else {
+			metrics := query.NewCacheMetrics(opts.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
+			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes, metrics)
+			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
+		}
+
 		a := query.NewAPI(
 			schemaInfo,
-			s3module,
+			lsm,
 			vectorizer.New(vclient),
 			detectStopwords,
 			&opts.Query,
@@ -109,16 +119,6 @@ func main() {
 		grpcServer := grpc.NewServer(GrpcOptions(*svrMetrics)...)
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
-
-		enterrors.GoWrapper(func() {
-			metadataSubscription := query.NewMetadataSubscription(
-				a,
-				opts.Query.MetadataGRPCAddress,
-				log)
-			if err = metadataSubscription.Start(); err != nil {
-				log.WithError(err).Warnf("Failed to start metadata subscription")
-			}
-		}, log)
 
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
 		enterrors.GoWrapper(func() {

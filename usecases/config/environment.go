@@ -222,6 +222,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SEPARATE_OBJECTS_COMPACTIONS")) {
+		config.Persistence.LSMSeparateObjectsCompactions = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

@@ -430,6 +430,9 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 
 func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
 	updates := params.Body
+	if updates == nil {
+		return objects.NewObjectsClassPatchBadRequest()
+	}
 	updates.ID = params.ID
 	updates.Class = params.ClassName
 
