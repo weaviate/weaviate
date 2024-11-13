@@ -13,6 +13,7 @@ package queue
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -64,7 +65,11 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	}
 
 	if opts.ScheduleInterval == 0 {
-		opts.ScheduleInterval = time.Second
+		it, err := time.ParseDuration(os.Getenv("QUEUE_SCHEDULER_INTERVAL"))
+		if err != nil {
+			it = 1 * time.Second
+		}
+		opts.ScheduleInterval = it
 	}
 
 	s := Scheduler{

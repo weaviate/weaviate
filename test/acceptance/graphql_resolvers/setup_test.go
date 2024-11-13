@@ -38,6 +38,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithBackendFilesystem().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms").
+		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "1ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -1110,10 +1111,9 @@ func addTestDataRansomNotes(t *testing.T) {
 func addTestDataMultiShard(t *testing.T) {
 	for _, multiShard := range multishard.Objects() {
 		helper.CreateObject(t, multiShard)
+		waitForIndexing()
 		helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
 	}
-
-	waitForIndexing()
 }
 
 func addTestDataNearObjectSearch(t *testing.T) {

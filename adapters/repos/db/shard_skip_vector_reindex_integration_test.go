@@ -1298,10 +1298,13 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		t.Run("async", func(t *testing.T) {
 			currentIndexing := os.Getenv("ASYNC_INDEXING")
 			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
+			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
 			t.Setenv("ASYNC_INDEXING", "true")
 			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms")
+			t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
 			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
+			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)
 
 			runBatch(t)
 		})

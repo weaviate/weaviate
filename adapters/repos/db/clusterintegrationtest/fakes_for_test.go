@@ -70,6 +70,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	}
 
 	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms")
+	os.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
 		panic(err)
