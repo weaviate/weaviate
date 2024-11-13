@@ -52,7 +52,6 @@ func (sm *SchemaManager) QuerySchema() ([]byte, error) {
 	return payload, nil
 }
 
-// tenantresp
 func (sm *SchemaManager) QueryTenants(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
 	subCommand := cmd.QueryTenantsRequest{}

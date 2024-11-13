@@ -51,6 +51,8 @@ func TestRaftEndpoints(t *testing.T) {
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
+	var zero int64 = 0
+
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
 	// LeaderNotFound
@@ -123,25 +125,31 @@ func TestRaftEndpoints(t *testing.T) {
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		DataVersion: &zero,
 	}}, getTenantsAll)
 
 	// QueryTenants one
 	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		DataVersion: &zero,
 	}}, getTenantsOne)
 
 	// QueryTenants one
 	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
-	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
+	assert.Equal(t, []*models.TenantResponse{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")

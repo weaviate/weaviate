@@ -3730,7 +3730,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "$ref": "#/definitions/TenantResponse"
             }
           },
           "401": {
@@ -5883,18 +5883,31 @@ func init() {
             "UNFREEZING"
           ]
         },
-        "dataVersion": {
-          "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
-          "type": "integer",
-          "default": 0,
-          "x-nullable": true,
-          "example": 3
-        },
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
         }
       }
+    },
+    "TenantResponse": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Tenant"
+        },
+        {
+          "properties": {
+            "dataVersion": {
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
+              "type": "integer",
+              "default": 0,
+              "x-nullable": true,
+              "example": 3
+            }
+          }
+        }
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
@@ -10052,7 +10065,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/Tenant"
+              "$ref": "#/definitions/TenantResponse"
             }
           },
           "401": {
@@ -12385,18 +12398,32 @@ func init() {
             "UNFREEZING"
           ]
         },
-        "dataVersion": {
-          "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
-          "type": "integer",
-          "default": 0,
-          "x-nullable": true,
-          "example": 3
-        },
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
         }
       }
+    },
+    "TenantResponse": {
+      "description": "attributes representing a single tenant within weaviate",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Tenant"
+        },
+        {
+          "properties": {
+            "dataVersion": {
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
+              "type": "integer",
+              "default": 0,
+              "minimum": 0,
+              "x-nullable": true,
+              "example": 3
+            }
+          }
+        }
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

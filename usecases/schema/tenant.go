@@ -187,7 +187,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	return uTenants, err
+	return TenantResponsesToTenants(uTenants), err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -221,8 +221,7 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 	return h.getTenants(class)
 }
 
-// tenantresp
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
 	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
 		return nil, err
 	}
@@ -281,18 +280,18 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 		return err
 	}
 
-	var tenants []*models.Tenant
+	var tenantResponses []*models.TenantResponse
 	var err error
 	if consistency {
-		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenantResponses, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
-		tenants, err = h.getTenantsByNames(class, []string{tenant})
+		tenantResponses, err = h.getTenantsByNames(class, []string{tenant})
 	}
 	if err != nil {
 		return err
 	}
-	if len(tenants) == 1 {
+	if len(tenantResponses) == 1 {
 		return nil
 	}
 
@@ -306,24 +305,25 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-// tenantresp
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.TenantResponse, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, 0, len(names))
+	ts := make([]*models.TenantResponse, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
 			physical := ss.Physical[name]
-			ts = append(ts, &models.Tenant{
-				Name:           name,
-				ActivityStatus: schema.ActivityStatus(physical.Status),
-				// DataVersion:    &physical.DataVersion,
+			ts = append(ts, &models.TenantResponse{
+				Tenant: models.Tenant{
+					Name:           name,
+					ActivityStatus: schema.ActivityStatus(physical.Status),
+				},
+				DataVersion: &physical.DataVersion,
 			})
 		}
 		return nil
@@ -343,4 +343,19 @@ func convertNewTenantNames(status string) string {
 		return models.TenantActivityStatusFROZEN
 	}
 	return status
+}
+
+func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
+	return &models.Tenant{
+		Name:           tenantResponse.Name,
+		ActivityStatus: tenantResponse.ActivityStatus,
+	}
+}
+
+func TenantResponsesToTenants(tenantResponses []*models.TenantResponse) []*models.Tenant {
+	tenants := make([]*models.Tenant, len(tenantResponses))
+	for i, tenantResponse := range tenantResponses {
+		tenants[i] = tenantResponseToTenant(tenantResponse)
+	}
+	return tenants
 }
