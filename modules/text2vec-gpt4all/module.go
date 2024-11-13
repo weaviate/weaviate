@@ -38,7 +38,7 @@ func New() *GPT4AllModule {
 }
 
 type GPT4AllModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
