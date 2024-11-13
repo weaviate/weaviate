@@ -2297,7 +2297,7 @@
     },
     "TenantResponse": {
       "type": "object",
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "attributes representing a single tenant response within weaviate",
       "allOf": [
         {
           "$ref": "#/definitions/Tenant"
@@ -2305,7 +2305,7 @@
         {
           "properties": {
             "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
               "type": "integer",
               "minimum": 0,
               "default": 0,

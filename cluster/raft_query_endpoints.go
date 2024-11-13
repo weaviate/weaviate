@@ -149,7 +149,6 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantRes
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
-	// TODO ensure Unmarshal back/forward compat?
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
 		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
