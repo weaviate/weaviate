@@ -488,8 +488,8 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 			// modify the copy, which will be stored in m.Sharding.Physical by the caller
 			copy.DataVersion++
 			// swagger requires the return value to fit in an int64, so we wrap
-			// around based on the max int64 value, not the max uint64 value
-			if copy.DataVersion >= math.MaxInt64 {
+			// around based on the max int64 value
+			if copy.DataVersion == math.MaxInt64 {
 				copy.DataVersion = 0
 			}
 			// Note, the channel being nil indicates that it is not enabled to receive events. Technically,
