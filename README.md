@@ -18,9 +18,6 @@ To get started quickly, have a look at one of these pages:
 
 For more details, read through the summary on this page or see the system [documentation](https://weaviate.io/developers/weaviate/).
 
-> [!NOTE]
-> **Help us improve your experience** by sharing your feedback, ideas and thoughts: Fill out our [Community Experience Survey](https://forms.gle/hrFGMqtVkdSG6ne48), preferably by June 14th, 2024.
-
 ---
 
 ## Why Weaviate?
