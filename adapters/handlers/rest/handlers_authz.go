@@ -65,7 +65,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	err := h.controller.UpsertRoles(params.Body)
+	err := h.controller.UpsertRolesPermissions(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -83,7 +83,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
-	err := h.controller.UpsertRoles(&models.Role{
+	err := h.controller.UpsertRolesPermissions(&models.Role{
 		Name:        params.Body.Name,
 		Permissions: params.Body.Permissions,
 	})
