@@ -25,6 +25,96 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
+func TestAuthzBuiltInRolesJourney(t *testing.T) {
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+	adminRole := "admin"
+
+	clientAuth := helper.CreateAuth(existingKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+		require.Nil(t, err)
+		require.Equal(t, 3, len(res.Payload))
+	})
+
+	t.Run("create builtin role", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &adminRole,
+				Permissions: []*models.Permission{{
+					Action:     String("create_collections"),
+					Collection: String("*"),
+				}},
+			}),
+			clientAuth,
+		)
+		require.NotNil(t, err)
+		err, forbidden := err.(*authz.CreateRoleForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+	})
+
+	t.Run("delete builtin role", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.DeleteRole(
+			authz.NewDeleteRoleParams().WithID(adminRole),
+			clientAuth,
+		)
+		require.NotNil(t, err)
+		err, forbidden := err.(*authz.DeleteRoleForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+	})
+
+	t.Run("add builtin role permission", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
+				Name: &adminRole,
+				Permissions: []*models.Permission{{
+					Action:     String("create_collections"),
+					Collection: String("*"),
+				}},
+			}),
+			clientAuth,
+		)
+		require.NotNil(t, err)
+		err, forbidden := err.(*authz.AddPermissionsForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+	})
+
+	t.Run("remove builtin role permission", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
+				Name: &adminRole,
+				Permissions: []*models.Permission{{
+					Action:     String("create_collections"),
+					Collection: String("*"),
+				}},
+			}),
+			clientAuth,
+		)
+		require.NotNil(t, err)
+		err, forbidden := err.(*authz.RemovePermissionsForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+	})
+}
+
 func TestAuthzRolesJourney(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
