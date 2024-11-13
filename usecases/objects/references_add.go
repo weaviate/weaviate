@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
@@ -69,6 +71,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
 		}
+		var forbidden autherrs.Forbidden
+		if errors.As(err, &forbidden) {
+			return &Error{"validate inputs", StatusForbidden, err}
+		}
+
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 
@@ -82,6 +89,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			input.Ref.Beacon = toBeacon
 			targetRef.Class = string(toClass)
 		}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(targetRef.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
@@ -172,8 +182,8 @@ func (req *AddReferenceInput) validate(
 	if err != nil {
 		return nil, nil, 0, err
 	}
-
 	vclass := vclasses[req.Class]
+
 	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 

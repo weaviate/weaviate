@@ -64,6 +64,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 			input.Reference.Beacon = toBeacon
 		}
 	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(input.Reference.Class.String(), tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
 
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID,
 		additional.Properties{}, nil, tenant)
@@ -74,6 +77,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		} else if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"source object", StatusUnprocessableEntity, err}
 		}
+
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 	input.Class = res.ClassName
