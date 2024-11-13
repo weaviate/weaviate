@@ -14,6 +14,7 @@ package test_suits
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -294,11 +295,13 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		resp, err = get.Do(context.Background())
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		return len(resp.Data) > 0
-	}, 5*time.Second, 1*time.Millisecond)
+		if len(resp.Data) == 0 {
+			return false
+		}
 
-	ids := acceptance_with_go_client.GetIds(t, resp, className)
-	require.Contains(t, ids, id)
+		ids := acceptance_with_go_client.GetIds(t, resp, className)
+		return slices.Contains(ids, id)
+	}, 5*time.Second, 1*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
