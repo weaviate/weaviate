@@ -63,6 +63,10 @@ func FromEnv(config *Config) error {
 		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
 			config.Monitoring.MetricsNamespace = val
 		}
+
+		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY")) {
+			config.Monitoring.MonitorCriticalBucketsOnly = true
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
@@ -211,6 +215,10 @@ func FromEnv(config *Config) error {
 		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
 	); err != nil {
 		return err
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SEPARATE_OBJECTS_COMPACTIONS")) {
+		config.Persistence.LSMSeparateObjectsCompactions = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {

@@ -260,6 +260,7 @@ func (v *awsClient) sendBedrockRequest(
 	result, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(model),
 		ContentType: aws.String("application/json"),
+		Accept:      aws.String("application/json"),
 		Body:        body,
 	})
 	if err != nil {

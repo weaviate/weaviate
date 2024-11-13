@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -304,6 +305,39 @@ func TestSchemaSnapshot(t *testing.T) {
 	sink3 := &MockSnapshotSink{}
 	assert.Nil(t, sc.Persist(sink3))
 	assert.ErrorContains(t, sc.Restore(sink3, parser2), "pars")
+}
+
+// TestPropertiesMigration ensures that our migration function sets proper default values
+// The test verifies that we migrate top level properties and then at least one layer deep nested properties
+func TestPropertiesMigration(t *testing.T) {
+	class := &models.Class{
+		Class: "C",
+		Properties: []*models.Property{
+			{
+				NestedProperties: []*models.NestedProperty{
+					{
+						NestedProperties: []*models.NestedProperty{
+							{},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Set the values to nil, which would be the case if we're upgrading a cluster with "old" classes in it
+	class.Properties[0].IndexRangeFilters = nil
+	class.Properties[0].NestedProperties[0].IndexRangeFilters = nil
+	class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters = nil
+	migratePropertiesIfNecessary(class)
+
+	// Check
+	require.NotNil(t, class.Properties[0].IndexRangeFilters)
+	require.False(t, *(class.Properties[0].IndexRangeFilters))
+	require.NotNil(t, class.Properties[0].NestedProperties[0].IndexRangeFilters)
+	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
+	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
+	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
 }
 
 type MockShardReader struct {

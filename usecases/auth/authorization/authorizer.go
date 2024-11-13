@@ -21,7 +21,7 @@ import (
 // authorization technique is used in the background (e.g. RBAC, adminlist,
 // ...) is hidden through this interface
 type Authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
+	Authorize(principal *models.Principal, verb string, resources ...string) error
 }
 
 // New Authorizer based on the application-wide config
@@ -40,6 +40,6 @@ type DummyAuthorizer struct{}
 
 // Authorize on the DummyAuthorizer will allow any subject access to any
 // resource
-func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (d *DummyAuthorizer) Authorize(principal *models.Principal, verb string, resources ...string) error {
 	return nil
 }

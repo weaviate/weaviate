@@ -66,9 +66,19 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
-	path := authorization.Objects(params.Class, "")
-	if err := m.authorizer.Authorize(principal, authorization.LIST, path); err != nil {
-		return nil, &Error{path, StatusForbidden, err}
+	class := "*"
+	tenant := "*"
+
+	if params != nil && params.Class != "" {
+		class = params.Class
+	}
+
+	if params != nil && params.Tenant != nil && *params.Tenant != "" {
+		tenant = *params.Tenant
+	}
+
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(class, tenant)...); err != nil {
+		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 	unlock, err := m.locks.LockConnector()
 	if err != nil {

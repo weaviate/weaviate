@@ -613,7 +613,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 
 	if moveAwayReq := Move; moveAwayReq != nil {
 		moveAwayOut.Force = moveAwayReq.Force
-		if moveAwayReq.Uuids != nil && len(moveAwayReq.Uuids) > 0 {
+		if len(moveAwayReq.Uuids) > 0 {
 			moveAwayOut.Objects = make([]nearText2.ObjectMove, len(moveAwayReq.Uuids))
 			for i, objUUid := range moveAwayReq.Uuids {
 				uuidFormat, err := uuid.Parse(objUUid)
@@ -749,7 +749,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 		return nil, nil
 	}
 	props := make([]search.SelectProperty, 0)
-	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
+	if len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
 				Name:        schema.LowercaseFirstLetter(prop),
@@ -759,7 +759,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 		}
 	}
 
-	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
+	if len(reqProps.RefProperties) > 0 {
 		class := getClass(className)
 		if class == nil {
 			return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
@@ -825,7 +825,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 		}
 	}
 
-	if reqProps.ObjectProperties != nil && len(reqProps.ObjectProperties) > 0 {
+	if len(reqProps.ObjectProperties) > 0 {
 		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
 	}
 
@@ -836,7 +836,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	selectProps := make([]search.SelectProperty, 0)
 	for _, prop := range props {
 		nestedProps := make([]search.SelectProperty, 0)
-		if prop.PrimitiveProperties != nil && len(prop.PrimitiveProperties) > 0 {
+		if len(prop.PrimitiveProperties) > 0 {
 			for _, primitive := range prop.PrimitiveProperties {
 				nestedProps = append(nestedProps, search.SelectProperty{
 					Name:        schema.LowercaseFirstLetter(primitive),
@@ -845,7 +845,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 				})
 			}
 		}
-		if prop.ObjectProperties != nil && len(prop.ObjectProperties) > 0 {
+		if len(prop.ObjectProperties) > 0 {
 			nestedProps = append(nestedProps, extractNestedProperties(prop.ObjectProperties)...)
 		}
 		selectProps = append(selectProps, search.SelectProperty{
