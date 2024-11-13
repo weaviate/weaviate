@@ -99,7 +99,7 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 	tenantPath := val.(string)
 
 	lsmPath := path.Join(tenantPath, defaultLSMRoot)
-	store, err := lsmkv.New(lsmPath, lsmPath, l.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(lsmPath, lsmPath, l.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
