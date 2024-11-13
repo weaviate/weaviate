@@ -86,15 +86,17 @@ var (
 )
 
 var builtInPolicies = map[string]string{
-	"viewer": authorization.READ,
-	"editor": authorization.CRU,
-	"admin":  authorization.CRUD,
+	"no-rights": "",
+	"viewer":    authorization.READ,
+	"editor":    authorization.CRU,
+	"admin":     authorization.CRUD,
 }
 
 var builtInPermissions = map[string][]*models.Permission{
-	"viewer": {readAllCollections},
-	"editor": {createAllCollections, readAllCollections, updateAllCollections},
-	"admin":  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+	"no-rights": {},
+	"viewer":    {readAllCollections},
+	"editor":    {createAllCollections, readAllCollections, updateAllCollections},
+	"admin":     {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
 }
 
 type Policy struct {
