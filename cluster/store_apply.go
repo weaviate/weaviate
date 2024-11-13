@@ -192,9 +192,9 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.StoreSchemaV1()
 		}
 
-	case api.ApplyRequest_TYPE_UPSERT_ROLES:
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
 		f = func() {
-			ret.Error = st.authZManager.UpsertRoles(&cmd)
+			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ROLES:
 		f = func() {

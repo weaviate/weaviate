@@ -16,7 +16,7 @@ import (
 )
 
 type Controller interface {
-	UpsertRoles(roles ...*models.Role) error
+	UpsertRolesPermissions(roles ...*models.Role) error
 	GetRoles(names ...string) ([]*models.Role, error)
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error

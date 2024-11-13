@@ -29,7 +29,7 @@ func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manage
 	return &manager{casbin, logger}
 }
 
-func (m *manager) UpsertRoles(roles ...*models.Role) error {
+func (m *manager) UpsertRolesPermissions(roles ...*models.Role) error {
 	// TODO: block overriding existing roles
 	for idx := range roles {
 		for _, permission := range roles[idx].Permissions {
