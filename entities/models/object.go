@@ -60,6 +60,9 @@ type Object struct {
 
 	// This field returns vectors associated with the Object.
 	Vectors Vectors `json:"vectors,omitempty"`
+
+	// Colbert vectors
+	MultiVectors MultiVectors `json:"multiVectors,omitempty"`
 }
 
 // Validate validates this object

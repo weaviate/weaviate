@@ -94,9 +94,12 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 					"unrelatedProp": "initialValue",
 				},
 				Vector: []float32{0.1},
+				MultiVectors: map[string]models.MultiVector{
+					"multi": {{0.1}},
+				},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0,nil)
 			require.Nil(t, err)
 		}
 	})
@@ -109,7 +112,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Properties.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -208,7 +211,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0)
+		}, []float32{0, 1}, nil, nil, 0,nil)
 
 		require.Nil(t, err)
 	})
@@ -227,7 +230,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0)
+		}, []float32{0, 1}, nil, nil, 0,nil)
 
 		require.Nil(t, err)
 	})

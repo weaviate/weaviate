@@ -62,6 +62,10 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
+		models.MultiVectors{
+			"vector1": {models.Vector{1, 2, 3},models.Vector{4,5,6},models.Vector{7,8,9}},
+			"vector2": {models.Vector{11, 12, 13},models.Vector{14,15,16},models.Vector{71,18,19}},
+		},
 	)
 	before.DocID = 7
 
@@ -110,6 +114,7 @@ func TestFilteringNilProperty(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 		nil,
+		nil,
 	)
 	props := object.Properties()
 	propsTyped, ok := props.(map[string]interface{})
@@ -153,6 +158,11 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
 		},
+		models.MultiVectors{
+			"vector1": {models.Vector{1, 2, 3},models.Vector{4,5,6},models.Vector{7,8,9}},
+			"vector2": {models.Vector{11, 12, 13},models.Vector{14,15,16},models.Vector{71,18,19}},
+			"vector3": {models.Vector{111, 112, 113},models.Vector{114,115,116},models.Vector{711,118,119}},
+		},
 	)
 	before.DocID = 7
 
@@ -169,13 +179,16 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			before.Vector = nil
 			before.VectorLen = 3
 			before.Vectors = nil
+			before.Multivectors = nil
 			assert.Equal(t, before, after)
 
 			assert.Equal(t, before.DocID, after.DocID)
 
 			// The vector length should always be returned (for usage metrics
 			// purposes) even if the vector itself is skipped
-			assert.Equal(t, after.VectorLen, 3)
+			assert.Equal(t, 3, after.VectorLen)
+			assert.Equal(t,  27, after.MultiVectorLen)
+
 		})
 	})
 }
@@ -228,7 +241,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil, nil)
+				}, nil, nil,nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -282,7 +295,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil, nil)
+				}, nil, nil,nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -322,6 +335,11 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
+		},
+		models.MultiVectors{
+			"vector1": {models.Vector{1, 2, 3},models.Vector{4,5,6},models.Vector{7,8,9}},
+			"vector2": {models.Vector{11, 12, 13},models.Vector{14,15,16},models.Vector{71,18,19}},
+			"vector3": {models.Vector{111, 112, 113},models.Vector{114,115,116},models.Vector{711,118,119}},
 		},
 	)
 	before.DocID = 7
@@ -405,6 +423,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 		nil,
+		nil,
 	)
 
 	before.DocID = 7
@@ -484,6 +503,12 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
 		},
+		models.MultiVectors{
+			"vector1": {models.Vector{1, 2, 3},models.Vector{4,5,6},models.Vector{7,8,9}},
+			"vector2": {models.Vector{11, 12, 13},models.Vector{14,15,16},models.Vector{71,18,19}},
+			"vector3": {models.Vector{111, 112, 113},models.Vector{114,115,116},models.Vector{711,118,119}},
+		},
+
 	)
 	before.DocID = 7
 
@@ -568,6 +593,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					},
 					vector,
 					nil,
+					nil,
 				)
 				before.DocID = 7
 
@@ -602,6 +628,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+					nil,
 					nil,
 				)
 				before.DocID = 7
@@ -728,6 +755,11 @@ func TestVectorFromBinary(t *testing.T) {
 			"vector2": vector2,
 			"vector3": vector3,
 		},
+		models.MultiVectors{
+			"vector1": {models.Vector{1, 2, 3},models.Vector{4,5,6},models.Vector{7,8,9}},
+			"vector2": {models.Vector{11, 12, 13},models.Vector{14,15,16},models.Vector{71,18,19}},
+			"vector3": {models.Vector{111, 112, 113},models.Vector{114,115,116},models.Vector{711,118,119}},
+		},
 	)
 	before.DocID = 7
 
@@ -761,6 +793,7 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 			},
 			nil,
 			nil,
+			nil,
 		)
 
 		_, err := invalidObj.MarshalBinary()
@@ -776,6 +809,7 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			},
 			make([]float32, maxVectorLength+1),
+			nil,
 			nil,
 		)
 
@@ -795,6 +829,10 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 			models.Vectors{
 				"vector1": make(models.Vector, maxVectorLength+1),
 			},
+			models.MultiVectors{
+			"vector1":models.MultiVector{make(models.Vector, maxVectorLength+1)},
+			},
+
 		)
 
 		_, err := invalidObj.MarshalBinary()
@@ -841,7 +879,7 @@ func TestMemoryReuse(t *testing.T) {
 			ID:         strfmt.UUID(fmt.Sprintf("73f4eb5f-5abf-447a-81ca-74b1dd16824%v", i)),
 			Properties: prop,
 		}
-		before := FromObject(&obj, nil, nil)
+		before := FromObject(&obj, nil, nil,nil)
 		asBinary, err := before.MarshalBinary()
 		require.Nil(t, err)
 		if len(asBinary) > largestSize {
@@ -866,7 +904,7 @@ func TestMemoryReuse(t *testing.T) {
 			propStringsList = append(propStringsList, []string{j})
 		}
 
-		before := FromObject(&obj, nil, nil)
+		before := FromObject(&obj, nil, nil,nil)
 		asBinary, err := before.MarshalBinary()
 		require.Nil(t, err)
 		reuseableBuff = reuseableBuff[:len(asBinary)]
@@ -909,6 +947,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 			ID:               "73f2eb5f-5abf-447a-81ca-74b1dd168247",
 			Properties:       beforeProps,
 		},
+		nil,
 		nil,
 		nil,
 	)

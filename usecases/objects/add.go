@@ -97,7 +97,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl, schemaVersion, object.MultiVectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

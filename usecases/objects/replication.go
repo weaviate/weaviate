@@ -33,6 +33,7 @@ type VObject struct {
 
 	Vector  []float32      `json:"vector"`
 	Vectors models.Vectors `json:"vectors"`
+	MultiVectors models.MultiVectors `json:"multiVectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`

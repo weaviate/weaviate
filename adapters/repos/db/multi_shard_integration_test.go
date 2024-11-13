@@ -59,7 +59,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0, nil))
 		}
 	})
 
@@ -72,7 +72,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0, nil))
 		}
 	})
 
@@ -126,7 +126,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, nil, 0))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, nil, 0, nil))
 		}
 
 		index := 0
