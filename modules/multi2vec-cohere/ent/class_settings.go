@@ -44,7 +44,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-cohere", nil),
+		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-cohere", nil, nil),
 	}
 }
 
@@ -78,14 +78,6 @@ func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("text")
 }
 
-func (ic *classSettings) VideoField(property string) bool {
-	return ic.field("videoFields", property)
-}
-
-func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
-	return ic.getFieldsWeights("video")
-}
-
 func (ic *classSettings) Properties() ([]string, error) {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -93,7 +85,7 @@ func (ic *classSettings) Properties() ([]string, error) {
 	}
 	props := make([]string, 0)
 
-	fields := []string{"textFields", "imageFields", "videoFields"}
+	fields := []string{"textFields", "imageFields"}
 
 	for _, field := range fields {
 		fields, ok := ic.base.GetSettings()[field]

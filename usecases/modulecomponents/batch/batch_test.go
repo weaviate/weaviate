@@ -96,7 +96,9 @@ func TestBatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &fakeBatchClientWithRL{} // has state
 
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, 1*time.Second,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, ReturnsRateLimit: true, HasTokenLimit: true},
+				logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -142,7 +144,9 @@ func TestBatchNoRLreturn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &fakeBatchClientWithoutRL{defaultResetRate: tt.resetRate, defaultTPM: tt.tokenLimit} // has state
 
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, 1*time.Second,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10},
+				logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -175,7 +179,7 @@ func TestBatchMultiple(t *testing.T) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+	v := NewBatchVectorizer(client, 40*time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -230,7 +234,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("BatchTimeouts", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 
@@ -263,7 +267,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("Test request limit with", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)

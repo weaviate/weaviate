@@ -97,6 +97,7 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 		}
 		fmt.Fprintf(file, "This is content of db file named %s", fileName)
 		file.Close()
+		t.Logf("Created test file: %s\n", filePaths[i])
 	}
 	return filePaths
 }
@@ -119,6 +120,7 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 }
 
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
+	t.Log("Creating azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)

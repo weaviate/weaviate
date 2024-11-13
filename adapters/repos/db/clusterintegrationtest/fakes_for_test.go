@@ -287,13 +287,25 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(backupID string) string {
+func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath string) string {
 	f.Lock()
 	defer f.Unlock()
-	return f.backupsPath
+	if overridePath != "" {
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, overridePath, backupID)
+		} else {
+			return path.Join(overridePath, backupID)
+		}
+	} else {
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, f.backupsPath, backupID)
+		} else {
+			return path.Join(f.backupsPath, backupID)
+		}
+	}
 }
 
-func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -315,20 +327,20 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string)
 	return b, nil
 }
 
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()
 	return 0, nil
 }
 
-func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer w.Close()
@@ -357,19 +369,19 @@ func (f *fakeBackupBackend) Name() string {
 	return "fakeBackupBackend"
 }
 
-func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketPath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
+func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil

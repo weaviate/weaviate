@@ -27,30 +27,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
-
-func TestBuildUrlFn(t *testing.T) {
-	t.Run("buildUrlFn returns default Jina AI URL", func(t *testing.T) {
-		config := ent.VectorizationConfig{
-			Model:   "",
-			BaseURL: "https://api.jina.ai",
-		}
-		url, err := buildUrl(config)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://api.jina.ai/v1/embeddings", url)
-	})
-
-	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
-		config := ent.VectorizationConfig{
-			Model:   "",
-			BaseURL: "https://foobar.some.proxy",
-		}
-		url, err := buildUrl(config)
-		assert.Nil(t, err)
-		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
-	})
-}
 
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
@@ -58,9 +35,6 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -77,9 +51,6 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("apiKey", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -97,11 +68,8 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := New("apiKey", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
-		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to: JinaAI API failed with status: 500 error: nope, not gonna happen")
@@ -111,9 +79,6 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{"some-key"})
@@ -123,7 +88,7 @@ func TestClient(t *testing.T) {
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2"}})
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "jina-embedding-v2", "baseURL": server.URL}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -133,9 +98,6 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -152,9 +114,6 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
-			return server.URL, nil
-		}
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{""})

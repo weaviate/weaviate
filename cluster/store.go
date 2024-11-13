@@ -361,12 +361,12 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			// serialize snapshot
 			b, c, err := schema.LegacySnapshot(st.cfg.NodeID, legacySchema)
 			if err != nil {
-				return fmt.Errorf("create snapshot: %s" + err.Error())
+				return fmt.Errorf("create snapshot: %w", err)
 			}
 			b.Index = st.raft.LastIndex()
 			b.Term = 1
 			if err := st.raft.Restore(b, c, timeout); err != nil {
-				return fmt.Errorf("raft restore: %w" + err.Error())
+				return fmt.Errorf("raft restore: %w", err)
 			}
 			return nil
 		}

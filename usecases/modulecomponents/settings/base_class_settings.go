@@ -28,9 +28,10 @@ const (
 )
 
 type BaseClassSettings struct {
-	cfg            moduletools.ClassConfig
-	propertyHelper *classPropertyValuesHelper
-	lowerCaseInput bool
+	cfg                 moduletools.ClassConfig
+	propertyHelper      *classPropertyValuesHelper
+	lowerCaseInput      bool
+	modelParameterNames []string
 }
 
 func NewBaseClassSettings(cfg moduletools.ClassConfig, lowerCaseInput bool) *BaseClassSettings {
@@ -38,20 +39,32 @@ func NewBaseClassSettings(cfg moduletools.ClassConfig, lowerCaseInput bool) *Bas
 }
 
 func NewBaseClassSettingsWithAltNames(cfg moduletools.ClassConfig,
-	lowerCaseInput bool, moduleName string, altNames []string,
+	lowerCaseInput bool, moduleName string, altNames []string, customModelParameterName []string,
 ) *BaseClassSettings {
+	modelParameters := append(customModelParameterName, "model")
+
 	return &BaseClassSettings{
-		cfg:            cfg,
-		propertyHelper: &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
-		lowerCaseInput: lowerCaseInput,
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
+		lowerCaseInput:      lowerCaseInput,
+		modelParameterNames: modelParameters,
 	}
 }
 
-func (s *BaseClassSettings) LowerCaseInput() bool {
+func NewBaseClassSettingsWithCustomModel(cfg moduletools.ClassConfig, lowerCaseInput bool, customModelParameterName string) *BaseClassSettings {
+	return &BaseClassSettings{
+		cfg:                 cfg,
+		propertyHelper:      &classPropertyValuesHelper{},
+		lowerCaseInput:      lowerCaseInput,
+		modelParameterNames: []string{"model", customModelParameterName},
+	}
+}
+
+func (s BaseClassSettings) LowerCaseInput() bool {
 	return s.lowerCaseInput
 }
 
-func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
+func (s BaseClassSettings) PropertyIndexed(propName string) bool {
 	if s.cfg == nil {
 		return DefaultPropertyIndexed
 	}
@@ -73,7 +86,7 @@ func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
 	return !asBool
 }
 
-func (s *BaseClassSettings) VectorizePropertyName(propName string) bool {
+func (s BaseClassSettings) VectorizePropertyName(propName string) bool {
 	if s.cfg == nil {
 		return DefaultVectorizePropertyName
 	}
@@ -91,7 +104,7 @@ func (s *BaseClassSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
-func (s *BaseClassSettings) VectorizeClassName() bool {
+func (s BaseClassSettings) VectorizeClassName() bool {
 	if s.cfg == nil {
 		return DefaultVectorizeClassName
 	}
@@ -109,7 +122,7 @@ func (s *BaseClassSettings) VectorizeClassName() bool {
 	return asBool
 }
 
-func (s *BaseClassSettings) Properties() []string {
+func (s BaseClassSettings) Properties() []string {
 	if s.cfg == nil || len(s.cfg.Class()) == 0 {
 		return nil
 	}
@@ -136,7 +149,21 @@ func (s *BaseClassSettings) Properties() []string {
 	return nil
 }
 
-func (s *BaseClassSettings) ValidateClassSettings() error {
+func (s BaseClassSettings) Model() string {
+	if s.cfg == nil || len(s.cfg.Class()) == 0 {
+		return ""
+	}
+
+	for _, parameterName := range s.modelParameterNames {
+		if model, ok := s.GetSettings()[parameterName]; ok {
+			return model.(string)
+		}
+	}
+
+	return ""
+}
+
+func (s BaseClassSettings) ValidateClassSettings() error {
 	if s.cfg != nil && len(s.cfg.Class()) > 0 {
 		if field, ok := s.GetSettings()["properties"]; ok {
 			fieldsArray, fieldsArrayOk := field.([]interface{})
@@ -163,7 +190,7 @@ func (s *BaseClassSettings) ValidateClassSettings() error {
 	return nil
 }
 
-func (s *BaseClassSettings) isPropertyIndexed(propName string) bool {
+func (s BaseClassSettings) isPropertyIndexed(propName string) bool {
 	for _, name := range s.Properties() {
 		if propName == name {
 			return true
@@ -172,23 +199,23 @@ func (s *BaseClassSettings) isPropertyIndexed(propName string) bool {
 	return false
 }
 
-func (s *BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) *int64 {
+func (s BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) *int64 {
 	return s.propertyHelper.GetPropertyAsInt64(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetPropertyAsString(name, defaultValue string) string {
+func (s BaseClassSettings) GetPropertyAsString(name, defaultValue string) string {
 	return s.propertyHelper.GetPropertyAsString(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) bool {
+func (s BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) bool {
 	return s.propertyHelper.GetPropertyAsBool(s.cfg, name, defaultValue)
 }
 
-func (s *BaseClassSettings) GetNumber(in interface{}) (float32, error) {
+func (s BaseClassSettings) GetNumber(in interface{}) (float32, error) {
 	return s.propertyHelper.GetNumber(in)
 }
 
-func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
+func (s BaseClassSettings) ValidateIndexState(class *models.Class) error {
 	if s.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
@@ -224,11 +251,11 @@ func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		"indexing")
 }
 
-func (s *BaseClassSettings) GetSettings() map[string]interface{} {
+func (s BaseClassSettings) GetSettings() map[string]interface{} {
 	return s.propertyHelper.GetSettings(s.cfg)
 }
 
-func (s *BaseClassSettings) Validate(class *models.Class) error {
+func (s BaseClassSettings) Validate(class *models.Class) error {
 	if s.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")

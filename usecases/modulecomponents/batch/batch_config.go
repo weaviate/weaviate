@@ -9,10 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package batch
 
-type VectorizationConfig struct {
-	Model      string
-	BaseURL    string
-	Dimensions *int64
+import "github.com/weaviate/weaviate/entities/moduletools"
+
+type Settings struct {
+	TokenMultiplier    float32
+	MaxTimePerBatch    float64
+	MaxObjectsPerBatch int
+	MaxTokensPerBatch  func(cfg moduletools.ClassConfig) int
+	HasTokenLimit      bool
+	ReturnsRateLimit   bool
 }

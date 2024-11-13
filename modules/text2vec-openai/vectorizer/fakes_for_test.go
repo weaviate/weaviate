@@ -52,7 +52,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
@@ -103,26 +103,26 @@ func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.Cla
 	return [32]byte{}
 }
 
-func (c *fakeBatchClient) HasTokenLimit() bool { return false }
-
-func (c *fakeBatchClient) ReturnsRateLimit() bool { return false }
-
-type FakeClassConfig struct {
+type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f FakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	if propName == f.skippedProperty {
 		return map[string]interface{}{
 			"skip": true,
@@ -141,10 +141,22 @@ func (f FakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
 
-func (f FakeClassConfig) Tenant() string {
+func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (f FakeClassConfig) TargetVector() string {
+func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }

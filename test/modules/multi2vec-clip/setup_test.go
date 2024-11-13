@@ -13,31 +13,23 @@ package test
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-const weaviateEndpoint = "WEAVIATE_ENDPOINT"
-
-func TestMain(m *testing.M) {
+func TestMulti2VecClip_SingleNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
 		WithMulti2VecCLIP().
 		Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
-	}
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
 
-	os.Setenv(weaviateEndpoint, compose.GetWeaviate().URI())
-	code := m.Run()
-
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
-	}
-
-	os.Exit(code)
+	t.Run("multi2vec-clip", testMulti2VecClip(endpoint))
 }

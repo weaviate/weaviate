@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,13 +29,21 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-databricks/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const (
 	Name = "text2vec-databricks"
 )
+
+var batchSettings = batch.Settings{
+	TokenMultiplier:    0,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 2000,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
+}
 
 func New() *DatabricksModule {
 	return &DatabricksModule{}
@@ -98,7 +108,11 @@ func (m *DatabricksModule) initVectorizer(ctx context.Context, timeout time.Dura
 
 	client := clients.New(databricksToken, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings,
+			logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
+	)
 	m.metaProvider = client
 
 	return nil

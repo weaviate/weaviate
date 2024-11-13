@@ -405,7 +405,7 @@ func testLegacyCreateSchema(host string) func(t *testing.T) {
 
 			className := "LegacyVectorDefaults"
 			text2vecCohere := "text2vec-cohere"
-			classOptions := []string{"vectorizeClassName"}
+			classOptions := []string{"vectorizeClassName", "baseUrl", "model", "truncate"}
 			propOptions := []string{"vectorizePropertyName", "skip"}
 
 			class := &models.Class{

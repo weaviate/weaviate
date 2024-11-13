@@ -34,12 +34,15 @@ func TestBitmap_Condense(t *testing.T) {
 		condensed := Condense(bm)
 		condensedLen := len(condensed.ToBuffer())
 
-		assert.Greater(t, bmLen, condensedLen)
+		// As of sroar 0.0.5 "And" merge is optimized not to expand
+		// existing bitmap when not needed. Therefore calling Condense
+		// does not guarantee decreasing bitmap size
+		assert.GreaterOrEqual(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
 	})
 
 	t.Run("And with itself (internal bitmap)", func(t *testing.T) {
-		bm := NewBitmap(slice(0, 3000)...)
+		bm := NewBitmap(slice(0, 5000)...)
 		for i := 0; i < 10; i++ {
 			bm.And(bm)
 		}
@@ -48,7 +51,10 @@ func TestBitmap_Condense(t *testing.T) {
 		condensed := Condense(bm)
 		condensedLen := len(condensed.ToBuffer())
 
-		assert.Greater(t, bmLen, condensedLen)
+		// As of sroar 0.0.5 "And" merge is optimized not to expand
+		// existing bitmap when not needed. Therefore calling Condense
+		// does not guarantee decreasing bitmap size
+		assert.GreaterOrEqual(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
 	})
 
@@ -67,8 +73,8 @@ func TestBitmap_Condense(t *testing.T) {
 	})
 
 	t.Run("And (internal bitmaps)", func(t *testing.T) {
-		bm1 := NewBitmap(slice(0, 4000)...)
-		bm2 := NewBitmap(slice(1000, 5000)...)
+		bm1 := NewBitmap(slice(0, 5000)...)
+		bm2 := NewBitmap(slice(1000, 6000)...)
 		bm := bm1.Clone()
 		bm.And(bm2)
 		bmLen := len(bm.ToBuffer())
@@ -76,15 +82,16 @@ func TestBitmap_Condense(t *testing.T) {
 		condensed := Condense(bm)
 		condensedLen := len(condensed.ToBuffer())
 
-		assert.Greater(t, bmLen, condensedLen)
+		// As of sroar 0.0.5 "And" merge is optimized not to expand
+		// existing bitmap when not needed. Therefore calling Condense
+		// does not guarantee decreasing bitmap size
+		assert.GreaterOrEqual(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
 	})
 
 	t.Run("And (internal bitmaps to bitmap with few elements)", func(t *testing.T) {
-		// this is not optimal. Internally elements will be stored in bitmap,
-		// though they would easily fit into array
-		bm1 := NewBitmap(slice(0, 4000)...)
-		bm2 := NewBitmap(slice(1000, 5000)...)
+		bm1 := NewBitmap(slice(0, 5000)...)
+		bm2 := NewBitmap(slice(4000, 9000)...)
 		bm := bm1.Clone()
 		bm.And(bm2)
 		bmLen := len(bm.ToBuffer())
@@ -92,7 +99,10 @@ func TestBitmap_Condense(t *testing.T) {
 		condensed := Condense(bm)
 		condensedLen := len(condensed.ToBuffer())
 
-		assert.Greater(t, bmLen, condensedLen)
+		// As of sroar 0.0.5 "And" merge is optimized not to expand
+		// existing bitmap when not needed. Therefore calling Condense
+		// does not guarantee decreasing bitmap size
+		assert.GreaterOrEqual(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
 	})
 

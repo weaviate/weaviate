@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.1"
+    "version": "1.27.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -280,6 +280,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -342,6 +354,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -397,6 +421,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3210,6 +3246,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -3236,6 +3276,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path or key within the bucket",
+          "type": "string"
         }
       }
     },
@@ -3274,6 +3322,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -3290,7 +3342,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "status": {
@@ -3466,7 +3518,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend",
+          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
           "type": "string"
         },
         "status": {
@@ -4914,6 +4966,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -4921,6 +4977,14 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -5500,7 +5564,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.1"
+    "version": "1.27.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -5732,6 +5796,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5794,6 +5870,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5849,6 +5937,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Name of the bucket, container, volume, etc",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8784,6 +8884,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -8810,6 +8914,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path or key within the bucket",
+          "type": "string"
         }
       }
     },
@@ -8848,6 +8960,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -8864,7 +8980,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Path within bucket of backup",
           "type": "string"
         },
         "status": {
@@ -9043,7 +9159,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend",
+          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
           "type": "string"
         },
         "status": {
@@ -10668,6 +10784,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the bucket, container, volume, etc",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -10675,6 +10795,14 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "name of the endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },

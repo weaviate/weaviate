@@ -35,78 +35,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
+          "unit": "s"
         },
-        "overrides": [
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "Closed"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": true
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -114,17 +45,11 @@
         "x": 0,
         "y": 0
       },
-      "id": 2,
+      "id": 1,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPoints": "always",
+        "lineWidth": 2,
+        "fillOpacity": 20
       },
       "targets": [
         {
@@ -133,25 +58,14 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(schema_tx_opened_total[$__rate_interval]))",
-          "legendFormat": "Opened",
-          "range": true,
+          "expr": "rate(schema_wait_for_version_seconds_sum[$__rate_interval]) / rate(schema_wait_for_version_seconds_count[$__rate_interval])",
+          "interval": "",
+          "legendFormat": "{{type}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(schema_tx_closed_total[$__rate_interval]))",
-          "hide": false,
-          "legendFormat": "Closed",
-          "range": true,
-          "refId": "B"
         }
       ],
-      "title": "Transactions Opened/Closed",
+      "title": "Schema Wait for Version Time",
+      "description": "Measures the time a follower node will wait for a schema change to propagate from the leader and it allows a data read to process.",
       "type": "timeseries"
     },
     {
@@ -161,72 +75,21 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
           "unit": "s"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 12,
-        "x": 0,
-        "y": 9
+        "x": 12,
+        "y": 0
       },
-      "id": 4,
+      "id": 2,
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPoints": "always",
+        "lineWidth": 2,
+        "fillOpacity": 20
       },
       "targets": [
         {
@@ -235,30 +98,111 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(schema_tx_duration_seconds_sum[$__rate_interval])/rate(schema_tx_duration_seconds_count[$__rate_interval])",
-          "legendFormat": "{{ownership}}-{{status}}",
-          "range": true,
+          "expr": "rate(schema_reads_leader_seconds_sum[$__rate_interval]) / rate(schema_reads_leader_seconds_count[$__rate_interval])",
+          "interval": "",
+          "legendFormat": "{{type}}",
           "refId": "A"
         }
       ],
-      "title": "Transaction duration by status",
+      "title": "Schema Reads Leader Time",
+      "description": "Measures how long does it takes for a follower node to query the leader for a schema state.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 3,
+      "options": {
+        "showPoints": "always",
+        "lineWidth": 2,
+        "fillOpacity": 20
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(schema_reads_local_seconds_sum[$__rate_interval]) / rate(schema_reads_local_seconds_count[$__rate_interval])",
+          "interval": "",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Schema Reads Local Time",
+      "description": "Measures how long does it takes for a node to query the local schema copy it has.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "id": 4,
+      "options": {
+        "showPoints": "always",
+        "lineWidth": 2,
+        "fillOpacity": 20
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(schema_writes_seconds_sum[$__rate_interval]) / rate(schema_writes_seconds_count[$__rate_interval])",
+          "interval": "",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Schema Writes Time",
+      "description": "Measures how long does it take for a node to write to the schema (effectively talk to the leader to get a change accepted).",
       "type": "timeseries"
     }
   ],
-  "schemaVersion": 36,
+  "schemaVersion": 30,
   "style": "dark",
-  "tags": [],
+  "tags": ["weaviate"],
   "templating": {
     "list": []
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-3h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Schema Transactions",
   "uid": "J4aHTlxIz",
-  "version": 2,
+  "version": 1,
   "weekStart": ""
 }

@@ -134,7 +134,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 	if res.StatusCode > 200 {
 		errorMessage := getErrorMessage(res.StatusCode, string(bodyBytes), "Weaviate embed API error: %d %s")
-		return nil, errors.Errorf(errorMessage)
+		return nil, errors.New(errorMessage)
 	}
 
 	var resBody embeddingsResponse
@@ -221,7 +221,3 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 		"neither in request header: X-Weaviate-Api-Key " +
 		"nor in environment variable under WEAVIATE_APIKEY")
 }
-
-func (v *vectorizer) HasTokenLimit() bool { return false }
-
-func (v *vectorizer) ReturnsRateLimit() bool { return false }

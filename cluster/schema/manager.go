@@ -116,7 +116,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migrateRangeIndexPropIfNeeded(&v.Class)
+		migratePropertiesIfNecessary(&v.Class)
 		// an immutable copy of the sharding state has to be used to avoid conflicts
 		shardingState, _ := v.CopyShardingState()
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
@@ -410,15 +410,32 @@ func (s *SchemaManager) apply(op applyOp) error {
 	return nil
 }
 
+// migratePropertiesIfNecessary migrate properties and set default values for them.
+// This is useful when adding new properties to ensure that their default value is properly set.
+// Current migrated properties:
 // IndexRangeFilters was introduced with 1.26, so objects which were created
 // on an older version, will have this value set to nil when the instance is
 // upgraded. If we come across a property with nil IndexRangeFilters, it
 // needs to be set as false, to avoid false positive class differences on
 // comparison during class updates.
-func migrateRangeIndexPropIfNeeded(class *models.Class) {
+func migratePropertiesIfNecessary(class *models.Class) {
 	for _, prop := range class.Properties {
 		if prop.IndexRangeFilters == nil {
 			prop.IndexRangeFilters = func() *bool { f := false; return &f }()
 		}
+
+		// Ensure we also migrate nested properties
+		for _, nprop := range prop.NestedProperties {
+			migrateNestedPropertiesIfNecessary(nprop)
+		}
+	}
+}
+
+func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
+	// migrate this nested property
+	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	// Recurse on all nested properties this one has
+	for _, recurseNestedProperty := range nprop.NestedProperties {
+		migrateNestedPropertiesIfNecessary(recurseNestedProperty)
 	}
 }

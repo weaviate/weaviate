@@ -68,11 +68,3 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return v.client.GetVectorizerRateLimit(ctx, cfg)
 }
-
-func (v *vectorizer) HasTokenLimit() bool {
-	return v.client.HasTokenLimit()
-}
-
-func (v *vectorizer) ReturnsRateLimit() bool {
-	return v.client.ReturnsRateLimit()
-}
