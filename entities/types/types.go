@@ -11,8 +11,8 @@
 
 package types
 
-// Just a temporary interface, there should be defined one Vector interface
-// in models to define the Vector type
-type Vector interface {
+// Just a temporary interface, there should be defined one Embedding interface
+// in models to define the Embedding type
+type Embedding interface {
 	[]float32 | [][]float32
 }
