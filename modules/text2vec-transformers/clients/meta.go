@@ -71,7 +71,7 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	}
 
 	if len(errs) > 0 {
-		return nil, errors.Errorf(strings.Join(errs, ", "))
+		return nil, errors.New(strings.Join(errs, ", "))
 	}
 	if len(metas) == 1 {
 		for _, meta := range metas {

@@ -654,10 +654,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -5307,46 +5304,53 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "level",
-        "actions"
+        "action"
       ],
       "properties": {
-        "actions": {
-          "type": "array",
-          "items": {
-            "description": "allowed actions in weaviate.",
-            "type": "string",
-            "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
-              "create_collections",
-              "read_collections",
-              "update_collections",
-              "delete_collections",
-              "create_tenants",
-              "read_tenants",
-              "update_tenants",
-              "delete_tenants"
-            ]
-          }
-        },
-        "level": {
-          "description": "level of that permission",
+        "action": {
+          "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
-            "database",
-            "collection",
-            "tenant"
+            "manage_roles",
+            "read_roles",
+            "manage_cluster",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants",
+            "create_objects_collection",
+            "read_objects_collection",
+            "update_objects_collection",
+            "delete_objects_collection",
+            "create_objects_tenant",
+            "read_objects_tenant",
+            "update_objects_tenant",
+            "delete_objects_tenant"
           ]
         },
-        "resources": {
-          "type": "array",
-          "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-            "type": "string",
-            "default": "*"
-          }
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "object": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
@@ -6867,10 +6871,7 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
@@ -11822,46 +11823,53 @@ func init() {
       "description": "permissions attached to a role.",
       "type": "object",
       "required": [
-        "level",
-        "actions"
+        "action"
       ],
       "properties": {
-        "actions": {
-          "type": "array",
-          "items": {
-            "description": "allowed actions in weaviate.",
-            "type": "string",
-            "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
-              "create_collections",
-              "read_collections",
-              "update_collections",
-              "delete_collections",
-              "create_tenants",
-              "read_tenants",
-              "update_tenants",
-              "delete_tenants"
-            ]
-          }
-        },
-        "level": {
-          "description": "level of that permission",
+        "action": {
+          "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
-            "database",
-            "collection",
-            "tenant"
+            "manage_roles",
+            "read_roles",
+            "manage_cluster",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants",
+            "create_objects_collection",
+            "read_objects_collection",
+            "update_objects_collection",
+            "delete_objects_collection",
+            "create_objects_tenant",
+            "read_objects_tenant",
+            "update_objects_tenant",
+            "delete_objects_tenant"
           ]
         },
-        "resources": {
-          "type": "array",
-          "items": {
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-            "type": "string",
-            "default": "*"
-          }
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "object": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },

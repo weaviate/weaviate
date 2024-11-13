@@ -32,7 +32,12 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ALL_BATCH)
+	shardNames := make([]string, len(refs))
+	for idx := range refs {
+		shardNames[idx] = refs[idx].Tenant
+	}
+
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards("", shardNames...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -329,5 +334,5 @@ func joinErrors(errors []error) error {
 		return nil
 	}
 
-	return fmt.Errorf(strings.Join(errorStrings, ", "))
+	return fmt.Errorf("%s", strings.Join(errorStrings, ", "))
 }

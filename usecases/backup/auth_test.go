@@ -42,38 +42,38 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.ADD,
-			expectedResource: "backups/s3/123",
+			expectedVerb:     authorization.CREATE,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "BackupStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.GET,
-			expectedResource: "backups/s3/123",
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.RESTORE,
-			expectedResource: "backups/s3/123/restore",
+			expectedVerb:     authorization.CREATE,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "RestorationStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.GET,
-			expectedResource: "backups/s3/123/restore",
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.DELETE,
-			expectedResource: "backups/s3/123",
+			expectedResource: authorization.Cluster(),
 		},
 		{
 			methodName:       "List",
 			additionalArgs:   []interface{}{"s3"},
-			expectedVerb:     authorization.GET,
-			expectedResource: "backups/s3",
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Cluster(),
 		},
 	}
 
@@ -108,7 +108,7 @@ func Test_Authorization(t *testing.T) {
 				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 					"execution must abort with authorizer error")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
 					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}

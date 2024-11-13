@@ -31,9 +31,16 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
-	err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.BATCH_OBJECTS)
-	if err != nil {
-		return nil, err
+	classesShards := make(map[string][]string)
+	for _, obj := range objects {
+		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
+	}
+
+	for class, shards := range classesShards {
+		err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, shards...)...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)

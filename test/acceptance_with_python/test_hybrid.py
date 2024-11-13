@@ -117,8 +117,12 @@ def test_aggregate_max_vector_distance(
         wvc.config.VectorDistances.L2_SQUARED,
     ],
 )
+@pytest.mark.parametrize("offset", [0, 2])
 def test_hybrid_search_vector_distance_more_objects(
-    collection_factory: CollectionFactory, distance: wvc.config.VectorDistances, query: str
+    collection_factory: CollectionFactory,
+    distance: wvc.config.VectorDistances,
+    query: str,
+    offset: Optional[int],
 ) -> None:
     collection = collection_factory(
         properties=[Property(name="name", data_type=DataType.TEXT)],
@@ -159,6 +163,7 @@ def test_hybrid_search_vector_distance_more_objects(
         distance=middle_distance,
         return_metadata=wvc.query.MetadataQuery.full(),
         limit=100,
+        offset=offset,
     ).objects
     objs_hy_cutoff = collection.query.hybrid(
         query,
@@ -166,6 +171,7 @@ def test_hybrid_search_vector_distance_more_objects(
         alpha=1,
         return_metadata=wvc.query.MetadataQuery.full(),
         limit=100,
+        offset=offset,
     ).objects
 
     assert len(objs_nt_cutoff) == len(objs_hy_cutoff)
@@ -178,7 +184,7 @@ def test_hybrid_search_vector_distance_more_objects(
         max_vector_distance=middle_distance,
         return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
     )
-    assert res.total_count == len(objs_nt_cutoff)
+    assert res.total_count == len(objs_nt_cutoff) + offset
 
 
 def test_hybrid_search_with_bm25_only_objects(

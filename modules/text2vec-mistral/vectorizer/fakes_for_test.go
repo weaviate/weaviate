@@ -28,7 +28,7 @@ type fakeBatchClient struct {
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -38,7 +38,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
@@ -56,7 +56,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,
@@ -66,8 +66,8 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 
 func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	return &modulecomponents.VectorizationResult{
+) (*modulecomponents.VectorizationResult[[]float32], error) {
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,

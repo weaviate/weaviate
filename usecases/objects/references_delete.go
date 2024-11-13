@@ -73,9 +73,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	input.Class = res.ClassName
 
-	path := authorization.Objects(input.Class, input.ID)
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
-		return &Error{path, StatusForbidden, err}
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	unlock, err := m.locks.LockSchema()

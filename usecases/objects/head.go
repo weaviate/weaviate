@@ -25,9 +25,8 @@ import (
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	path := authorization.Objects(class, id)
-	if err := m.authorizer.Authorize(principal, authorization.HEAD, path); err != nil {
-		return false, &Error{path, StatusForbidden, err}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
+		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 
 	unlock, err := m.locks.LockConnector()

@@ -42,7 +42,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
-	err := t.authorizer.Authorize(principal, authorization.GET, authorization.ALL_TRAVERSAL)
+	err := t.authorizer.Authorize(principal, authorization.READ, authorization.Collections(params.ClassName)...)
 	if err != nil {
 		return nil, err
 	}

@@ -27,43 +27,57 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
-        "level": {
+        "object": {
           "type": "string",
-          "description": "level of that permission",
-          "enum": ["database", "collection", "tenant"]
+          "default": "*",
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *"
         },
-        "resources": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "default": "*",
-            "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
-          }
+        "tenant": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
         },
-        "actions": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "description": "allowed actions in weaviate.",
-            "enum": [
-              "manage_roles",
-              "read_roles",
-              "manage_cluster",
+        "collection": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+        },
+        "role": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
+        },
+        "action": {
+          "type": "string",
+          "description": "allowed actions in weaviate.",
+          "enum": [
+            "manage_roles",
+            "read_roles",
+            "manage_cluster",
 
-              "create_collections",
-              "read_collections",
-              "update_collections",
-              "delete_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections",
 
-              "create_tenants",
-              "read_tenants",
-              "update_tenants",
-              "delete_tenants"
-            ]
-          }
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants",
+
+            "create_objects_collection",
+            "read_objects_collection",
+            "update_objects_collection",
+            "delete_objects_collection",
+
+            "create_objects_tenant",
+            "read_objects_tenant",
+            "update_objects_tenant",
+            "delete_objects_tenant"
+          ]
         }
       },
-      "required": [ "level","actions"]
+      "required": ["action"]
     },
     "RolesListResponse": {
       "type": "array",
@@ -2879,10 +2893,7 @@
           "200": {
             "description": "Role assigned users",
             "schema": {
-             "type": "array",
-              "items": {
-                  "type": "string"
-              }
+              "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
