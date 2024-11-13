@@ -16,6 +16,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func TestCache_Tenant(t *testing.T) {
 	}()
 
 	versionStr := "0"
-	c := NewDiskCache(root, 100) // 100 bytes max cap
+	c := NewDiskCache(root, 100, NewCacheMetrics("test", prometheus.NewPedanticRegistry())) // 100 bytes max cap
 
 	// add tenant1
 	collection1 := "test-collection1"

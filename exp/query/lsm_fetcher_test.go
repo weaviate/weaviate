@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,6 +144,43 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLSMFetcher_concurrentInflights(t *testing.T) {
+	// when `n` concurrent requests done for `(collection,tenant, version)` that is not in the cache.
+	// It shouldn't span `n` upstream calls. Instead just `1` upstream calls
+
+	root := path.Join(os.TempDir(), t.Name())
+	ctx := context.Background()
+
+	upstream := newMockDownloader(t)
+	cache := newMockCache(t, root)
+	fetcher := NewLSMFetcherWithCache(root, upstream, cache, testLogger())
+
+	testCollection := "test-collection"
+	testTenant := "test-tenant"
+	testVersion := uint64(23)
+
+	var (
+		wg   sync.WaitGroup
+		wait = make(chan struct{})
+		n    = 100 // `n` concurrent clients calling `Fetch`
+	)
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			<-wait // wait till all groutines ready to fetch
+			_, _, err := fetcher.Fetch(ctx, testCollection, testTenant, testVersion)
+			require.NoError(t, err)
+		}()
+	}
+
+	close(wait) // trigger fetch from all go-routines at the same time
+	wg.Wait()   // wait till all goroutines done.
+
+	assert.Equal(t, 1, upstream.count) // Should hit the upstream only once.
 }
 
 type mockDownloader struct {
