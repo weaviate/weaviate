@@ -927,7 +927,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if mod.Name() == targetModule {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
+				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer[[]float32]); ok {
 					// does not access any objects, therefore tenant is irrelevant
 					cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
 					return vectorizer.VectorizeInput(ctx, input, cfg)
