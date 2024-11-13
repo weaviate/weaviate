@@ -5894,7 +5894,7 @@ func init() {
       }
     },
     "TenantResponse": {
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "attributes representing a single tenant response within weaviate",
       "type": "object",
       "allOf": [
         {
@@ -5903,7 +5903,7 @@ func init() {
         {
           "properties": {
             "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
               "type": "integer",
               "default": 0,
               "x-nullable": true,
@@ -12413,7 +12413,7 @@ func init() {
       }
     },
     "TenantResponse": {
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "attributes representing a single tenant response within weaviate",
       "type": "object",
       "allOf": [
         {
@@ -12422,7 +12422,7 @@ func init() {
         {
           "properties": {
             "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.",
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
               "type": "integer",
               "default": 0,
               "minimum": 0,

@@ -25,13 +25,13 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// TenantResponse attributes representing a single tenant within weaviate
+// TenantResponse attributes representing a single tenant response within weaviate
 //
 // swagger:model TenantResponse
 type TenantResponse struct {
 	Tenant
 
-	// Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which in incremented each time a tenant's data is offloaded to cloud storage.
+	// Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.
 	// Example: 3
 	// Minimum: 0
 	DataVersion *int64 `json:"dataVersion,omitempty"`
