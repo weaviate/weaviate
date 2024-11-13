@@ -48,7 +48,6 @@ type QueryReadOnlyClassResponse struct {
 	Classes map[string]versioned.Class
 }
 
-// tenantresp
 type QueryTenantsRequest struct {
 	Class   string
 	Tenants []string // If empty, all tenants are returned
@@ -59,10 +58,9 @@ type TenantWithVersion struct {
 	Tenant       *models.Tenant
 }
 
-// tenantresp
 type QueryTenantsResponse struct {
 	ShardVersion uint64
-	Tenants      []*models.Tenant
+	Tenants      []*models.TenantResponse
 }
 
 type QuerySchemaResponse struct {

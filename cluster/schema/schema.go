@@ -353,18 +353,17 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	}
 }
 
-// tenantresp
-func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.Tenant
+	var res []*models.TenantResponse
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.Tenant, len(ss.Physical))
+			res = make([]*models.TenantResponse, len(ss.Physical))
 			i := 0
 			for tenant := range ss.Physical {
 				physical := ss.Physical[tenant]
@@ -372,7 +371,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 				i++
 			}
 		} else {
-			res = make([]*models.Tenant, 0, len(tenants))
+			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
 				if physical, ok := ss.Physical[tenant]; ok {
 					res = append(res, makeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion))
@@ -413,12 +412,9 @@ func makeTenant(name, status string) *models.Tenant {
 	}
 }
 
-// tenantresp
-func makeTenantWithDataVersion(name, status string, dataVersion int64) *models.Tenant {
-	// TODO replace with TenantResponse?
-	return &models.Tenant{
-		Name:           name,
-		ActivityStatus: status,
-		// DataVersion:    &dataVersion,
+func makeTenantWithDataVersion(name, status string, dataVersion int64) *models.TenantResponse {
+	return &models.TenantResponse{
+		Tenant:      *makeTenant(name, status),
+		DataVersion: &dataVersion,
 	}
 }
