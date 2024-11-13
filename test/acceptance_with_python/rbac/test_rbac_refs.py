@@ -27,7 +27,7 @@ def test_rbac_users(request: SubRequest):
 
         # read+update for both
         with weaviate.connect_to_local(
-            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("no-rights-key")
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=role_name,
@@ -38,7 +38,7 @@ def test_rbac_users(request: SubRequest):
                 + RBAC.permissions.collection(source.name, CollectionsAction.UPDATE_COLLECTIONS)
                 + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
             )
-            client.roles.assign(user="no-rights-user", roles=both_write.name)
+            client.roles.assign(user="custom-user", roles=both_write.name)
 
             source_no_rights = client_no_rights.collections.get(
                 source.name
@@ -61,13 +61,13 @@ def test_rbac_users(request: SubRequest):
                 to=uuid_target2,
             )
 
-            client.roles.revoke(user="no-rights-user", roles=both_write.name)
+            client.roles.revoke(user="custom-user", roles=both_write.name)
             client.roles.delete(both_write.name)
 
         # only read+update for one of them
         for col in [source.name]:
             with weaviate.connect_to_local(
-                port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("no-rights-key")
+                port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
             ) as client_no_rights:
                 role = client.roles.create(
                     name=role_name,
@@ -76,7 +76,7 @@ def test_rbac_users(request: SubRequest):
                     )
                     + RBAC.permissions.collection(col, CollectionsAction.READ_COLLECTIONS),
                 )
-                client.roles.assign(user="no-rights-user", roles=role.name)
+                client.roles.assign(user="custom-user", roles=role.name)
 
                 source_no_rights = client_no_rights.collections.get(
                     source.name
@@ -106,5 +106,5 @@ def test_rbac_users(request: SubRequest):
                     )
                 assert e.value.status_code == 403
 
-                client.roles.revoke(user="no-rights-user", roles=role.name)
+                client.roles.revoke(user="custom-user", roles=role.name)
                 client.roles.delete(role.name)

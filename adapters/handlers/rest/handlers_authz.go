@@ -13,6 +13,7 @@ package rest
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/pkg/errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -59,6 +61,10 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
+	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
+	}
+
 	err := h.controller.UpsertRolesPermissions(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -71,6 +77,10 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
 	err := h.controller.UpsertRolesPermissions(&models.Role{
@@ -87,12 +97,16 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles()...); err != nil {
-		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
 	err := h.controller.RemovePermissions(*params.Body.Name, params.Body.Permissions)
 	if err != nil {
-		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewRemovePermissionsUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	return authz.NewRemovePermissionsOK()
@@ -137,6 +151,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles()...); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if slices.Contains(rbac.BuiltInRoles, params.ID) {
+		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
 	if err := h.controller.DeleteRoles(params.ID); err != nil {
