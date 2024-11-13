@@ -97,6 +97,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(input.Refs[i].Class.String(), tenant)...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
 			return &Error{"validate existence", StatusBadRequest, err}
 		}

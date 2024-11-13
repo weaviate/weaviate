@@ -5,6 +5,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC, DatabaseAction, CollectionsAction
 from _pytest.fixtures import SubRequest
+from .conftest import _sanitize_role_name
 
 db = RBAC.actions.database
 col = RBAC.actions.collection
@@ -73,15 +74,3 @@ def test_rbac_users(request: SubRequest):
 
         for role_name in role_names:
             client.roles.delete(role_name)
-
-
-def _sanitize_role_name(name: str) -> str:
-    return (
-        name.replace("[", "")
-        .replace("]", "")
-        .replace("-", "")
-        .replace(" ", "")
-        .replace(".", "")
-        .replace("{", "")
-        .replace("}", "")
-    )
