@@ -125,20 +125,20 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg, "document")
 	return v.vectorize(ctx, input, config.ModelString, config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	config := v.getVectorizationConfig(cfg, "query")
 	res, _, _, err := v.vectorize(ctx, input, config.ModelString, config)
 	return res, err
 }
 
-func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "marshal body")
@@ -197,7 +197,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		}
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
