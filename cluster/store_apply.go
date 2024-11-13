@@ -192,6 +192,27 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			ret.Error = st.StoreSchemaV1()
 		}
 
+	case api.ApplyRequest_TYPE_UPSERT_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.UpsertRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.DeleteRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.RemovePermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.AddRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
+		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

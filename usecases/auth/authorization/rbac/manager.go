@@ -47,10 +47,8 @@ func (m *manager) UpsertRoles(roles ...*models.Role) error {
 	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
-	if err := m.casbin.InvalidateCache(); err != nil {
-		return err
-	}
-	return nil
+
+	return m.casbin.InvalidateCache()
 }
 
 func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
