@@ -53,8 +53,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
 	})
@@ -116,8 +115,7 @@ func TestQueryVectorDistancer(t *testing.T) {
 		// zero it will constantly think it's full and needs to be deleted - even
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	index.Add(context.TODO(), uint64(0), []float32{-1, 0})
@@ -154,8 +152,7 @@ func TestAcornPercentage(t *testing.T) {
 			MaxConnections:        16,
 			EFConstruction:        16,
 			VectorCacheMaxObjects: 1000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		}, cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 

@@ -172,7 +172,7 @@ func (l *LSMFetcher) download(ctx context.Context, basePath string, collection, 
 	)
 
 	// src - s3://<collection>/<tenant>/<node>/
-	// dst (local) - <data-path/<collection>/<tenant>
+	// dst (local) - <data-path/<collection>/<tenant>/<version>
 	l.log.WithFields(logrus.Fields{
 		"collection": collection,
 		"tenant":     tenant,

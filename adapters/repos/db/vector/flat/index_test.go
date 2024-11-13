@@ -57,7 +57,9 @@ func run(ctx context.Context, dirName string, logger *logrus.Logger, compression
 	runId := uuid.New().String()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0, 0, err
 	}
@@ -287,7 +289,9 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
 
 			distancr := distancer.NewCosineDistanceProvider()

@@ -116,8 +116,6 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
-	shardCompactionCallbacks     cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks          cyclemanager.CycleCallbackGroup
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -214,8 +212,8 @@ type MakeCommitLogger func() (CommitLogger, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
-	shardFlushCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
+func New(cfg Config, uc ent.UserConfig,
+	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -284,11 +282,9 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		sqConfig:             uc.SQ,
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
-		shardCompactionCallbacks: shardCompactionCallbacks,
-		shardFlushCallbacks:      shardFlushCallbacks,
-		store:                    store,
-		allocChecker:             cfg.AllocChecker,
-		visitedListPoolMaxSize:   cfg.VisitedListPoolMaxSize,
+		store:                  store,
+		allocChecker:           cfg.AllocChecker,
+		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 

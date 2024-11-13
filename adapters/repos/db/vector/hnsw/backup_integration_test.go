@@ -66,7 +66,7 @@ func TestBackup_Integration(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
-	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
+	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 
