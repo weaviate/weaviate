@@ -20,6 +20,10 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 var (
@@ -35,36 +39,51 @@ const (
 // DiskCache is LRU disk based cache for tenants on-disk data.
 type DiskCache struct {
 	// key: <collection>/<tenant>
-	tenants   map[string]*list.Element
-	evictList *list.List
-	mu        sync.Mutex // TODO(kavi): Make it more fine-grained than global mutex
+	tenants map[string]*list.Element
+	tmu     sync.RWMutex
 
-	// more than this will start evicting the tenants
+	evictList *list.List
+	emu       sync.Mutex
+
 	// maxCap in bytes.
+	// more than this will start evicting the tenants
 	maxCap int64
 
 	basePath string
+
+	metrics *CacheMetrics
 }
 
-func NewDiskCache(basePath string, maxCap int64) *DiskCache {
+func NewDiskCache(basePath string, maxCap int64, metrics *CacheMetrics) *DiskCache {
 	return &DiskCache{
 		tenants:   make(map[string]*list.Element),
 		evictList: list.New(),
 		basePath:  path.Join(basePath, CachePrefix),
 		maxCap:    maxCap,
+		metrics:   metrics,
 	}
 }
 
-// Assumes id all small-case
+// Tenant returns cached tenant info for given collection and tenantID.
+// Caller can use returned data to get abosolute path to access tenant data.
 func (d *DiskCache) Tenant(collection, tenantID string) (*TenantCache, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	timer := prometheus.NewTimer(d.metrics.OpsDuration.WithLabelValues(collection, tenantID, "get")) // "get" is the operation type, meaning the read path of the cache.
+	defer timer.ObserveDuration()
 
-	if c, exists := d.tenants[d.TenantKey(collection, tenantID)]; exists {
+	d.tmu.RLock()
+	c, exists := d.tenants[d.TenantKey(collection, tenantID)]
+	d.tmu.RUnlock()
+
+	if exists {
+		d.emu.Lock()
 		d.evictList.MoveToFront(c)
 		c.Value.(*TenantCache).LastAccessed = time.Now()
+		d.emu.Unlock()
+
 		return c.Value.(*TenantCache), nil
 	}
+
+	d.metrics.CacheMiss.WithLabelValues(collection, tenantID).Inc()
 	return nil, ErrTenantNotFound
 }
 
@@ -72,8 +91,8 @@ func (d *DiskCache) Tenant(collection, tenantID string) (*TenantCache, error) {
 // AddTenant checks if file is present on that directory
 // deterministically generated from `collection` & `tenant` with basePath
 func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	timer := prometheus.NewTimer(d.metrics.OpsDuration.WithLabelValues(collection, tenantID, "put")) // "put" is the operation type, meaning the write path of the cache.
+	defer timer.ObserveDuration()
 
 	tc := &TenantCache{
 		TenantID:     tenantID,
@@ -92,8 +111,13 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 		return fmt.Errorf("failed to get local path of the tenant: %w", err)
 	}
 
+	d.emu.Lock()
 	c := d.evictList.PushFront(tc)
+	d.emu.Unlock()
+
+	d.tmu.Lock()
 	d.tenants[d.TenantKey(tc.Collection, tc.TenantID)] = c
+	d.tmu.Unlock()
 
 	// evit if the size is getting filled up
 	// TODO(kavi): Worth doing it on different go routine? But will get complex with correctness
@@ -114,6 +138,9 @@ func (d *DiskCache) BasePath() string {
 
 // return total current usage of disk cache in bytes
 func (d *DiskCache) usage() int64 {
+	timer := prometheus.NewTimer(d.metrics.UsageCalcDuration)
+	defer timer.ObserveDuration()
+
 	var sizeBytes int64
 
 	filepath.Walk(d.basePath, func(path string, info os.FileInfo, err error) error {
@@ -160,4 +187,36 @@ type TenantCache struct {
 
 func (tc *TenantCache) AbsolutePath() string {
 	return path.Join(tc.basePath, tc.Collection, tc.TenantID, fmt.Sprintf("%d", tc.Version))
+}
+
+// CacheMetrics exposes some insights about how cache operations.
+type CacheMetrics struct {
+	// OpsDuration tracks overall duration of each cache operation.
+	OpsDuration *prometheus.HistogramVec
+	CacheMiss   *prometheus.CounterVec
+
+	// UsageCalcDuration tracks `usage()` calls that sits in both read and write path.
+	UsageCalcDuration prometheus.Histogram
+}
+
+func NewCacheMetrics(namespace string, reg prometheus.Registerer) *CacheMetrics {
+	r := promauto.With(reg)
+
+	return &CacheMetrics{
+		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "query_cache_duration_seconds",
+			Buckets:   monitoring.LatencyBuckets,
+		}, []string{"collection", "tenant", "operation"}), // operation is either "get" or "put"
+		CacheMiss: r.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "query_cache_miss_total",
+		}, []string{"collection", "tenant"}),
+
+		UsageCalcDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "query_cache_usage_calc_duration_seconds",
+			Buckets:   monitoring.LatencyBuckets,
+		}),
+	}
 }

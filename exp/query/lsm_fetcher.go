@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -39,6 +40,11 @@ type LSMFetcher struct {
 	log      logrus.FieldLogger
 
 	basePath string
+
+	// sg makes sure there is at most one in-flight request is done to upstream
+	// for the unique combination of (collection, tenant, version), say when multiple
+	// concurrent in-flight requests were made for the same tenant data.
+	sg singleflight.Group
 }
 
 // LSMDownloader is usually some component that used to download tenant's data.
@@ -48,8 +54,12 @@ type LSMDownloader interface {
 
 // LSMCache provides caching of tenant's LSM data.
 type LSMCache interface {
+	// get tenant
 	Tenant(collection, tenantID string) (*TenantCache, error)
+
+	// put tenant
 	AddTenant(collection, tenantID string, version uint64) error
+
 	BasePath() string
 }
 
@@ -76,6 +86,28 @@ func NewLSMFetcherWithCache(basePath string, upstream LSMDownloader, cache LSMCa
 // 3. If cache is enabled and found in the cache but local version is outdated, fetch from the upstream and remove old version.
 // 4. if cache is enabled, found in the cache and local version is up to date, return from the cache.
 func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, version uint64) (*lsmkv.Store, string, error) {
+	// unique key for (collectin, tenant, version). this key make sure only one in-flight requests hitting upstream.
+	key := fmt.Sprintf("%s-%s-%d", collection, tenant, version)
+	val, err, _ := l.sg.Do(key, func() (any, error) {
+		return l.fetch(ctx, collection, tenant, version)
+	})
+
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch tenant data: %w", err)
+	}
+
+	tenantPath := val.(string)
+
+	lsmPath := path.Join(tenantPath, defaultLSMRoot)
+	store, err := lsmkv.New(lsmPath, lsmPath, l.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
+	}
+
+	return store, lsmPath, nil
+}
+
+func (l *LSMFetcher) fetch(ctx context.Context, collection, tenant string, version uint64) (string, error) {
 	var (
 		basePath          = l.basePath
 		tenantPath string = ""
@@ -87,7 +119,7 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 		basePath = l.cache.BasePath()
 		c, err := l.cache.Tenant(collection, tenant)
 		if err != nil && !errors.Is(err, ErrTenantNotFound) {
-			return nil, "", fmt.Errorf("failed to get tenant from cache: %w", err)
+			return "", fmt.Errorf("failed to get tenant from cache: %w", err)
 		}
 
 		if err == nil && version != 0 && c.Version >= version {
@@ -103,18 +135,15 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 
 	if download {
 		var err error
-		// TODO(kavi): Make this upstream download call efficient. Currently when say `n` tenants access `Fetch` at the same time causing cache-miss,
-		// then all `n` tenants can trigger upstream download.
-		// Use something like Go's `singleflight`(https://pkg.go.dev/golang.org/x/sync/singleflight) to do one upstream call and share the cache with other in-flight requests.
 		tenantPath, err = l.download(ctx, basePath, collection, tenant, version)
 		if err != nil {
-			return nil, "", err
+			return "", err
 		}
 
 		// populate the cache before returning
 		if l.cache != nil {
 			if err := l.cache.AddTenant(collection, tenant, version); err != nil {
-				return nil, "", fmt.Errorf("failed populate the cache: %w", err)
+				return "", fmt.Errorf("failed populate the cache: %w", err)
 			}
 		}
 
@@ -123,20 +152,13 @@ func (l *LSMFetcher) Fetch(ctx context.Context, collection, tenant string, versi
 			// NOTE: Removing old version can be tricky, even though all new lookup returns new version path.
 			// There can be some clients still using old versions. We can leave without removing and delete only if eviction is needed.
 			// But still that doesn't remove above stated problem.
-			if l.remove(ctx, basePath, collection, tenant, oldVersion); err != nil {
-				return nil, "", err
+			if err := l.remove(basePath, collection, tenant, oldVersion); err != nil {
+				return "", fmt.Errorf("failed to remove old version of tenant data: %w", err)
 			}
 		}
 
 	}
-
-	lsmPath := path.Join(tenantPath, defaultLSMRoot)
-	store, err := lsmkv.New(lsmPath, lsmPath, l.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
-	}
-
-	return store, lsmPath, nil
+	return tenantPath, nil
 }
 
 func (l *LSMFetcher) download(ctx context.Context, basePath string, collection, tenant string, version uint64) (string, error) {
@@ -164,7 +186,7 @@ func (l *LSMFetcher) download(ctx context.Context, basePath string, collection, 
 	return tenantPath, nil
 }
 
-func (l *LSMFetcher) remove(ctx context.Context, basePath string, collection, tenant string, version uint64) error {
+func (l *LSMFetcher) remove(basePath string, collection, tenant string, version uint64) error {
 	dst := path.Join(
 		basePath,
 		strings.ToLower(collection),
