@@ -31,7 +31,9 @@ func createTestIndex(t *testing.T) *flat {
 	distancer := distancer.NewCosineDistanceProvider()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 
 	index, err := New(Config{

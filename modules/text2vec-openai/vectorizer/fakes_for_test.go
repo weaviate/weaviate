@@ -30,13 +30,13 @@ type fakeBatchClient struct {
 	rateLimit        *modulecomponents.RateLimits
 }
 
-func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error) {
+func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[]float32], error) {
 	panic("implement me")
 }
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
@@ -87,7 +87,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
 	c.rateLimit.LastOverwrite = time.Now()
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,

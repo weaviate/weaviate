@@ -28,6 +28,7 @@ const (
 	Multi2Vec           ModuleType = "Multi2Vec"
 	Ref2Vec             ModuleType = "Ref2Vec"
 	Text2MultiVec       ModuleType = "Text2MultiVec"
+	Text2ColBERT        ModuleType = "Text2ColBERT"
 	Text2TextGenerative ModuleType = "Text2TextGenerative"
 	Text2TextSummarize  ModuleType = "Text2TextSummarize"
 	Text2TextReranker   ModuleType = "Text2TextReranker"
