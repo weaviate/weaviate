@@ -201,6 +201,101 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 }
 
+func TestAuthzRolesMultiNodeJourney(t *testing.T) {
+	t.Parallel()
+
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+	existingRole := "admin"
+
+	testRole := "test-role"
+	testAction1 := "create_collections"
+	testAction2 := "delete_collections"
+	all := "*"
+
+	clientAuth := helper.CreateAuth(existingKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviateCluster(3).WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	t.Run("add role while 1 node is down", func(t *testing.T) {
+		t.Run("get all roles before create", func(t *testing.T) {
+			res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+			require.Nil(t, err)
+			require.Equal(t, 3, len(res.Payload))
+		})
+
+		t.Run("StopNode-3", func(t *testing.T) {
+			require.Nil(t, compose.StopAt(ctx, 2, nil))
+		})
+
+		t.Run("create role", func(t *testing.T) {
+			_, err = helper.Client(t).Authz.CreateRole(
+				authz.NewCreateRoleParams().WithBody(&models.Role{
+					Name: &testRole,
+					Permissions: []*models.Permission{{
+						Action:     &testAction1,
+						Collection: &all,
+					}},
+				}),
+				clientAuth,
+			)
+			require.Nil(t, err)
+		})
+
+		t.Run("StartNode-3", func(t *testing.T) {
+			require.Nil(t, compose.StartAt(ctx, 2))
+		})
+
+		helper.SetupClient(compose.GetWeaviateNode3().URI())
+
+		t.Run("get all roles after create", func(t *testing.T) {
+			res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+			require.Nil(t, err)
+			require.Equal(t, 4, len(res.Payload))
+		})
+
+		t.Run("get role by name", func(t *testing.T) {
+			res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+			require.Nil(t, err)
+			require.Equal(t, testRole, *res.Payload.Name)
+			require.Equal(t, 1, len(res.Payload.Permissions))
+			require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
+		})
+
+		t.Run("add permission to role Node3", func(t *testing.T) {
+			_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
+				Name:        &testRole,
+				Permissions: []*models.Permission{{Action: &testAction2, Collection: &all}},
+			}), clientAuth)
+			require.Nil(t, err)
+		})
+
+		helper.SetupClient(compose.GetWeaviate().URI())
+
+		t.Run("get role by name after adding permission Node1", func(t *testing.T) {
+			res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+			require.Nil(t, err)
+			require.Equal(t, testRole, *res.Payload.Name)
+			require.Equal(t, 2, len(res.Payload.Permissions))
+			require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
+			require.Equal(t, testAction2, *res.Payload.Permissions[1].Action)
+		})
+	})
+}
+
 func String(s string) *string {
 	return &s
 }
