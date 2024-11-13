@@ -102,14 +102,6 @@ func (s *segment) loadBlockDataReusable(offsetStart, offsetEnd uint64, buf []byt
 	return nil
 }
 
-func decodeDocIdsReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
-	varenc.VarIntDeltaEncoder{}.DecodeReusable(encoded.DocIds, decoded.DocIds[:blockSize])
-}
-
-func decodeTfReusable(blockSize int, encoded *terms.BlockData, decoded *terms.BlockDataDecoded) {
-	varenc.VarIntEncoder{}.DecodeReusable(encoded.Tfs, decoded.Tfs[:blockSize])
-}
-
 type BlockMetrics struct {
 	BlockCountTotal    uint64
 	BlockCountExamined uint64
@@ -146,6 +138,9 @@ type SegmentBlockMax struct {
 	k1                   float32
 
 	currentBlockImpact float32
+
+	docIdDecoder    varenc.VarIntDeltaEncoder
+	termFreqDecoder varenc.VarIntEncoder
 }
 
 func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
@@ -161,6 +156,8 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		averagePropLength: float32(averagePropLength),
 		b:                 float32(config.B),
 		k1:                float32(config.K1),
+		docIdDecoder:      varenc.VarIntDeltaEncoder{},
+		termFreqDecoder:   varenc.VarIntEncoder{},
 	}
 	err = output.reset()
 	if err != nil {
@@ -220,7 +217,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount)
 		s.freqDecoded = true
 		s.Metrics.BlockCountExamined++
-		s.Metrics.DocCountExamined += uint64(len(s.blockDataDecoded.DocIds))
+		s.Metrics.DocCountExamined += uint64(s.blockDataSize)
 		return nil
 	}
 
@@ -238,11 +235,12 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		return err
 	}
 
-	decodeDocIdsReusable(s.blockDataSize, s.blockDataEncoded, s.blockDataDecoded)
+	s.docIdDecoder.DecodeReusable(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
 	s.Metrics.BlockCountExamined++
-	s.Metrics.DocCountExamined += uint64(len(s.blockDataDecoded.DocIds))
+	s.Metrics.DocCountExamined += uint64(s.blockDataSize)
 	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	s.freqDecoded = false
+	s.currentBlockImpact = s.computeCurrentBlockImpact()
 	return nil
 }
 
@@ -328,7 +326,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Con
 	}
 
 	if !s.freqDecoded {
-		decodeTfReusable(s.blockDataSize, s.blockDataEncoded, s.blockDataDecoded)
+		s.termFreqDecoder.DecodeReusable(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
 		s.freqDecoded = true
 	}
 
