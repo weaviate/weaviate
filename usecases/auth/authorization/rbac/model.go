@@ -108,6 +108,9 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 
 	// add pre existing roles
 	for name, verb := range builtInPolicies {
+		if verb == "" {
+			continue
+		}
 		if _, err := enforcer.AddNamedPolicy("p", name, "*", verb, "*"); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
