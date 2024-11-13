@@ -142,9 +142,27 @@
       "items": {
         "type": "number",
         "format": "float"
+      },
+      "MultiVector": {
+        "description": "A colBERT vector representation of the object. If provided at object creation, this will take precedence over any vectorizer setting.",
+        "type": "array",
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
       }
     },
     "Vectors": {
+      "description": "A map of named vectors for multi-vector representations.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
+    },
+    "MultiVectors": {
       "description": "A map of named vectors for multi-vector representations.",
       "type": "object",
       "additionalProperties": {
@@ -703,7 +721,7 @@
           "type": "object"
         },
         "description": {
-          "description": "Description of the collection for metadata purposes.",          
+          "description": "Description of the collection for metadata purposes.",
           "type": "string"
         },
         "properties": {
@@ -834,7 +852,7 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"            
+            "kagome_ja"
           ]
         },
         "nestedProperties": {
