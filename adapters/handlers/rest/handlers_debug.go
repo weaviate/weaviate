@@ -125,6 +125,7 @@ func setupDebugHandlers(appState *state.State) {
 
 		colName, shardName := parts[0], parts[2]
 		vecIdxID := "main"
+
 		if len(parts) == 4 {
 			vecIdxID = parts[3]
 		}
