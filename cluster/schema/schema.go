@@ -405,6 +405,7 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return s.Classes
 }
 
+// makeTenant creates a tenant with the given name and status
 func makeTenant(name, status string) models.Tenant {
 	return models.Tenant{
 		Name:           name,
@@ -412,6 +413,7 @@ func makeTenant(name, status string) models.Tenant {
 	}
 }
 
+// MakeTenantWithDataVersion creates a tenant with the given name, status, and data version
 func MakeTenantWithDataVersion(name, status string, dataVersion int64) *models.TenantResponse {
 	return &models.TenantResponse{
 		Tenant:      makeTenant(name, status),

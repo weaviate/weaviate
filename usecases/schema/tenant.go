@@ -344,6 +344,7 @@ func convertNewTenantNames(status string) string {
 	return status
 }
 
+// tenantResponseToTenant converts a TenantResponse to a Tenant
 func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
 	return &models.Tenant{
 		Name:           tenantResponse.Name,
@@ -351,6 +352,7 @@ func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenan
 	}
 }
 
+// TenantResponsesToTenants converts a slice of TenantResponses to a slice of Tenants
 func TenantResponsesToTenants(tenantResponses []*models.TenantResponse) []*models.Tenant {
 	tenants := make([]*models.Tenant, len(tenantResponses))
 	for i, tenantResponse := range tenantResponses {
