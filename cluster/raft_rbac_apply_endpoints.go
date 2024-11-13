@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (s *Raft) UpsertRoles(roles ...*models.Role) error {
+func (s *Raft) UpsertRolesPermissions(roles ...*models.Role) error {
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles to create: %w", schema.ErrBadRequest)
 	}
@@ -32,7 +32,7 @@ func (s *Raft) UpsertRoles(roles ...*models.Role) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_UPSERT_ROLES,
+		Type:       cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

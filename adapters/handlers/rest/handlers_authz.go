@@ -59,7 +59,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
-	err := h.controller.UpsertRoles(params.Body)
+	err := h.controller.UpsertRolesPermissions(params.Body)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -73,7 +73,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	err := h.controller.UpsertRoles(&models.Role{
+	err := h.controller.UpsertRolesPermissions(&models.Role{
 		Name:        params.Body.Name,
 		Permissions: params.Body.Permissions,
 	})
