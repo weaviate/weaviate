@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -20,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	autherrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -38,7 +37,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -63,7 +62,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		}
 
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -83,7 +82,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -106,7 +105,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -125,7 +124,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -143,7 +142,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -171,7 +170,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -194,7 +193,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -217,7 +216,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -238,7 +237,7 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -259,7 +258,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -279,7 +278,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -300,7 +299,7 @@ func (s *schemaHandlers) getTenant(
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantsGetOneForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -316,7 +315,7 @@ func (s *schemaHandlers) getTenant(
 	if len(tenants) > 1 {
 		return schema.NewTenantsGetOneInternalServerError().
 			WithPayload(errPayloadFromSingleErr(
-				errors.New(fmt.Sprintf("internal error: multiple tenants found: %v", tenants))))
+				fmt.Errorf("internal error: multiple tenants found: %v", tenants)))
 	}
 	// at this point we know we have exactly 1 tenant
 	s.metricRequestsTotal.logOk(params.ClassName)
@@ -330,7 +329,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 			return schema.NewTenantExistsNotFound()
 		}
 		switch err.(type) {
-		case autherrors.Forbidden:
+		case errors.Forbidden:
 			return schema.NewTenantExistsForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -387,7 +386,7 @@ func (e *schemaRequestsTotal) logError(className string, err error) {
 	switch err.(type) {
 	case uco.ErrMultiTenancy:
 		e.logUserError(className)
-	case autherrors.Forbidden:
+	case errors.Forbidden:
 		e.logUserError(className)
 	default:
 		e.logUserError(className)
