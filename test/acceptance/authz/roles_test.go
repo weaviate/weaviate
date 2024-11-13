@@ -25,8 +25,6 @@ import (
 )
 
 func TestAuthzRolesJourney(t *testing.T) {
-	t.Parallel()
-
 	existingUser := "existing-user"
 	existingKey := "existing-key"
 	existingRole := "admin"
@@ -202,8 +200,6 @@ func TestAuthzRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
-	t.Parallel()
-
 	existingUser := "existing-user"
 	existingKey := "existing-key"
 	existingRole := "admin"
