@@ -14,18 +14,19 @@ col = RBAC.actions.collection
 @pytest.mark.parametrize(
     "database_permissions",
     [
-        db.READ_COLLECTIONS,
         db.READ_ROLES,
         db.MANAGE_ROLES,
-        [db.READ_COLLECTIONS, db.CREATE_COLLECTIONS],
+        [db.MANAGE_CLUSTER, db.READ_ROLES],
     ],
 )
 @pytest.mark.parametrize(
     "collection_permissions",
     [
+        col.READ_COLLECTIONS,
         col.CREATE_OBJECTS,
         col.CREATE_TENANTS,
         [col.CREATE_TENANTS, col.UPDATE_OBJECTS, col.DELETE_OBJECTS],
+        [col.READ_COLLECTIONS, col.CREATE_COLLECTIONS],
     ],
 )
 def test_rbac_roles_admin(
@@ -57,7 +58,7 @@ def test_rbac_users(request: SubRequest):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        database_permissions = RBAC.actions.database.CREATE_COLLECTIONS
+        database_permissions = RBAC.actions.database.READ_ROLES
         num_roles = 2
         role_names = [_sanitize_role_name(request.node.name) + str(i) for i in range(num_roles)]
         for role_name in role_names:
