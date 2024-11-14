@@ -52,7 +52,6 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Co
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles()...); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -61,14 +60,24 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
+	if len(params.Body.Permissions) == 0 {
+		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	}
+
 	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	err := h.controller.UpsertRolesPermissions(params.Body)
-	if err != nil {
+	if err := h.controller.UpsertRolesPermissions(params.Body); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":      "create_role",
+		"user":        principal.Username,
+		"roleName":    params.Body.Name,
+		"permissions": params.Body.Permissions,
+	}).Info("role created")
 
 	return authz.NewCreateRoleCreated()
 }
