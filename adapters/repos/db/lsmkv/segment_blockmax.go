@@ -16,6 +16,7 @@ import (
 	"math"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
@@ -136,15 +137,18 @@ type SegmentBlockMax struct {
 	averagePropLength    float32
 	b                    float32
 	k1                   float32
+	propertyBoost        float32
 
 	currentBlockImpact float32
+	tombstones         *sroar.Bitmap
+	filterDocIds       helpers.AllowList
 
 	docIdDecoder    varenc.VarIntDeltaEncoder
 	termFreqDecoder varenc.VarIntEncoder
 }
 
-func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
-	node, err := s.index.Seek(key)
+func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+	node, err := s.index.Get(key)
 	if err != nil {
 		return nil
 	}
@@ -158,14 +162,14 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		k1:                float32(config.K1),
 		docIdDecoder:      varenc.VarIntDeltaEncoder{},
 		termFreqDecoder:   varenc.VarIntEncoder{},
+		propertyBoost:     propertyBoost,
+		filterDocIds:      filterDocIds,
+		tombstones:        tombstones,
 	}
 	err = output.reset()
 	if err != nil {
 		return nil
 	}
-
-	output.decodeBlock()
-	output.decoded = true
 
 	return output
 }
@@ -196,6 +200,24 @@ func (s *SegmentBlockMax) reset() error {
 
 	s.Metrics.BlockCountTotal += uint64(len(s.blockEntries))
 	s.Metrics.DocCountTotal += s.docCount
+
+	s.decodeBlock()
+	s.decoded = true
+
+	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+		s.blockDataIdx++
+		if s.blockDataIdx > s.blockDataSize-1 {
+			if s.blockEntryIdx >= len(s.blockEntries)-1 {
+				s.idPointer = math.MaxUint64
+				s.exhausted = true
+				return nil
+			}
+			s.blockEntryIdx++
+			s.blockDataIdx = 0
+			s.decodeBlock()
+		}
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+	}
 
 	return nil
 }
@@ -277,6 +299,21 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.blockDataIdx++
 		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
+
+	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+		s.blockDataIdx++
+		if s.blockDataIdx > s.blockDataSize-1 {
+			if s.blockEntryIdx >= len(s.blockEntries)-1 {
+				s.idPointer = math.MaxUint64
+				s.exhausted = true
+				return
+			}
+			s.blockEntryIdx++
+			s.blockDataIdx = 0
+			s.decodeBlock()
+		}
+		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+	}
 }
 
 func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
@@ -320,10 +357,12 @@ func (s *SegmentBlockMax) QueryTermIndex() int {
 	return s.queryTermIndex
 }
 
-func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *terms.DocPointerWithScore) {
+func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Config, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
 	}
+
+	var doc *terms.DocPointerWithScore
 
 	if !s.freqDecoded {
 		s.termFreqDecoder.DecodeReusable(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
@@ -339,7 +378,14 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Con
 		s.Metrics.LastAddedBlock = s.blockEntryIdx
 	}
 
-	return s.idPointer, float64(tf) * s.idf, nil
+	if additionalExplanation {
+		doc = &terms.DocPointerWithScore{
+			Id:         s.blockDataDecoded.DocIds[s.blockDataIdx],
+			Frequency:  freq,
+			PropLength: float32(propLength),
+		}
+	}
+	return s.idPointer, float64(tf) * s.idf * float64(s.propertyBoost), doc
 }
 
 func (s *SegmentBlockMax) Advance() {
@@ -364,13 +410,28 @@ func (s *SegmentBlockMax) Advance() {
 			return
 		}
 	}
+
+	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+		s.blockDataIdx++
+		if s.blockDataIdx > s.blockDataSize-1 {
+			if s.blockEntryIdx >= len(s.blockEntries)-1 {
+				s.idPointer = math.MaxUint64
+				s.exhausted = true
+				return
+			}
+			s.blockEntryIdx++
+			s.blockDataIdx = 0
+			s.decodeBlock()
+		}
+	}
+
 	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 }
 
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	freq := float32(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float32(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
-	return float32(s.idf) * (freq / (freq + s.k1*(1-s.b+s.b*propLength/float32(s.averagePropLength))))
+	return float32(s.idf) * (freq / (freq + s.k1*(1-s.b+s.b*propLength/float32(s.averagePropLength)))) * s.propertyBoost
 }
 
 func (s *SegmentBlockMax) CurrentBlockImpact() float32 {

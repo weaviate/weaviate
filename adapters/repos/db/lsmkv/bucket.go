@@ -733,7 +733,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	segments := [][]MapPair{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -745,13 +745,19 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
-			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
-				return nil, err
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
+					return nil, err
+				}
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				// Read "broken" tombstones with length 12 but a non-tombstone value
+				// Related to Issue #4125
+				// TODO: Remove the extra check, as it may interfere future in-disk format changes
+				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 			}
-			// Read "broken" tombstones with length 12 but a non-tombstone value
-			// Related to Issue #4125
-			// TODO: Remove the extra check, as it may interfere future in-disk format changes
-			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
 		segments = append(segments, segmentDecoded)
 	}
@@ -1478,9 +1484,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	}
 
 	for j, segment := range segmentsDisk {
-		output[j] = make([]terms.TermInterface, len(query))
+		output[j] = make([]terms.TermInterface, 0, len(query))
 		for i, key := range query {
-			output[j][i] = NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], averagePropLength, config)
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], filterDocIds, averagePropLength, config)
+			if term != nil {
+				output[j] = append(output[j], term)
+			}
 		}
 	}
 	return output, nil

@@ -192,7 +192,7 @@ type TermInterface interface {
 	AdvanceAtLeast(minID uint64)
 	AdvanceAtLeastShallow(minID uint64)
 	Advance()
-	Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore)
+	Score(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, *DocPointerWithScore)
 	CurrentBlockImpact() float32
 	CurrentBlockMaxId() uint64
 }
@@ -217,11 +217,13 @@ func NewTerm(queryTerm string, queryTermIndex int) *Term {
 	}
 }
 
-func (t *Term) Score(averagePropLength float64, config schema.BM25Config) (uint64, float64, *DocPointerWithScore) {
+func (t *Term) Score(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, *DocPointerWithScore) {
 	pair := t.Data[t.posPointer]
 	freq := float64(pair.Frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
-
+	if !additionalExplanations {
+		return t.idPointer, tf * t.idf, nil
+	}
 	return t.idPointer, tf * t.idf, &pair
 }
 
@@ -421,7 +423,7 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 			continue
 		}
 		term := t.T[i]
-		_, score, docInfo := term.Score(averagePropLength, config)
+		_, score, docInfo := term.Score(averagePropLength, config, additionalExplanations)
 		term.Advance()
 		if additionalExplanations {
 			docInfos[term.QueryTermIndex()] = docInfo
