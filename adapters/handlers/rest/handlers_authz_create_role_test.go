@@ -20,8 +20,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
 func TestCreateRoleSuccess(t *testing.T) {
@@ -135,7 +135,7 @@ func TestCreateRoleForbidden(t *testing.T) {
 			name: "cannot create role with the same name as builtin role",
 			params: authz.CreateRoleParams{
 				Body: &models.Role{
-					Name: &rbac.BuiltInRoles[0],
+					Name: &conv.BuiltInRoles[0],
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
