@@ -43,15 +43,13 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to create all collections", func(t *testing.T) {
 		name := "create-all-collections"
-		err := helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String("create_collections"), Collection: String("*")},
 			},
 		})
-		require.Nil(t, err)
-		role, err := helper.GetRoleByName(t, existingKey, name)
-		require.Nil(t, err)
+		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -61,16 +59,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to create all tenants in a collection", func(t *testing.T) {
 		name := "create-all-tenants-in-foo"
-		err := helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String("create_collections"), Collection: String("foo")},
 				{Action: String("create_tenants"), Collection: String("*")},
 			},
 		})
-		require.Nil(t, err)
-		role, err := helper.GetRoleByName(t, existingKey, name)
-		require.Nil(t, err)
+		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
@@ -82,15 +78,13 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage all roles", func(t *testing.T) {
 		name := "manage-all-roles"
-		err := helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String("manage_roles"), Role: String("*")},
 			},
 		})
-		require.Nil(t, err)
-		role, err := helper.GetRoleByName(t, existingKey, name)
-		require.Nil(t, err)
+		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -100,15 +94,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage one role", func(t *testing.T) {
 		name := "manage-one-role"
-		err := helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String("manage_roles"), Role: String("foo")},
 			},
 		})
 		require.Nil(t, err)
-		role, err := helper.GetRoleByName(t, existingKey, name)
-		require.Nil(t, err)
+		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -118,16 +111,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to read two roles", func(t *testing.T) {
 		name := "read-one-role"
-		err := helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String("read_roles"), Role: String("foo")},
 				{Action: String("read_roles"), Role: String("bar")},
 			},
 		})
-		require.Nil(t, err)
-		role, err := helper.GetRoleByName(t, existingKey, name)
-		require.Nil(t, err)
+		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
