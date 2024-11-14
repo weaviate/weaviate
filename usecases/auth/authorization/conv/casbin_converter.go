@@ -12,20 +12,10 @@
 package conv
 
 import (
+	"slices"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-)
-
-const (
-	RolesD            = "roles"
-	Cluster           = "cluster"
-	Collections       = "collections"
-	Tenants           = "tenants"
-	ObjectsCollection = "objects_collection"
-	ObjectsTenant     = "objects_tenant"
-
-	// rolePrefix = "r_"
-	// userPrefix = "u_"
 )
 
 func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, error) {
@@ -71,7 +61,7 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 	for _, p := range casbinPolicies {
 		for _, policyParts := range p {
 			name := policyParts[0]
-			if name == "admin" || name == "editor" || name == "viewer" {
+			if slices.Contains(authorization.BuiltInRoles, name) {
 				perms := authorization.BuiltInPermissions[name]
 				for _, p := range perms {
 					perm, err := policy(p)
