@@ -110,10 +110,14 @@ type Policy struct {
 
 func newPolicy(policy []string) *Policy {
 	return &Policy{
-		resource: policy[1],
+		resource: fromCasbinResource(policy[1]),
 		verb:     policy[2],
 		domain:   policy[3],
 	}
+}
+
+func fromCasbinResource(resource string) string {
+	return strings.ReplaceAll(resource, ".*", "*")
 }
 
 func pRoles(role string) string {
@@ -157,7 +161,6 @@ func pObjects(collection, shard, object string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	collection = strings.ReplaceAll(collection, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
 	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", collection, shard, object)
 }
