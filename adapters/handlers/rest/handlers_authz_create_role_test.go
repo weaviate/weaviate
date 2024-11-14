@@ -17,10 +17,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -40,8 +41,11 @@ func TestCreateRoleSuccess(t *testing.T) {
 			},
 		},
 	}
+	policies, err := conv.RolesToPolicies(params.Body)
+	require.Nil(t, err)
+
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles()[0]).Return(nil)
-	controller.On("UpsertRolesPermissions", mock.Anything).Return(nil)
+	controller.On("UpsertRolesPermissions", policies).Return(nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -99,9 +103,12 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
+			policies, err := conv.RolesToPolicies(tt.params.Body)
+			require.Nil(t, err)
+
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
 			if tt.expectedError == "" {
-				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+				controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
 			}
 
 			h := &authZHandlers{
@@ -170,9 +177,12 @@ func TestCreateRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
+			policies, err := conv.RolesToPolicies(tt.params.Body)
+			require.Nil(t, err)
+
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
 			if tt.expectedError == "" {
-				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+				controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
 			}
 
 			h := &authZHandlers{
@@ -226,8 +236,11 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
+			policies, err := conv.RolesToPolicies(tt.params.Body)
+			require.Nil(t, err)
+
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
-			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+			controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
