@@ -57,11 +57,11 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	}
 
 	if *params.Body.Name == "" {
-		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
+		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
 	if len(params.Body.Permissions) == 0 {
-		return authz.NewCreateRoleUnprocessableEntity().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
 	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
