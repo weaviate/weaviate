@@ -41,6 +41,12 @@ var Actions = map[string]string{
 	DELETE: "delete",
 }
 
+type Policy struct {
+	Resource string
+	Verb     string
+	Domain   string
+}
+
 // Cluster returns a string representing the cluster authorization scope.
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.

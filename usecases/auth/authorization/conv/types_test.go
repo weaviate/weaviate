@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rbac
+package conv
 
 import (
 	"fmt"
@@ -79,15 +79,15 @@ func Test_policy(t *testing.T) {
 	tests := []struct {
 		name       string
 		permission *models.Permission
-		policy     *Policy
+		policy     *authorization.Policy
 		tests      []innerTest
 	}{
 		{
 			name:       "all roles",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: pRoles("*"),
-				domain:   "roles",
+			policy: &authorization.Policy{
+				Resource: CasbinRoles("*"),
+				Domain:   "roles",
 			},
 			tests: rolesTests,
 		},
@@ -96,27 +96,27 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Role: String("admin"),
 			},
-			policy: &Policy{
-				resource: pRoles("admin"),
-				domain:   "roles",
+			policy: &authorization.Policy{
+				Resource: CasbinRoles("admin"),
+				Domain:   "roles",
 			},
 			tests: rolesTests,
 		},
 		{
 			name:       "manage cluster",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: "cluster/*",
-				domain:   "cluster",
+			policy: &authorization.Policy{
+				Resource: "cluster/*",
+				Domain:   "cluster",
 			},
 			tests: clusterTests,
 		},
 		{
 			name:       "all collections",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: pCollections("*"),
-				domain:   "collections",
+			policy: &authorization.Policy{
+				Resource: CasbinCollections("*"),
+				Domain:   "collections",
 			},
 			tests: collectionsTests,
 		},
@@ -125,18 +125,18 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Collection: foo,
 			},
-			policy: &Policy{
-				resource: pCollections("foo"),
-				domain:   "collections",
+			policy: &authorization.Policy{
+				Resource: CasbinCollections("foo"),
+				Domain:   "collections",
 			},
 			tests: collectionsTests,
 		},
 		{
 			name:       "all tenants in all collections",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: pShards("*", "*"),
-				domain:   "tenants",
+			policy: &authorization.Policy{
+				Resource: CasbinShards("*", "*"),
+				Domain:   "tenants",
 			},
 			tests: tenantsTests,
 		},
@@ -145,9 +145,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Collection: foo,
 			},
-			policy: &Policy{
-				resource: pShards("foo", "*"),
-				domain:   "tenants",
+			policy: &authorization.Policy{
+				Resource: CasbinShards("foo", "*"),
+				Domain:   "tenants",
 			},
 			tests: tenantsTests,
 		},
@@ -156,9 +156,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Tenant: bar,
 			},
-			policy: &Policy{
-				resource: pShards("*", "bar"),
-				domain:   "tenants",
+			policy: &authorization.Policy{
+				Resource: CasbinShards("*", "bar"),
+				Domain:   "tenants",
 			},
 			tests: tenantsTests,
 		},
@@ -168,18 +168,18 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 				Tenant:     bar,
 			},
-			policy: &Policy{
-				resource: pShards("foo", "bar"),
-				domain:   "tenants",
+			policy: &authorization.Policy{
+				Resource: CasbinShards("foo", "bar"),
+				Domain:   "tenants",
 			},
 			tests: tenantsTests,
 		},
 		{
 			name:       "all objects in all collections ST",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: pObjects("*", "*", "*"),
-				domain:   "objects_collection",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("*", "*", "*"),
+				Domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
 		},
@@ -188,9 +188,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Collection: foo,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "*", "*"),
-				domain:   "objects_collection",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "*", "*"),
+				Domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
 		},
@@ -199,9 +199,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Object: baz,
 			},
-			policy: &Policy{
-				resource: pObjects("*", "*", "baz"),
-				domain:   "objects_collection",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("*", "*", "baz"),
+				Domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
 		},
@@ -211,9 +211,9 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 				Object:     baz,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "*", "baz"),
-				domain:   "objects_collection",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "*", "baz"),
+				Domain:   "objects_collection",
 			},
 			tests: objectsCollectionTests,
 		},
@@ -222,9 +222,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Collection: foo,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "*", "*"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "*", "*"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -233,9 +233,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Tenant: bar,
 			},
-			policy: &Policy{
-				resource: pObjects("*", "bar", "*"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("*", "bar", "*"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -245,9 +245,9 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 				Tenant:     bar,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "bar", "*"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "bar", "*"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -256,9 +256,9 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{
 				Object: baz,
 			},
-			policy: &Policy{
-				resource: pObjects("*", "*", "baz"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("*", "*", "baz"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -268,9 +268,9 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 				Object:     baz,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "*", "baz"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "*", "baz"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -280,9 +280,9 @@ func Test_policy(t *testing.T) {
 				Tenant: bar,
 				Object: baz,
 			},
-			policy: &Policy{
-				resource: pObjects("*", "bar", "baz"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("*", "bar", "baz"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -293,9 +293,9 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 				Object:     baz,
 			},
-			policy: &Policy{
-				resource: pObjects("foo", "bar", "baz"),
-				domain:   "objects_tenant",
+			policy: &authorization.Policy{
+				Resource: CasbinObjects("foo", "bar", "baz"),
+				Domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
 		},
@@ -304,7 +304,7 @@ func Test_policy(t *testing.T) {
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = String(ttt.permissionAction)
-				tt.policy.verb = ttt.policyVerb
+				tt.policy.Verb = ttt.policyVerb
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
 				require.Equal(t, tt.policy, policy)
@@ -538,7 +538,7 @@ func Test_pRoles(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf("role: %s", tt.role)
 		t.Run(name, func(t *testing.T) {
-			p := pRoles(tt.role)
+			p := CasbinRoles(tt.role)
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -556,13 +556,13 @@ func Test_pCollections(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
 		t.Run(name, func(t *testing.T) {
-			p := pCollections(tt.collection)
+			p := CasbinCollections(tt.collection)
 			require.Equal(t, tt.expected, p)
 		})
 	}
 }
 
-func Test_pShards(t *testing.T) {
+func Test_CasbinShards(t *testing.T) {
 	tests := []struct {
 		collection string
 		shard      string
@@ -579,7 +579,7 @@ func Test_pShards(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
 		t.Run(name, func(t *testing.T) {
-			p := pShards(tt.collection, tt.shard)
+			p := CasbinShards(tt.collection, tt.shard)
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -611,7 +611,7 @@ func Test_pObjects(t *testing.T) {
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
 		t.Run(name, func(t *testing.T) {
-			p := pObjects(tt.collection, tt.shard, tt.object)
+			p := CasbinObjects(tt.collection, tt.shard, tt.object)
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -625,7 +625,7 @@ func Test_fromCasbinResource(t *testing.T) {
 		{resource: "collections/.*/shards/.*/objects/.*", expected: "collections/*/shards/*/objects/*"},
 	}
 	for _, tt := range tests {
-		name := fmt.Sprintf("resource: %s", tt.resource)
+		name := fmt.Sprintf("Resource: %s", tt.resource)
 		t.Run(name, func(t *testing.T) {
 			p := fromCasbinResource(tt.resource)
 			require.Equal(t, tt.expected, p)

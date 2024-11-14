@@ -12,14 +12,14 @@
 package cluster
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (s *Raft) GetRoles(names ...string) ([]*models.Role, error) {
+func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	return s.store.authZManager.GetRoles(names...)
 }
 
-func (s *Raft) GetRolesForUser(user string) ([]*models.Role, error) {
+func (s *Raft) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
 	return s.store.authZManager.GetRolesForUser(user)
 }
 

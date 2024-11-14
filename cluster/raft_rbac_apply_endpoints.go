@@ -18,10 +18,10 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (s *Raft) UpsertRolesPermissions(roles ...*models.Role) error {
+func (s *Raft) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	if len(roles) == 0 {
 		return fmt.Errorf("no roles to create: %w", schema.ErrBadRequest)
 	}
@@ -60,7 +60,7 @@ func (s *Raft) DeleteRoles(names ...string) error {
 	return nil
 }
 
-func (s *Raft) RemovePermissions(role string, permissions []*models.Permission) error {
+func (s *Raft) RemovePermissions(role string, permissions []*authorization.Policy) error {
 	if role == "" {
 		return fmt.Errorf("no roles to remove permissions from: %w", schema.ErrBadRequest)
 	}
