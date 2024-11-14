@@ -18,7 +18,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -33,11 +32,11 @@ func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Mana
 	return &Manager{authZ: authZ, logger: logger}
 }
 
-func (m *Manager) GetRoles(names ...string) ([]*models.Role, error) {
+func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	return m.authZ.GetRoles(names...)
 }
 
-func (m *Manager) GetRolesForUser(user string) ([]*models.Role, error) {
+func (m *Manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
 	return m.authZ.GetRolesForUser(user)
 }
 
@@ -51,7 +50,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.authZ.UpsertRolesPermissions(req.Roles...)
+	return m.authZ.UpsertRolesPermissions(req.Roles)
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
