@@ -159,7 +159,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 	}
 
 	if params.ID == "" {
-		return authz.NewGetRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can't be empty")))
+		return authz.NewGetRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
 	}
 
 	roles, err := h.controller.GetRoles(params.ID)
@@ -187,6 +187,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	// TODO validate and audit log
 	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles()...); err != nil {
 		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if params.ID == "" {
+		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
 	}
 
 	if slices.Contains(rbac.BuiltInRoles, params.ID) {
