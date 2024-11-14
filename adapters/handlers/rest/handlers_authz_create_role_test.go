@@ -54,7 +54,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
-func TestCreateRoleUnprocessableEntity(t *testing.T) {
+func TestCreateRoleBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
 		params        authz.CreateRoleParams
@@ -110,7 +110,7 @@ func TestCreateRoleUnprocessableEntity(t *testing.T) {
 				logger:     logger,
 			}
 			res := h.createRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.CreateRoleUnprocessableEntity)
+			parsed, ok := res.(*authz.CreateRoleBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
