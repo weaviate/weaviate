@@ -122,7 +122,6 @@ func (m *manager) RemovePermissions(role string, permissions []*models.Permissio
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {
-	// TODO: block deleting built in roles
 	for _, role := range roles {
 		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
 		if err != nil {
