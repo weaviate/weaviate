@@ -68,6 +68,14 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
+	roles, err := h.controller.GetRoles(*params.Body.Name)
+	if err != nil {
+		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+	if len(roles) > 0 {
+		return authz.NewCreateRoleConflict().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role with name %s already exists", *params.Body.Name)))
+	}
+
 	if err := h.controller.UpsertRolesPermissions(params.Body); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
