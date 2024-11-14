@@ -69,8 +69,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 		}
 	}
 
-	rolesToPolicies, _ := conv.CasbinPolicies(casbinPolicies...)
-	return rolesToPolicies, nil
+	return conv.CasbinPolicies(casbinPolicies...)
 }
 
 func (m *manager) RemovePermissions(role string, permissions []*authorization.Policy) error {
