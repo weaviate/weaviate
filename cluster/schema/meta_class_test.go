@@ -88,26 +88,6 @@ const (
 	tenantName = "T0"
 )
 
-func addAndFreezeTenant(m *metaClass) error {
-	if err := addTenant(m, models.TenantActivityStatusACTIVE); err != nil {
-		return err
-	}
-	if err := freezeTenant(m); err != nil {
-		return err
-	}
-	return nil
-}
-
-func addAndUnfreezeTenant(m *metaClass) error {
-	if err := addTenant(m, models.TenantActivityStatusFROZEN); err != nil {
-		return err
-	}
-	if err := unfreezeTenant(m); err != nil {
-		return err
-	}
-	return nil
-}
-
 func addTenant(m *metaClass, tenantStatus string) error {
 	err := m.AddTenants(
 		nodeID,
