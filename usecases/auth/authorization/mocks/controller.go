@@ -231,7 +231,8 @@ func (_m *Controller) UpsertRolesPermissions(roles ...*models.Role) error {
 func NewController(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *Controller {
+},
+) *Controller {
 	mock := &Controller{}
 	mock.Mock.Test(t)
 
