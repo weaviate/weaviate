@@ -531,8 +531,8 @@ func Test_pRoles(t *testing.T) {
 		role     string
 		expected string
 	}{
-		{role: "", expected: "roles/*"},
-		{role: "*", expected: "roles/*"},
+		{role: "", expected: "roles/.*"},
+		{role: "*", expected: "roles/.*"},
 		{role: "foo", expected: "roles/foo"},
 	}
 	for _, tt := range tests {
@@ -549,9 +549,9 @@ func Test_pCollections(t *testing.T) {
 		collection string
 		expected   string
 	}{
-		{collection: "", expected: "collections/*"},
-		{collection: "*", expected: "collections/*"},
-		{collection: "foo", expected: "collections/foo"},
+		{collection: "", expected: "collections/.*/*"},
+		{collection: "*", expected: "collections/.*/*"},
+		{collection: "foo", expected: "collections/foo/*"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
@@ -568,13 +568,13 @@ func Test_pShards(t *testing.T) {
 		shard      string
 		expected   string
 	}{
-		{collection: "", shard: "", expected: "collections/*/shards/*"},
-		{collection: "*", shard: "*", expected: "collections/*/shards/*"},
-		{collection: "foo", shard: "", expected: "collections/foo/shards/*"},
-		{collection: "foo", shard: "*", expected: "collections/foo/shards/*"},
-		{collection: "", shard: "bar", expected: "collections/*/shards/bar"},
-		{collection: "*", shard: "bar", expected: "collections/*/shards/bar"},
-		{collection: "foo", shard: "bar", expected: "collections/foo/shards/bar"},
+		{collection: "", shard: "", expected: "collections/.*/shards/.*/*"},
+		{collection: "*", shard: "*", expected: "collections/.*/shards/.*/*"},
+		{collection: "foo", shard: "", expected: "collections/foo/shards/.*/*"},
+		{collection: "foo", shard: "*", expected: "collections/foo/shards/.*/*"},
+		{collection: "", shard: "bar", expected: "collections/.*/shards/bar/*"},
+		{collection: "*", shard: "bar", expected: "collections/.*/shards/bar/*"},
+		{collection: "foo", shard: "bar", expected: "collections/foo/shards/bar/*"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
@@ -592,26 +592,42 @@ func Test_pObjects(t *testing.T) {
 		object     string
 		expected   string
 	}{
-		{collection: "", shard: "", object: "", expected: "collections/*/shards/*/objects/*"},
-		{collection: "*", shard: "*", object: "*", expected: "collections/*/shards/*/objects/*"},
-		{collection: "foo", shard: "", object: "", expected: "collections/foo/shards/*/objects/*"},
-		{collection: "foo", shard: "*", object: "*", expected: "collections/foo/shards/*/objects/*"},
-		{collection: "", shard: "bar", object: "", expected: "collections/*/shards/bar/objects/*"},
-		{collection: "*", shard: "bar", object: "*", expected: "collections/*/shards/bar/objects/*"},
-		{collection: "", shard: "", object: "baz", expected: "collections/*/shards/*/objects/baz"},
-		{collection: "*", shard: "*", object: "baz", expected: "collections/*/shards/*/objects/baz"},
-		{collection: "foo", shard: "bar", object: "", expected: "collections/foo/shards/bar/objects/*"},
-		{collection: "foo", shard: "bar", object: "*", expected: "collections/foo/shards/bar/objects/*"},
-		{collection: "foo", shard: "", object: "baz", expected: "collections/foo/shards/*/objects/baz"},
-		{collection: "foo", shard: "*", object: "baz", expected: "collections/foo/shards/*/objects/baz"},
-		{collection: "", shard: "bar", object: "baz", expected: "collections/*/shards/bar/objects/baz"},
-		{collection: "*", shard: "bar", object: "baz", expected: "collections/*/shards/bar/objects/baz"},
+		{collection: "", shard: "", object: "", expected: "collections/.*/shards/.*/objects/.*"},
+		{collection: "*", shard: "*", object: "*", expected: "collections/.*/shards/.*/objects/.*"},
+		{collection: "foo", shard: "", object: "", expected: "collections/foo/shards/.*/objects/.*"},
+		{collection: "foo", shard: "*", object: "*", expected: "collections/foo/shards/.*/objects/.*"},
+		{collection: "", shard: "bar", object: "", expected: "collections/.*/shards/bar/objects/.*"},
+		{collection: "*", shard: "bar", object: "*", expected: "collections/.*/shards/bar/objects/.*"},
+		{collection: "", shard: "", object: "baz", expected: "collections/.*/shards/.*/objects/baz"},
+		{collection: "*", shard: "*", object: "baz", expected: "collections/.*/shards/.*/objects/baz"},
+		{collection: "foo", shard: "bar", object: "", expected: "collections/foo/shards/bar/objects/.*"},
+		{collection: "foo", shard: "bar", object: "*", expected: "collections/foo/shards/bar/objects/.*"},
+		{collection: "foo", shard: "", object: "baz", expected: "collections/foo/shards/.*/objects/baz"},
+		{collection: "foo", shard: "*", object: "baz", expected: "collections/foo/shards/.*/objects/baz"},
+		{collection: "", shard: "bar", object: "baz", expected: "collections/.*/shards/bar/objects/baz"},
+		{collection: "*", shard: "bar", object: "baz", expected: "collections/.*/shards/bar/objects/baz"},
 		{collection: "foo", shard: "bar", object: "baz", expected: "collections/foo/shards/bar/objects/baz"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
 		t.Run(name, func(t *testing.T) {
 			p := pObjects(tt.collection, tt.shard, tt.object)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_fromCasbinResource(t *testing.T) {
+	tests := []struct {
+		resource string
+		expected string
+	}{
+		{resource: "collections/.*/shards/.*/objects/.*", expected: "collections/*/shards/*/objects/*"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("resource: %s", tt.resource)
+		t.Run(name, func(t *testing.T) {
+			p := fromCasbinResource(tt.resource)
 			require.Equal(t, tt.expected, p)
 		})
 	}

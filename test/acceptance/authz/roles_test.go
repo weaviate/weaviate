@@ -47,22 +47,19 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+		roles, err := helper.GetRoles(t, existingKey)
 		require.Nil(t, err)
-		require.Equal(t, 3, len(res.Payload))
+		require.Equal(t, 3, len(roles))
 	})
 
 	t.Run("create builtin role", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.CreateRole(
-			authz.NewCreateRoleParams().WithBody(&models.Role{
-				Name: &adminRole,
-				Permissions: []*models.Permission{{
-					Action:     String("create_collections"),
-					Collection: String("*"),
-				}},
-			}),
-			clientAuth,
-		)
+		err = helper.CreateRole(t, existingKey, &models.Role{
+			Name: &adminRole,
+			Permissions: []*models.Permission{{
+				Action:     String("create_collections"),
+				Collection: String("*"),
+			}},
+		})
 		require.NotNil(t, err)
 		err, forbidden := err.(*authz.CreateRoleForbidden)
 		require.True(t, forbidden)
@@ -70,10 +67,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	})
 
 	t.Run("delete builtin role", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.DeleteRole(
-			authz.NewDeleteRoleParams().WithID(adminRole),
-			clientAuth,
-		)
+		err = helper.DeleteRole(t, existingKey, adminRole)
 		require.NotNil(t, err)
 		err, forbidden := err.(*authz.DeleteRoleForbidden)
 		require.True(t, forbidden)
@@ -142,38 +136,36 @@ func TestAuthzRolesJourney(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("get all roles before create", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+		roles, err := helper.GetRoles(t, existingKey)
 		require.Nil(t, err)
-		require.Equal(t, 3, len(res.Payload))
-		// require.Equal(t, existingRole, *res.Payload[0].Name)
+		require.Equal(t, 3, len(roles))
 	})
 
 	t.Run("create role", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.CreateRole(
-			authz.NewCreateRoleParams().WithBody(&models.Role{
+		err = helper.CreateRole(t, existingKey,
+			&models.Role{
 				Name: &testRole,
 				Permissions: []*models.Permission{{
 					Action:     &testAction1,
 					Collection: &all,
 				}},
-			}),
-			clientAuth,
-		)
+			})
 		require.Nil(t, err)
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+		roles, err := helper.GetRoles(t, existingKey)
 		require.Nil(t, err)
-		require.Equal(t, 4, len(res.Payload))
+		require.Equal(t, 4, len(roles))
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+		role, err := helper.GetRoleByName(t, existingKey, testRole)
 		require.Nil(t, err)
-		require.Equal(t, testRole, *res.Payload.Name)
-		require.Equal(t, 1, len(res.Payload.Permissions))
-		require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
+		require.NotNil(t, role)
+		require.Equal(t, testRole, *role.Name)
+		require.Equal(t, 1, len(role.Permissions))
+		require.Equal(t, testAction1, *role.Permissions[0].Action)
 	})
 
 	t.Run("add permission to role", func(t *testing.T) {
@@ -202,11 +194,12 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get role by name after removing permission", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+		role, err := helper.GetRoleByName(t, existingKey, testRole)
 		require.Nil(t, err)
-		require.Equal(t, testRole, *res.Payload.Name)
-		require.Equal(t, 1, len(res.Payload.Permissions))
-		require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
+		require.NotNil(t, role)
+		require.Equal(t, testRole, *role.Name)
+		require.Equal(t, 1, len(role.Permissions))
+		require.Equal(t, testAction1, *role.Permissions[0].Action)
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
@@ -242,7 +235,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(testRole), clientAuth)
+		err = helper.DeleteRole(t, existingKey, testRole)
 		require.Nil(t, err)
 	})
 
@@ -254,13 +247,13 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+		roles, err := helper.GetRoles(t, existingKey)
 		require.Nil(t, err)
-		require.Equal(t, 3, len(res.Payload))
+		require.Equal(t, 3, len(roles))
 	})
 
 	t.Run("get non-existent role by name", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+		err := helper.GetRoleByNameError(t, existingKey, testRole)
 		require.NotNil(t, err)
 		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})
@@ -319,9 +312,9 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 
 	t.Run("add role while 1 node is down", func(t *testing.T) {
 		t.Run("get all roles before create", func(t *testing.T) {
-			res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+			roles, err := helper.GetRoles(t, existingKey)
 			require.Nil(t, err)
-			require.Equal(t, 3, len(res.Payload))
+			require.Equal(t, 3, len(roles))
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -329,16 +322,13 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 
 		t.Run("create role", func(t *testing.T) {
-			_, err = helper.Client(t).Authz.CreateRole(
-				authz.NewCreateRoleParams().WithBody(&models.Role{
-					Name: &testRole,
-					Permissions: []*models.Permission{{
-						Action:     &testAction1,
-						Collection: &all,
-					}},
-				}),
-				clientAuth,
-			)
+			err = helper.CreateRole(t, existingKey, &models.Role{
+				Name: &testRole,
+				Permissions: []*models.Permission{{
+					Action:     &testAction1,
+					Collection: &all,
+				}},
+			})
 			require.Nil(t, err)
 		})
 
@@ -349,17 +339,18 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
 
 		t.Run("get all roles after create", func(t *testing.T) {
-			res, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), clientAuth)
+			roles, err := helper.GetRoles(t, existingKey)
 			require.Nil(t, err)
-			require.Equal(t, 4, len(res.Payload))
+			require.Equal(t, 4, len(roles))
 		})
 
 		t.Run("get role by name", func(t *testing.T) {
-			res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+			role, err := helper.GetRoleByName(t, existingKey, testRole)
 			require.Nil(t, err)
-			require.Equal(t, testRole, *res.Payload.Name)
-			require.Equal(t, 1, len(res.Payload.Permissions))
-			require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
+			require.NotNil(t, role)
+			require.Equal(t, testRole, *role.Name)
+			require.Equal(t, 1, len(role.Permissions))
+			require.Equal(t, testAction1, *role.Permissions[0].Action)
 		})
 
 		t.Run("add permission to role Node3", func(t *testing.T) {
@@ -375,12 +366,13 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		t.Run("get role by name after adding permission Node1", func(t *testing.T) {
 			// EventuallyWithT to handle EC in RAFT reads
 			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+				role, err := helper.GetRoleByName(t, existingKey, testRole)
 				require.Nil(t, err)
-				require.Equal(t, testRole, *res.Payload.Name)
-				require.Equal(t, 2, len(res.Payload.Permissions))
-				require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
-				require.Equal(t, testAction2, *res.Payload.Permissions[1].Action)
+				require.NotNil(t, role)
+				require.Equal(t, testRole, *role.Name)
+				require.Equal(t, 2, len(role.Permissions))
+				require.Equal(t, testAction1, *role.Permissions[0].Action)
+				require.Equal(t, testAction2, *role.Permissions[1].Action)
 			}, 3*time.Second, 500*time.Millisecond)
 		})
 	})
