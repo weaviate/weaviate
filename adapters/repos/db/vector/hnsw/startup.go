@@ -173,6 +173,21 @@ func (h *hnsw) restoreFromDisk() error {
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
+		} else if state.CompressionLASQData != nil {
+			data := state.CompressionLASQData
+			h.dims = int32(data.Dimensions)
+			h.compressor, err = compressionhelpers.RestoreHNSWLASQCompressor(
+				h.distancerProvider,
+				1e12,
+				h.logger,
+				data.Dimensions,
+				data.Means,
+				h.store,
+				h.allocChecker,
+			)
+			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
 		} else {
 			return errors.New("unsupported type while loading compression data")
 		}

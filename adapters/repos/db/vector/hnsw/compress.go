@@ -23,14 +23,14 @@ import (
 )
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
-	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.LASQ.Enabled {
 		return nil
 	}
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
-	if cfg.PQ.Enabled || cfg.SQ.Enabled {
+	if cfg.PQ.Enabled || cfg.SQ.Enabled || cfg.LASQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
@@ -92,6 +92,16 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+		} else if cfg.LASQ.Enabled {
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWLASQCompressor(
+				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
+			if err != nil {
+				h.lasqConfig.Enabled = false
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
+			h.doNotRescore = true
 		}
 		h.compressor.PersistCompression(h.commitLog)
 	} else {

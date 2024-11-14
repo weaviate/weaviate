@@ -30,16 +30,17 @@ type Deserializer struct {
 }
 
 type DeserializationResult struct {
-	Nodes             []*vertex
-	NodesDeleted      map[uint64]struct{}
-	Entrypoint        uint64
-	Level             uint16
-	Tombstones        map[uint64]struct{}
-	TombstonesDeleted map[uint64]struct{}
-	EntrypointChanged bool
-	CompressionPQData *compressionhelpers.PQData
-	CompressionSQData *compressionhelpers.SQData
-	Compressed        bool
+	Nodes               []*vertex
+	NodesDeleted        map[uint64]struct{}
+	Entrypoint          uint64
+	Level               uint16
+	Tombstones          map[uint64]struct{}
+	TombstonesDeleted   map[uint64]struct{}
+	EntrypointChanged   bool
+	CompressionPQData   *compressionhelpers.PQData
+	CompressionSQData   *compressionhelpers.SQData
+	CompressionLASQData *compressionhelpers.LASQData
+	Compressed          bool
 
 	// If there is no entry for the links at a level to be replaced, we must
 	// assume that all links were appended and prior state must exist
@@ -150,6 +151,8 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
+		case AddLASQ:
+			readThisRound, err = d.ReadLASQ(fd, out)
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -620,6 +623,27 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	res.Compressed = true
 
 	return nil
+}
+
+func (d *Deserializer) ReadLASQ(r io.Reader, res *DeserializationResult) (int, error) {
+	dims, err := d.readUint16(r)
+	if err != nil {
+		return 0, err
+	}
+	means := make([]float32, dims)
+	for i := 0; i < int(dims); i++ {
+		means[i], err = d.readFloat32(r)
+		if err != nil {
+			return 2 + i*4, err
+		}
+	}
+	res.CompressionLASQData = &compressionhelpers.LASQData{
+		Dimensions: dims,
+		Means:      means,
+	}
+	res.Compressed = true
+
+	return 2 + int(dims)*4, nil
 }
 
 func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {
