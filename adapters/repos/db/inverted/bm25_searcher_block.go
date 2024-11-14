@@ -42,7 +42,6 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 func (b *BM25Searcher) wandBlock(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	params.AdditionalExplanations = false
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
 	var stopWordDetector *stopwords.Detector
@@ -116,8 +115,8 @@ func (b *BM25Searcher) wandBlock(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// 100 is a reasonable expected capacity for the total number of terms to query.
-	allResults := make([][][]terms.TermInterface, len(params.Properties))
+	allResults := make([][][]terms.TermInterface, 0, len(params.Properties))
+	termCounts := make([][]string, 0, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -129,12 +128,14 @@ func (b *BM25Searcher) wandBlock(
 				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
-			for i, propName := range propNames {
+			for _, propName := range propNames {
+
 				results, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
 					return nil, nil, err
 				}
-				allResults[i] = append(allResults[i], results...)
+				allResults = append(allResults, results)
+				termCounts = append(termCounts, queryTerms)
 			}
 
 		}
@@ -158,20 +159,26 @@ func (b *BM25Searcher) wandBlock(
 
 	allObjects := make([][][]*storobj.Object, len(allResults))
 	allScores := make([][][]float32, len(allResults))
-
 	for i, result1 := range allResults {
 		allObjects[i] = make([][]*storobj.Object, len(result1))
 		allScores[i] = make([][]float32, len(result1))
-		for j, result2 := range result1 {
+		for j := range result1 {
+
 			i := i
 			j := j
-			eg.Go(func() (err error) {
-				combinedTerms := &terms.Terms{
-					T: result2,
-				}
 
+			if len(allResults[i][j]) == 0 {
+				continue
+			}
+
+			combinedTerms := &terms.Terms{
+				T:     allResults[i][j],
+				Count: len(termCounts[i]),
+			}
+
+			eg.Go(func() (err error) {
 				topKHeap := b.doBlockMaxWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
-				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
+				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
 
 				allObjects[i][j] = objects
 				allScores[i][j] = scores
@@ -254,6 +261,7 @@ func (b *BM25Searcher) combineResultsForMultiProp(allObjects []*storobj.Object, 
 			combinedObjects[id] = obj
 			combinedScores[id] = allScores[i]
 		} else {
+			combinedObjects[id] = combineObjects(combinedObjects[id], obj)
 			combinedScores[id] = aggregateFn(combinedScores[id], allScores[i])
 		}
 	}
@@ -298,4 +306,11 @@ func (s *scoreSorter) Less(i, j int) bool {
 func (s *scoreSorter) Swap(i, j int) {
 	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
+}
+
+func combineObjects(a, b *storobj.Object) *storobj.Object {
+	for k, v := range b.Object.Additional {
+		a.Object.Additional[k] = v
+	}
+	return a
 }

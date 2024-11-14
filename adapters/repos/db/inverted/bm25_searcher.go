@@ -190,8 +190,8 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// 100 is a reasonable expected capacity for the total number of terms to query.
-	allRequests := make([]termListRequest, 0, 100)
+	allRequests := make([]termListRequest, 0, 1000)
+	allQueryTerms := make([]string, 0, 1000)
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -211,6 +211,7 @@ func (b *BM25Searcher) wand(
 					propertyNames:      propNames,
 					propertyBoosts:     propertyBoosts,
 				})
+				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
 		}
 	}
@@ -299,7 +300,7 @@ func (b *BM25Searcher) wand(
 		metrics = lsmkv.BlockMetrics{}
 	}
 
-	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allRequests, additional)
+	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -330,7 +331,7 @@ WordLoop:
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
-	allRequests []termListRequest, additional additional.Properties,
+	allRequests []string, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
@@ -376,7 +377,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 				if result == nil {
 					continue
 				}
-				queryTerm := allRequests[j].term
+				queryTerm := allRequests[j]
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
 			}
@@ -389,6 +390,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 func (b *BM25Searcher) doBlockMaxWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	// averagePropLength = 40
+	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMin[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
 
@@ -406,18 +408,25 @@ func (b *BM25Searcher) doBlockMaxWand(limit int, results *terms.Terms, averagePr
 		upperBound := results.GetBlockUpperBound(pivotPoint, pivotID)
 
 		if topKHeap.ShouldEnqueue(upperBound, limit) {
+			if additionalExplanations {
+				docInfos = make([]*terms.DocPointerWithScore, results.Count)
+			}
 			if pivotID == results.T[0].IdPointer() {
 				score := float32(0.0)
 				for _, term := range results.T {
 					if term.IdPointer() != pivotID {
 						break
 					}
-					_, s, _ := term.Score(averagePropLength, b.config)
+					_, s, d := term.Score(averagePropLength, b.config, additionalExplanations)
 					score += float32(s)
 					upperBound -= term.CurrentBlockImpact() - float32(s)
-					if !topKHeap.ShouldEnqueue(upperBound, limit) {
-						break
+
+					if additionalExplanations {
+						docInfos[term.QueryTermIndex()] = d
 					}
+					//if !topKHeap.ShouldEnqueue(upperBound, limit) {
+					//	break
+					//}
 				}
 				for _, term := range results.T {
 					if term.IdPointer() != pivotID {
@@ -426,7 +435,7 @@ func (b *BM25Searcher) doBlockMaxWand(limit int, results *terms.Terms, averagePr
 					term.Advance()
 				}
 
-				topKHeap.InsertAndPop(pivotID, float64(score), limit, &worstDist, nil)
+				topKHeap.InsertAndPop(pivotID, float64(score), limit, &worstDist, docInfos)
 
 				results.SortFull()
 			} else {
