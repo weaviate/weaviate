@@ -61,7 +61,6 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
 	permissions := []*models.Permission{}
 	for idx := range policies {
-
 		permissions = append(permissions, permission([]string{policies[idx].Resource, policies[idx].Verb, policies[idx].Domain}))
 	}
 	return permissions, nil
@@ -91,5 +90,4 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 		}
 	}
 	return rolesPermissions, nil
-
 }
