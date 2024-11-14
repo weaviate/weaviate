@@ -525,3 +525,82 @@ func Test_permission(t *testing.T) {
 		}
 	}
 }
+
+func Test_pRoles(t *testing.T) {
+	tests := []struct {
+		role     string
+		expected string
+	}{
+		{role: "", expected: "roles/*"},
+		{role: "foo", expected: "roles/foo"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("role: %s", tt.role)
+		t.Run(name, func(t *testing.T) {
+			p := pRoles(tt.role)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_pCollections(t *testing.T) {
+	tests := []struct {
+		collection string
+		expected   string
+	}{
+		{collection: "", expected: "collections/*"},
+		{collection: "foo", expected: "collections/foo"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("collection: %s", tt.collection)
+		t.Run(name, func(t *testing.T) {
+			p := pCollections(tt.collection)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_pShards(t *testing.T) {
+	tests := []struct {
+		collection string
+		shard      string
+		expected   string
+	}{
+		{collection: "", shard: "", expected: "collections/*/shards/*"},
+		{collection: "foo", shard: "", expected: "collections/foo/shards/*"},
+		{collection: "", shard: "bar", expected: "collections/*/shards/bar"},
+		{collection: "foo", shard: "bar", expected: "collections/foo/shards/bar"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
+		t.Run(name, func(t *testing.T) {
+			p := pShards(tt.collection, tt.shard)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_pObjects(t *testing.T) {
+	tests := []struct {
+		collection string
+		shard      string
+		object     string
+		expected   string
+	}{
+		{collection: "", shard: "", object: "", expected: "collections/*/shards/*/objects/*"},
+		{collection: "foo", shard: "", object: "", expected: "collections/foo/shards/*/objects/*"},
+		{collection: "", shard: "bar", object: "", expected: "collections/*/shards/bar/objects/*"},
+		{collection: "", shard: "", object: "baz", expected: "collections/*/shards/*/objects/baz"},
+		{collection: "foo", shard: "bar", object: "", expected: "collections/foo/shards/bar/objects/*"},
+		{collection: "foo", shard: "", object: "baz", expected: "collections/foo/shards/*/objects/baz"},
+		{collection: "", shard: "bar", object: "baz", expected: "collections/*/shards/bar/objects/baz"},
+		{collection: "foo", shard: "bar", object: "baz", expected: "collections/foo/shards/bar/objects/baz"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
+		t.Run(name, func(t *testing.T) {
+			p := pObjects(tt.collection, tt.shard, tt.object)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
