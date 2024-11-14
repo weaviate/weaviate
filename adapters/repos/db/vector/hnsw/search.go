@@ -858,7 +858,7 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 	h.RUnlock()
 
 	//k_prime := k / 2
-	k_prime := 10 * k
+	k_prime := k
 	candidateSet := make(map[uint64]bool, 0)
 	for _, searchVec := range searchVecs {
 		var compressorDistancer compressionhelpers.CompressorDistancer
@@ -960,7 +960,7 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 		}
 	}
 
-	resultsQueue := priorityqueue.NewMin[any](k)
+	resultsQueue := priorityqueue.NewMin[any](1)
 	for docID := range candidateSet {
 		sim, err := h.computeScore(searchVecs, docID)
 		if err != nil {
@@ -972,8 +972,8 @@ func (h *hnsw) knnSearchByMultipleVector(searchVecs [][]float32, k int,
 		}
 	}
 
-	distances := make([]float32, k)
-	ids := make([]uint64, k)
+	distances := make([]float32, resultsQueue.Len())
+	ids := make([]uint64, resultsQueue.Len())
 
 	i := len(ids) - 1
 	for resultsQueue.Len() > 0 {
