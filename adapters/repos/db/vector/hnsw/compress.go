@@ -98,6 +98,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
 				h.allocChecker)
 			if err != nil {
+				h.lasqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 			h.doNotRescore = true

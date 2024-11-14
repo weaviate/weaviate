@@ -704,6 +704,9 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
+	if h.lasqConfig.Enabled {
+		return h.lasqConfig.Enabled, h.lasqConfig.TrainingLimit
+	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
@@ -711,6 +714,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 	hnswConfig := config.(ent.UserConfig)
 	if hnswConfig.SQ.Enabled {
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
+	}
+	if hnswConfig.LASQ.Enabled {
+		return hnswConfig.LASQ.Enabled, hnswConfig.LASQ.TrainingLimit
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
