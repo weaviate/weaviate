@@ -118,11 +118,16 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if err != nil {
 		return nil, nil, 0, errors.Wrap(err, "Weaviate API key")
 	}
+	clusterURL, err := v.getClusterURL(ctx)
+	if err != nil {
+		return nil, nil, 0, errors.Wrap(err, "cluster URL")
+	}
 
 	req.Header.Set("Authorization", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
 	req.Header.Add("X-Model-Name", model)
+	req.Header.Add("X-Cluster-URL", clusterURL)
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
@@ -222,4 +227,12 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Weaviate-Api-Key " +
 		"nor in environment variable under WEAVIATE_APIKEY")
+}
+
+func (v *vectorizer) getClusterURL(ctx context.Context) (string, error) {
+	if clusterURL := modulecomponents.GetValueFromContext(ctx, "X-Cluster-URL"); clusterURL != "" {
+		return clusterURL, nil
+	}
+	return "", errors.New("no cluster URL found " +
+		"in request header: X-Weaviate-Cluster-URL")
 }
