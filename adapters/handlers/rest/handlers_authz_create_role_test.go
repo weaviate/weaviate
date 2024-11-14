@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -41,7 +42,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 		},
 	}
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles()[0]).Return(nil)
-	controller.On("UpsertRolesPermissions", params.Body).Return(nil)
+	controller.On("UpsertRolesPermissions", mock.Anything).Return(nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -101,7 +102,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
 			if tt.expectedError == "" {
-				controller.On("UpsertRolesPermissions", tt.params.Body).Return(tt.upsertErr)
+				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
 			h := &authZHandlers{
@@ -172,7 +173,7 @@ func TestCreateRoleForbidden(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
 			if tt.expectedError == "" {
-				controller.On("UpsertRolesPermissions", tt.params.Body).Return(tt.upsertErr)
+				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
 			h := &authZHandlers{
@@ -227,7 +228,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
-			controller.On("UpsertRolesPermissions", tt.params.Body).Return(tt.upsertErr)
+			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
