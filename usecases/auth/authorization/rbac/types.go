@@ -26,6 +26,7 @@ const (
 	tenants           = "tenants"
 	objectsCollection = "objects_collection"
 	objectsTenant     = "objects_tenant"
+	gql_schema        = "gql_schema"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -34,6 +35,8 @@ const (
 const (
 	manageRoles   = "manage_roles"
 	manageCluster = "manage_cluster"
+
+	read_gql_schema = "read_gql_schema"
 
 	createCollections = "create_collections"
 	readCollections   = "read_collections"
@@ -83,6 +86,7 @@ var (
 		Action:     String(deleteCollections),
 		Collection: all,
 	}
+	readGQLSchema = &models.Permission{Action: String(read_gql_schema)}
 )
 
 var (
@@ -96,9 +100,9 @@ var (
 		admin:  authorization.CRUD,
 	}
 	builtInPermissions = map[string][]*models.Permission{
-		viewer: {readAllCollections},
-		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		viewer: {readAllCollections, readGQLSchema},
+		editor: {createAllCollections, readAllCollections, updateAllCollections, readGQLSchema},
+		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections, readGQLSchema},
 	}
 )
 
@@ -185,6 +189,8 @@ func policy(permission *models.Permission) (*Policy, error) {
 		resource = pRoles(role)
 	case cluster:
 		resource = authorization.Cluster()
+	case gql_schema:
+		resource = authorization.GQLSchema()
 	case collections:
 		collection := "*"
 		if permission.Collection != nil {
@@ -261,6 +267,7 @@ func permission(policy []string) *models.Permission {
 	case rolesD:
 		permission.Role = &splits[1]
 	// case cluster:
+	// case gql_schema:
 
 	case "*":
 		permission.Collection = &all

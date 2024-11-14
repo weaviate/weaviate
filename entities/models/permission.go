@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_roles read_roles manage_cluster create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants create_objects_collection read_objects_collection update_objects_collection delete_objects_collection create_objects_tenant read_objects_tenant update_objects_tenant delete_objects_tenant]
+	// Enum: [manage_roles read_roles manage_cluster read_gql_schema create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants create_objects_collection read_objects_collection update_objects_collection delete_objects_collection create_objects_tenant read_objects_tenant update_objects_tenant delete_objects_tenant]
 	Action *string `json:"action"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
@@ -67,7 +67,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants","create_objects_collection","read_objects_collection","update_objects_collection","delete_objects_collection","create_objects_tenant","read_objects_tenant","update_objects_tenant","delete_objects_tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","read_gql_schema","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants","create_objects_collection","read_objects_collection","update_objects_collection","delete_objects_collection","create_objects_tenant","read_objects_tenant","update_objects_tenant","delete_objects_tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -85,6 +85,9 @@ const (
 
 	// PermissionActionManageCluster captures enum value "manage_cluster"
 	PermissionActionManageCluster string = "manage_cluster"
+
+	// PermissionActionReadGqlSchema captures enum value "read_gql_schema"
+	PermissionActionReadGqlSchema string = "read_gql_schema"
 
 	// PermissionActionCreateCollections captures enum value "create_collections"
 	PermissionActionCreateCollections string = "create_collections"

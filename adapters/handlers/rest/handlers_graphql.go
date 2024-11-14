@@ -58,7 +58,7 @@ func setupGraphQLHandlers(
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 
-		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.GQLSchema())
 		if err != nil {
 			metricRequestsTotal.logUserError()
 			switch err.(type) {

@@ -54,6 +54,7 @@
             "manage_roles",
             "read_roles",
             "manage_cluster",
+            "read_gql_schema",
 
             "create_collections",
             "read_collections",

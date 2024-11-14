@@ -73,6 +73,9 @@ var (
 		{permissionAction: updateObjectsTenant, testDescription: updateDesc, policyVerb: updateVerb},
 		{permissionAction: deleteObjectsTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
+	gqlTest = []innerTest{
+		{permissionAction: read_gql_schema, testDescription: readDesc, policyVerb: readVerb},
+	}
 )
 
 func Test_policy(t *testing.T) {
@@ -298,6 +301,15 @@ func Test_policy(t *testing.T) {
 				domain:   "objects_tenant",
 			},
 			tests: objectsTenantTests,
+		},
+		{
+			name:       "gql schema",
+			permission: &models.Permission{},
+			policy: &Policy{
+				resource: authorization.GQLSchema(),
+				domain:   "gql_schema",
+			},
+			tests: gqlTest,
 		},
 	}
 	for _, tt := range tests {
