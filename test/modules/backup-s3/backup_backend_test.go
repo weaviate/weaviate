@@ -30,8 +30,8 @@ import (
 	mod "github.com/weaviate/weaviate/modules/backup-s3"
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/config"
+	ubak "github.com/weaviate/weaviate/internal/backup"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 func Test_S3Backend_Backup(t *testing.T) {

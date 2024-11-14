@@ -29,8 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/memwatch"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 func Benchmark_Migration(b *testing.B) {

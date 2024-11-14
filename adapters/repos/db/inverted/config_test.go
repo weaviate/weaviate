@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 const float64EqualityThreshold = 1e-6

@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {

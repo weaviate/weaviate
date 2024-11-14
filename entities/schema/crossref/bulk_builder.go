@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 )
 
 // BulkBuilder is a low-alloc tool to build many beacon strings (as []byte). It

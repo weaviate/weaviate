@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/internal/floatcomp"
 )
 
 func (h *hnsw) searchTimeEF(k int) int {

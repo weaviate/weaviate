@@ -26,8 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to

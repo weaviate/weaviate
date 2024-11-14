@@ -23,7 +23,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/internal/fakes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

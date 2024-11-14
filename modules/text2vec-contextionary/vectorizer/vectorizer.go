@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	objectsvectorizer "github.com/weaviate/weaviate/internal/modulecomponents/vectorizer"
 )
 
 // Vectorizer turns objects into vectors

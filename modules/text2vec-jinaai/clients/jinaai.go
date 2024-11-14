@@ -17,11 +17,11 @@ import (
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/jinaai"
+	"github.com/weaviate/weaviate/internal/modulecomponents/clients/jinaai"
 )
 
 const (

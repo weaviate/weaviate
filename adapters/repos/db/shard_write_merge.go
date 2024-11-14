@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 var errObjectNotFound = errors.New("object not found")

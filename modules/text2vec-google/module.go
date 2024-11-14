@@ -17,9 +17,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/internal/modulecomponents/text2vecbase"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/internal/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-google/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional"
 )
 
 const (

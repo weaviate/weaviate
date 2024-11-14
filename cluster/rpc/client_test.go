@@ -20,7 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/internal/fakes"
 )
 
 var ErrAny = errors.New("any error")

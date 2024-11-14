@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 )
 
 var bufPool *bufferPool

@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {

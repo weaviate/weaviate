@@ -26,7 +26,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

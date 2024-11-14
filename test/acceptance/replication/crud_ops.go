@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 func getClass(t *testing.T, host, class string) *models.Class {

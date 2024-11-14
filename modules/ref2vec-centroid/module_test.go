@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 func TestRef2VecCentroid(t *testing.T) {

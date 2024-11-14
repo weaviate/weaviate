@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 func SetupClient(uri string) {

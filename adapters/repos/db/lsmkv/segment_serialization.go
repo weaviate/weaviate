@@ -18,7 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 )
 
 // a single node of strategy "replace"

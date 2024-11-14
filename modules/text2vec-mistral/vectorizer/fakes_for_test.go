@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 )
 
 type fakeBatchClient struct {

@@ -21,8 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-dummy/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	additionalprovider "github.com/weaviate/weaviate/internal/modulecomponents/additional"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 )
 
 const Name = "generative-dummy"

@@ -24,9 +24,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/cluster/mocks"
+	"github.com/weaviate/weaviate/internal/fakes"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 // TestSnapshotRestoreSchemaOnly ensures that when restoring a snapshot we correctly restore the state of the schema

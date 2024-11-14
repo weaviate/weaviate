@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 func multiShardScaleOut(t *testing.T) {

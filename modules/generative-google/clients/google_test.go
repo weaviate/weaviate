@@ -23,8 +23,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/internal/modulecomponents/apikey"
 )
 
 func nullLogger() logrus.FieldLogger {

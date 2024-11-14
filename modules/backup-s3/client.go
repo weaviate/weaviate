@@ -25,7 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 type s3Client struct {

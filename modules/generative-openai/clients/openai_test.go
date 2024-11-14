@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 )
 
 func nullLogger() logrus.FieldLogger {

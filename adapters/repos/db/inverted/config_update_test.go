@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 func TestValidateUserConfigUpdate(t *testing.T) {

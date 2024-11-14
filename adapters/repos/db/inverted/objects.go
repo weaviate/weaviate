@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/internal/objects/validation"
 )
 
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,

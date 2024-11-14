@@ -33,8 +33,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/memwatch"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 func TestBatchPutObjectsWithDimensions(t *testing.T) {

@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/internal/traverser"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"

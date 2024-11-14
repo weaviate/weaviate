@@ -19,7 +19,7 @@ import (
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
+	sharding "github.com/weaviate/weaviate/internal/sharding/config"
 )
 
 type Collection struct {

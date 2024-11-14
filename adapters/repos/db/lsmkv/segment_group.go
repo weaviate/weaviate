@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 type SegmentGroup struct {

@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 // ClassState represent a class and it's associated sharding state

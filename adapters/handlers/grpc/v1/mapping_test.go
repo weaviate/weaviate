@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema"

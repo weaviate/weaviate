@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/internal/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional"
 )
 
 func New() *TransformersModule {

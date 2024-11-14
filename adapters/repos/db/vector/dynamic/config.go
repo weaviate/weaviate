@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 type Config struct {

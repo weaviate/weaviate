@@ -30,7 +30,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 )
 
 type operationType string

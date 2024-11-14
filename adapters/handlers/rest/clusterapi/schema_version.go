@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 func extractSchemaVersionFromUrlQuery(values url.Values) (uint64, error) {

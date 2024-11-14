@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 type hnsw struct {

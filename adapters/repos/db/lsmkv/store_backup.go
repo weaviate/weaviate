@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,

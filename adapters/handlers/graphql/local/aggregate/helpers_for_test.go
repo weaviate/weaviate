@@ -18,7 +18,7 @@ import (
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 type mockRequestsLog struct{}

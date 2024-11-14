@@ -38,7 +38,7 @@ import (
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
 

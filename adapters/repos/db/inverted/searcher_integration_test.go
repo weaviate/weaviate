@@ -35,7 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 func TestObjects(t *testing.T) {

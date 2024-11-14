@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
-	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	basesettings "github.com/weaviate/weaviate/internal/modulecomponents/settings"
 )
 
 func (m *ContextionaryModule) ClassConfigDefaults() map[string]interface{} {

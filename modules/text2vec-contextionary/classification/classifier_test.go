@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	testhelper "github.com/weaviate/weaviate/test/helper"
-	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
+	usecasesclassfication "github.com/weaviate/weaviate/internal/classification"
 )
 
 func TestContextualClassifier_ParseSettings(t *testing.T) {

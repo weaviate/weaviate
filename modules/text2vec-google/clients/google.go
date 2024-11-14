@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/weaviate/weaviate/internal/modulecomponents/apikey"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

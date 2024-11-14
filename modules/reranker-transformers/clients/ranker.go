@@ -27,7 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
 )
 
 var _NUMCPU = runtime.NumCPU()

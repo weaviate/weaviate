@@ -34,10 +34,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/internal/cluster/mocks"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/sharding"
+	shardingConfig "github.com/weaviate/weaviate/internal/sharding/config"
 )
 
 func getRandomSeed() *rand.Rand {

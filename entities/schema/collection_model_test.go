@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
+	sharding "github.com/weaviate/weaviate/internal/sharding/config"
 )
 
 var (

@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/internal/modulecomponents/batch"
+	"github.com/weaviate/weaviate/internal/modulecomponents/text2vecbase"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"

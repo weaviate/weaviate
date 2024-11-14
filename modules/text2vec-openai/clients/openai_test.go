@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

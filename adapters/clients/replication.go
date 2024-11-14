@@ -30,8 +30,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 // ReplicationClient is to coordinate operations among replicas

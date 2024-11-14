@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 type DimensionCategory int

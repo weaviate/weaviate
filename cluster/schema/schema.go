@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 var (

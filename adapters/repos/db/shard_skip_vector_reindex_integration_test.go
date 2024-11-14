@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 func TestShard_SkipVectorReindex(t *testing.T) {

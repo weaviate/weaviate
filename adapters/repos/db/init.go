@@ -27,9 +27,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/replica"
-	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/replica"
+	migratefs "github.com/weaviate/weaviate/internal/schema/migrate/fs"
 )
 
 // init gets the current schema and creates one index object per class.

@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/internal/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

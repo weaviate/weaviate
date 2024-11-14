@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 type CompressorDistancer interface {

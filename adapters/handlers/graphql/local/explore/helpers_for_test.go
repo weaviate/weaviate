@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/internal/traverser"
 )
 
 type mockRequestsLog struct{}

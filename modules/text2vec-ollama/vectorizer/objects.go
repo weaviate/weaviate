@@ -17,7 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	objectsvectorizer "github.com/weaviate/weaviate/internal/modulecomponents/vectorizer"
 )
 
 type Vectorizer struct {

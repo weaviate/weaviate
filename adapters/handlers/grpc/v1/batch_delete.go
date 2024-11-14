@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, getClass func(string) *models.Class) (objects.BatchDeleteParams, error) {

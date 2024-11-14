@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 )

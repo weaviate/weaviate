@@ -28,9 +28,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	"github.com/weaviate/weaviate/internal/schema"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."

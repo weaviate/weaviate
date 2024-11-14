@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/weaviate/weaviate/internal/modulecomponents/apikey"
 )
 
 func TestClient(t *testing.T) {

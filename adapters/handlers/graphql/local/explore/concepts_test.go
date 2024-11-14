@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/internal/traverser"
 )
 
 type testCase struct {

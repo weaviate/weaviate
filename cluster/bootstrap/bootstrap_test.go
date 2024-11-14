@@ -20,7 +20,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/internal/fakes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

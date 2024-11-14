@@ -30,8 +30,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)

@@ -24,9 +24,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/replica"
+	"github.com/weaviate/weaviate/internal/scaler"
 )
 
 type replicator interface {

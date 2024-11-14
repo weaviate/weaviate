@@ -13,7 +13,7 @@ package moduletools
 
 import (
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 )
 
 type ModuleInitParams interface {

@@ -22,9 +22,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config"
-	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/config"
+	uco "github.com/weaviate/weaviate/internal/objects"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

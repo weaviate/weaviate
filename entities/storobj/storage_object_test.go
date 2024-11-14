@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"

@@ -18,9 +18,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	ubak "github.com/weaviate/weaviate/internal/backup"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 type backupHandlers struct {

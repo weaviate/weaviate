@@ -19,17 +19,17 @@ import (
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/objects"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/internal/auth/authentication/composer"
+	schemaManager "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/traverser"
 )
 
 type Service struct {

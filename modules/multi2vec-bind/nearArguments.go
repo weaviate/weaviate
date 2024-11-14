@@ -13,13 +13,13 @@ package modbind
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImu"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearVideo"
 )
 
 func (m *BindModule) initNearText() error {

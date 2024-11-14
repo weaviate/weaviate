@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 func TestNestedReferences(t *testing.T) {

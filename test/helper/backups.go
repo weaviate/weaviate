@@ -16,7 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/internal/backup"
 )
 
 func DefaultBackupConfig() *models.BackupConfig {

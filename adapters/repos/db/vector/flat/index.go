@@ -38,7 +38,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/internal/floatcomp"
 )
 
 const (

@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	basesettings "github.com/weaviate/weaviate/internal/modulecomponents/settings"
 )
 
 type classSettings struct {

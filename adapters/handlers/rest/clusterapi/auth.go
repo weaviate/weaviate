@@ -14,7 +14,7 @@ package clusterapi
 import (
 	"net/http"
 
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/internal/cluster"
 )
 
 type auth interface {

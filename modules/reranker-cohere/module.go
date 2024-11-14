@@ -22,8 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/clients"
-	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	rerankeradditional "github.com/weaviate/weaviate/internal/modulecomponents/additional"
+	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
 )
 
 const Name = "reranker-cohere"

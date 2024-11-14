@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 type BucketOption func(b *Bucket) error

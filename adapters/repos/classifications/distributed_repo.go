@@ -20,8 +20,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/internal/classification"
+	"github.com/weaviate/weaviate/internal/cluster"
 )
 
 const DefaultTxTTL = 60 * time.Second

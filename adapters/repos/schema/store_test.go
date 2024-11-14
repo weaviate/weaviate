@@ -26,8 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
-	ucs "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	ucs "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 func TestSaveAndLoadSchema(t *testing.T) {

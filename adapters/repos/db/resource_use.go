@@ -18,7 +18,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/interval"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 )
 
 type diskUse struct {

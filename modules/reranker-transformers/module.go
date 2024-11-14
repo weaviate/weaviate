@@ -22,8 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	additionalprovider "github.com/weaviate/weaviate/internal/modulecomponents/additional"
+	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
 )
 
 const Name = "reranker-transformers"

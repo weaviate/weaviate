@@ -17,10 +17,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	uco "github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	uco "github.com/weaviate/weaviate/internal/objects"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
 )
 
 type schemaHandlers struct {
