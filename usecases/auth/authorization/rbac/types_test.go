@@ -532,6 +532,7 @@ func Test_pRoles(t *testing.T) {
 		expected string
 	}{
 		{role: "", expected: "roles/*"},
+		{role: "*", expected: "roles/*"},
 		{role: "foo", expected: "roles/foo"},
 	}
 	for _, tt := range tests {
@@ -549,6 +550,7 @@ func Test_pCollections(t *testing.T) {
 		expected   string
 	}{
 		{collection: "", expected: "collections/*"},
+		{collection: "*", expected: "collections/*"},
 		{collection: "foo", expected: "collections/foo"},
 	}
 	for _, tt := range tests {
@@ -567,8 +569,11 @@ func Test_pShards(t *testing.T) {
 		expected   string
 	}{
 		{collection: "", shard: "", expected: "collections/*/shards/*"},
+		{collection: "*", shard: "*", expected: "collections/*/shards/*"},
 		{collection: "foo", shard: "", expected: "collections/foo/shards/*"},
+		{collection: "foo", shard: "*", expected: "collections/foo/shards/*"},
 		{collection: "", shard: "bar", expected: "collections/*/shards/bar"},
+		{collection: "*", shard: "bar", expected: "collections/*/shards/bar"},
 		{collection: "foo", shard: "bar", expected: "collections/foo/shards/bar"},
 	}
 	for _, tt := range tests {
@@ -588,12 +593,19 @@ func Test_pObjects(t *testing.T) {
 		expected   string
 	}{
 		{collection: "", shard: "", object: "", expected: "collections/*/shards/*/objects/*"},
+		{collection: "*", shard: "*", object: "*", expected: "collections/*/shards/*/objects/*"},
 		{collection: "foo", shard: "", object: "", expected: "collections/foo/shards/*/objects/*"},
+		{collection: "foo", shard: "*", object: "*", expected: "collections/foo/shards/*/objects/*"},
 		{collection: "", shard: "bar", object: "", expected: "collections/*/shards/bar/objects/*"},
+		{collection: "*", shard: "bar", object: "*", expected: "collections/*/shards/bar/objects/*"},
 		{collection: "", shard: "", object: "baz", expected: "collections/*/shards/*/objects/baz"},
+		{collection: "*", shard: "*", object: "baz", expected: "collections/*/shards/*/objects/baz"},
 		{collection: "foo", shard: "bar", object: "", expected: "collections/foo/shards/bar/objects/*"},
+		{collection: "foo", shard: "bar", object: "*", expected: "collections/foo/shards/bar/objects/*"},
 		{collection: "foo", shard: "", object: "baz", expected: "collections/foo/shards/*/objects/baz"},
+		{collection: "foo", shard: "*", object: "baz", expected: "collections/foo/shards/*/objects/baz"},
 		{collection: "", shard: "bar", object: "baz", expected: "collections/*/shards/bar/objects/baz"},
+		{collection: "*", shard: "bar", object: "baz", expected: "collections/*/shards/bar/objects/baz"},
 		{collection: "foo", shard: "bar", object: "baz", expected: "collections/foo/shards/bar/objects/baz"},
 	}
 	for _, tt := range tests {
