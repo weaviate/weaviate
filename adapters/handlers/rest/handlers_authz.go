@@ -64,7 +64,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
-	if slices.Contains(conv.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
@@ -93,7 +93,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if slices.Contains(conv.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
@@ -125,7 +125,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if slices.Contains(conv.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
@@ -227,7 +227,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
 	}
 
-	if slices.Contains(conv.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 

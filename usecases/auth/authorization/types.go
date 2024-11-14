@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
@@ -40,6 +41,77 @@ var Actions = map[string]string{
 	UPDATE: "update",
 	DELETE: "delete",
 }
+
+const (
+	ManageRoles   = "manage_roles"
+	ManageCluster = "manage_cluster"
+
+	CreateCollections = "create_collections"
+	ReadCollections   = "read_collections"
+	UpdateCollections = "update_collections"
+	DeleteCollections = "delete_collections"
+
+	CreateTenants = "create_tenants"
+	ReadTenants   = "read_tenants"
+	UpdateTenants = "update_tenants"
+	DeleteTenants = "delete_tenants"
+
+	CreateObjectsCollection = "create_objects_collection"
+	ReadObjectsCollection   = "read_objects_collection"
+	UpdateObjectsCollection = "update_objects_collection"
+	DeleteObjectsCollection = "delete_objects_collection"
+
+	CreateObjectsTenant = "create_objects_tenant"
+	ReadObjectsTenant   = "read_objects_tenant"
+	UpdateObjectsTenant = "update_objects_tenant"
+	DeleteObjectsTenant = "delete_objects_tenant"
+)
+
+var (
+	All = String("*")
+
+	manageAllRoles = &models.Permission{
+		Action: String(ManageRoles),
+		Role:   All,
+	}
+	manageAllCluster = &models.Permission{
+		Action: String(ManageCluster),
+	}
+
+	createAllCollections = &models.Permission{
+		Action:     String(CreateCollections),
+		Collection: All,
+	}
+	readAllCollections = &models.Permission{
+		Action:     String(ReadCollections),
+		Collection: All,
+	}
+	updateAllCollections = &models.Permission{
+		Action:     String(UpdateCollections),
+		Collection: All,
+	}
+	deleteAllCollections = &models.Permission{
+		Action:     String(DeleteCollections),
+		Collection: All,
+	}
+)
+
+var (
+	viewer          = "viewer"
+	editor          = "editor"
+	admin           = "admin"
+	BuiltInRoles    = []string{viewer, editor, admin}
+	BuiltInPolicies = map[string]string{
+		viewer: READ,
+		editor: CRU,
+		admin:  CRUD,
+	}
+	BuiltInPermissions = map[string][]*models.Permission{
+		viewer: {readAllCollections},
+		editor: {createAllCollections, readAllCollections, updateAllCollections},
+		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+	}
+)
 
 type Policy struct {
 	Resource string
@@ -166,4 +238,8 @@ func Objects(class, shard string, id strfmt.UUID) string {
 		id = "*"
 	}
 	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
+}
+
+func String(s string) *string {
+	return &s
 }

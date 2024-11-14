@@ -61,7 +61,7 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
 	permissions := []*models.Permission{}
 	for idx := range policies {
-		permissions = append(permissions, permission([]string{policies[idx].Resource, policies[idx].Verb, policies[idx].Domain}))
+		permissions = append(permissions, permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})) // TODO another converter because of []sting positions
 	}
 	return permissions, nil
 }
@@ -72,7 +72,7 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 		for _, policyParts := range p {
 			name := policyParts[0]
 			if name == "admin" || name == "editor" || name == "viewer" {
-				perms := BuiltInPermissions[name]
+				perms := authorization.BuiltInPermissions[name]
 				for _, p := range perms {
 					perm, err := policy(p)
 					if err != nil {
