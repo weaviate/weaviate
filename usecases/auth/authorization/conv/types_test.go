@@ -27,9 +27,9 @@ type innerTest struct {
 }
 
 var (
-	foo = String("foo")
-	bar = String("bar")
-	baz = String("baz")
+	foo = authorization.String("foo")
+	bar = authorization.String("bar")
+	baz = authorization.String("baz")
 
 	createDesc = "create"
 	readDesc   = "read"
@@ -44,34 +44,34 @@ var (
 	manageVerb = authorization.CRUD
 
 	rolesTests = []innerTest{
-		{permissionAction: manageRoles, testDescription: manageDesc, policyVerb: manageVerb},
+		{permissionAction: authorization.ManageRoles, testDescription: manageDesc, policyVerb: manageVerb},
 	}
 	clusterTests = []innerTest{
-		{permissionAction: manageCluster, testDescription: manageDesc, policyVerb: manageVerb},
+		{permissionAction: authorization.ManageCluster, testDescription: manageDesc, policyVerb: manageVerb},
 	}
 	collectionsTests = []innerTest{
-		{permissionAction: createCollections, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: readCollections, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: updateCollections, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: deleteCollections, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateCollections, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadCollections, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateCollections, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteCollections, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	tenantsTests = []innerTest{
-		{permissionAction: createTenants, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: readTenants, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: updateTenants, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: deleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateTenants, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadTenants, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateTenants, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	objectsCollectionTests = []innerTest{
-		{permissionAction: createObjectsCollection, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: readObjectsCollection, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: updateObjectsCollection, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: deleteObjectsCollection, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateObjectsCollection, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadObjectsCollection, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateObjectsCollection, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteObjectsCollection, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	objectsTenantTests = []innerTest{
-		{permissionAction: createObjectsTenant, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: readObjectsTenant, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: updateObjectsTenant, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: deleteObjectsTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateObjectsTenant, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadObjectsTenant, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateObjectsTenant, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteObjectsTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 )
 
@@ -94,7 +94,7 @@ func Test_policy(t *testing.T) {
 		{
 			name: "a role",
 			permission: &models.Permission{
-				Role: String("admin"),
+				Role: authorization.String("admin"),
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("admin"),
@@ -303,7 +303,7 @@ func Test_policy(t *testing.T) {
 	for _, tt := range tests {
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
-				tt.permission.Action = String(ttt.permissionAction)
+				tt.permission.Action = authorization.String(ttt.permissionAction)
 				tt.policy.Verb = ttt.policyVerb
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
@@ -324,7 +324,7 @@ func Test_permission(t *testing.T) {
 			name:   "all roles",
 			policy: []string{"p", "roles/*", "", "roles"},
 			permission: &models.Permission{
-				Role: all,
+				Role: authorization.All,
 			},
 			tests: rolesTests,
 		},
@@ -332,7 +332,7 @@ func Test_permission(t *testing.T) {
 			name:   "a role",
 			policy: []string{"p", "roles/admin", "", "roles"},
 			permission: &models.Permission{
-				Role: String("admin"),
+				Role: authorization.String("admin"),
 			},
 			tests: rolesTests,
 		},
@@ -346,7 +346,7 @@ func Test_permission(t *testing.T) {
 			name:   "all collections",
 			policy: []string{"p", "collections/*", "", "collections"},
 			permission: &models.Permission{
-				Collection: all,
+				Collection: authorization.All,
 			},
 			tests: collectionsTests,
 		},
@@ -362,8 +362,8 @@ func Test_permission(t *testing.T) {
 			name:   "all tenants in all collections",
 			policy: []string{"p", "collections/*/shards/*", "", "tenants"},
 			permission: &models.Permission{
-				Collection: all,
-				Tenant:     all,
+				Collection: authorization.All,
+				Tenant:     authorization.All,
 			},
 			tests: tenantsTests,
 		},
@@ -372,7 +372,7 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "collections/foo/shards/*", "", "tenants"},
 			permission: &models.Permission{
 				Collection: foo,
-				Tenant:     all,
+				Tenant:     authorization.All,
 			},
 			tests: tenantsTests,
 		},
@@ -380,7 +380,7 @@ func Test_permission(t *testing.T) {
 			name:   "a tenant in all collections",
 			policy: []string{"p", "collections/*/shards/bar", "", "tenants"},
 			permission: &models.Permission{
-				Collection: all,
+				Collection: authorization.All,
 				Tenant:     bar,
 			},
 			tests: tenantsTests,
@@ -398,9 +398,9 @@ func Test_permission(t *testing.T) {
 			name:   "all objects in all collections ST",
 			policy: []string{"p", "collections/*/shards/*/objects/*", "", "objects_collection"},
 			permission: &models.Permission{
-				Collection: all,
-				Tenant:     all,
-				Object:     all,
+				Collection: authorization.All,
+				Tenant:     authorization.All,
+				Object:     authorization.All,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -409,8 +409,8 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "collections/foo/shards/*/objects/*", "", "objects_collection"},
 			permission: &models.Permission{
 				Collection: foo,
-				Tenant:     all,
-				Object:     all,
+				Tenant:     authorization.All,
+				Object:     authorization.All,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -418,8 +418,8 @@ func Test_permission(t *testing.T) {
 			name:   "an object in all collections ST",
 			policy: []string{"p", "collections/*/shards/*/objects/baz", "", "objects_collection"},
 			permission: &models.Permission{
-				Collection: all,
-				Tenant:     all,
+				Collection: authorization.All,
+				Tenant:     authorization.All,
 				Object:     baz,
 			},
 			tests: objectsCollectionTests,
@@ -429,7 +429,7 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "collections/foo/shards/*/objects/baz", "", "objects_collection"},
 			permission: &models.Permission{
 				Collection: foo,
-				Tenant:     all,
+				Tenant:     authorization.All,
 				Object:     baz,
 			},
 			tests: objectsCollectionTests,
@@ -438,9 +438,9 @@ func Test_permission(t *testing.T) {
 			name:   "all objects in all tenants in all collections MT",
 			policy: []string{"p", "collections/*/shards/*/objects/*", "", "objects_tenant"},
 			permission: &models.Permission{
-				Collection: all,
-				Tenant:     all,
-				Object:     all,
+				Collection: authorization.All,
+				Tenant:     authorization.All,
+				Object:     authorization.All,
 			},
 			tests: objectsTenantTests,
 		},
@@ -449,8 +449,8 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "collections/foo/shards/*/objects/*", "", "objects_tenant"},
 			permission: &models.Permission{
 				Collection: foo,
-				Tenant:     all,
-				Object:     all,
+				Tenant:     authorization.All,
+				Object:     authorization.All,
 			},
 			tests: objectsTenantTests,
 		},
@@ -458,9 +458,9 @@ func Test_permission(t *testing.T) {
 			name:   "all objects in a tenant in all collections MT",
 			policy: []string{"p", "collections/*/shards/bar/objects/*", "", "objects_tenant"},
 			permission: &models.Permission{
-				Collection: all,
+				Collection: authorization.All,
 				Tenant:     bar,
-				Object:     all,
+				Object:     authorization.All,
 			},
 			tests: objectsTenantTests,
 		},
@@ -470,7 +470,7 @@ func Test_permission(t *testing.T) {
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     bar,
-				Object:     all,
+				Object:     authorization.All,
 			},
 			tests: objectsTenantTests,
 		},
@@ -478,8 +478,8 @@ func Test_permission(t *testing.T) {
 			name:   "an object in all tenants in all collections MT",
 			policy: []string{"p", "collections/*/shards/*/objects/baz", "", "objects_tenant"},
 			permission: &models.Permission{
-				Collection: all,
-				Tenant:     all,
+				Collection: authorization.All,
+				Tenant:     authorization.All,
 				Object:     baz,
 			},
 			tests: objectsTenantTests,
@@ -489,7 +489,7 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "collections/foo/shards/*/objects/baz", "", "objects_tenant"},
 			permission: &models.Permission{
 				Collection: foo,
-				Tenant:     all,
+				Tenant:     authorization.All,
 				Object:     baz,
 			},
 		},
@@ -497,7 +497,7 @@ func Test_permission(t *testing.T) {
 			name:   "an object in a tenant in all collections MT",
 			policy: []string{"p", "collections/*/shards/bar/objects/baz", "", "objects_tenant"},
 			permission: &models.Permission{
-				Collection: all,
+				Collection: authorization.All,
 				Tenant:     bar,
 				Object:     baz,
 			},
@@ -517,7 +517,7 @@ func Test_permission(t *testing.T) {
 	for _, tt := range tests {
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
-				tt.permission.Action = String(ttt.permissionAction)
+				tt.permission.Action = authorization.String(ttt.permissionAction)
 				tt.policy[2] = ttt.policyVerb
 				permission := permission(tt.policy)
 				require.Equal(t, tt.permission, permission)

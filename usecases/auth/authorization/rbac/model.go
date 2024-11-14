@@ -21,7 +21,7 @@ import (
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -108,7 +108,7 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	// add pre existing roles
-	for name, verb := range conv.BuiltInPolicies {
+	for name, verb := range authorization.BuiltInPolicies {
 		if verb == "" {
 			continue
 		}

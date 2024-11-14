@@ -31,77 +31,6 @@ const (
 	// userPrefix = "u_"
 )
 
-const (
-	manageRoles   = "manage_roles"
-	manageCluster = "manage_cluster"
-
-	createCollections = "create_collections"
-	readCollections   = "read_collections"
-	updateCollections = "update_collections"
-	deleteCollections = "delete_collections"
-
-	createTenants = "create_tenants"
-	readTenants   = "read_tenants"
-	updateTenants = "update_tenants"
-	deleteTenants = "delete_tenants"
-
-	createObjectsCollection = "create_objects_collection"
-	readObjectsCollection   = "read_objects_collection"
-	updateObjectsCollection = "update_objects_collection"
-	deleteObjectsCollection = "delete_objects_collection"
-
-	createObjectsTenant = "create_objects_tenant"
-	readObjectsTenant   = "read_objects_tenant"
-	updateObjectsTenant = "update_objects_tenant"
-	deleteObjectsTenant = "delete_objects_tenant"
-)
-
-var (
-	all = String("*")
-
-	manageAllRoles = &models.Permission{
-		Action: String(manageRoles),
-		Role:   all,
-	}
-	manageAllCluster = &models.Permission{
-		Action: String(manageCluster),
-	}
-
-	createAllCollections = &models.Permission{
-		Action:     String(createCollections),
-		Collection: all,
-	}
-	readAllCollections = &models.Permission{
-		Action:     String(readCollections),
-		Collection: all,
-	}
-	updateAllCollections = &models.Permission{
-		Action:     String(updateCollections),
-		Collection: all,
-	}
-	deleteAllCollections = &models.Permission{
-		Action:     String(deleteCollections),
-		Collection: all,
-	}
-)
-
-var (
-	viewer          = "viewer"
-	editor          = "editor"
-	admin           = "admin"
-	BuiltInRoles    = []string{viewer, editor, admin}
-	BuiltInPolicies = map[string]string{
-		viewer: authorization.READ,
-		editor: authorization.CRU,
-		admin:  authorization.CRUD,
-	}
-	BuiltInPermissions = map[string][]*models.Permission{
-		viewer: {readAllCollections},
-		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
-	}
-)
-
 func newPolicy(policy []string) *authorization.Policy {
 	return &authorization.Policy{
 		Resource: fromCasbinResource(policy[1]),
@@ -267,8 +196,4 @@ func permission(policy []string) *models.Permission {
 	}
 
 	return permission
-}
-
-func String(s string) *string {
-	return &s
 }
