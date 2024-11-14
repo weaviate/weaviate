@@ -51,11 +51,13 @@ type Object struct {
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	VectorLen         int           `json:"-"`
+	MultiVectorLen    int           `json:"-"`
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
-	Vectors           map[string][]float32 `json:"vectors"`
+	Vectors           map[string][]float32   `json:"vectors"`
+	MultiVectors      map[string][][]float32 `json:"multivectors"`
 }
 
 func New(docID uint64) *Object {
@@ -65,7 +67,7 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -85,12 +87,27 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors)
 		}
 	}
 
+	var multiVectors map[string][][]float32
+	var multiVectorCount int
+	if multivectors != nil {
+
+		multiVectors = make(map[string][][]float32)
+		for targetVector, vectors := range multivectors {
+			multiVectors[targetVector] = vectors
+			for _, vector := range vectors {
+				multiVectorCount += len(vector)
+			}
+		}
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
+		MultiVectorLen:    multiVectorCount,
+		MultiVectors:      multiVectors,
 	}
 }
 
@@ -196,12 +213,37 @@ func FromBinaryOptional(data []byte,
 		if err != nil {
 			return nil, err
 		}
+
 		ko.Vectors = vectors
 
 		if vectors != nil {
 			ko.Object.Vectors = make(models.Vectors)
 			for vecName, vec := range vectors {
 				ko.Object.Vectors[vecName] = vec
+			}
+		}
+	} else {
+		if rw.Position < uint64(len(rw.Buffer)) {
+			_ = rw.ReadBytesFromBufferWithUint32LengthIndicator()
+			targetVectorsSegmentLength := rw.ReadUint32()
+			pos := rw.Position
+			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		}
+	}
+
+	if rw.Position < uint64(len(rw.Buffer)) {
+		vectorWeightsCount := rw.ReadUint32()
+		ko.MultiVectorLen = int(vectorWeightsCount)
+		multiVectorsLength := rw.ReadUint32()
+		if len(addProp.MultiVectors) > 0 {
+			if multiVectorsLength > 0 {
+				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
+				if err != nil {
+					return nil, errors.Wrap(err, "Could not copy multivectors")
+				}
+				if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
+					return nil, errors.Wrap(err, "Could not unmarshal multivectors")
+				}
 			}
 		}
 	}
@@ -654,6 +696,9 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
 // 4          | uint32        | length of target vectors segment (in bytes)
 // n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
+// 4		  | uint32        | dimension count of multivectors
+// 4          | uint32        | length of multivectors as msgpack
+// n          | []byte        | multivectors as msgpack
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -755,6 +800,17 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
 
+	var multiVectorsPacked []byte
+	if len(ko.MultiVectors) > 0 {
+		multiVectorsPacked, err = msgpack.Marshal(ko.MultiVectors)
+		if err != nil {
+			return nil, fmt.Errorf("could not marshal multivectors: %w", err)
+		}
+		if len(multiVectorsPacked) > maxTargetVectorsSegmentLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multivectors", len(multiVectorsPacked), maxTargetVectorsSegmentLength)
+		}
+	}
+
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
 		2 + vectorLength*4 +
 		2 + classNameLength +
@@ -762,7 +818,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + metaLength +
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
-		4 + uint32(targetVectorsSegmentLength)
+		4 + uint32(targetVectorsSegmentLength) +
+		8 + uint32(len(multiVectorsPacked)) // multivectors
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -820,6 +877,22 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		rw.WriteUint16(uint16(vecLen))
 		for j := 0; j < vecLen; j++ {
 			rw.WriteUint32(math.Float32bits(vec[j]))
+		}
+	}
+
+	var multivectorsLength uint32
+	for _, vectors := range ko.MultiVectors {
+		for _, vec := range vectors {
+			multivectorsLength = multivectorsLength + uint32(len(vec))
+		}
+	}
+	rw.WriteUint32(multivectorsLength)
+
+	rw.WriteUint32(uint32(len(multiVectorsPacked)))
+	if len(multiVectorsPacked) > 0 {
+		err = rw.CopyBytesToBuffer(multiVectorsPacked)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy multivectors")
 		}
 	}
 
@@ -1013,6 +1086,21 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return err
 	}
 	ko.Vectors = vectors
+
+	if rw.Position < uint64(len(rw.Buffer)) {
+		multiVectorWeightsCount := rw.ReadUint32()
+		ko.MultiVectorLen = int(multiVectorWeightsCount)
+		multivectorsLength := rw.ReadUint32()
+		if multivectorsLength > 0 {
+			multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
+			if err != nil {
+				return errors.Wrap(err, "Could not copy multivectors")
+			}
+			if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
+				return errors.Wrap(err, "Could not unmarshal multivectors")
+			}
+		}
+	}
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
