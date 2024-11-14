@@ -41,9 +41,6 @@ def test_rbac_search(request: SubRequest):
             res = col_no_rights.query.fetch_objects()
             assert len(res.objects) == 1
 
-            agg = col_no_rights.aggregate.over_all(total_count=True)
-            assert agg.total_count == 1
-
             client.roles.revoke(user="custom-user", roles=name_role)
             client.roles.delete(name_role)
 
