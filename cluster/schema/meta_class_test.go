@@ -30,45 +30,54 @@ import (
 func TestUpdateTenantsProcess(t *testing.T) {
 	classReplFactor1 := models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 	tests := []struct {
-		name     string
-		m        *metaClass
-		testFunc func(m *metaClass) error
+		name                   string
+		m                      *metaClass
+		testFunc               func(m *metaClass) error
+		finalTenantDataVersion int64
 	}{
 		{
-			name:     "Freeze/ClassTenantDataEventsNil",
-			m:        &metaClass{},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsNil",
+			m:                      &metaClass{},
+			testFunc:               addAndFreezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Freeze/ClassTenantDataEventsUnbuffered",
-			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant)},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsUnbuffered",
+			m:                      &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc:               addAndFreezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Freeze/ClassTenantDataEventsCapacity1",
-			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsCapacity1",
+			m:                      &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc:               addAndFreezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsNil",
-			m:        &metaClass{Class: classReplFactor1},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsNil",
+			m:                      &metaClass{Class: classReplFactor1},
+			testFunc:               addAndUnfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsUnbuffered",
-			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant)},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsUnbuffered",
+			m:                      &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc:               addAndUnfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsCapacity1",
-			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsCapacity1",
+			m:                      &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc:               addAndUnfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, int64(0), tc.m.Sharding.Physical[tenantName].DataVersion)
 			err := tc.testFunc(tc.m)
 			require.Nil(t, err)
+			require.Equal(t, tc.finalTenantDataVersion, tc.m.Sharding.Physical[tenantName].DataVersion)
 		})
 	}
 }
