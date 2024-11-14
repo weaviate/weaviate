@@ -19,6 +19,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/tailor-inc/graphql/language/parser"
+	"github.com/tailor-inc/graphql/language/source"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	tailorincgraphql "github.com/tailor-inc/graphql"
@@ -58,19 +62,21 @@ func setupGraphQLHandlers(
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 
-		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
-		if err != nil {
-			metricRequestsTotal.logUserError()
-			switch err.(type) {
-			case errors.Forbidden:
-				return graphql.NewGraphqlPostForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
-			default:
-				return graphql.NewGraphqlPostUnprocessableEntity().
-					WithPayload(errPayloadFromSingleErr(err))
+		if isIntrospectionQuery(params.Body.Query) {
+			err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+			if err != nil {
+				metricRequestsTotal.logUserError()
+				switch err.(type) {
+				case errors.Forbidden:
+					return graphql.NewGraphqlPostForbidden().
+						WithPayload(errPayloadFromSingleErr(err))
+				default:
+					return graphql.NewGraphqlPostUnprocessableEntity().
+						WithPayload(errPayloadFromSingleErr(err))
+				}
 			}
-		}
 
+		}
 		if disabled {
 			metricRequestsTotal.logUserError()
 			err := fmt.Errorf("graphql api is disabled")
@@ -410,4 +416,78 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 		}
 	}
 	return
+}
+
+func isIntrospectionQuery(query string) bool {
+	src := source.NewSource(&source.Source{
+		Body: []byte(query),
+	})
+	astDoc, _ := parser.Parse(parser.ParseParams{Source: src})
+
+	// Traverse the AST and look for introspection fields
+	return hasIntrospectionString(query) || hasIntrospectionField(astDoc)
+}
+
+// This is not enough on its own as the introspection could be hidden in fragments, aliases etc
+func hasIntrospectionString(query string) bool {
+	return strings.Contains(query, "__schema") || strings.Contains(query, "__type")
+}
+
+func hasIntrospectionField(node ast.Node) bool {
+	switch n := node.(type) {
+	case *ast.Document:
+		for _, def := range n.Definitions {
+			if hasIntrospectionField(def) {
+				return true
+			}
+		}
+	case *ast.OperationDefinition:
+		if n.SelectionSet != nil {
+			for _, sel := range n.SelectionSet.Selections {
+				if hasIntrospectionSelection(sel) {
+					return true
+				}
+			}
+		}
+	case *ast.FragmentDefinition:
+		if n.SelectionSet != nil {
+			for _, sel := range n.SelectionSet.Selections {
+				if hasIntrospectionSelection(sel) {
+					return true
+				}
+			}
+		}
+	case *ast.InlineFragment:
+		if n.SelectionSet != nil {
+			for _, sel := range n.SelectionSet.Selections {
+				if hasIntrospectionSelection(sel) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hasIntrospectionSelection(selection ast.Selection) bool {
+	switch sel := selection.(type) {
+	case *ast.Field:
+		// Check if the field or its alias name is either "__schema" or "__type"
+		if sel.Name.Value == "__schema" || sel.Name.Value == "__type" {
+			return true
+		}
+		if sel.Alias != nil && (sel.Alias.Value == "__schema" || sel.Alias.Value == "__type") {
+			return true
+		}
+
+		// Recurse into nested selection sets
+		if sel.SelectionSet != nil {
+			for _, nestedSel := range sel.SelectionSet.Selections {
+				if hasIntrospectionSelection(nestedSel) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
