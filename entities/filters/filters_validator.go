@@ -28,7 +28,7 @@ var deprecatedDataTypeAliases map[schema.DataType]schema.DataType = map[schema.D
 	schema.DataTypeStringArray: schema.DataTypeTextArray,
 }
 
-func ValidateFilters(fn func(string) *models.Class, filters *LocalFilter) error {
+func ValidateFilters(fn func(string) (*models.Class, error), filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
@@ -40,7 +40,7 @@ func ValidateFilters(fn func(string) *models.Class, filters *LocalFilter) error 
 	return nil
 }
 
-func validateClause(fn func(string) *models.Class, cw *clauseWrapper) error {
+func validateClause(fn func(string) (*models.Class, error), cw *clauseWrapper) error {
 	// check if nested
 	if cw.getOperands() != nil {
 		var errs []error
@@ -66,7 +66,10 @@ func validateClause(fn func(string) *models.Class, cw *clauseWrapper) error {
 		return validateInternalPropertyClause(propName, cw)
 	}
 
-	class := fn(className.String())
+	class, err := fn(className.String())
+	if err != nil {
+		return err
+	}
 	if class == nil {
 		return errors.Errorf("class %q does not exist in schema",
 			className)

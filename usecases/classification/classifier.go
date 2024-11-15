@@ -160,7 +160,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	// asynchronously trigger the classification
-	filters, err := c.extractFilters(params)
+	filters, err := c.extractFilters(principal, params)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	return &params, nil
 }
 
-func (c *Classifier) extractFilters(params models.Classification) (Filters, error) {
+func (c *Classifier) extractFilters(principal *models.Principal, params models.Classification) (Filters, error) {
 	if params.Filters == nil {
 		return classificationFilters{}, nil
 	}
@@ -196,28 +196,28 @@ func (c *Classifier) extractFilters(params models.Classification) (Filters, erro
 		target:      target,
 	}
 
-	if err = c.validateFilters(&params, &filters); err != nil {
+	if err = c.validateFilters(principal, &params, &filters); err != nil {
 		return nil, err
 	}
 
 	return filters, nil
 }
 
-func (c *Classifier) validateFilters(params *models.Classification, filters *classificationFilters) (err error) {
+func (c *Classifier) validateFilters(principal *models.Principal, params *models.Classification, filters *classificationFilters) (err error) {
 	if params.Type == TypeKNN {
-		if err = c.validateFilter(filters.Source()); err != nil {
+		if err = c.validateFilter(principal, filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %s", err)
 		}
-		if err = c.validateFilter(filters.TrainingSet()); err != nil {
+		if err = c.validateFilter(principal, filters.TrainingSet()); err != nil {
 			return fmt.Errorf("invalid trainingSetWhere: %s", err)
 		}
 	}
 
 	if params.Type == TypeContextual || params.Type == TypeZeroShot {
-		if err = c.validateFilter(filters.Source()); err != nil {
+		if err = c.validateFilter(principal, filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %s", err)
 		}
-		if err = c.validateFilter(filters.Target()); err != nil {
+		if err = c.validateFilter(principal, filters.Target()); err != nil {
 			return fmt.Errorf("invalid targetWhere: %s", err)
 		}
 	}
@@ -225,11 +225,22 @@ func (c *Classifier) validateFilters(params *models.Classification, filters *cla
 	return
 }
 
-func (c *Classifier) validateFilter(filter *libfilters.LocalFilter) error {
+func (c *Classifier) validateFilter(principal *models.Principal, filter *libfilters.LocalFilter) error {
 	if filter == nil {
 		return nil
 	}
-	return libfilters.ValidateFilters(c.schemaGetter.ReadOnlyClass, filter)
+	f := func(name string) (*models.Class, error) {
+		if err := c.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			return nil, err
+		}
+		class := c.schemaGetter.ReadOnlyClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+
+		return class, nil
+	}
+	return libfilters.ValidateFilters(f, filter)
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

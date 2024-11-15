@@ -330,12 +330,16 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
+		// Todo: Replace with real auth function
+		dummyAuthWrapper := func(name string) (*models.Class, error) {
+			return p.getClass(name), nil
+		}
+		clause, err := ExtractFilters(req.Filters, dummyAuthWrapper, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(p.getClass, filter); err != nil {
+		if err := filters.ValidateFilters(dummyAuthWrapper, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter

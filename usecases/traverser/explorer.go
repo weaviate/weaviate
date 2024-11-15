@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -129,10 +128,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 			Offset: 0,
 			Limit:  100,
 		}
-	}
-
-	if err := e.validateFilters(params.Filters); err != nil {
-		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
@@ -732,11 +727,6 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 
 func (e *Explorer) GetSchema() schema.Schema {
 	return e.schemaGetter.GetSchemaSkipAuth()
-}
-
-func (e *Explorer) GetClassByName(className string) *models.Class {
-	s := e.GetSchema()
-	return s.GetClass(className)
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
