@@ -68,6 +68,11 @@ func New(docID uint64) *Object {
 }
 
 func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
+	return FromObjectMulti(object, vector, vectors, nil)
+ }
+
+// TODO: temporary solution
+func FromObjectMulti(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
