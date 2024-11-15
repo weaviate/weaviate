@@ -262,7 +262,7 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 			key := make([]byte, 8)
 			binary.BigEndian.PutUint64(key, docId)
 
-			value := make([]byte, 4)
+			value := make([]byte, 8)
 			binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
 			// binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
 
@@ -285,7 +285,7 @@ func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDe
 	for offset < len(data) {
 		out.DocIds[i] = binary.BigEndian.Uint64(data[offset : offset+8])
 		out.Tfs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])))
-		offset += 12
+		offset += 16
 	}
 	return out
 }
