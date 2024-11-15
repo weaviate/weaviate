@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -31,10 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func TestBM25FJourneyBlock(t *testing.T) {
+func TestBM25FJourneyBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -43,11 +41,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -62,8 +56,6 @@ func TestBM25FJourneyBlock(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	// Check basic search
 	addit := additional.Properties{Vector: true}
@@ -176,7 +168,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
 		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
-		require.Equal(t, len(res), len(scores))
+		require.Equal(t, len(scores), len(res))
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID)
 		require.Equal(t, uint64(5), res[1].DocID)
@@ -280,18 +272,18 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
 		require.EqualValues(t, float32(0.51602507), noautocutscores[0])
-		require.EqualValues(t, float32(0.4975062), noautocutscores[1]) // <= autocut last element
+		require.EqualValues(t, float32(0.49750623), noautocutscores[1]) // <= autocut last element
 		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
 		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
 		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
 
 		require.Len(t, resAutoCut, 2)
 		require.EqualValues(t, float32(0.51602507), autocutscores[0])
-		require.EqualValues(t, float32(0.4975062), autocutscores[1])
+		require.EqualValues(t, float32(0.49750623), autocutscores[1])
 	})
 }
 
-func TestBM25FSinglePropBlock(t *testing.T) {
+func TestBM25FSinglePropBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -302,11 +294,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -320,8 +308,6 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
@@ -341,7 +327,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	EqualFloats(t, float32(0.0363), scores[1], 5)
 }
 
-func TestBM25FWithFiltersBlock(t *testing.T) {
+func TestBM25FWithFiltersBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -352,11 +338,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -370,8 +352,6 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	filter := &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -412,7 +392,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	require.Equal(t, uint64(2), res[0].DocID)
 }
 
-func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
+func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -423,11 +403,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -441,8 +417,6 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 
 	idx := repo.GetIndex("FilterClass")
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	filter := &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -479,7 +453,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 	assert.Equal(t, filteredScores[0], unfilteredScores[0])
 }
 
-func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
+func TestBM25FDifferentParamsJourneyBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -490,11 +464,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -508,8 +478,6 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
@@ -540,7 +508,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
-func TestBM25FCompareBlock(t *testing.T) {
+func TestBM25FCompareBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -551,11 +519,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -569,8 +533,6 @@ func TestBM25FCompareBlock(t *testing.T) {
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
-	time.Sleep(5 * time.Second) // force flush
 
 	shardNames := idx.getSchema.CopyShardingState(idx.Config.ClassName.String()).AllPhysicalShards()
 
@@ -621,7 +583,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 	}
 }
 
-func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
+func TestBM25F_ComplexDocumentsBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -638,11 +600,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 	}
 
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -657,8 +615,6 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 	require.NotNil(t, idxNone)
 
 	addit := additional.Properties{}
-
-	time.Sleep(5 * time.Second) // force flush
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
@@ -691,7 +647,6 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 		classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
-		time.Sleep(5 * time.Second) // force flush
 
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
 		resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0, properties)
@@ -716,7 +671,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 	})
 }
 
-func TestBM25F_SortMultiPropBlock(t *testing.T) {
+func TestBM25F_SortMultiPropBlockMem(t *testing.T) {
 	t.Setenv("USE_INVERTED_FORMAT", "true")
 	t.Setenv("USE_WAND_DISK", "true")
 	dirName := t.TempDir()
@@ -732,11 +687,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushDirtyAfter:  1,
-		MemtablesInitialSizeMB:    1,
-		MemtablesMaxSizeMB:        1,
-		MemtablesMinActiveSeconds: 1,
-		MemtablesMaxActiveSeconds: 2,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -749,9 +700,6 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 	className, props := MultiPropClass(t, repo, schemaGetter, logger, 0.5, 0.75)
 	idx := repo.GetIndex(schema.ClassName(className))
 	require.NotNil(t, idx)
-
-	// sleep
-	time.Sleep(5 * time.Second)
 
 	addit := additional.Properties{}
 
