@@ -199,7 +199,11 @@ func (b *BM25Searcher) wandBlock(
 		for _, result2 := range result {
 			for _, result3 := range result2 {
 				if result3 != nil {
-					m := result3.(*lsmkv.SegmentBlockMax)
+					m, ok := result3.(*lsmkv.SegmentBlockMax)
+					if !ok {
+						continue
+					}
+
 					metrics.BlockCountAdded += m.Metrics.BlockCountAdded
 					metrics.BlockCountTotal += m.Metrics.BlockCountTotal
 					metrics.BlockCountExamined += m.Metrics.BlockCountExamined
