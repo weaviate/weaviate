@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -27,15 +26,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestCreateRoleSuccess(t *testing.T) {
+func TestAddPermissionsSuccess(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.CreateRoleParams{
-		Body: &models.Role{
-			Name: String("newRole"),
+	params := authz.AddPermissionsParams{
+		Body: authz.AddPermissionsBody{
+			Name: String("test"),
 			Permissions: []*models.Permission{
 				{
 					Action: String("manage_roles"),
@@ -43,11 +42,13 @@ func TestCreateRoleSuccess(t *testing.T) {
 			},
 		},
 	}
-	policies, err := conv.RolesToPolicies(params.Body)
+	policies, err := conv.RolesToPolicies(&models.Role{
+		Name:        params.Body.Name,
+		Permissions: params.Body.Permissions,
+	})
 	require.Nil(t, err)
 
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles("newRole")[0]).Return(nil)
-	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles("test")[0]).Return(nil)
 	controller.On("UpsertRolesPermissions", policies).Return(nil)
 
 	h := &authZHandlers{
@@ -55,57 +56,25 @@ func TestCreateRoleSuccess(t *testing.T) {
 		controller: controller,
 		logger:     logger,
 	}
-	res := h.createRole(params, principal)
-	parsed, ok := res.(*authz.CreateRoleCreated)
+	res := h.addPermissions(params, principal)
+	parsed, ok := res.(*authz.AddPermissionsOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
 
-func TestCreateRoleConflict(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
-	logger, _ := test.NewNullLogger()
-
-	principal := &models.Principal{Username: "user1"}
-	params := authz.CreateRoleParams{
-		Body: &models.Role{
-			Name: String("newRole"),
-			Permissions: []*models.Permission{
-				{
-					Action: String("manage_roles"),
-				},
-			},
-		},
-	}
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles("newRole")[0]).Return(nil)
-	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{"newRole": {}}, nil)
-
-	h := &authZHandlers{
-		authorizer: authorizer,
-		controller: controller,
-		logger:     logger,
-	}
-	res := h.createRole(params, principal)
-	parsed, ok := res.(*authz.CreateRoleConflict)
-	assert.True(t, ok)
-	assert.Contains(t, parsed.Payload.Error[0].Message, fmt.Sprintf("role with name %s already exists", *params.Body.Name))
-}
-
-func TestCreateRoleBadRequest(t *testing.T) {
+func TestAddPermissionsBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.CreateRoleParams
+		params        authz.AddPermissionsParams
 		principal     *models.Principal
-		authorizeErr  error
-		upsertErr     error
 		expectedError string
 	}
 
 	tests := []testCase{
 		{
 			name: "role name is required",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
 					Name: String(""),
 					Permissions: []*models.Permission{
 						{
@@ -119,9 +88,9 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		},
 		{
 			name: "role has to have at least 1 permission",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name:        String("newRole"),
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
+					Name:        String("someName"),
 					Permissions: []*models.Permission{},
 				},
 			},
@@ -129,13 +98,13 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			expectedError: "role has to have at least 1 permission",
 		},
 		{
-			name: "invalid permission",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("someRole"),
+			name: "invalid action",
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
+					Name: String("someName"),
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_something"),
+							Action: String("manage_somethingelse"),
 						},
 					},
 				},
@@ -144,9 +113,9 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			expectedError: "invalid permission",
 		},
 		{
-			name: "cannot create role with the same name as builtin role",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
+			name: "update builtin role",
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
 					Name: &authorization.BuiltInRoles[0],
 					Permissions: []*models.Permission{
 						{
@@ -156,7 +125,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not create role with the same name as builtin role",
+			expectedError: "you can not update builtin role",
 		},
 	}
 
@@ -166,19 +135,15 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
-			if tt.expectedError == "" {
-				controller.On("GetRoles", *tt.params.Body.Name).Return([]*models.Role{}, nil)
-				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
-			}
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.createRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.CreateRoleBadRequest)
+			res := h.addPermissions(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AddPermissionsBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -188,10 +153,10 @@ func TestCreateRoleBadRequest(t *testing.T) {
 	}
 }
 
-func TestCreateRoleForbidden(t *testing.T) {
+func TestAddPermissionsForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.CreateRoleParams
+		params        authz.AddPermissionsParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -199,10 +164,10 @@ func TestCreateRoleForbidden(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "authorization error",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
+			name: "update some role",
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
+					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
@@ -211,8 +176,8 @@ func TestCreateRoleForbidden(t *testing.T) {
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			authorizeErr:  errors.New("authorization error"),
-			expectedError: "authorization error",
+			authorizeErr:  fmt.Errorf("some error from authZ"),
+			expectedError: "some error from authZ",
 		},
 	}
 
@@ -222,15 +187,15 @@ func TestCreateRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.createRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.CreateRoleForbidden)
+			res := h.addPermissions(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AddPermissionsForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -240,10 +205,10 @@ func TestCreateRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestCreateRoleInternalServerError(t *testing.T) {
+func TestAddPermissionsInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.CreateRoleParams
+		params        authz.AddPermissionsParams
 		principal     *models.Principal
 		upsertErr     error
 		expectedError string
@@ -251,10 +216,10 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "upsert roles permissions error",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
+			name: "update some role",
+			params: authz.AddPermissionsParams{
+				Body: authz.AddPermissionsBody{
+					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
@@ -263,8 +228,8 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			upsertErr:     errors.New("upsert error"),
-			expectedError: "upsert error",
+			upsertErr:     fmt.Errorf("some error from controller"),
+			expectedError: "some error from controller",
 		},
 	}
 
@@ -274,20 +239,16 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			policies, err := conv.RolesToPolicies(tt.params.Body)
-			require.Nil(t, err)
-
-			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
-			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
-			controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.createRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.CreateRoleInternalServerError)
+			res := h.addPermissions(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AddPermissionsInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -295,8 +256,4 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func String(s string) *string {
-	return &s
 }
