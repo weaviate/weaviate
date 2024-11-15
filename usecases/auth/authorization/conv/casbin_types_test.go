@@ -74,7 +74,7 @@ var (
 		{permissionAction: authorization.DeleteObjectsTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	gqlTest = []innerTest{
-		{permissionAction: read_gql_schema, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.ReadGqlSchema, testDescription: readDesc, policyVerb: readVerb},
 	}
 )
 
@@ -305,9 +305,9 @@ func Test_policy(t *testing.T) {
 		{
 			name:       "gql schema",
 			permission: &models.Permission{},
-			policy: &Policy{
-				resource: authorization.GQLSchema(),
-				domain:   "gql_schema",
+			policy: &authorization.Policy{
+				Resource: authorization.GQLSchema(),
+				Domain:   "gql_schema",
 			},
 			tests: gqlTest,
 		},
