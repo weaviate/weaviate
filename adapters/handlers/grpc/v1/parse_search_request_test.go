@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 
@@ -1798,7 +1799,15 @@ func TestGRPCRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, scheme.GetClass)
+	getClass := func(name string) (*models.Class, error) {
+		class := scheme.GetClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("class %s not found", name)
+		}
+		return class, nil
+	}
+
+	parser := NewParser(false, getClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})

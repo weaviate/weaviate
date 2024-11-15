@@ -222,3 +222,83 @@ def test_batch_delete_with_filter(request: SubRequest) -> None:
                 client.roles.delete(role_name)
 
         client.collections.delete([target.name, source.name])
+
+
+def test_search_with_filter(request: SubRequest) -> None:
+    col_name = _sanitize_role_name(request.node.name)
+
+    with weaviate.connect_to_local(
+        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
+    ) as client:
+        client.collections.delete([col_name + "target", col_name + "source"])
+        # create two collections with some objects to test refs
+        target = client.collections.create(
+            name=col_name + "target",
+            properties=[wvc.config.Property(name="prop", data_type=wvc.config.DataType.TEXT)],
+        )
+        source = client.collections.create(
+            name=col_name + "source",
+            references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        )
+        uuid_target1 = target.data.insert({})
+        uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
+        source.data.reference_add(
+            from_uuid=uuid_source,
+            from_property="ref",
+            to=uuid_target1,
+        )
+
+        role_name = _sanitize_role_name(request.node.name)
+        client.roles.delete(role_name)
+
+        # read for both
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(
+                name=role_name,
+                permissions=RBAC.permissions.collection(
+                    target.name, CollectionsAction.READ_COLLECTIONS
+                )
+                + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
+            )
+            client.roles.assign(user="custom-user", roles=role_name)
+
+            source_no_rights = client_no_rights.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+
+            ret = source_no_rights.query.fetch_objects(
+                filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+            )
+            assert len(ret.objects) == 1
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # read for just one
+        for col in [source.name, target.name]:
+            with weaviate.connect_to_local(
+                port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+            ) as client_no_rights:
+                client.roles.create(
+                    name=role_name,
+                    permissions=RBAC.permissions.collection(
+                        col, CollectionsAction.READ_COLLECTIONS
+                    ),
+                )
+                client.roles.assign(user="custom-user", roles=role_name)
+
+                source_no_rights = client_no_rights.collections.get(
+                    source.name
+                )  # no network call => no RBAC check
+
+                with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                    source_no_rights.query.fetch_objects(
+                        filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                    )
+                assert "forbidden" in e.value.args[0]
+
+                client.roles.revoke(user="custom-user", roles=role_name)
+                client.roles.delete(role_name)
+
+        client.collections.delete([target.name, source.name])
