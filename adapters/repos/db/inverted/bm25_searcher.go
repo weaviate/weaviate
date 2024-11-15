@@ -505,7 +505,7 @@ func (b *BM25Searcher) doWand(limit int, results *terms.Terms, averagePropLength
 }
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
-	termResult := terms.NewTerm(query, queryTermIndex)
+	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0))
 
 	var filteredDocIDs *sroar.Bitmap
 	var filteredDocIDsThread []*sroar.Bitmap

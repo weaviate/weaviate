@@ -1457,22 +1457,79 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	defer b.flushLock.RUnlock()
 
 	segmentsDisk := b.disk.segments
-	output := make([][]terms.TermInterface, len(segmentsDisk))
+	output := make([][]terms.TermInterface, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
+
+	// flusing memtable
+	output[len(segmentsDisk)] = make([]terms.TermInterface, 0, len(query))
+
+	// active memtable
+	output[len(segmentsDisk)+1] = make([]terms.TermInterface, 0, len(query))
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
 		n := uint64(0)
+
+		flushing := terms.NewTerm(queryTerm, i, propertyBoost)
+		active := terms.NewTerm(queryTerm, i, propertyBoost)
+		if b.flushing != nil {
+			mapPairs, err := b.flushing.getMap(key)
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return nil, err
+			}
+			n2, err := addDataToTerm(mapPairs, filterDocIds, flushing)
+			if err != nil {
+				return nil, err
+			}
+			n += n2
+			if n2 > 0 {
+				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
+			}
+		}
+
+		if b.active != nil {
+			mapPairs, err := b.active.getMap(key)
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return nil, err
+			}
+			n2, err := addDataToTerm(mapPairs, filterDocIds, active)
+			if err != nil {
+				return nil, err
+			}
+			n += n2
+			if n2 > 0 {
+				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
+			}
+		}
+
 		for _, segment := range segmentsDisk {
 			if segment.strategy == segmentindex.StrategyInverted && segment.hasKey(key) {
 				n += segment.getDocCount(key)
 			}
 		}
+
 		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		flushing.SetIdf(idfs[i])
+		active.SetIdf(idfs[i])
 
 	}
 
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+
+	if b.flushing != nil {
+		tombstones, err := b.flushing.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)] = tombstones
+
+	}
+
+	tombstones, err := b.active.GetTombstones()
+	if err != nil {
+		return nil, err
+	}
+	allTombstones[len(segmentsDisk)+1] = tombstones
 
 	for i, segment := range segmentsDisk {
 		tombstones, err := segment.GetTombstones()
@@ -1562,4 +1619,36 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 	*/
+}
+
+func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Term) (uint64, error) {
+	n := uint64(0)
+	data := make([]terms.DocPointerWithScore, 0, len(mem))
+
+	for _, v := range mem {
+		if v.Tombstone {
+			continue
+		}
+		n++
+		if len(v.Value) < 8 {
+			// b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+			continue
+		}
+		d := terms.DocPointerWithScore{}
+		if err := d.FromKeyVal(v.Key, v.Value, false, 1.0); err != nil {
+			return 0, err
+		}
+		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
+			continue
+		}
+		data = append(data, d)
+
+	}
+	if len(data) == 0 {
+		return n, nil
+	}
+	term.Data = data
+	term.SetPosPointer(0)
+	term.SetIdPointer(term.Data[0].Id)
+	return n, nil
 }

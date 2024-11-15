@@ -208,12 +208,14 @@ type Term struct {
 	exhausted      bool
 	queryTerm      string
 	queryTermIndex int
+	propertyBoost  float64
 }
 
-func NewTerm(queryTerm string, queryTermIndex int) *Term {
+func NewTerm(queryTerm string, queryTermIndex int, propertyBoost float32) *Term {
 	return &Term{
 		queryTerm:      queryTerm,
 		queryTermIndex: queryTermIndex,
+		propertyBoost:  float64(propertyBoost),
 	}
 }
 
@@ -222,9 +224,9 @@ func (t *Term) Score(averagePropLength float64, config schema.BM25Config, additi
 	freq := float64(pair.Frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
 	if !additionalExplanations {
-		return t.idPointer, tf * t.idf, nil
+		return t.idPointer, tf * t.idf * t.propertyBoost, nil
 	}
-	return t.idPointer, tf * t.idf, &pair
+	return t.idPointer, tf * t.idf * t.propertyBoost, &pair
 }
 
 func (t *Term) Advance() {
@@ -250,7 +252,7 @@ func (t *Term) AdvanceAtLeast(minID uint64) {
 }
 
 func (t *Term) AdvanceAtLeastShallow(minID uint64) {
-	t.AdvanceAtLeast(minID)
+	t.AdvanceAtLeast(minID - 1)
 }
 
 func (t *Term) Count() int {
@@ -294,7 +296,7 @@ func (t *Term) SetIdPointer(idPointer uint64) {
 }
 
 func (t *Term) CurrentBlockImpact() float32 {
-	return float32(t.idf)
+	return float32(t.idf * t.propertyBoost)
 }
 
 func (t *Term) CurrentBlockMaxId() uint64 {
@@ -336,7 +338,7 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += term.Idf()
+		cumScore += float64(term.CurrentBlockImpact())
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}
