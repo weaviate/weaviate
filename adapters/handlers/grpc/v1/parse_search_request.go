@@ -697,6 +697,10 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
+			linkedClass, err := getClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
@@ -706,7 +710,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -793,8 +797,12 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
+			linkedClass, err := getClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
