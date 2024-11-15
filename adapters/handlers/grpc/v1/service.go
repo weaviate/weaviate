@@ -212,7 +212,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.schemaManager.ReadOnlyClass,
+		s.classGetterFunc(principal),
 	)
 	replier := NewReplier(
 		req.Uses_123Api || req.Uses_125Api || req.Uses_127Api,
