@@ -190,7 +190,7 @@ func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
-	if err := vectorIndex.Flush(); err != nil {
+	if err := queue.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 

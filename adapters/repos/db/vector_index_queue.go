@@ -35,9 +35,10 @@ const (
 type VectorIndexQueue struct {
 	*queue.DiskQueue
 
-	shard     *Shard
-	scheduler *queue.Scheduler
-	metrics   *IndexQueueMetrics
+	asyncEnabled bool
+	shard        *Shard
+	scheduler    *queue.Scheduler
+	metrics      *IndexQueueMetrics
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
 	// indicate if the index is being upgraded
@@ -52,8 +53,9 @@ func NewVectorIndexQueue(
 	index VectorIndex,
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
-		shard:     shard,
-		scheduler: shard.scheduler,
+		shard:        shard,
+		scheduler:    shard.scheduler,
+		asyncEnabled: asyncEnabled(),
 	}
 	viq.vectorIndex = index
 
@@ -97,7 +99,7 @@ func (iq *VectorIndexQueue) Close() error {
 }
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
-	if !asyncEnabled() {
+	if !iq.asyncEnabled {
 		ids := make([]uint64, len(vectors))
 		vecs := make([][]float32, len(vectors))
 		for i, v := range vectors {
@@ -148,11 +150,11 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 		}
 	}
 
-	return iq.DiskQueue.Flush()
+	return nil
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
-	if !asyncEnabled() {
+	if !iq.asyncEnabled {
 		return iq.vectorIndex.Delete(ids...)
 	}
 
@@ -169,6 +171,14 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to push record to queue")
 		}
+	}
+
+	return nil
+}
+
+func (iq *VectorIndexQueue) Flush() error {
+	if !iq.asyncEnabled {
+		return iq.vectorIndex.Flush()
 	}
 
 	return iq.DiskQueue.Flush()

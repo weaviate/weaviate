@@ -64,17 +64,17 @@ func TestQueuePush(t *testing.T) {
 	t.Run("keeps track of last push time", func(t *testing.T) {
 		q := makeQueue(t, s, discardExecutor())
 
-		lpt := q.lastPushTime.Load()
+		lpt := q.lastPushTime
 		require.NotNil(t, lpt)
 
 		pushMany(t, q, 1, 100, 200, 300)
 
-		lpt = q.lastPushTime.Load()
+		lpt = q.lastPushTime
 		require.NotNil(t, lpt)
 
 		pushMany(t, q, 1, 400, 500, 600)
 
-		lpt2 := q.lastPushTime.Load()
+		lpt2 := q.lastPushTime
 		require.NotEqual(t, lpt, lpt2)
 	})
 
@@ -242,4 +242,25 @@ func newTestLogger() logrus.FieldLogger {
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
 	return logger
+}
+
+func BenchmarkQueuePush(b *testing.B) {
+	rec := make([]byte, 10*1024)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		d, err := NewDiskQueue(DiskQueueOptions{
+			Dir:         filepath.Join(b.TempDir(), "test_queue"),
+			ID:          "test_queue",
+			Scheduler:   makeScheduler(b),
+			TaskDecoder: &mockTaskDecoder{},
+		})
+		require.NoError(b, err)
+		b.StartTimer()
+
+		for j := 0; j < 20_000; j++ {
+			d.Push(rec)
+		}
+	}
 }
