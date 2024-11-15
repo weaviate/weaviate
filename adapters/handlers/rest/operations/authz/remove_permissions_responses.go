@@ -49,6 +49,51 @@ func (o *RemovePermissionsOK) WriteResponse(rw http.ResponseWriter, producer run
 	rw.WriteHeader(200)
 }
 
+// RemovePermissionsBadRequestCode is the HTTP code returned for type RemovePermissionsBadRequest
+const RemovePermissionsBadRequestCode int = 400
+
+/*
+RemovePermissionsBadRequest Malformed request.
+
+swagger:response removePermissionsBadRequest
+*/
+type RemovePermissionsBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewRemovePermissionsBadRequest creates RemovePermissionsBadRequest with default headers values
+func NewRemovePermissionsBadRequest() *RemovePermissionsBadRequest {
+
+	return &RemovePermissionsBadRequest{}
+}
+
+// WithPayload adds the payload to the remove permissions bad request response
+func (o *RemovePermissionsBadRequest) WithPayload(payload *models.ErrorResponse) *RemovePermissionsBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the remove permissions bad request response
+func (o *RemovePermissionsBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *RemovePermissionsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // RemovePermissionsUnauthorizedCode is the HTTP code returned for type RemovePermissionsUnauthorized
 const RemovePermissionsUnauthorizedCode int = 401
 

@@ -63,8 +63,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, forbidden := err.(*authz.CreateRoleForbidden)
-		require.True(t, forbidden)
+		err, failed := err.(*authz.CreateRoleBadRequest)
+		require.True(t, failed)
 		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
 	})
 
@@ -74,8 +74,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, forbidden := err.(*authz.DeleteRoleForbidden)
-		require.True(t, forbidden)
+		err, failed := err.(*authz.DeleteRoleBadRequest)
+		require.True(t, failed)
 		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
 	})
 
@@ -91,8 +91,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, forbidden := err.(*authz.AddPermissionsForbidden)
-		require.True(t, forbidden)
+		err, failed := err.(*authz.AddPermissionsBadRequest)
+		require.True(t, failed)
 		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
 	})
 
@@ -108,8 +108,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, forbidden := err.(*authz.RemovePermissionsForbidden)
-		require.True(t, forbidden)
+		err, failed := err.(*authz.RemovePermissionsBadRequest)
+		require.True(t, failed)
 		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
 	})
 }
@@ -119,10 +119,18 @@ func TestAuthzRolesJourney(t *testing.T) {
 	existingKey := "existing-key"
 	existingRole := "admin"
 
-	testRole := "test-role"
+	testRoleName := "test-role"
 	testAction1 := "create_collections"
 	testAction2 := "delete_collections"
 	all := "*"
+
+	testRole1 := &models.Role{
+		Name: &testRoleName,
+		Permissions: []*models.Permission{{
+			Action:     &testAction1,
+			Collection: &all,
+		}},
+	}
 
 	clientAuth := helper.CreateAuth(existingKey)
 
@@ -146,14 +154,15 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("create role", func(t *testing.T) {
-		helper.CreateRole(t, existingKey,
-			&models.Role{
-				Name: &testRole,
-				Permissions: []*models.Permission{{
-					Action:     &testAction1,
-					Collection: &all,
-				}},
-			})
+		helper.CreateRole(t, existingKey, testRole1)
+	})
+
+	t.Run("fail to create existing role", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(testRole1), clientAuth)
+		require.NotNil(t, err)
+		err, conflict := err.(*authz.CreateRoleConflict)
+		require.True(t, conflict)
+		require.Contains(t, err.Payload.Error[0].Message, "already exists")
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
@@ -162,25 +171,25 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
-		role := helper.GetRoleByName(t, existingKey, testRole)
+		role := helper.GetRoleByName(t, existingKey, testRoleName)
 		require.NotNil(t, role)
-		require.Equal(t, testRole, *role.Name)
+		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
 		require.Equal(t, testAction1, *role.Permissions[0].Action)
 	})
 
 	t.Run("add permission to role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name:        &testRole,
+			Name:        &testRoleName,
 			Permissions: []*models.Permission{{Action: &testAction2, Collection: &all}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
 
 	t.Run("get role by name after adding permission", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
-		require.Equal(t, testRole, *res.Payload.Name)
+		require.Equal(t, testRoleName, *res.Payload.Name)
 		require.Equal(t, 2, len(res.Payload.Permissions))
 		require.Equal(t, testAction1, *res.Payload.Permissions[0].Action)
 		require.Equal(t, testAction2, *res.Payload.Permissions[1].Action)
@@ -188,23 +197,23 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	t.Run("remove permission from role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
-			Name:        &testRole,
+			Name:        &testRoleName,
 			Permissions: []*models.Permission{{Action: &testAction2, Collection: &all}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
 
 	t.Run("get role by name after removing permission", func(t *testing.T) {
-		role := helper.GetRoleByName(t, existingKey, testRole)
+		role := helper.GetRoleByName(t, existingKey, testRoleName)
 		require.NotNil(t, role)
-		require.Equal(t, testRole, *role.Name)
+		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
 		require.Equal(t, testAction1, *role.Permissions[0].Action)
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(existingUser).WithBody(authz.AssignRoleBody{Roles: []string{testRole}}),
+			authz.NewAssignRoleParams().WithID(existingUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
 			clientAuth,
 		)
 		require.Nil(t, err)
@@ -221,21 +230,21 @@ func TestAuthzRolesJourney(t *testing.T) {
 		}
 		sort.Strings(names)
 
-		roles := []string{existingRole, testRole}
+		roles := []string{existingRole, testRoleName}
 		sort.Strings(roles)
 
 		require.Equal(t, roles, names)
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRole), clientAuth)
+		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, existingUser, res.Payload[0])
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
-		helper.DeleteRole(t, existingKey, testRole)
+		helper.DeleteRole(t, existingKey, testRoleName)
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
@@ -251,7 +260,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get non-existent role by name", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRole), clientAuth)
+		_, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(testRoleName), clientAuth)
 		require.NotNil(t, err)
 		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})

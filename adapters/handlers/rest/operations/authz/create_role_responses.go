@@ -164,6 +164,51 @@ func (o *CreateRoleForbidden) WriteResponse(rw http.ResponseWriter, producer run
 	}
 }
 
+// CreateRoleConflictCode is the HTTP code returned for type CreateRoleConflict
+const CreateRoleConflictCode int = 409
+
+/*
+CreateRoleConflict Role already exists
+
+swagger:response createRoleConflict
+*/
+type CreateRoleConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCreateRoleConflict creates CreateRoleConflict with default headers values
+func NewCreateRoleConflict() *CreateRoleConflict {
+
+	return &CreateRoleConflict{}
+}
+
+// WithPayload adds the payload to the create role conflict response
+func (o *CreateRoleConflict) WithPayload(payload *models.ErrorResponse) *CreateRoleConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the create role conflict response
+func (o *CreateRoleConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CreateRoleConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // CreateRoleUnprocessableEntityCode is the HTTP code returned for type CreateRoleUnprocessableEntity
 const CreateRoleUnprocessableEntityCode int = 422
 
