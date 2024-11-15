@@ -46,7 +46,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 	require.Nil(t, err)
 
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles()[0]).Return(nil)
-	controller.On("GetRoles", *params.Body.Name).Return([]*models.Role{}, nil)
+	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 	controller.On("UpsertRolesPermissions", policies).Return(nil)
 
 	h := &authZHandlers{
