@@ -45,6 +45,12 @@ func (o *RemovePermissionsReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewRemovePermissionsBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewRemovePermissionsUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -126,6 +132,74 @@ func (o *RemovePermissionsOK) String() string {
 }
 
 func (o *RemovePermissionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewRemovePermissionsBadRequest creates a RemovePermissionsBadRequest with default headers values
+func NewRemovePermissionsBadRequest() *RemovePermissionsBadRequest {
+	return &RemovePermissionsBadRequest{}
+}
+
+/*
+RemovePermissionsBadRequest describes a response with status code 400, with default header values.
+
+Malformed request.
+*/
+type RemovePermissionsBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this remove permissions bad request response has a 2xx status code
+func (o *RemovePermissionsBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this remove permissions bad request response has a 3xx status code
+func (o *RemovePermissionsBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this remove permissions bad request response has a 4xx status code
+func (o *RemovePermissionsBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this remove permissions bad request response has a 5xx status code
+func (o *RemovePermissionsBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this remove permissions bad request response a status code equal to that given
+func (o *RemovePermissionsBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the remove permissions bad request response
+func (o *RemovePermissionsBadRequest) Code() int {
+	return 400
+}
+
+func (o *RemovePermissionsBadRequest) Error() string {
+	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *RemovePermissionsBadRequest) String() string {
+	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *RemovePermissionsBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *RemovePermissionsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

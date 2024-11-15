@@ -108,7 +108,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, forbidden := err.(*authz.RemovePermissionsForbidden)
+		err, forbidden := err.(*authz.RemovePermissionsBadRequest)
 		require.True(t, forbidden)
 		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
 	})
