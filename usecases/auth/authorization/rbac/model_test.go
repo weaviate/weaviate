@@ -49,13 +49,13 @@ func TestKeyMatch5AuthZ(t *testing.T) {
 		{"Class level collections Class1 exact", authorization.Collections("Class1")[0], conv.CasbinCollections("Class1"), true},
 		{"Class level collections Class2 mismatch", authorization.Collections("Class2")[0], conv.CasbinCollections("Class1"), false},
 		{"Class level shards ABC TenantX", authorization.Shards("ABC", "TenantX")[0], conv.CasbinCollections("ABC"), true},
-		{"Class level objects ABC TenantX objectY", authorization.Objects("ABC", "TenantX", "objectY"), conv.CasbinCollections("ABC"), true},
+		{"Class level objects ABC TenantX objectY", authorization.Objects("ABC", "TenantX", "objectY"), conv.CasbinObjects("ABC", "*", "*"), true},
 
 		// Tenants level
 		{"Tenants level shards", authorization.Shards("")[0], conv.CasbinCollections("*"), true},
 		{"Tenants level shards ABC Tenant1", authorization.Shards("ABC", "Tenant1")[0], conv.CasbinShards("*", "*"), true},
 		{"Tenants level shards Class1 Tenant1", authorization.Shards("Class1", "Tenant1")[0], conv.CasbinShards("*", "Tenant1"), true},
-		{"Tenants level objects Class1 Tenant1 ObjectY", authorization.Objects("Class1", "Tenant1", "ObjectY"), conv.CasbinShards("*", "Tenant1"), true},
+		{"Tenants level objects Class1 Tenant1 ObjectY", authorization.Objects("Class1", "Tenant1", "ObjectY"), conv.CasbinObjects("*", "Tenant1", ""), true},
 		{"Tenants level shards Class1 Tenant2 mismatch", authorization.Shards("Class1", "Tenant2")[0], conv.CasbinShards("*", "Tenant1"), false},
 		{"Tenants level shards Class1 Tenant2 mismatch 2", authorization.Shards("Class1", "Tenant2")[0], conv.CasbinShards("Class2", "Tenant1"), false},
 		{"Tenants level shards mismatch", authorization.Shards("")[0], conv.CasbinCollections("Class1"), false},
@@ -63,25 +63,24 @@ func TestKeyMatch5AuthZ(t *testing.T) {
 		{"Tenants level shards Class1 tenant1", authorization.Shards("Class1", "tenant1")[0], conv.CasbinCollections("Class1"), true},
 
 		// Objects level
-		{"Objects level all", authorization.Objects("", "", ""), conv.CasbinCollections(".*"), true},
-		{"Objects level ABC Tenant1", authorization.Objects("ABC", "Tenant1", ""), conv.CasbinShards("*", "*"), true},
-		{"Objects level ABC Tenant1 exact", authorization.Objects("ABC", "Tenant1", ""), conv.CasbinShards("*", "Tenant1"), true},
-		{"Objects level ABC Tenant1 abc", authorization.Objects("ABC", "Tenant1", "abc"), conv.CasbinShards("*", "Tenant1"), true},
+		{"Objects level all", authorization.Objects("", "", ""), conv.CasbinObjects(".*", ".*", ".*"), true},
+		{"Objects level ABC Tenant1", authorization.Objects("ABC", "Tenant1", ""), conv.CasbinObjects("*", "*", "*"), true},
+		{"Objects level ABC Tenant1 exact", authorization.Objects("ABC", "Tenant1", ""), conv.CasbinObjects("*", "Tenant1", "*"), true},
+		{"Objects level ABC Tenant1 abc", authorization.Objects("ABC", "Tenant1", "abc"), conv.CasbinObjects("*", "Tenant1", "*"), true},
 		{"Objects level ABC Tenant1 abc exact", authorization.Objects("ABC", "Tenant1", "abc"), conv.CasbinObjects("*", "Tenant1", "*"), true},
 		{"Objects level ABC Tenant1 abc exact 2", authorization.Objects("ABC", "Tenant1", "abc"), conv.CasbinObjects("*", "*", "abc"), true},
 		{"Objects level ABC Tenant1 abc exact 3", authorization.Objects("ABC", "Tenant1", "abc"), conv.CasbinObjects("ABC", "Tenant1", "abc"), true},
 		{"Objects level ABCD Tenant1 abc mismatch", authorization.Objects("ABCD", "Tenant1", "abc"), conv.CasbinObjects("ABC", "Tenant1", "abc"), false},
 		{"Objects level ABC Tenant1 abcd mismatch", authorization.Objects("ABC", "Tenant1", "abcd"), conv.CasbinObjects("ABC", "Tenant1", "abc"), false},
-		{"Objects level ABC bar abcd", authorization.Objects("ABC", "bar", "abcd"), conv.CasbinShards("*", "bar"), true},
+		{"Objects level ABC bar abcd", authorization.Objects("ABC", "bar", "abcd"), conv.CasbinObjects("*", "bar", ""), true},
 
 		// Regex
 		{"Regex collections ABCD", authorization.Collections("ABCD")[0], conv.CasbinCollections("ABC"), false},
 		{"Regex shards ABC", authorization.Shards("ABC", "")[0], conv.CasbinCollections("ABC"), true},
-		{"Regex objects ABC", authorization.Objects("ABC", "", ""), conv.CasbinCollections("ABC"), true},
-		{"Regex objects ABC exact", authorization.Objects("ABC", "", ""), conv.CasbinCollections("ABC"), true},
-		{"Regex objects ABCD mismatch", authorization.Objects("ABCD", "", ""), conv.CasbinCollections("ABC"), false},
-		{"Regex objects ABCD wildcard", authorization.Objects("ABCD", "", ""), conv.CasbinCollections("ABC.*"), true},
-		{"Regex objects BCD mismatch", authorization.Objects("BCD", "", ""), conv.CasbinCollections("ABC"), false},
+		{"Regex objects ABC", authorization.Objects("ABC", "", ""), conv.CasbinObjects("ABC", "*", "*"), true},
+		{"Regex objects ABCD mismatch", authorization.Objects("ABCD", "", ""), conv.CasbinObjects("ABC", "*", "*"), false},
+		{"Regex objects ABCD wildcard", authorization.Objects("ABCD", "", ""), conv.CasbinObjects("ABC.*", "*", "*"), true},
+		{"Regex objects BCD mismatch", authorization.Objects("BCD", "", ""), conv.CasbinObjects("ABC", "*", "*"), false},
 
 		{"Regex collections ABC wildcard", authorization.Collections("ABC")[0], conv.CasbinCollections("ABC*"), true},
 		{"Regex collections ABC wildcard 2", authorization.Collections("ABC")[0], conv.CasbinCollections("ABC*"), true},
@@ -89,8 +88,6 @@ func TestKeyMatch5AuthZ(t *testing.T) {
 
 		// Shards read on collections level permissions
 		{"Shards read on collections level ABC", authorization.Shards("ABC")[0], conv.CasbinCollections("ABC"), true},
-		// Objects read on collections level permissions
-		{"Objects read on collections level ABC", authorization.Objects("ABC", "", ""), conv.CasbinCollections("ABC"), true},
 
 		// some other cases
 		{"Mismatched collection", authorization.Collections("Class1")[0], conv.CasbinCollections("Class2"), false},
@@ -100,7 +97,7 @@ func TestKeyMatch5AuthZ(t *testing.T) {
 		{"Partial match collection", authorization.Collections("Class1")[0], conv.CasbinCollections("Cla*"), true},
 		{"Partial match shard", authorization.Shards("Class1", "Shard1")[0], conv.CasbinShards("Class1", "Sha*"), true},
 		{"Partial match object", authorization.Objects("Class1", "Shard1", "Object1"), conv.CasbinObjects("Class1", "Shard1", "Obj*"), true},
-		{"Special character mismatch", authorization.Objects("Class1", "Shard1", "Object1"), "collections/Class1/shards/Shard1/objects/Object1!", false},
+		{"Special character mismatch", authorization.Objects("Class1", "Shard1", "Object1"), "data/collections/Class1/shards/Shard1/objects/Object1!", false},
 		{"Mismatched object", authorization.Objects("Class1", "Shard1", "Object1"), conv.CasbinObjects("Class1", "Shard1", "Object2"), false},
 	}
 
