@@ -196,7 +196,7 @@ func extractDataTypeProperty(getClass func(string) (*models.Class, error), opera
 		classOfProp := on[len(on)-2]
 		class, err := getClass(classOfProp)
 		if err != nil {
-			return schema.DataTypeString, err
+			return dataType, err
 		}
 		prop, err := schema.GetPropertyByName(class, propToCheck)
 		if err != nil {
@@ -212,7 +212,7 @@ func extractDataTypeProperty(getClass func(string) (*models.Class, error), opera
 
 		class, err := getClass(className)
 		if err != nil {
-			return schema.DataTypeString, err
+			return dataType, err
 		}
 		if class == nil {
 			return dataType, fmt.Errorf("could not find class %s in schema", className)
@@ -263,7 +263,7 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 func extractPathNew(getClass func(string) (*models.Class, error), className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
 	class, err := getClass(className)
 	if err != nil {
-		return nil, schema.DataTypeString, err
+		return nil, "", err
 	}
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
