@@ -597,6 +597,7 @@ type IndexConfig struct {
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
+	HNSWFlatSearchConcurrency      int
 	VisitedListPoolMaxSize         int
 	ReplicationFactor              *atomic.Int64
 	DeletionStrategy               string
