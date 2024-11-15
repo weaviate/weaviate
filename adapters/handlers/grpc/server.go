@@ -80,6 +80,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		state.SchemaManager,
 		state.BatchManager,
 		&state.ServerConfig.Config,
+		state.Authorizer,
 		state.Logger,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
