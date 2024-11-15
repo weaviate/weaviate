@@ -21,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-aws/clients"
 	additionalprovider "github.com/weaviate/weaviate/internal/modulecomponents/additional"
 	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-aws/clients"
 )
 
 const Name = "generative-aws"

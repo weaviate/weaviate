@@ -28,10 +28,10 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/internal/classification"
 	"github.com/weaviate/weaviate/internal/memwatch"
 	"github.com/weaviate/weaviate/internal/objects"
+	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {

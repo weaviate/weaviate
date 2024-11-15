@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/generative-ollama/config"
 	"github.com/weaviate/weaviate/internal/modulecomponents"
+	"github.com/weaviate/weaviate/modules/generative-ollama/config"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

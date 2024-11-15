@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	text2vecprojector "github.com/weaviate/weaviate/internal/modulecomponents/additional/projector"
+	text2vecneartext "github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
 	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
 	text2vecinterpretation "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/interpretation"
 	text2vecnn "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
@@ -32,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/extensions"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
-	text2vecprojector "github.com/weaviate/weaviate/internal/modulecomponents/additional/projector"
-	text2vecneartext "github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version

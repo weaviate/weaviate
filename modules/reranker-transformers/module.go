@@ -21,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
 	additionalprovider "github.com/weaviate/weaviate/internal/modulecomponents/additional"
 	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
+	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
 )
 
 const Name = "reranker-transformers"

@@ -17,8 +17,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
 	libvectorizer "github.com/weaviate/weaviate/internal/vectorizer"
+	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
 )
 
 type Vectorizer struct {

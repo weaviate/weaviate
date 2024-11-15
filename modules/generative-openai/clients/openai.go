@@ -29,8 +29,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-openai/config"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)

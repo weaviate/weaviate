@@ -30,8 +30,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-cohere/config"
 	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
+	"github.com/weaviate/weaviate/modules/reranker-cohere/config"
 )
 
 var _NUMCPU = runtime.NumCPU()

@@ -16,8 +16,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
 	libvectorizer "github.com/weaviate/weaviate/internal/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,

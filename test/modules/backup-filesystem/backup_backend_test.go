@@ -25,10 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/internal/backup"
 	"github.com/weaviate/weaviate/internal/config"
+	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
+	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
 func Test_FilesystemBackend_Backup(t *testing.T) {

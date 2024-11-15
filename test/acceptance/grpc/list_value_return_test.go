@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/internal/byteops"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 const (

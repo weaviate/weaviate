@@ -27,11 +27,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	ubak "github.com/weaviate/weaviate/internal/backup"
+	"github.com/weaviate/weaviate/internal/config"
 	mod "github.com/weaviate/weaviate/modules/backup-gcs"
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
-	ubak "github.com/weaviate/weaviate/internal/backup"
-	"github.com/weaviate/weaviate/internal/config"
 )
 
 func Test_GCSBackend_Backup(t *testing.T) {

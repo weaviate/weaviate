@@ -27,10 +27,10 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
-	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/internal/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
+	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
+	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 
 	"github.com/weaviate/weaviate/internal/traverser"
 )

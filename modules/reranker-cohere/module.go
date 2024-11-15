@@ -21,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-cohere/clients"
 	rerankeradditional "github.com/weaviate/weaviate/internal/modulecomponents/additional"
 	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
+	"github.com/weaviate/weaviate/modules/reranker-cohere/clients"
 )
 
 const Name = "reranker-cohere"

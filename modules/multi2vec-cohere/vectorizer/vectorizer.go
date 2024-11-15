@@ -18,9 +18,9 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/internal/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/internal/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
 )
 
 type Vectorizer struct {

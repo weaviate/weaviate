@@ -25,9 +25,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
-	"github.com/weaviate/weaviate/internal/modulecomponents/additional"
 )
 
 const Name = "text2vec-ollama"

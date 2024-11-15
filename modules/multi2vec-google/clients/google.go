@@ -24,8 +24,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
 	libvectorizer "github.com/weaviate/weaviate/internal/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
 )
 
 func buildURL(location, projectID, model string) string {

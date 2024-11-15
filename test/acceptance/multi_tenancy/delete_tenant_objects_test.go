@@ -19,8 +19,8 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/internal/replica"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestDeleteTenantObjects(t *testing.T) {

@@ -29,8 +29,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
 	"github.com/weaviate/weaviate/internal/modulecomponents"
+	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
 )
 
 type operationType string

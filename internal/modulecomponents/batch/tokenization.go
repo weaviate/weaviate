@@ -20,8 +20,8 @@ import (
 
 	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	objectsvectorizer "github.com/weaviate/weaviate/internal/modulecomponents/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 )
 
 type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)

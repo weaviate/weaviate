@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	"github.com/weaviate/weaviate/internal/backup"
+	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 )
 
 var backend *fakeBackupBackend
