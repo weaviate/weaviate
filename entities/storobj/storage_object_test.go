@@ -62,7 +62,6 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
-
 	)
 	before.DocID = 7
 
