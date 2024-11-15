@@ -60,7 +60,7 @@ type TenantWithVersion struct {
 
 type QueryTenantsResponse struct {
 	ShardVersion uint64
-	Tenants      []*models.Tenant
+	Tenants      []*models.TenantResponse
 }
 
 type QuerySchemaResponse struct {
