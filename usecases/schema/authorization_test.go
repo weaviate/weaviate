@@ -40,31 +40,31 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:        "GetSchema",
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Collections(),
+			expectedResources: authorization.Schema(),
 		},
 		{
 			methodName:        "GetConsistentSchema",
 			expectedVerb:      authorization.READ,
 			additionalArgs:    []interface{}{false},
-			expectedResources: authorization.Collections(),
+			expectedResources: authorization.Schema(),
 		},
 		{
 			methodName:        "GetClass",
 			additionalArgs:    []interface{}{"classname"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Collections("classname"),
+			expectedResources: authorization.Schema("classname"),
 		},
 		{
 			methodName:        "GetConsistentClass",
 			additionalArgs:    []interface{}{"classname", false},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Collections("classname"),
+			expectedResources: authorization.Schema("classname"),
 		},
 		{
 			methodName:        "GetCachedClass",
 			additionalArgs:    []interface{}{"classname"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.Collections("classname"),
+			expectedResources: authorization.Schema("classname"),
 		},
 		{
 			methodName:        "AddClass",
