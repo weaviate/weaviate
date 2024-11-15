@@ -218,7 +218,7 @@ func TestScheduler(t *testing.T) {
 	})
 }
 
-func makeScheduler(t *testing.T, workers ...int) *Scheduler {
+func makeScheduler(t testing.TB, workers ...int) *Scheduler {
 	t.Helper()
 
 	logger := logrus.New()

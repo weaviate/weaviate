@@ -73,6 +73,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
+			if err = queue.Flush(); err != nil {
+				return fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err)
+			}
+
 			if err = queue.Close(); err != nil {
 				return fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err)
 			}
@@ -92,6 +96,9 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			}
 		}
 	} else {
+		if err = s.queue.Flush(); err != nil {
+			return errors.Wrap(err, "flush vector index queue commitlog")
+		}
 		if err = s.queue.Close(); err != nil {
 			return errors.Wrap(err, "shut down vector index queue")
 		}

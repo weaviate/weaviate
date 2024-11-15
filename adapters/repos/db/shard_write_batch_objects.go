@@ -501,15 +501,15 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 	}
 
 	if ob.shard.hasTargetVectors() {
-		for targetVector, vectorIndex := range ob.shard.VectorIndexes() {
-			if err := vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range ob.shard.Queues() {
+			if err := queue.Flush(); err != nil {
 				for i := range ob.objects {
 					ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 				}
 			}
 		}
 	} else {
-		if err := ob.shard.VectorIndex().Flush(); err != nil {
+		if err := ob.shard.Queue().Flush(); err != nil {
 			for i := range ob.objects {
 				ob.setErrorAtIndex(err, i)
 			}

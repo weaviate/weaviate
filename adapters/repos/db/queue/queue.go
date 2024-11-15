@@ -23,7 +23,6 @@ import (
 	"regexp"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -67,15 +66,16 @@ type DiskQueue struct {
 	scheduler    *Scheduler
 	id           string
 	dir          string
-	lastPushTime atomic.Pointer[time.Time]
 
 	// m protects the disk operations
-	m           sync.RWMutex
-	buf         bytes.Buffer
-	closed      bool
-	w           *chunkWriter
-	r           *chunkReader
-	recordCount uint64
+	m            sync.RWMutex
+	lastPushTime time.Time
+	closed       bool
+	w            *chunkWriter
+	r            *chunkReader
+	recordCount  uint64
+
+	rmLock sync.Mutex
 }
 
 type DiskQueueOptions struct {
@@ -110,7 +110,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
 	if opt.StaleTimeout <= 0 {
-		opt.StaleTimeout = 1 * time.Second
+		opt.StaleTimeout = 5 * time.Second
 	}
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
@@ -145,8 +145,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	}
 
 	// set the last push time to now
-	now := time.Now()
-	q.lastPushTime.Store(&now)
+	q.lastPushTime = time.Now()
 
 	return &q, nil
 }
@@ -182,36 +181,49 @@ func (q *DiskQueue) ID() string {
 	return q.id
 }
 
-func (q *DiskQueue) Push(record []byte) error {
-	q.m.Lock()
-	defer q.m.Unlock()
+var bufPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
 
+func (q *DiskQueue) Push(record []byte) error {
+	q.m.RLock()
 	if q.closed {
+		q.m.RUnlock()
 		return errors.New("queue closed")
 	}
+	q.m.RUnlock()
 
 	if len(record) == 0 {
 		return errors.New("empty record")
 	}
 
-	now := time.Now()
-	q.lastPushTime.Store(&now)
+	buf := bufPool.Get().(*bytes.Buffer)
+	defer bufPool.Put(buf)
 
-	q.buf.Reset()
+	buf.Reset()
 
+	var bytesBuf [4]byte
 	// length of the record in 4 bytes
-	err := binary.Write(&q.buf, binary.BigEndian, uint32(len(record)))
+	binary.BigEndian.PutUint32(bytesBuf[:], uint32(len(record)))
+	_, err := buf.Write(bytesBuf[:])
 	if err != nil {
 		return errors.Wrap(err, "failed to write record length")
 	}
 
 	// write the record
-	_, err = q.buf.Write(record)
+	_, err = buf.Write(record)
 	if err != nil {
 		return errors.Wrap(err, "failed to write record")
 	}
 
-	_, err = q.w.Write(q.buf.Bytes())
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	q.lastPushTime = time.Now()
+
+	_, err = q.w.Write(buf.Bytes())
 	if err != nil {
 		return errors.Wrap(err, "failed to write record")
 	}
@@ -320,18 +332,14 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 	}
 
 	q.m.Lock()
-	defer q.m.Unlock()
 
 	if q.w.recordCount == 0 {
+		q.m.Unlock()
 		return nil, nil
 	}
 
-	lastPushed := q.lastPushTime.Load()
-	if lastPushed == nil {
-		return nil, nil
-	}
-
-	if time.Since(*lastPushed) < q.staleTimeout {
+	if time.Since(q.lastPushTime) < q.staleTimeout {
+		q.m.Unlock()
 		return nil, nil
 	}
 
@@ -339,8 +347,11 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 
 	err := q.w.Promote()
 	if err != nil {
+		q.m.Unlock()
 		return nil, err
 	}
+
+	q.m.Unlock()
 
 	return q.r.ReadChunk()
 }
@@ -385,8 +396,8 @@ func (q *DiskQueue) Drop() error {
 }
 
 func (q *DiskQueue) removeChunk(c *chunk) {
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.rmLock.Lock()
+	defer q.rmLock.Unlock()
 
 	_ = c.Close()
 
@@ -401,7 +412,9 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 		return
 	}
 
+	q.m.Lock()
 	q.recordCount -= c.count
+	q.m.Unlock()
 }
 
 // calculateRecordCount is a slow method that determines the number of records
@@ -531,6 +544,7 @@ type chunkWriter struct {
 	f           *os.File
 	size        uint64
 	recordCount uint64
+	buf         [8]byte
 }
 
 func newChunkWriter(dir string, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
@@ -538,7 +552,7 @@ func newChunkWriter(dir string, logger logrus.FieldLogger, maxSize uint64) (*chu
 		dir:     dir,
 		logger:  logger,
 		maxSize: maxSize,
-		w:       bufio.NewWriterSize(nil, 64*1024),
+		w:       bufio.NewWriterSize(nil, 10*1024*1024),
 	}
 
 	err := ch.Open()
@@ -550,20 +564,13 @@ func newChunkWriter(dir string, logger logrus.FieldLogger, maxSize uint64) (*chu
 }
 
 func (p *chunkWriter) Write(buf []byte) (int, error) {
-	if p.f == nil {
-		err := p.Open()
-		if err != nil {
-			return 0, err
-		}
-	}
-
 	if p.IsFull() {
 		err := p.Promote()
 		if err != nil {
 			return 0, err
 		}
 
-		err = p.Open()
+		err = p.Create()
 		if err != nil {
 			return 0, err
 		}
@@ -581,19 +588,7 @@ func (p *chunkWriter) Write(buf []byte) (int, error) {
 }
 
 func (p *chunkWriter) Flush() error {
-	err := p.w.Flush()
-	if err != nil {
-		return errors.Wrap(err, "failed to flush")
-	}
-
-	if p.f != nil {
-		err = p.f.Sync()
-		if err != nil {
-			return errors.Wrap(err, "failed to sync")
-		}
-	}
-
-	return nil
+	return p.w.Flush()
 }
 
 func (p *chunkWriter) Close() error {
@@ -619,11 +614,39 @@ func (p *chunkWriter) Close() error {
 	return nil
 }
 
-func (p *chunkWriter) Open() error {
-	err := p.Close()
+func (p *chunkWriter) Create() error {
+	var err error
+
+	p.f, err = os.OpenFile(filepath.Join(p.dir, partialChunkFile), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to create chunk file")
 	}
+
+	p.w.Reset(p.f)
+
+	// magic
+	_, err = p.w.Write([]byte(magicHeader))
+	if err != nil {
+		return errors.Wrap(err, "failed to write header")
+	}
+	// version
+	err = p.w.WriteByte(1)
+	if err != nil {
+		return errors.Wrap(err, "failed to write version")
+	}
+	// number of records
+	binary.BigEndian.PutUint64(p.buf[:], uint64(0))
+	_, err = p.w.Write(p.buf[:])
+	if err != nil {
+		return errors.Wrap(err, "failed to write size")
+	}
+	p.size = uint64(len(magicHeader) + 1 + 8)
+
+	return nil
+}
+
+func (p *chunkWriter) Open() error {
+	var err error
 
 	p.f, err = os.OpenFile(filepath.Join(p.dir, partialChunkFile), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
@@ -651,7 +674,8 @@ func (p *chunkWriter) Open() error {
 			return errors.Wrap(err, "failed to write version")
 		}
 		// number of records
-		err = binary.Write(p.w, binary.BigEndian, uint64(0))
+		binary.BigEndian.PutUint64(p.buf[:], uint64(0))
+		_, err = p.w.Write(p.buf[:])
 		if err != nil {
 			return errors.Wrap(err, "failed to write size")
 		}
@@ -674,17 +698,16 @@ func (p *chunkWriter) Open() error {
 	// count the records by reading the length of each record
 	// and skipping it
 	var count uint64
-	var buf [4]byte
 	for {
 		// read the record length
-		_, err := io.ReadFull(r, buf[:])
+		_, err := io.ReadFull(r, p.buf[:4])
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return errors.Wrap(err, "failed to read record length")
 		}
-		length := binary.BigEndian.Uint32(buf[:])
+		length := binary.BigEndian.Uint32(p.buf[:4])
 		if length == 0 {
 			return errors.New("invalid record length")
 		}
