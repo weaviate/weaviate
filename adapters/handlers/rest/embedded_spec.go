@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.2"
+    "version": "1.27.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -3695,7 +3695,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -4566,7 +4565,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -5564,7 +5562,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.27.2"
+    "version": "1.27.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -9407,7 +9405,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -9429,7 +9426,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }
@@ -10366,7 +10362,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -10388,7 +10383,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }
