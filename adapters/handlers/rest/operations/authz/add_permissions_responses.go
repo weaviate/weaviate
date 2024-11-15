@@ -49,6 +49,51 @@ func (o *AddPermissionsOK) WriteResponse(rw http.ResponseWriter, producer runtim
 	rw.WriteHeader(200)
 }
 
+// AddPermissionsBadRequestCode is the HTTP code returned for type AddPermissionsBadRequest
+const AddPermissionsBadRequestCode int = 400
+
+/*
+AddPermissionsBadRequest Malformed request.
+
+swagger:response addPermissionsBadRequest
+*/
+type AddPermissionsBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAddPermissionsBadRequest creates AddPermissionsBadRequest with default headers values
+func NewAddPermissionsBadRequest() *AddPermissionsBadRequest {
+
+	return &AddPermissionsBadRequest{}
+}
+
+// WithPayload adds the payload to the add permissions bad request response
+func (o *AddPermissionsBadRequest) WithPayload(payload *models.ErrorResponse) *AddPermissionsBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the add permissions bad request response
+func (o *AddPermissionsBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AddPermissionsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // AddPermissionsUnauthorizedCode is the HTTP code returned for type AddPermissionsUnauthorized
 const AddPermissionsUnauthorizedCode int = 401
 
