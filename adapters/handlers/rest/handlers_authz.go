@@ -242,7 +242,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
-		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
+		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
 	if err := h.controller.DeleteRoles(params.ID); err != nil {
