@@ -70,7 +70,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 					h.logger.WithField("action", "flatSearch").
 						Debugf("trying to get candidate: %v but we only have: %v elements.",
 							candidate, nodeSize)
-					return nil
+					continue
 				}
 
 				h.shardedNodeLocks.RLock(candidate)
@@ -78,13 +78,13 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 				h.shardedNodeLocks.RUnlock(candidate)
 
 				if c == nil || h.hasTombstone(candidate) {
-					return nil
+					continue
 				}
 
 				dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
 				if errors.As(err, &e) {
 					h.handleDeletedNode(e.DocID, "flatSearch")
-					return nil
+					continue
 				}
 				if err != nil {
 					return err

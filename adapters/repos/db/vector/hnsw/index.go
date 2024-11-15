@@ -246,7 +246,7 @@ func New(cfg Config, uc ent.UserConfig,
 		levelNormalizer:       1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:        uc.EFConstruction,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
-		flatSearchConcurrency: cfg.FlatSearchConcurrency,
+		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
@@ -463,13 +463,6 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 	}
 
 	return entryPointID, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
