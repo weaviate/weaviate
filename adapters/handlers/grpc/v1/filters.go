@@ -20,7 +20,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func ExtractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, className string) (filters.Clause, error) {
+func ExtractFilters(filterIn *pb.Filters, getClass func(string) (*models.Class, error), className string) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 	if filterIn.Operator == pb.Filters_OPERATOR_AND || filterIn.Operator == pb.Filters_OPERATOR_OR {
 		if filterIn.Operator == pb.Filters_OPERATOR_AND {
@@ -182,7 +182,7 @@ func ExtractFilters(filterIn *pb.Filters, getClass func(string) *models.Class, c
 	return returnFilter, nil
 }
 
-func extractDataTypeProperty(getClass func(string) *models.Class, operator filters.Operator, className string, on []string) (schema.DataType, error) {
+func extractDataTypeProperty(getClass func(string) (*models.Class, error), operator filters.Operator, className string, on []string) (schema.DataType, error) {
 	var dataType schema.DataType
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
@@ -194,9 +194,9 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 		}
 
 		classOfProp := on[len(on)-2]
-		class := getClass(classOfProp)
-		if class == nil {
-			return dataType, fmt.Errorf("could not find class %s in schema", classOfProp)
+		class, err := getClass(classOfProp)
+		if err != nil {
+			return schema.DataTypeString, err
 		}
 		prop, err := schema.GetPropertyByName(class, propToCheck)
 		if err != nil {
@@ -210,7 +210,10 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 			return schema.DataTypeInt, nil
 		}
 
-		class := getClass(className)
+		class, err := getClass(className)
+		if err != nil {
+			return schema.DataTypeString, err
+		}
 		if class == nil {
 			return dataType, fmt.Errorf("could not find class %s in schema", className)
 		}
@@ -233,7 +236,7 @@ func extractDataTypeProperty(getClass func(string) *models.Class, operator filte
 	return dataType, nil
 }
 
-func extractDataType(getClass func(string) *models.Class, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+func extractDataType(getClass func(string) (*models.Class, error), operator filters.Operator, classname string, on []string) (schema.DataType, error) {
 	propToFilterOn := on[len(on)-1]
 	if propToFilterOn == filters.InternalPropID {
 		return schema.DataTypeText, nil
@@ -257,10 +260,10 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: nil}, nil
 }
 
-func extractPathNew(getClass func(string) *models.Class, className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
-	class := getClass(className)
-	if class == nil {
-		return nil, "", fmt.Errorf("could not find class %s in schema", className)
+func extractPathNew(getClass func(string) (*models.Class, error), className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
+	class, err := getClass(className)
+	if err != nil {
+		return nil, schema.DataTypeString, err
 	}
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
