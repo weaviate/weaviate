@@ -1,7 +1,7 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.rbac.models import RBAC, DatabaseAction, CollectionsAction
+from weaviate.rbac.models import RBAC, RolesAction, CollectionsAction
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
@@ -28,8 +28,8 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collection(
-                    col1.name, CollectionsAction.READ_COLLECTIONS
+                permissions=RBAC.permissions.collections(
+                    collection=col1.name, actions=CollectionsAction.READ
                 ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
@@ -50,7 +50,7 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.database(DatabaseAction.READ_ROLES),
+                permissions=RBAC.permissions.roles(actions=RolesAction.READ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
 
@@ -69,8 +69,8 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collection(
-                    col2.name, CollectionsAction.READ_COLLECTIONS
+                permissions=RBAC.permissions.collections(
+                    collection=col2.name, actions=CollectionsAction.READ
                 ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
