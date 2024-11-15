@@ -140,16 +140,24 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	if *params.Body.Name == "" {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
+	}
+
+	if len(params.Body.Permissions) == 0 {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	}
+
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
-	polices, err := conv.PermissionToPolicies(params.Body.Permissions...)
+	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	if err != nil {
-		return authz.NewRemovePermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.controller.RemovePermissions(*params.Body.Name, polices); err != nil {
+	if err := h.controller.RemovePermissions(*params.Body.Name, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
