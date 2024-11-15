@@ -225,6 +225,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "Role already exists",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
@@ -6380,6 +6386,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Role already exists",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
