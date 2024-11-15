@@ -267,11 +267,11 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 }
 
 func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.CRUD, authorization.Users(params.Body.Roles...)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.Body.Roles...)...); err != nil {
 		return authz.NewAssignRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CRUD, authorization.Users(params.ID)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.ID)...); err != nil {
 		return authz.NewAssignRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
