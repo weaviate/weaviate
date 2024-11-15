@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	usersD            = "users"
 	rolesD            = "roles"
 	cluster           = "cluster"
 	collections       = "collections"
@@ -41,6 +42,14 @@ func newPolicy(policy []string) *authorization.Policy {
 
 func fromCasbinResource(resource string) string {
 	return strings.ReplaceAll(resource, ".*", "*")
+}
+
+func CasbinUsers(user string) string {
+	if user == "" {
+		user = "*"
+	}
+	user = strings.ReplaceAll(user, "*", ".*")
+	return fmt.Sprintf("users/%s", user)
 }
 
 func CasbinRoles(role string) string {
@@ -103,6 +112,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}
 	var resource string
 	switch domain {
+	case usersD:
+		user := "*"
+		if permission.User != nil {
+			user = *permission.User
+		}
+		resource = CasbinUsers(user)
 	case rolesD:
 		role := "*"
 		if permission.Role != nil {
@@ -186,6 +201,8 @@ func permission(policy []string) *models.Permission {
 		permission.Object = &splits[5]
 	case rolesD:
 		permission.Role = &splits[1]
+	case usersD:
+		permission.User = &splits[1]
 	// case cluster:
 
 	case "*":
@@ -193,6 +210,7 @@ func permission(policy []string) *models.Permission {
 		permission.Tenant = &all
 		permission.Object = &all
 		permission.Role = &all
+		permission.User = &all
 	}
 
 	return permission

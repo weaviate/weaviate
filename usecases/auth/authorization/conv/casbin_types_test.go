@@ -43,6 +43,9 @@ var (
 	deleteVerb = authorization.DELETE
 	manageVerb = authorization.CRUD
 
+	usersTests = []innerTest{
+		{permissionAction: authorization.ManageUsers, testDescription: manageDesc, policyVerb: manageVerb},
+	}
 	rolesTests = []innerTest{
 		{permissionAction: authorization.ManageRoles, testDescription: manageDesc, policyVerb: manageVerb},
 	}
@@ -82,6 +85,26 @@ func Test_policy(t *testing.T) {
 		policy     *authorization.Policy
 		tests      []innerTest
 	}{
+		{
+			name:       "all users",
+			permission: &models.Permission{},
+			policy: &authorization.Policy{
+				Resource: CasbinUsers("*"),
+				Domain:   "users",
+			},
+			tests: usersTests,
+		},
+		{
+			name: "a user",
+			permission: &models.Permission{
+				User: authorization.String("user1"),
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinUsers("user1"),
+				Domain:   "users",
+			},
+			tests: usersTests,
+		},
 		{
 			name:       "all roles",
 			permission: &models.Permission{},
@@ -321,6 +344,22 @@ func Test_permission(t *testing.T) {
 		tests      []innerTest
 	}{
 		{
+			name:   "all users",
+			policy: []string{"p", "users/*", "", "users"},
+			permission: &models.Permission{
+				User: authorization.All,
+			},
+			tests: usersTests,
+		},
+		{
+			name:   "a role",
+			policy: []string{"p", "users/user1", "", "users"},
+			permission: &models.Permission{
+				User: authorization.String("user1"),
+			},
+			tests: usersTests,
+		},
+		{
 			name:   "all roles",
 			policy: []string{"p", "roles/*", "", "roles"},
 			permission: &models.Permission{
@@ -523,6 +562,24 @@ func Test_permission(t *testing.T) {
 				require.Equal(t, tt.permission, permission)
 			})
 		}
+	}
+}
+
+func Test_pUsers(t *testing.T) {
+	tests := []struct {
+		user     string
+		expected string
+	}{
+		{user: "", expected: "users/.*"},
+		{user: "*", expected: "users/.*"},
+		{user: "foo", expected: "users/foo"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("user: %s", tt.user)
+		t.Run(name, func(t *testing.T) {
+			p := CasbinUsers(tt.user)
+			require.Equal(t, tt.expected, p)
+		})
 	}
 }
 
