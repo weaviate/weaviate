@@ -77,7 +77,7 @@ func TestCreateRoleConflict(t *testing.T) {
 			},
 		},
 	}
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles()[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles("newRole")[0]).Return(nil)
 	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{"newRole": {}}, nil)
 
 	h := &authZHandlers{
