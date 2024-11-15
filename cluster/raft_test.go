@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -50,6 +51,8 @@ func TestRaftEndpoints(t *testing.T) {
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
+
+	var zero int64 = 0
 
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
@@ -123,25 +126,31 @@ func TestRaftEndpoints(t *testing.T) {
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		DataVersion: &zero,
 	}}, getTenantsAll)
 
 	// QueryTenants one
 	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		DataVersion: &zero,
 	}}, getTenantsOne)
 
 	// QueryTenants one
 	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
-	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
+	assert.Equal(t, []*models.TenantResponse{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
@@ -362,4 +371,112 @@ func TestRaftPanics(t *testing.T) {
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
 	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
+}
+
+func TestRaftQueryDataVersion(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	m.indexer.On("Open", Anything).Return(nil)
+	m.indexer.On("Close", Anything).Return(nil)
+	m.indexer.On("AddClass", Anything).Return(nil)
+	m.indexer.On("RestoreClassDir", Anything).Return(nil)
+	m.indexer.On("UpdateClass", Anything).Return(nil)
+	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
+	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenantsProcess", Anything, Anything).Return(nil)
+	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
+
+	// used to verify data version increments when tenant is frozen
+	var (
+		zero int64 = 0
+		one  int64 = 1
+	)
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+
+	// Deadline exceeded while waiting for DB to be restored
+	func() {
+		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*30)
+		defer cancel()
+		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond, make(chan struct{})), context.DeadlineExceeded)
+	}()
+
+	// Open
+	defer srv.Close(ctx)
+	assert.Nil(t, srv.Open(ctx, m.indexer))
+
+	// Connect
+	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
+	assert.True(t, srv.store.IsLeader())
+	schemaReader := srv.SchemaReader()
+	assert.Equal(t, schemaReader.Len(), 0)
+
+	// AddClass
+	_, err := srv.AddClass(ctx, nil, nil)
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	assert.Equal(t, schemaReader.ClassEqual("C"), "")
+
+	cls := &models.Class{
+		Class:              "C",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+	_, err = srv.AddClass(ctx, cls, ss)
+	assert.Nil(t, err)
+	assert.Equal(t, schemaReader.ClassEqual("C"), "C")
+
+	// data version is 0 until tenant is frozen
+	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsAll)
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		DataVersion: &zero,
+	}}, getTenantsAll)
+
+	// freeze tenant to trigger data version increment
+	_, err = srv.UpdateTenants(ctx, "C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T0", Status: models.TenantActivityStatusFROZEN}}})
+	assert.Nil(t, err)
+	// migrator is mocked, so i have to call UpdateTenantsProcess directly
+	_, err = srv.UpdateTenantsProcess(ctx, "C", &command.TenantProcessRequest{
+		Node:   "C",
+		Action: command.TenantProcessRequest_ACTION_FREEZING,
+		TenantsProcesses: []*api.TenantsProcess{
+			{
+				Op: api.TenantsProcess_OP_DONE,
+				Tenant: &api.Tenant{
+					Name:   "T0",
+					Status: models.TenantActivityStatusFROZEN,
+				},
+			},
+		},
+	})
+	assert.Nil(t, err)
+
+	// verify data version is now 1 after freezing done
+	getTenantsAll2, _, err := srv.QueryTenants(cls.Class, []string{})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsAll2)
+	assert.Equal(t, []*models.TenantResponse{{
+		Tenant: models.Tenant{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusFROZEN,
+		},
+		DataVersion: &one,
+	}}, getTenantsAll2)
 }

@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -286,7 +288,38 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsGetOK().WithPayload(tenants)
+	return schema.NewTenantsGetOK().WithPayload(schemaUC.TenantResponsesToTenants(tenants))
+}
+
+func (s *schemaHandlers) getTenant(
+	params schema.TenantsGetOneParams,
+	principal *models.Principal,
+) middleware.Responder {
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, []string{params.TenantName})
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantsGetOneForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantsGetOneUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+	if len(tenants) == 0 {
+		s.metricRequestsTotal.logUserError(params.ClassName)
+		return schema.NewTenantsGetOneNotFound()
+	}
+	// we shouldn't ever get more than 1 tenant here, just adding handling to be safe
+	if len(tenants) > 1 {
+		return schema.NewTenantsGetOneInternalServerError().
+			WithPayload(errPayloadFromSingleErr(
+				fmt.Errorf("internal error: multiple tenants found: %v", tenants)))
+	}
+	// at this point we know we have exactly 1 tenant
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewTenantsGetOneOK().WithPayload(tenants[0])
 }
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
@@ -336,6 +369,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
 	api.SchemaTenantExistsHandler = schema.TenantExistsHandlerFunc(h.tenantExists)
+	api.SchemaTenantsGetOneHandler = schema.TenantsGetOneHandlerFunc(h.getTenant)
 }
 
 type schemaRequestsTotal struct {
