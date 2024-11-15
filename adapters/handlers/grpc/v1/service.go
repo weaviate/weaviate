@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -40,12 +43,14 @@ type Service struct {
 	schemaManager        *schemaManager.Manager
 	batchManager         *objects.BatchManager
 	config               *config.Config
+	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager, config *config.Config, logger logrus.FieldLogger,
+	batchManager *objects.BatchManager, config *config.Config, authorization authorization.Authorizer,
+	logger logrus.FieldLogger,
 ) *Service {
 	return &Service{
 		traverser:            traverser,
@@ -55,6 +60,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		batchManager:         batchManager,
 		config:               config,
 		logger:               logger,
+		authorizer:           authorization,
 	}
 }
 
@@ -99,17 +105,21 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	}
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	params, err := batchDeleteParamsFromProto(req, s.schemaManager.ReadOnlyClass)
-	if err != nil {
-		return nil, fmt.Errorf("batch delete params: %w", err)
-	}
-
 	tenant := ""
 	if req.Tenant != nil {
 		tenant = *req.Tenant
 	}
 
-	response, err := s.batchManager.DeleteObjectsFromGRPC(ctx, principal, params, replicationProperties, tenant)
+	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(req.Collection, tenant)...); err != nil {
+		return nil, err
+	}
+
+	params, err := batchDeleteParamsFromProto(req, s.classGetterFunc(principal))
+	if err != nil {
+		return nil, fmt.Errorf("batch delete params: %w", err)
+	}
+
+	response, err := s.batchManager.DeleteObjectsFromGRPCAfterAuth(ctx, principal, params, replicationProperties, tenant)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete: %w", err)
 	}
@@ -200,7 +210,6 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	scheme := s.schemaManager.GetSchemaSkipAuth()
 	parser := NewParser(
 		req.Uses_127Api,
 		s.schemaManager.ReadOnlyClass,
@@ -227,6 +236,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
+	scheme := s.schemaManager.GetSchemaSkipAuth()
 	return replier.Search(res, before, searchParams, scheme)
 }
 
@@ -244,6 +254,19 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	}
 
 	return nil
+}
+
+func (s *Service) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	return func(name string) (*models.Class, error) {
+		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			return nil, err
+		}
+		class := s.schemaManager.ReadOnlyClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+		return class, nil
+	}
 }
 
 func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.ReplicationProperties {

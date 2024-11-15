@@ -1,3 +1,5 @@
+import time
+from datetime import datetime
 from typing import Union, List
 
 import pytest
@@ -12,11 +14,12 @@ def test_rbac_users(request: SubRequest):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        client.collections.delete(["target", "source"])
+        col_name = _sanitize_role_name(request.node.name)
+        client.collections.delete([col_name + "target", col_name + "source"])
         # create two collections with some objects to test refs
-        target = client.collections.create(name="target")
+        target = client.collections.create(name=col_name + "target")
         source = client.collections.create(
-            name="source",
+            name=col_name + "source",
             references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
         )
         uuid_target1 = target.data.insert({})
@@ -65,7 +68,7 @@ def test_rbac_users(request: SubRequest):
             client.roles.delete(both_write.name)
 
         # only read+update for one of them
-        for col in [source.name]:
+        for col in [source.name, target.name]:
             with weaviate.connect_to_local(
                 port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
             ) as client_no_rights:
@@ -109,4 +112,113 @@ def test_rbac_users(request: SubRequest):
                 client.roles.revoke(user="custom-user", roles=role.name)
                 client.roles.delete(role.name)
 
-        client.collections.delete(["target", "source"])
+        client.collections.delete([target.name, source.name])
+
+
+def test_batch_delete_with_filter(request: SubRequest) -> None:
+    col_name = _sanitize_role_name(request.node.name)
+
+    with weaviate.connect_to_local(
+        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
+    ) as client:
+        client.collections.delete([col_name + "target", col_name + "source"])
+        # create two collections with some objects to test refs
+        target = client.collections.create(
+            name=col_name + "target",
+            properties=[wvc.config.Property(name="prop", data_type=wvc.config.DataType.TEXT)],
+        )
+        source = client.collections.create(
+            name=col_name + "source",
+            references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        )
+        uuid_target1 = target.data.insert({})
+
+        role_name = _sanitize_role_name(request.node.name)
+        client.roles.delete(role_name)
+
+        # read+delete for both
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
+
+            source.data.reference_add(
+                from_uuid=uuid_source,
+                from_property="ref",
+                to=uuid_target1,
+            )
+            client.roles.create(
+                name=role_name,
+                permissions=RBAC.permissions.collection(
+                    target.name, CollectionsAction.DELETE_COLLECTIONS
+                )
+                + RBAC.permissions.collection(target.name, CollectionsAction.READ_COLLECTIONS)
+                + RBAC.permissions.collection(source.name, CollectionsAction.DELETE_COLLECTIONS)
+                + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
+            )
+            client.roles.assign(user="custom-user", roles=role_name)
+            assert (
+                len(source) == 1
+            )  # uses aggregate in background, cannot do that with restricted user
+
+            source_no_rights = client_no_rights.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+
+            ret = source_no_rights.data.delete_many(
+                where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+            )
+            assert ret.successful == 1
+            assert (
+                len(source) == 0
+            )  # uses aggregate in background, cannot do that with restricted user
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # read+delete for just one
+        for col in [source.name, target.name]:
+            with weaviate.connect_to_local(
+                port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+            ) as client_no_rights:
+                uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
+
+                source.data.reference_add(
+                    from_uuid=uuid_source,
+                    from_property="ref",
+                    to=uuid_target1,
+                )
+                client.roles.create(
+                    name=role_name,
+                    permissions=RBAC.permissions.collection(
+                        col, CollectionsAction.DELETE_COLLECTIONS
+                    )
+                    + RBAC.permissions.collection(col, CollectionsAction.READ_COLLECTIONS),
+                )
+                client.roles.assign(user="custom-user", roles=role_name)
+                assert (
+                    len(source) == 1
+                )  # uses aggregate in background, cannot do that with restricted user
+
+                source_no_rights = client_no_rights.collections.get(
+                    source.name
+                )  # no network call => no RBAC check
+
+                # deletion does not work
+                with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                    source_no_rights.data.delete_many(
+                        where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                    )
+                assert "forbidden" in e.value.args[0]
+                assert (
+                    len(source) == 1
+                )  # uses aggregate in background, cannot do that with restricted user
+
+                # delete from admin-collection so next iteration is "clean" again
+                source.data.delete_many(
+                    where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                )
+
+                client.roles.revoke(user="custom-user", roles=role_name)
+                client.roles.delete(role_name)
+
+        client.collections.delete([target.name, source.name])
