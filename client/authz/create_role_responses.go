@@ -58,6 +58,12 @@ func (o *CreateRoleReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewCreateRoleConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewCreateRoleUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -312,6 +318,74 @@ func (o *CreateRoleForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateRoleForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewCreateRoleConflict creates a CreateRoleConflict with default headers values
+func NewCreateRoleConflict() *CreateRoleConflict {
+	return &CreateRoleConflict{}
+}
+
+/*
+CreateRoleConflict describes a response with status code 409, with default header values.
+
+Role already exists
+*/
+type CreateRoleConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create role conflict response has a 2xx status code
+func (o *CreateRoleConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create role conflict response has a 3xx status code
+func (o *CreateRoleConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create role conflict response has a 4xx status code
+func (o *CreateRoleConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create role conflict response has a 5xx status code
+func (o *CreateRoleConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create role conflict response a status code equal to that given
+func (o *CreateRoleConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the create role conflict response
+func (o *CreateRoleConflict) Code() int {
+	return 409
+}
+
+func (o *CreateRoleConflict) Error() string {
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict  %+v", 409, o.Payload)
+}
+
+func (o *CreateRoleConflict) String() string {
+	return fmt.Sprintf("[POST /authz/roles][%d] createRoleConflict  %+v", 409, o.Payload)
+}
+
+func (o *CreateRoleConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateRoleConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 
