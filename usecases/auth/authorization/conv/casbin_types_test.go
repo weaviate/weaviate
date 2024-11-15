@@ -299,6 +299,30 @@ func Test_policy(t *testing.T) {
 			},
 			tests: objectsTenantTests,
 		},
+		{
+			name:       "the schema of all collections",
+			permission: &models.Permission{},
+			policy: &authorization.Policy{
+				Resource: CasbinSchema("*"),
+				Domain:   "schema",
+			},
+			tests: []innerTest{
+				{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
+			},
+		},
+		{
+			name: "the schema of foo",
+			permission: &models.Permission{
+				Collection: foo,
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinSchema("foo"),
+				Domain:   "schema",
+			},
+			tests: []innerTest{
+				{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
+			},
+		},
 	}
 	for _, tt := range tests {
 		for _, ttt := range tt.tests {
@@ -513,6 +537,26 @@ func Test_permission(t *testing.T) {
 			},
 			tests: objectsTenantTests,
 		},
+		{
+			name:   "the schema of all collections",
+			policy: []string{"p", "collections/*/schema", "", "schema"},
+			permission: &models.Permission{
+				Collection: authorization.All,
+			},
+			tests: []innerTest{
+				{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
+			},
+		},
+		{
+			name:   "the schema of foo",
+			policy: []string{"p", "collections/foo/schema", "", "schema"},
+			permission: &models.Permission{
+				Collection: foo,
+			},
+			tests: []innerTest{
+				{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
+			},
+		},
 	}
 	for _, tt := range tests {
 		for _, ttt := range tt.tests {
@@ -526,7 +570,7 @@ func Test_permission(t *testing.T) {
 	}
 }
 
-func Test_pRoles(t *testing.T) {
+func Test_CasbinRoles(t *testing.T) {
 	tests := []struct {
 		role     string
 		expected string
@@ -544,7 +588,7 @@ func Test_pRoles(t *testing.T) {
 	}
 }
 
-func Test_pCollections(t *testing.T) {
+func Test_CasbinCollections(t *testing.T) {
 	tests := []struct {
 		collection string
 		expected   string
@@ -585,7 +629,7 @@ func Test_CasbinShards(t *testing.T) {
 	}
 }
 
-func Test_pObjects(t *testing.T) {
+func Test_CasbinObjects(t *testing.T) {
 	tests := []struct {
 		collection string
 		shard      string
@@ -612,6 +656,24 @@ func Test_pObjects(t *testing.T) {
 		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
 		t.Run(name, func(t *testing.T) {
 			p := CasbinObjects(tt.collection, tt.shard, tt.object)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_CasbinSchema(t *testing.T) {
+	tests := []struct {
+		collection string
+		expected   string
+	}{
+		{collection: "", expected: "collections/.*/schema"},
+		{collection: "*", expected: "collections/.*/schema"},
+		{collection: "foo", expected: "collections/foo/schema"},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("collection: %s", tt.collection)
+		t.Run(name, func(t *testing.T) {
+			p := CasbinSchema(tt.collection)
 			require.Equal(t, tt.expected, p)
 		})
 	}

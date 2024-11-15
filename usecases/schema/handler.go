@@ -166,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Schema("*")...)
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -176,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Schema("*")...); err != nil {
 		return schema.Schema{}, err
 	}
 

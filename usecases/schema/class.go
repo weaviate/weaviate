@@ -41,7 +41,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Schema(name)...); err != nil {
 		return nil, err
 	}
 	cl := h.schemaReader.ReadOnlyClass(name)
@@ -51,7 +51,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Schema(name)...); err != nil {
 		return nil, 0, err
 	}
 	if consistency {
@@ -65,7 +65,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections(names...)...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Schema(names...)...); err != nil {
 		return nil, err
 	}
 

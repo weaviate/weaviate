@@ -43,8 +43,10 @@ var Actions = map[string]string{
 }
 
 const (
-	ManageRoles   = "manage_roles"
+	ManageRoles = "manage_roles"
+
 	ManageCluster = "manage_cluster"
+	ReadSchema    = "read_schema"
 
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
@@ -173,6 +175,35 @@ func Collections(classes ...string) []string {
 			resources[idx] = "collections/*"
 		} else {
 			resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
+		}
+	}
+
+	return resources
+}
+
+// Schema generates a string representing the path to the schema of a given class.
+// If the class is an empty string, it defaults to "*". The returned string is
+// formatted as "schema/{class}".
+//
+// Parameters:
+//   - class: The class name for the schema. If empty, defaults to "*".
+
+// Returns:
+//   - A string representing the path to the schema of the given class.
+
+// Example outputs:
+//   - "schema/*" if the class is empty
+//   - "schema/{class}" if the class is provided
+func Schema(classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{"collections/*/schema"}
+	}
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = "collections/*/schema"
+		} else {
+			resources[idx] = fmt.Sprintf("collections/%s/schema", classes[idx])
 		}
 	}
 

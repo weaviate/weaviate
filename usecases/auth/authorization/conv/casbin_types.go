@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	rolesD            = "roles"
-	cluster           = "cluster"
-	collections       = "collections"
-	tenants           = "tenants"
-	objectsCollection = "objects_collection"
-	objectsTenant     = "objects_tenant"
+	rolesD             = "roles"
+	clusterD           = "cluster"
+	collectionsD       = "collections"
+	tenantsD           = "tenants"
+	objectsCollectionD = "objects_collection"
+	objectsTenantD     = "objects_tenant"
+	schemaD            = "schema"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -49,6 +50,14 @@ func CasbinRoles(role string) string {
 	}
 	role = strings.ReplaceAll(role, "*", ".*")
 	return fmt.Sprintf("roles/%s", role)
+}
+
+func CasbinSchema(collection string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	return fmt.Sprintf("collections/%s/schema", collection)
 }
 
 func CasbinCollections(collection string) string {
@@ -109,15 +118,15 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			role = *permission.Role
 		}
 		resource = CasbinRoles(role)
-	case cluster:
+	case clusterD:
 		resource = authorization.Cluster()
-	case collections:
+	case collectionsD:
 		collection := "*"
 		if permission.Collection != nil {
 			collection = *permission.Collection
 		}
 		resource = CasbinCollections(collection)
-	case tenants:
+	case tenantsD:
 		collection := "*"
 		tenant := "*"
 		if permission.Collection != nil {
@@ -127,7 +136,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			tenant = *permission.Tenant
 		}
 		resource = CasbinShards(collection, tenant)
-	case objectsCollection:
+	case objectsCollectionD:
 		collection := "*"
 		object := "*"
 		if permission.Collection != nil {
@@ -137,7 +146,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Object
 		}
 		resource = CasbinObjects(collection, "*", object)
-	case objectsTenant:
+	case objectsTenantD:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -151,6 +160,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Object
 		}
 		resource = CasbinObjects(collection, tenant, object)
+	case schemaD:
+		collection := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		resource = CasbinSchema(collection)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -175,12 +190,12 @@ func permission(policy []string) *models.Permission {
 	all := "*"
 
 	switch mapped.Domain {
-	case collections:
+	case collectionsD, schemaD:
 		permission.Collection = &splits[1]
-	case tenants:
+	case tenantsD:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
-	case objectsCollection, objectsTenant:
+	case objectsCollectionD, objectsTenantD:
 		permission.Collection = &splits[1]
 		permission.Tenant = &splits[3]
 		permission.Object = &splits[5]
