@@ -353,27 +353,28 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	}
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.Tenant
+	var res []*models.TenantResponse
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.Tenant, len(ss.Physical))
+			res = make([]*models.TenantResponse, len(ss.Physical))
 			i := 0
 			for tenant := range ss.Physical {
-				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
+				physical := ss.Physical[tenant]
+				res[i] = MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion)
 				i++
 			}
 		} else {
-			res = make([]*models.Tenant, 0, len(tenants))
+			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
-				if status, ok := ss.Physical[tenant]; ok {
-					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
+				if physical, ok := ss.Physical[tenant]; ok {
+					res = append(res, MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion))
 				}
 			}
 		}
@@ -404,9 +405,18 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return s.Classes
 }
 
-func makeTenant(name, status string) *models.Tenant {
-	return &models.Tenant{
+// makeTenant creates a tenant with the given name and status
+func makeTenant(name, status string) models.Tenant {
+	return models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
+	}
+}
+
+// MakeTenantWithDataVersion creates a tenant with the given name, status, and data version
+func MakeTenantWithDataVersion(name, status string, dataVersion int64) *models.TenantResponse {
+	return &models.TenantResponse{
+		Tenant:      makeTenant(name, status),
+		DataVersion: &dataVersion,
 	}
 }
