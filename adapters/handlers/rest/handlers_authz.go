@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -64,11 +64,16 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
-	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if err := h.controller.UpsertRolesPermissions(params.Body); err != nil {
+	policies, err := conv.RolesToPolicies(params.Body)
+	if err != nil {
+		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err = h.controller.UpsertRolesPermissions(policies); err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -88,15 +93,19 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
-	err := h.controller.UpsertRolesPermissions(&models.Role{
+	policies, err := conv.RolesToPolicies(&models.Role{
 		Name:        params.Body.Name,
 		Permissions: params.Body.Permissions,
 	})
 	if err != nil {
+		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -116,13 +125,17 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if slices.Contains(rbac.BuiltInRoles, *params.Body.Name) {
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
 	}
 
-	err := h.controller.RemovePermissions(*params.Body.Name, params.Body.Permissions)
+	polices, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	if err != nil {
-		return authz.NewRemovePermissionsUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err := h.controller.RemovePermissions(*params.Body.Name, polices); err != nil {
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -145,12 +158,25 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	response := []*models.Role{}
+
+	for roleName, policies := range roles {
+		perms, err := conv.PoliciesToPermission(policies...)
+		if err != nil {
+			return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
+		response = append(response, &models.Role{
+			Name:        &roleName,
+			Permissions: perms,
+		})
+	}
+
 	h.logger.WithFields(logrus.Fields{
 		"action": "read_all_roles",
 		"user":   principal.Username,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesOK().WithPayload(roles)
+	return authz.NewGetRolesOK().WithPayload(response)
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
@@ -174,13 +200,21 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		return authz.NewGetRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	perms, err := conv.PoliciesToPermission(roles[params.ID]...)
+	if err != nil {
+		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	h.logger.WithFields(logrus.Fields{
 		"action":  "read_role",
 		"user":    principal.Username,
 		"role_id": params.ID,
 	}).Info("role requested")
 
-	return authz.NewGetRoleOK().WithPayload(roles[0])
+	return authz.NewGetRoleOK().WithPayload(&models.Role{
+		Name:        &params.ID,
+		Permissions: perms,
+	})
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
@@ -193,7 +227,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
 	}
 
-	if slices.Contains(rbac.BuiltInRoles, params.ID) {
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
 
@@ -241,13 +275,26 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	response := []*models.Role{}
+
+	for roleName, policies := range roles {
+		perms, err := conv.PoliciesToPermission(policies...)
+		if err != nil {
+			return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
+		response = append(response, &models.Role{
+			Name:        &roleName,
+			Permissions: perms,
+		})
+	}
+
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
 		"user":                  principal.Username,
 		"user_to_get_roles_for": params.ID,
 	}).Info("roles requested")
 
-	return authz.NewGetRolesForUserOK().WithPayload(roles)
+	return authz.NewGetRolesForUserOK().WithPayload(response)
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
