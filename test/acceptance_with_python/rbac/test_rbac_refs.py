@@ -1,11 +1,7 @@
-import time
-from datetime import datetime
-from typing import Union, List
-
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.rbac.models import RBAC, DatabaseAction, CollectionsAction
+from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
@@ -34,12 +30,12 @@ def test_rbac_users(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=role_name,
-                permissions=RBAC.permissions.collection(
-                    target.name, CollectionsAction.UPDATE_COLLECTIONS
+                permissions=RBAC.permissions.collections(
+                    collection=target.name, actions=RBAC.actions.collection.UPDATE
                 )
-                + RBAC.permissions.collection(target.name, CollectionsAction.READ_COLLECTIONS)
-                + RBAC.permissions.collection(source.name, CollectionsAction.UPDATE_COLLECTIONS)
-                + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
+                + RBAC.permissions.collections(collection=target.name, actions=RBAC.actions.collection.READ)
+                + RBAC.permissions.collections(collection=source.name, actions=RBAC.actions.collection.UPDATE)
+                + RBAC.permissions.collections(collection=source.name, actions=RBAC.actions.collection.READ),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -74,10 +70,10 @@ def test_rbac_users(request: SubRequest):
             ) as client_no_rights:
                 role = client.roles.create(
                     name=role_name,
-                    permissions=RBAC.permissions.collection(
-                        col, CollectionsAction.UPDATE_COLLECTIONS
+                    permissions=RBAC.permissions.collections(
+                        collection=col, actions=RBAC.actions.collection.UPDATE
                     )
-                    + RBAC.permissions.collection(col, CollectionsAction.READ_COLLECTIONS),
+                    + RBAC.permissions.collections(collection=col, actions=RBAC.actions.collection.READ),
                 )
                 client.roles.assign(user="custom-user", roles=role.name)
 
@@ -149,12 +145,12 @@ def test_batch_delete_with_filter(request: SubRequest) -> None:
             )
             client.roles.create(
                 name=role_name,
-                permissions=RBAC.permissions.collection(
-                    target.name, CollectionsAction.DELETE_COLLECTIONS
+                permissions=RBAC.permissions.collections(
+                    collection=target.name, actions=RBAC.actions.collection.DELETE
                 )
-                + RBAC.permissions.collection(target.name, CollectionsAction.READ_COLLECTIONS)
-                + RBAC.permissions.collection(source.name, CollectionsAction.DELETE_COLLECTIONS)
-                + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
+                + RBAC.permissions.collections(collection=target.name, actions=RBAC.actions.collection.READ)
+                + RBAC.permissions.collections(collection=source.name, actions=RBAC.actions.collection.DELETE)
+                + RBAC.permissions.collections(collection=source.name, actions=RBAC.actions.collection.READ),
             )
             client.roles.assign(user="custom-user", roles=role_name)
             assert (
@@ -189,10 +185,10 @@ def test_batch_delete_with_filter(request: SubRequest) -> None:
                 )
                 client.roles.create(
                     name=role_name,
-                    permissions=RBAC.permissions.collection(
-                        col, CollectionsAction.DELETE_COLLECTIONS
+                    permissions=RBAC.permissions.collections(
+                        collection=col, actions=RBAC.actions.collection.DELETE
                     )
-                    + RBAC.permissions.collection(col, CollectionsAction.READ_COLLECTIONS),
+                    + RBAC.permissions.collections(collection=col, actions=RBAC.actions.collection.READ),
                 )
                 client.roles.assign(user="custom-user", roles=role_name)
                 assert (
@@ -257,10 +253,10 @@ def test_search_with_filter(request: SubRequest) -> None:
         ) as client_no_rights:
             client.roles.create(
                 name=role_name,
-                permissions=RBAC.permissions.collection(
-                    target.name, CollectionsAction.READ_COLLECTIONS
+                permissions=RBAC.permissions.collections(
+                    collection=target.name, actions=RBAC.actions.collection.READ
                 )
-                + RBAC.permissions.collection(source.name, CollectionsAction.READ_COLLECTIONS),
+                + RBAC.permissions.collections(collection=source.name, actions=RBAC.actions.collection.READ),
             )
             client.roles.assign(user="custom-user", roles=role_name)
 
@@ -282,8 +278,8 @@ def test_search_with_filter(request: SubRequest) -> None:
             ) as client_no_rights:
                 client.roles.create(
                     name=role_name,
-                    permissions=RBAC.permissions.collection(
-                        col, CollectionsAction.READ_COLLECTIONS
+                    permissions=RBAC.permissions.collections(
+                        collection=col, actions=RBAC.actions.collection.READ
                     ),
                 )
                 client.roles.assign(user="custom-user", roles=role_name)
