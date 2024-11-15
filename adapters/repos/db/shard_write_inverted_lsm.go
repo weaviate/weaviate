@@ -87,8 +87,11 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		if bucketValue == nil {
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
-
-		propLen := float32(len(property.Items))
+		propLen := float32(0)
+		for _, item := range property.Items {
+			propLen += item.TermFrequency
+		}
+		// propLen = float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
