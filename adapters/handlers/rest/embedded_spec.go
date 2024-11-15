@@ -4293,7 +4293,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -5164,7 +5163,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -10706,7 +10704,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -10728,7 +10725,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }
@@ -11665,7 +11661,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -11687,7 +11682,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }

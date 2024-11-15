@@ -182,7 +182,7 @@ type BatchReferenceResponseAO1Result struct {
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
 	// status
-	// Enum: [SUCCESS PENDING FAILED]
+	// Enum: [SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -227,7 +227,7 @@ var batchReferenceResponseAO1ResultTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["SUCCESS","PENDING","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["SUCCESS","FAILED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -239,9 +239,6 @@ const (
 
 	// BatchReferenceResponseAO1ResultStatusSUCCESS captures enum value "SUCCESS"
 	BatchReferenceResponseAO1ResultStatusSUCCESS string = "SUCCESS"
-
-	// BatchReferenceResponseAO1ResultStatusPENDING captures enum value "PENDING"
-	BatchReferenceResponseAO1ResultStatusPENDING string = "PENDING"
 
 	// BatchReferenceResponseAO1ResultStatusFAILED captures enum value "FAILED"
 	BatchReferenceResponseAO1ResultStatusFAILED string = "FAILED"
