@@ -30,45 +30,55 @@ import (
 func TestUpdateTenantsProcess(t *testing.T) {
 	classReplFactor1 := models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 	tests := []struct {
-		name     string
-		m        *metaClass
-		testFunc func(m *metaClass) error
+		name                   string
+		m                      *metaClass
+		testFunc               func(m *metaClass) error
+		finalTenantDataVersion int64
 	}{
 		{
-			name:     "Freeze/ClassTenantDataEventsNil",
-			m:        &metaClass{},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsNil",
+			m:                      &metaClass{},
+			testFunc:               freezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Freeze/ClassTenantDataEventsUnbuffered",
-			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant)},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsUnbuffered",
+			m:                      &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc:               freezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Freeze/ClassTenantDataEventsCapacity1",
-			m:        &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
-			testFunc: addAndFreezeTenant,
+			name:                   "Freeze/ClassTenantDataEventsCapacity1",
+			m:                      &metaClass{classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc:               freezeTenant,
+			finalTenantDataVersion: 1,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsNil",
-			m:        &metaClass{Class: classReplFactor1},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsNil",
+			m:                      &metaClass{Class: classReplFactor1},
+			testFunc:               unfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsUnbuffered",
-			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant)},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsUnbuffered",
+			m:                      &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant)},
+			testFunc:               unfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 		{
-			name:     "Unfreeze/ClassTenantDataEventsCapacity1",
-			m:        &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
-			testFunc: addAndUnfreezeTenant,
+			name:                   "Unfreeze/ClassTenantDataEventsCapacity1",
+			m:                      &metaClass{Class: classReplFactor1, classTenantDataEvents: make(chan metadata.ClassTenant, 1)},
+			testFunc:               unfreezeTenant,
+			finalTenantDataVersion: 0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			addTenant(tc.m, models.TenantActivityStatusACTIVE)
+			require.Equal(t, int64(0), tc.m.Sharding.Physical[tenantName].DataVersion)
 			err := tc.testFunc(tc.m)
 			require.Nil(t, err)
+			require.Equal(t, tc.finalTenantDataVersion, tc.m.Sharding.Physical[tenantName].DataVersion)
 		})
 	}
 }
@@ -77,92 +87,6 @@ const (
 	nodeID     = "THIS"
 	tenantName = "T0"
 )
-
-func addAndFreezeTenant(m *metaClass) error {
-	if err := addTenant(m, models.TenantActivityStatusACTIVE); err != nil {
-		return err
-	}
-	err := m.UpdateTenants(
-		nodeID,
-		&api.UpdateTenantsRequest{
-			ClusterNodes: []string{nodeID},
-			Tenants: []*api.Tenant{
-				{
-					Name:   tenantName,
-					Status: models.TenantActivityStatusFROZEN,
-				},
-			},
-		},
-		0,
-	)
-	if err != nil {
-		return err
-	}
-	err = m.UpdateTenantsProcess(
-		nodeID,
-		&api.TenantProcessRequest{
-			Node:   nodeID,
-			Action: api.TenantProcessRequest_ACTION_FREEZING,
-			TenantsProcesses: []*api.TenantsProcess{
-				{
-					Op: api.TenantsProcess_OP_DONE,
-					Tenant: &api.Tenant{
-						Name:   tenantName,
-						Status: models.TenantActivityStatusFROZEN,
-					},
-				},
-			},
-		},
-		0,
-	)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func addAndUnfreezeTenant(m *metaClass) error {
-	if err := addTenant(m, models.TenantActivityStatusFROZEN); err != nil {
-		return err
-	}
-	err := m.UpdateTenants(
-		nodeID,
-		&api.UpdateTenantsRequest{
-			ClusterNodes: []string{nodeID},
-			Tenants: []*api.Tenant{
-				{
-					Name:   tenantName,
-					Status: models.TenantActivityStatusHOT,
-				},
-			},
-		},
-		0,
-	)
-	if err != nil {
-		return err
-	}
-	err = m.UpdateTenantsProcess(
-		nodeID,
-		&api.TenantProcessRequest{
-			Node:   nodeID,
-			Action: api.TenantProcessRequest_ACTION_UNFREEZING,
-			TenantsProcesses: []*api.TenantsProcess{
-				{
-					Op: api.TenantsProcess_OP_DONE,
-					Tenant: &api.Tenant{
-						Name:   tenantName,
-						Status: models.TenantActivityStatusHOT,
-					},
-				},
-			},
-		},
-		0,
-	)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
 func addTenant(m *metaClass, tenantStatus string) error {
 	err := m.AddTenants(
@@ -180,4 +104,52 @@ func addTenant(m *metaClass, tenantStatus string) error {
 		0,
 	)
 	return err
+}
+
+func freezeTenant(m *metaClass) error {
+	return metaclassUpdateTenant(m, api.TenantProcessRequest_ACTION_FREEZING, models.TenantActivityStatusFROZEN)
+}
+
+func unfreezeTenant(m *metaClass) error {
+	return metaclassUpdateTenant(m, api.TenantProcessRequest_ACTION_UNFREEZING, models.TenantActivityStatusHOT)
+}
+
+func metaclassUpdateTenant(m *metaClass, transitionStatus api.TenantProcessRequest_Action, newStatus string) error {
+	err := m.UpdateTenants(
+		nodeID,
+		&api.UpdateTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants: []*api.Tenant{
+				{
+					Name:   tenantName,
+					Status: newStatus,
+				},
+			},
+		},
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	err = m.UpdateTenantsProcess(
+		nodeID,
+		&api.TenantProcessRequest{
+			Node:   nodeID,
+			Action: transitionStatus,
+			TenantsProcesses: []*api.TenantsProcess{
+				{
+					Op: api.TenantsProcess_OP_DONE,
+					Tenant: &api.Tenant{
+						Name:   tenantName,
+						Status: newStatus,
+					},
+				},
+			},
+		},
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
