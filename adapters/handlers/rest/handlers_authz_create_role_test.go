@@ -77,7 +77,7 @@ func TestCreateRoleConflict(t *testing.T) {
 		},
 	}
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Roles()[0]).Return(nil)
-	controller.On("GetRoles", *params.Body.Name).Return([]*models.Role{{Name: String("newRole")}}, nil)
+	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{"newRole": {}}, nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -274,7 +274,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 			require.Nil(t, err)
 
 			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles()[0]).Return(tt.authorizeErr)
-			controller.On("GetRoles", *tt.params.Body.Name).Return([]*models.Role{}, nil)
+			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("UpsertRolesPermissions", policies).Return(tt.upsertErr)
 
 			h := &authZHandlers{
