@@ -103,6 +103,7 @@ def test_return_metadata_ref(collection_factory: CollectionFactory) -> None:
     source = collection_factory(
         name="source",
         references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
 
     uuid_target = target.data.insert(
