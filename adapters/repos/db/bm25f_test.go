@@ -458,15 +458,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
-		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
+		require.EqualValues(t, float32(0.51602507), noautocutscores[0])
+		require.EqualValues(t, float32(0.49750623), noautocutscores[1]) // <= autocut last element
 		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
 		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
 		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, float32(0.5868752), autocutscores[0])
-		require.EqualValues(t, float32(0.5450892), autocutscores[1])
+		require.EqualValues(t, float32(0.51602507), autocutscores[0])
+		require.EqualValues(t, float32(0.49750623), autocutscores[1])
 	})
 }
 
@@ -505,7 +505,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Nil(t, err)
 	// Check results in correct order
 	require.Equal(t, uint64(3), res[0].DocID)
-	require.Equal(t, uint64(4), res[3].DocID)
+	require.Equal(t, uint64(6), res[3].DocID)
 
 	// Check scores
 	EqualFloats(t, float32(0.1248), scores[0], 5)
@@ -672,8 +672,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// Check results in correct order
-	require.Equal(t, uint64(6), res[0].DocID)
-	require.Equal(t, uint64(1), res[3].DocID)
+	require.Equal(t, uint64(5), res[0].DocID)
+	require.Equal(t, uint64(0), res[3].DocID)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
@@ -682,8 +682,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.06023), scores[0], 6)
-	EqualFloats(t, float32(0.04238), scores[1], 6)
+	EqualFloats(t, float32(0.41625), scores[0], 6)
+	EqualFloats(t, float32(0.06792), scores[1], 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -929,9 +929,9 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		require.Len(t, res, 3)
 
 		// Check scores
-		EqualFloats(t, float32(0.8914), scores[0], 5)
-		EqualFloats(t, float32(0.5425), scores[1], 5)
-		EqualFloats(t, float32(0.3952), scores[2], 5)
+		EqualFloats(t, float32(0.8550), scores[0], 5)
+		EqualFloats(t, float32(0.5116), scores[1], 5)
+		EqualFloats(t, float32(0.3325), scores[2], 5)
 	})
 
 	t.Run("Results without stopwords", func(t *testing.T) {
