@@ -67,7 +67,7 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
 	return FromObjectMulti(object, vector, vectors, nil)
  }
 
