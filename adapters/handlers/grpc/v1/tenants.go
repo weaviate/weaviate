@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, req *pb.TenantsGetRequest) ([]*pb.Tenant, error) {
@@ -25,9 +26,9 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 	}
 
 	var err error
-	var tenants []*models.Tenant
+	var tenantResponses []*models.TenantResponse
 	if req.Params == nil {
-		tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, []string{})
+		tenantResponses, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, []string{})
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +39,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 			if len(requestedNames) == 0 {
 				return nil, fmt.Errorf("must specify at least one tenant name")
 			}
-			tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, requestedNames)
+			tenantResponses, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, true, requestedNames)
 			if err != nil {
 				return nil, err
 			}
@@ -47,6 +48,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 		}
 	}
 
+	tenants := schema.TenantResponsesToTenants(tenantResponses)
 	retTenants := make([]*pb.Tenant, len(tenants))
 	for i, tenant := range tenants {
 		tenantGRPC, err := tenantToGRPC(tenant)
