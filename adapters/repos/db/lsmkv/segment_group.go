@@ -493,31 +493,6 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	out := make([][]value, len(sg.segments))
-
-	i := 0
-	// start with first and do not exit
-	for _, segment := range sg.segments {
-		v, err := segment.getCollection(key)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
-
-			return nil, err
-		}
-
-		out[i] = v
-		i++
-	}
-
-	return out[:i], nil
-}
-
 func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segment, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
