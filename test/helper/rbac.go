@@ -20,12 +20,14 @@ import (
 )
 
 func CreateRole(t *testing.T, key string, role *models.Role) {
+	t.Helper()
 	resp, err := Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 }
 
 func GetRoles(t *testing.T, key string) []*models.Role {
+	t.Helper()
 	resp, err := Client(t).Authz.GetRoles(authz.NewGetRolesParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -33,15 +35,31 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 }
 
 func DeleteRole(t *testing.T, key, role string) {
+	t.Helper()
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 }
 
 func GetRoleByName(t *testing.T, key, role string) *models.Role {
+	t.Helper()
 	resp, err := Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp.Payload)
 	return resp.Payload
+}
+
+func AssignRoleToUser(t *testing.T, key, role, user string) {
+	t.Helper()
+	resp, err := Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(user).WithBody(authz.AssignRoleBody{Roles: []string{role}}), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	t.Helper()
+	resp, err := Client(t).Authz.RevokeRole(authz.NewRevokeRoleParams().WithID(user).WithBody(authz.RevokeRoleBody{Roles: []string{role}}), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
 }

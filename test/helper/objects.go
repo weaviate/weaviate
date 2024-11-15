@@ -58,12 +58,39 @@ func CreateClass(t *testing.T, class *models.Class) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateClassAuth(t *testing.T, key string, class *models.Class) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func GetClass(t *testing.T, class string) *models.Class {
 	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func GetClassAuth(t *testing.T, key, class string) (*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func GetSchemaAuth(t *testing.T, key string) ([]*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaDumpParams()
+	resp, err := Client(t).Schema.SchemaDump(params, CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload.Classes, nil
 }
 
 func UpdateClass(t *testing.T, class *models.Class) {
