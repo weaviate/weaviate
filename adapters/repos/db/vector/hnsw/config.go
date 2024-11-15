@@ -37,6 +37,7 @@ type Config struct {
 	PrometheusMetrics     *monitoring.PrometheusMetrics
 	AllocChecker          memwatch.AllocChecker
 	WaitForCachePrefill   bool
+	FlatSearchConcurrency int
 
 	// metadata for monitoring
 	ShardName string

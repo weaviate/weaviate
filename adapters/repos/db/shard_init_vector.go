@@ -96,6 +96,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				},
 				AllocChecker:           s.index.allocChecker,
 				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
