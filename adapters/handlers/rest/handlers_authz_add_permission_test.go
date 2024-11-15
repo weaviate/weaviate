@@ -98,17 +98,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			expectedError: "role has to have at least 1 permission",
 		},
 		{
-			name: "role has to have at least 1 permission",
-			params: authz.AddPermissionsParams{
-				Body: authz.AddPermissionsBody{
-					Name:        String("someName"),
-					Permissions: []*models.Permission{},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role has to have at least 1 permission",
-		},
-		{
 			name: "invalid action",
 			params: authz.AddPermissionsParams{
 				Body: authz.AddPermissionsBody{
