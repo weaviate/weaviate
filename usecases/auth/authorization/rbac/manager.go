@@ -17,6 +17,8 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -29,17 +31,10 @@ func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manage
 	return &manager{casbin, logger}
 }
 
-func (m *manager) UpsertRolesPermissions(roles ...*models.Role) error {
-	// TODO: block overriding existing roles
-	for idx := range roles {
-		for _, permission := range roles[idx].Permissions {
-			// TODO prefix roles names
-			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
-			policy, err := policy(permission)
-			if err != nil {
-				return err
-			}
-			if _, err := m.casbin.AddNamedPolicy("p", *roles[idx].Name, policy.resource, policy.verb, policy.domain); err != nil {
+func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
+	for roleName, policies := range roles {
+		for _, policy := range policies {
+			if _, err := m.casbin.AddNamedPolicy("p", roleName, policy.Resource, policy.Verb, policy.Domain); err != nil {
 				return err
 			}
 		}
@@ -51,63 +46,35 @@ func (m *manager) UpsertRolesPermissions(roles ...*models.Role) error {
 	return m.casbin.InvalidateCache()
 }
 
-func (m *manager) GetRoles(names ...string) ([]*models.Role, error) {
-	var (
-		roles            = []*models.Role{}
-		rolesPermissions = make(map[string][]*models.Permission)
-	)
+func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	// TODO sort by name
-
+	var casbinPolicies [][][]string
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
 		if err != nil {
 			return nil, err
 		}
-
-		for _, policy := range polices {
-			name := policy[0]
-			if name == "admin" || name == "editor" || name == "viewer" {
-				rolesPermissions[name] = builtInPermissions[name]
-			} else {
-				rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
-			}
-		}
+		casbinPolicies = append(casbinPolicies, polices)
 	} else {
 		for _, name := range names {
-			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name) // fmt.Sprintf("'%s' == p.sub", name)
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name)
 			if err != nil {
 				return nil, err
 			}
 			if len(polices) == 0 {
 				continue
 			}
-			for _, policy := range polices {
-				if name == "admin" || name == "editor" || name == "viewer" {
-					rolesPermissions[name] = builtInPermissions[name]
-				} else {
-					rolesPermissions[name] = append(rolesPermissions[name], permission(policy))
-				}
-			}
+			casbinPolicies = append(casbinPolicies, polices)
 		}
 	}
 
-	for roleName, perms := range rolesPermissions {
-		roles = append(roles, &models.Role{
-			Name:        &roleName,
-			Permissions: perms,
-		})
-	}
-	return roles, nil
+	return conv.CasbinPolicies(casbinPolicies...)
 }
 
-func (m *manager) RemovePermissions(role string, permissions []*models.Permission) error {
+func (m *manager) RemovePermissions(role string, permissions []*authorization.Policy) error {
 	for _, permission := range permissions {
-		policy, err := policy(permission)
-		if err != nil {
-			return err
-		}
-		ok, err := m.casbin.RemoveNamedPolicy("p", role, policy.resource, policy.verb, policy.domain)
+		ok, err := m.casbin.RemoveNamedPolicy("p", role, permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return err
 		}
@@ -122,7 +89,6 @@ func (m *manager) RemovePermissions(role string, permissions []*models.Permissio
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {
-	// TODO: block deleting built in roles
 	for _, role := range roles {
 		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
 		if err != nil {
@@ -151,7 +117,7 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return m.casbin.SavePolicy()
 }
 
-func (m *manager) GetRolesForUser(user string) ([]*models.Role, error) {
+func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
 	rolesNames, err := m.casbin.GetRolesForUser(user)
 	if err != nil {
 		return nil, err

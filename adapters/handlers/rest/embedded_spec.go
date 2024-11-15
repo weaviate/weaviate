@@ -210,6 +210,12 @@ func init() {
           "201": {
             "description": "Role created successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -6362,6 +6368,12 @@ func init() {
         "responses": {
           "201": {
             "description": "Role created successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

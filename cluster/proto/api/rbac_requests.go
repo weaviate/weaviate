@@ -12,11 +12,11 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type CreateRolesRequest struct {
-	Roles []*models.Role
+	Roles map[string][]authorization.Policy
 }
 
 type DeleteRolesRequest struct {
@@ -25,7 +25,7 @@ type DeleteRolesRequest struct {
 
 type RemovePermissionsRequest struct {
 	Role        string
-	Permissions []*models.Permission
+	Permissions []*authorization.Policy
 }
 
 type AddRolesForUsersRequest struct {

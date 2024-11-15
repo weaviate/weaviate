@@ -84,13 +84,6 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 	}
 }
 
-// TraverserRepo describes the dependencies of the Traverser UC to the
-// connected database
-type TraverserRepo interface {
-	GetClass(context.Context, *dto.GetParams) (interface{}, error)
-	Aggregate(context.Context, *aggregation.Params) (interface{}, error)
-}
-
 // SearchResult is a single search result. See wrapping Search Results for the Type
 type SearchResult struct {
 	Name      string

@@ -47,8 +47,8 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 		return nil, err
 	}
 
-	getClass := func(name string) *models.Class {
-		return class
+	getClass := func(name string) (*models.Class, error) {
+		return class, nil
 	}
 
 	parsed, err := requestFromProto(req, getClass)
@@ -65,7 +65,7 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 	return toProtoResponse(res), nil
 }
 
-func requestFromProto(req *protocol.SearchRequest, getClass func(string) *models.Class) (*SearchRequest, error) {
+func requestFromProto(req *protocol.SearchRequest, getClass func(string) (*models.Class, error)) (*SearchRequest, error) {
 	sr := &SearchRequest{
 		Collection: req.Collection,
 		Tenant:     req.Tenant,
