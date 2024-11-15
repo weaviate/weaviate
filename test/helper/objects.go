@@ -339,6 +339,13 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	return resp, err
 }
 
+func GetOneTenant(t *testing.T, class, tenant string) (*schema.TenantsGetOneOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)
+	resp, err := Client(t).Schema.TenantsGetOne(params, nil)
+	return resp, err
+}
+
 func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
 	t.Helper()
 	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})

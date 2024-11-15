@@ -287,6 +287,12 @@ func init() {
           "200": {
             "description": "Permissions added successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -351,6 +357,12 @@ func init() {
         "responses": {
           "200": {
             "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3723,6 +3735,67 @@ func init() {
       }
     },
     "/schema/{className}/tenants/{tenantName}": {
+      "get": {
+        "description": "get a specific tenant for the given class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get a specific tenant",
+        "operationId": "tenants.get.one",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "load the tenant given the specified class",
+            "schema": {
+              "$ref": "#/definitions/TenantResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Tenant not found"
+          },
+          "422": {
+            "description": "Invalid tenant or class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "head": {
         "description": "Check if a tenant exists for a specific class",
         "tags": [
@@ -4260,7 +4333,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -5131,7 +5203,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -5861,6 +5932,26 @@ func init() {
         }
       }
     },
+    "TenantResponse": {
+      "description": "attributes representing a single tenant response within weaviate",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Tenant"
+        },
+        {
+          "properties": {
+            "dataVersion": {
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
+              "type": "integer",
+              "default": 0,
+              "x-nullable": true,
+              "example": 3
+            }
+          }
+        }
+      ]
+    },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
@@ -6452,6 +6543,12 @@ func init() {
           "200": {
             "description": "Permissions added successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -6516,6 +6613,12 @@ func init() {
         "responses": {
           "200": {
             "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -10010,6 +10113,67 @@ func init() {
       }
     },
     "/schema/{className}/tenants/{tenantName}": {
+      "get": {
+        "description": "get a specific tenant for the given class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get a specific tenant",
+        "operationId": "tenants.get.one",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "load the tenant given the specified class",
+            "schema": {
+              "$ref": "#/definitions/TenantResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Tenant not found"
+          },
+          "422": {
+            "description": "Invalid tenant or class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "head": {
         "description": "Check if a tenant exists for a specific class",
         "tags": [
@@ -10621,7 +10785,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -10643,7 +10806,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }
@@ -11580,7 +11742,6 @@ func init() {
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 }
@@ -11602,7 +11763,6 @@ func init() {
           "default": "SUCCESS",
           "enum": [
             "SUCCESS",
-            "PENDING",
             "FAILED"
           ]
         }
@@ -12327,6 +12487,27 @@ func init() {
           "type": "string"
         }
       }
+    },
+    "TenantResponse": {
+      "description": "attributes representing a single tenant response within weaviate",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Tenant"
+        },
+        {
+          "properties": {
+            "dataVersion": {
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
+              "type": "integer",
+              "default": 0,
+              "minimum": 0,
+              "x-nullable": true,
+              "example": 3
+            }
+          }
+        }
+      ]
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",

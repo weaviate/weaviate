@@ -1681,7 +1681,6 @@
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 },
@@ -1816,7 +1815,6 @@
                   "default": "SUCCESS",
                   "enum": [
                     "SUCCESS",
-                    "PENDING",
                     "FAILED"
                   ]
                 },
@@ -2296,6 +2294,27 @@
           ]
         }
       }
+    },
+    "TenantResponse": {
+      "type": "object",
+      "description": "attributes representing a single tenant response within weaviate",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Tenant"
+        },
+        {
+          "properties": {
+            "dataVersion": {
+              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "example": 3,
+              "x-nullable": true
+            }
+          }
+        }
+      ]
     }
   },
   "externalDocs": {
@@ -2631,6 +2650,12 @@
           "200": {
             "description": "Permissions added successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -2692,6 +2717,12 @@
         "responses": {
           "200": {
             "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5469,6 +5500,68 @@
           },
           "422": {
             "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get a specific tenant",
+        "description": "get a specific tenant for the given class",
+        "operationId": "tenants.get.one",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "consistency",
+            "in": "header",
+            "required": false,
+            "default": true,
+            "type": "boolean",
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "load the tenant given the specified class",
+            "schema": {
+              "$ref": "#/definitions/TenantResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Tenant not found"
+          },
+          "422": {
+            "description": "Invalid tenant or class",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

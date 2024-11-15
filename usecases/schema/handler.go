@@ -60,7 +60,7 @@ type SchemaManager interface {
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
+	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
