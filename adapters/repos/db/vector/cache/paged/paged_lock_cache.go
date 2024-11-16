@@ -216,7 +216,8 @@ func (s *ShardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 		out[i] = vec
 	}
 
-	s.pagedLocks.RUnlock(uint64(len(ids) - 1))
+	// s.pagedLocks.RUnlock(uint64(len(ids) - 1))
+	s.pagedLocks.RUnlock(ids[len(ids)-1])
 
 	return out, errs
 }
@@ -231,8 +232,8 @@ func (s *ShardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 	start := (id / s.pagedLocks.Count) * s.pagedLocks.Count
 	end := start + s.pagedLocks.Count
 
-	if end > uint64(s.count) {
-		end = uint64(s.count)
+	if end > uint64(len(s.cache)) {
+		end = uint64(len(s.cache))
 	}
 
 	lockId := s.GetCorrespondingLock(start)
@@ -243,7 +244,7 @@ func (s *ShardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 		vec := s.cache[i]
 
 		if vec == nil {
-			vecFromDisk, err := s.handleCacheMiss(ctx, id)
+			vecFromDisk, err := s.handleCacheMiss(ctx, i)
 			errs[i-start] = err
 			vec = vecFromDisk
 		}
