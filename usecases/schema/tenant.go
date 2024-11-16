@@ -323,7 +323,7 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 				continue
 			}
 			physical := ss.Physical[name]
-			ts = append(ts, clusterSchema.MakeTenantWithDataVersion(name, schema.ActivityStatus(physical.Status), physical.DataVersion))
+			ts = append(ts, clusterSchema.MakeTenantWithDataVersion(name, schema.ActivityStatus(physical.Status), physical.BelongsToNodes, physical.DataVersion))
 		}
 		return nil
 	}

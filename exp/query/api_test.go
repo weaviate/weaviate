@@ -208,35 +208,38 @@ type mockSchemaInfo struct {
 }
 
 type tenantInfo struct {
-	tenant     string
-	collection string
-	status     string
+	tenant         string
+	collection     string
+	status         string
+	belongsToNodes []string
 }
 
 var testSchemaInfo = &mockSchemaInfo{
 	tenantinfo: map[string]*tenantInfo{
 		"ada-active": {
-			tenant:     "ada-active",
-			collection: "computer",
-			status:     "ACTIVE",
+			tenant:         "ada-active",
+			collection:     "computer",
+			status:         "ACTIVE",
+			belongsToNodes: []string{"node-1"},
 		},
 		"feynman-frozen": {
-			tenant:     "feynman-frozen",
-			collection: "physics",
-			status:     "FROZEN",
+			tenant:         "feynman-frozen",
+			collection:     "physics",
+			status:         "FROZEN",
+			belongsToNodes: []string{"node-1", "node-2"},
 		},
 	},
 }
 
-func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, uint64, error) {
+func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, []string, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	info, ok := m.tenantinfo[tenant]
 	if !ok || info.collection != collection {
-		return "", 0, ErrInvalidTenant
+		return "", nil, 0, ErrInvalidTenant
 	}
-	return info.status, 0, nil
+	return info.status, info.belongsToNodes, 0, nil
 }
 
 func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*models.Class, error) {
