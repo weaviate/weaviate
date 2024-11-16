@@ -365,16 +365,24 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 		if len(tenants) == 0 {
 			res = make([]*models.TenantResponse, len(ss.Physical))
 			i := 0
-			for tenant := range ss.Physical {
-				physical := ss.Physical[tenant]
-				res[i] = MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion)
+			for tenant, physical := range ss.Physical {
+				// Ensure we copy the belongs to nodes array to avoid it being modified
+				cpy := make([]string, len(physical.BelongsToNodes))
+				copy(cpy, physical.BelongsToNodes)
+
+				res[i] = MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), cpy, physical.DataVersion)
+
+				// Increment our result iterator
 				i++
 			}
 		} else {
 			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
 				if physical, ok := ss.Physical[tenant]; ok {
-					res = append(res, MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), physical.DataVersion))
+					// Ensure we copy the belongs to nodes array to avoid it being modified
+					cpy := make([]string, len(physical.BelongsToNodes))
+					copy(cpy, physical.BelongsToNodes)
+					res = append(res, MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), cpy, physical.DataVersion))
 				}
 			}
 		}
@@ -414,9 +422,10 @@ func makeTenant(name, status string) models.Tenant {
 }
 
 // MakeTenantWithDataVersion creates a tenant with the given name, status, and data version
-func MakeTenantWithDataVersion(name, status string, dataVersion int64) *models.TenantResponse {
+func MakeTenantWithDataVersion(name, status string, belongsToNodes []string, dataVersion int64) *models.TenantResponse {
 	return &models.TenantResponse{
-		Tenant:      makeTenant(name, status),
-		DataVersion: &dataVersion,
+		Tenant:         makeTenant(name, status),
+		DataVersion:    &dataVersion,
+		BelongsToNodes: belongsToNodes,
 	}
 }
