@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type ShardedLockCache[T float32 | byte | uint64] struct {
+type PagedLockCache[T float32 | byte | uint64] struct {
 	pagedLocks       *common.PagedRWLocks
 	cache            [][]T
 	vectorForID      common.VectorForID[T]
@@ -50,11 +50,11 @@ const (
 	indexGrowthRate         = 1.25
 )
 
-func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
+func NewPagedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) cache.Cache[float32] {
-	vc := &ShardedLockCache[float32]{
+	vc := &PagedLockCache[float32]{
 		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec, err := vecForID(ctx, id)
 			if err != nil {
@@ -81,11 +81,11 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 	return vc
 }
 
-func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
+func NewPagedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) cache.Cache[byte] {
-	vc := &ShardedLockCache[byte]{
+	vc := &PagedLockCache[byte]{
 		vectorForID:      vecForID,
 		cache:            make([][]byte, InitialSize),
 		normalizeOnRead:  false,
@@ -103,11 +103,11 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	return vc
 }
 
-func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
+func NewPagedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
-) *ShardedLockCache[uint64] {
-	vc := &ShardedLockCache[uint64]{
+) *PagedLockCache[uint64] {
+	vc := &PagedLockCache[uint64]{
 		vectorForID:      vecForID,
 		cache:            make([][]uint64, InitialSize),
 		normalizeOnRead:  false,
@@ -125,11 +125,11 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-func (s *ShardedLockCache[T]) All() [][]T {
+func (s *PagedLockCache[T]) All() [][]T {
 	return s.cache
 }
 
-func (s *ShardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
+func (s *PagedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	s.pagedLocks.RLock(id)
 	vec := s.cache[id]
 	s.pagedLocks.RUnlock(id)
@@ -141,7 +141,7 @@ func (s *ShardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	return s.handleCacheMiss(ctx, id)
 }
 
-func (s *ShardedLockCache[T]) Delete(ctx context.Context, id uint64) {
+func (s *PagedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.pagedLocks.Lock(id)
 	defer s.pagedLocks.Unlock(id)
 
@@ -153,7 +153,7 @@ func (s *ShardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *ShardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
+func (s *PagedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
 	if s.allocChecker != nil {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
@@ -187,7 +187,7 @@ func (s *ShardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	return vec, nil
 }
 
-func (s *ShardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
+func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
 	out := make([][]T, len(ids))
 	errs := make([]error, len(ids))
 
@@ -222,7 +222,7 @@ func (s *ShardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	return out, errs
 }
 
-func (s *ShardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64) ([][]T, []error, uint64, uint64) {
+func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64) ([][]T, []error, uint64, uint64) {
 
 	resultLen := s.pagedLocks.Count
 
@@ -262,7 +262,7 @@ func (s *ShardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64
 	return out, errs, start, end
 }
 
-func (s *ShardedLockCache[T]) GetCorrespondingLock(id uint64) uint64 {
+func (s *PagedLockCache[T]) GetCorrespondingLock(id uint64) uint64 {
 	return (id / s.pagedLocks.Count) % s.pagedLocks.Count
 }
 
@@ -271,22 +271,22 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// this function will be overridden for amd64
 }
 
-func (s *ShardedLockCache[T]) LockAll() {
+func (s *PagedLockCache[T]) LockAll() {
 	s.pagedLocks.LockAll()
 }
 
-func (s *ShardedLockCache[T]) UnlockAll() {
+func (s *PagedLockCache[T]) UnlockAll() {
 	s.pagedLocks.UnlockAll()
 }
 
-func (s *ShardedLockCache[T]) Prefetch(id uint64) {
+func (s *PagedLockCache[T]) Prefetch(id uint64) {
 	s.pagedLocks.RLock(id)
 	defer s.pagedLocks.RUnlock(id)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
-func (s *ShardedLockCache[T]) Preload(id uint64, vec []T) {
+func (s *PagedLockCache[T]) Preload(id uint64, vec []T) {
 	s.pagedLocks.Lock(id)
 	defer s.pagedLocks.Unlock(id)
 
@@ -294,11 +294,11 @@ func (s *ShardedLockCache[T]) Preload(id uint64, vec []T) {
 	s.cache[id] = vec
 }
 
-func (s *ShardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
+func (s *PagedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
 	s.cache[id] = vec
 }
 
-func (s *ShardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
+func (s *PagedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 	atomic.StoreInt64(&s.count, int64(size))
 
 	if size < uint64(len(s.cache)) {
@@ -310,7 +310,7 @@ func (s *ShardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 	s.cache = newCache
 }
 
-func (s *ShardedLockCache[T]) Grow(node uint64) {
+func (s *PagedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
 	if node < uint64(len(s.cache)) {
 		s.maintenanceLock.RUnlock()
@@ -336,25 +336,25 @@ func (s *ShardedLockCache[T]) Grow(node uint64) {
 	s.cache = newCache
 }
 
-func (s *ShardedLockCache[T]) Len() int32 {
+func (s *PagedLockCache[T]) Len() int32 {
 	s.maintenanceLock.RLock()
 	defer s.maintenanceLock.RUnlock()
 
 	return int32(len(s.cache))
 }
 
-func (s *ShardedLockCache[T]) CountVectors() int64 {
+func (s *PagedLockCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
-func (s *ShardedLockCache[T]) Drop() {
+func (s *PagedLockCache[T]) Drop() {
 	s.deleteAllVectors()
 	if s.deletionInterval != 0 {
 		s.cancel <- true
 	}
 }
 
-func (s *ShardedLockCache[T]) deleteAllVectors() {
+func (s *PagedLockCache[T]) deleteAllVectors() {
 	s.pagedLocks.LockAll()
 	defer s.pagedLocks.UnlockAll()
 
@@ -367,7 +367,7 @@ func (s *ShardedLockCache[T]) deleteAllVectors() {
 	atomic.StoreInt64(&s.count, 0)
 }
 
-func (s *ShardedLockCache[T]) watchForDeletion() {
+func (s *PagedLockCache[T]) watchForDeletion() {
 	if s.deletionInterval != 0 {
 		f := func() {
 			t := time.NewTicker(s.deletionInterval)
@@ -385,17 +385,17 @@ func (s *ShardedLockCache[T]) watchForDeletion() {
 	}
 }
 
-func (s *ShardedLockCache[T]) replaceIfFull() {
+func (s *PagedLockCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
 		s.deleteAllVectors()
 	}
 }
 
-func (s *ShardedLockCache[T]) UpdateMaxSize(size int64) {
+func (s *PagedLockCache[T]) UpdateMaxSize(size int64) {
 	atomic.StoreInt64(&s.maxSize, size)
 }
 
-func (s *ShardedLockCache[T]) CopyMaxSize() int64 {
+func (s *PagedLockCache[T]) CopyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&s.maxSize)
 	return sizeCopy
 }

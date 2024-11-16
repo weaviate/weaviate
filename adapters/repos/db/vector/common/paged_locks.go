@@ -16,7 +16,7 @@ import "sync"
 const DefaultPagedLocksCount = 512
 
 type PagedLocks struct {
-	// sharded locks
+	// paged locks
 	shards []sync.Mutex
 	// number of locks
 	Count uint64
@@ -72,7 +72,7 @@ func (sl *PagedLocks) Locked(id uint64, callback func()) {
 }
 
 type PagedRWLocks struct {
-	// sharded locks
+	// paged locks
 	shards []sync.RWMutex
 	// number of locks
 	Count uint64

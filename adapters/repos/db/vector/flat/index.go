@@ -67,7 +67,7 @@ type flat struct {
 	pool      *pools
 
 	compression          string
-	bqCache              *cache_paged.ShardedLockCache[uint64]
+	bqCache              *cache_paged.PagedLockCache[uint64]
 	count                uint64
 	concurrentCacheReads int
 }
@@ -104,7 +104,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
-		index.bqCache = cache_paged.NewShardedUInt64LockCache(
+		index.bqCache = cache_paged.NewPagedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
@@ -558,13 +558,10 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
-
 	for id < uint64(all) && (allow == nil || id <= allowMax) {
 		if allow == nil || allow.Contains(id) {
 
 			vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id)
-
-			// vec, err := index.bqCache.Get(context.Background(), id)
 
 			for i, vec := range vecs {
 				currentId := start + uint64(i)
