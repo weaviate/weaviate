@@ -59,8 +59,8 @@ type TenantWithVersion struct {
 }
 
 type QueryTenantsResponse struct {
-	Tenants      []*models.TenantResponse
 	ShardVersion uint64
+	Tenants      []*models.TenantResponse
 }
 
 type QuerySchemaResponse struct {
