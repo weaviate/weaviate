@@ -15,7 +15,6 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -62,7 +61,7 @@ func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
 	}
 }
 
-func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
+func (p *Parser) Search(req *pb.SearchRequest, maxObjectsLimit int64) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class := p.getClass(req.Collection)
 	if class == nil {
@@ -224,7 +223,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if req.Limit > 0 {
 		out.Pagination.Limit = int(req.Limit)
 	} else {
-		out.Pagination.Limit = int(config.QueryDefaults.Limit)
+		out.Pagination.Limit = int(maxObjectsLimit)
 	}
 
 	// Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.

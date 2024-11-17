@@ -534,6 +534,13 @@ func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32)
 	return *res
 }
 
+func (ko *Object) SearchResultWithDisAndTenant(addl additional.Properties, dist float32, tenant string) search.Result {
+	res := ko.SearchResult(addl, tenant)
+	res.Dist = dist
+	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
 func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
 	res := ko.SearchResult(addl, "")
 	res.Score = score
@@ -570,6 +577,16 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 			score = scores[i]
 		}
 		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
+	}
+
+	return out
+}
+
+func SearchResultsWithDistsAndTenant(in []*Object, addl additional.Properties, dists []float32, tenant string) search.Results {
+	out := make(search.Results, len(in))
+
+	for i, elem := range in {
+		out[i] = elem.SearchResultWithDisAndTenant(addl, dists[i], tenant)
 	}
 
 	return out

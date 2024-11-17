@@ -79,8 +79,6 @@ type ModulesProvider interface {
 }
 
 type objectsSearcher interface {
-	hybridSearcher
-
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error)
@@ -94,9 +92,7 @@ type objectsSearcher interface {
 		props search.SelectProperties, additional additional.Properties,
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
-}
 
-type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)

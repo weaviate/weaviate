@@ -26,9 +26,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -64,6 +66,7 @@ type SchemaQuerier interface {
 	// TenantStatus returns (STATUS, VERSION) tuple
 	TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
+	Schema(ctx context.Context) (schema.Schema, error)
 }
 
 func NewAPI(
@@ -86,61 +89,41 @@ func NewAPI(
 }
 
 // Search serves vector search over the offloaded tenant on object storage.
-func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
-	info, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
+func (a *API) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	info, tenantVersion, err := a.schema.TenantStatus(ctx, params.ClassName, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
 
 	if info != TenantOffLoadingStatus {
-		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
+		return nil, fmt.Errorf("tenant %q is not offloaded, %w", params.Tenant, ErrInvalidTenant)
 	}
 
-	store, localPath, err := a.lsm.Fetch(ctx, req.Collection, req.Tenant, tenantVersion)
+	store, localPath, err := a.lsm.Fetch(ctx, params.ClassName, params.Tenant, tenantVersion)
 	if err != nil {
 		return nil, err
 	}
 	defer store.Shutdown(ctx)
 
-	var resp SearchResponse
-
-	limit := req.Limit
-	if limit == 0 || limit > maxQueryObjectsLimit {
-		limit = maxQueryObjectsLimit
-	}
+	limit := params.Pagination.Limit
 
 	// TODO(kavi): Hanle where we support both nearText && Filters in the query
 	if len(req.NearText) != 0 {
 		// do vector search
-		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), limit)
+		resp, err := a.vectorSearch(ctx, store, localPath, req.NearText, req.Tenant, float32(req.Certainty), limit)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(resObjects) != len(distances) {
-			return nil, fmt.Errorf("vectorsearch returned distance in-complete")
-		}
-
-		for i := 0; i < len(resObjects); i++ {
-			resp.Results = append(resp.Results, Result{
-				Obj:       resObjects[i],
-				Certainty: float64(distances[i]),
-			})
-		}
-		return &resp, nil
+		return resp, nil
 	}
 
 	if req.Filters != nil {
-		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Class, req.Tenant, req.Filters, limit)
+		resp, err := a.propertyFilters(ctx, store, req.Collection, req.Class, req.Tenant, req.Filters, limit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to do filter search: %w", err)
 		}
-		for i := 0; i < len(resObjs); i++ {
-			resp.Results = append(resp.Results, Result{
-				Obj: resObjs[i],
-			})
-		}
-		return &resp, nil
+		return resp, nil
 	}
 
 	// return all objects upto `limit`
@@ -169,7 +152,7 @@ func (a *API) propertyFilters(
 	tenant string,
 	filter *filters.LocalFilter,
 	limit int,
-) ([]*storobj.Object, error) {
+) ([]search.Result, error) {
 	// TODO(kavi): make it dynamic
 	fallbackToSearchable := func() bool {
 		return false
@@ -218,7 +201,7 @@ func (a *API) propertyFilters(
 		return nil, fmt.Errorf("failed to search for objects:%w", err)
 	}
 
-	return objs, nil
+	return storobj.SearchResults(objs, additional.Properties{}, tenant), nil
 }
 
 func (a *API) vectorSearch(
@@ -226,12 +209,13 @@ func (a *API) vectorSearch(
 	store *lsmkv.Store,
 	localPath string,
 	nearText []string,
+	tenant string,
 	threshold float32,
 	limit int,
-) ([]*storobj.Object, []float32, error) {
+) ([]search.Result, error) {
 	vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+		return nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
 	}
 
 	// TODO(kavi): Assuming BQ compression is enabled. Make it generic.
@@ -249,7 +233,7 @@ func (a *API) vectorSearch(
 		BQ: bq,
 	}, store)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initialize index: %w", err)
+		return nil, fmt.Errorf("failed to initialize index: %w", err)
 	}
 	defer index.Shutdown(ctx)
 
@@ -259,7 +243,7 @@ func (a *API) vectorSearch(
 	certainty := 1 - threshold
 	matched_ids, distance, err := index.SearchByVectorDistance(ctx, vectors, certainty, int64(limit), nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to search by vector: %w", err)
+		return nil, fmt.Errorf("failed to search by vector: %w", err)
 	}
 
 	opts := []lsmkv.BucketOption{
@@ -267,7 +251,7 @@ func (a *API) vectorSearch(
 	}
 
 	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...); err != nil {
-		return nil, nil, fmt.Errorf("failed to vectorize query text: %w", err)
+		return nil, fmt.Errorf("failed to vectorize query text: %w", err)
 	}
 
 	bkt := store.Bucket(helpers.ObjectsBucketLSM)
@@ -277,22 +261,22 @@ func (a *API) vectorSearch(
 	for _, id := range matched_ids {
 		key, err := indexDocIDToLSMKey(id)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to serialize ids returned from flat index: %w", err)
+			return nil, fmt.Errorf("failed to serialize ids returned from flat index: %w", err)
 		}
 		objB, err := bkt.GetBySecondary(0, key)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get object from store: %w", err)
+			return nil, fmt.Errorf("failed to get object from store: %w", err)
 		}
 
 		obj, err := storobj.FromBinary(objB)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to decode object from store: %w", err)
+			return nil, fmt.Errorf("failed to decode object from store: %w", err)
 		}
 
 		objs = append(objs, obj)
 	}
 
-	return objs, distance, nil
+	return storobj.SearchResultsWithDistsAndTenant(objs, additional.Properties{}, distance, tenant), nil
 }
 
 type SearchRequest struct {
@@ -304,15 +288,6 @@ type SearchRequest struct {
 	Certainty float64  // threshold to match with certainty of vectors match
 	Limit     int
 	Filters   *filters.LocalFilter
-}
-
-type SearchResponse struct {
-	Results []Result
-}
-
-type Result struct {
-	Obj       *storobj.Object
-	Certainty float64
 }
 
 func indexDocIDToLSMKey(x uint64) ([]byte, error) {

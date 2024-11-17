@@ -213,7 +213,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		s.logger,
 	)
 
-	searchParams, err := parser.Search(req, s.config)
+	searchParams, err := parser.Search(req, s.config.QueryDefaults.Limit)
 	if err != nil {
 		return nil, err
 	}
