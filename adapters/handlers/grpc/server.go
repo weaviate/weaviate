@@ -122,8 +122,8 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 }
 
 func StartAndListen(s *GRPCServer, state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		state.ServerConfig.Config.GRPC.Port))
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d",
+		state.ServerConfig.Hostname, state.ServerConfig.Config.GRPC.Port))
 	if err != nil {
 		return err
 	}
