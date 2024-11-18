@@ -176,7 +176,7 @@ func TestAssignRoleInternalServerError(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "internal server error",
+			name: "internal server error from assigning",
 			params: authz.AssignRoleParams{
 				ID: "testUser",
 				Body: authz.AssignRoleBody{
@@ -188,7 +188,7 @@ func TestAssignRoleInternalServerError(t *testing.T) {
 			expectedError: "internal server error",
 		},
 		{
-			name: "internal server error",
+			name: "internal server error from getting role",
 			params: authz.AssignRoleParams{
 				ID: "testUser",
 				Body: authz.AssignRoleBody{
