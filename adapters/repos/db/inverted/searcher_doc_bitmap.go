@@ -15,8 +15,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -24,6 +26,13 @@ import (
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (docBitmap, error) {
+	before := time.Now()
+	defer func() {
+		took := time.Since(before)
+		helpers.AnnotateSlowQueryLog(ctx,
+			fmt.Sprintf("build_allow_list_prop_%s_operator_%v_took", pv.prop, pv.operator), took)
+	}()
+
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
 	// request internally, we can pass it to an external geo index
