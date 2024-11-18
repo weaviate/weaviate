@@ -132,7 +132,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 				assert.Nil(t, meta.Classes[0].Error)
 			})
 		})
-	}, 1*time.Second, 1*time.Second, "failed to create container")
+	}, 5*time.Second, 1*time.Second, "failed to create container")
 }
 
 func moduleLevelCopyObjects(t *testing.T) {
