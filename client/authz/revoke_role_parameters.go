@@ -77,7 +77,7 @@ type RevokeRoleParams struct {
 
 	/* ID.
 
-	   user or key ID
+	   user name
 	*/
 	ID string
 

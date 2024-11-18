@@ -2895,7 +2895,7 @@
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2908,7 +2908,7 @@
     },
     "/authz/users/{id}/roles": {
       "get": {
-        "summary": "get roles assigned to user or a key",
+        "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
@@ -2918,7 +2918,7 @@
         ],
         "parameters": [
           {
-            "description": "user or key ID",
+            "description": "user name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2948,7 +2948,7 @@
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2961,7 +2961,7 @@
     },
     "/authz/users/{id}/assign": {
       "post": {
-        "summary": "Assign a role to a user or key",
+        "summary": "Assign a role to a user",
         "operationId": "assignRole",
         "x-serviceIds": [
           "weaviate.authz.assign.role"
@@ -2971,7 +2971,7 @@
         ],
         "parameters": [
           {
-            "description": "user or key ID",
+            "description": "user name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2985,7 +2985,7 @@
               "properties": {
                 "roles": {
                   "type": "array",
-                  "description": "the roles that assigned to the key or user",
+                  "description": "the roles that assigned to user",
                   "items": {
                     "type": "string"
                   }
@@ -3037,7 +3037,7 @@
         ],
         "parameters": [
           {
-            "description": "user or key ID",
+            "description": "user name",
             "in": "path",
             "name": "id",
             "required": true,
