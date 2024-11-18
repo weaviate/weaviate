@@ -203,14 +203,17 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(s, limit); err != nil {
+	if err := pv.fetchDocIDs(ctx, s, limit); err != nil {
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
+	beforeMerge := time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
 
 	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
 }
