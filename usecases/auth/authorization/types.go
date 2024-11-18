@@ -44,6 +44,7 @@ var Actions = map[string]string{
 
 const (
 	ManageRoles   = "manage_roles"
+	ReadRoles     = "read_roles"
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
 
