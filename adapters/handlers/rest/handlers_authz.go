@@ -353,9 +353,25 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.Body.Roles...)...); err != nil {
+	multiResources := slices.Concat(authorization.Roles(params.Body.Roles...), authorization.Users(params.ID))
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, multiResources...); err != nil {
 		return authz.NewRevokeRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
+
+	if params.ID == "" {
+		return authz.NewRevokeRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
+	}
+
+	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
+	if err != nil {
+		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if len(existedRoles) != len(params.Body.Roles) {
+		return authz.NewRevokeRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke doesn't exists")))
+	}
+
+	// TODO check for users when we have dynamic users
 
 	if err := h.controller.RevokeRolesForUser(params.ID, params.Body.Roles...); err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
