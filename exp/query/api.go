@@ -100,7 +100,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 
 	info, belongsToNodes, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get tenant status: collection: %q, tenant %q: %w", req.Collection, req.Tenant, err)
 	}
 
 	if info != TenantOffLoadingStatus {
@@ -202,7 +202,7 @@ func (a *API) propertyFilters(
 	if class == nil {
 		class, err = a.schema.Collection(ctx, collection)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get class info from schema: %w", err)
+			return nil, fmt.Errorf("failed to get class info for %q from schema: %w", collection, err)
 		}
 	}
 
