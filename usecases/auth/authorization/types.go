@@ -47,25 +47,25 @@ const (
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
 
-	CreateCollections = "create_collections"
-	ReadCollections   = "read_collections"
-	UpdateCollections = "update_collections"
-	DeleteCollections = "delete_collections"
+	CreateCollections = "create_meta_collections"
+	ReadCollections   = "read_meta_collections"
+	UpdateCollections = "update_meta_collections"
+	DeleteCollections = "delete_meta_collections"
 
-	CreateTenants = "create_tenants"
-	ReadTenants   = "read_tenants"
-	UpdateTenants = "update_tenants"
-	DeleteTenants = "delete_tenants"
+	CreateTenants = "create_meta_tenants"
+	ReadTenants   = "read_meta_tenants"
+	UpdateTenants = "update_meta_tenants"
+	DeleteTenants = "delete_meta_tenants"
 
-	CreateObjectsCollection = "create_objects_collection"
-	ReadObjectsCollection   = "read_objects_collection"
-	UpdateObjectsCollection = "update_objects_collection"
-	DeleteObjectsCollection = "delete_objects_collection"
+	CreateObjectsCollection = "create_data_collection_objects"
+	ReadObjectsCollection   = "read_data_collection_objects"
+	UpdateObjectsCollection = "update_data_collection_objects"
+	DeleteObjectsCollection = "delete_data_collection_objects"
 
-	CreateObjectsTenant = "create_objects_tenant"
-	ReadObjectsTenant   = "read_objects_tenant"
-	UpdateObjectsTenant = "update_objects_tenant"
-	DeleteObjectsTenant = "delete_objects_tenant"
+	CreateObjectsTenant = "create_data_tenant_objects"
+	ReadObjectsTenant   = "read_data_tenant_objects"
+	UpdateObjectsTenant = "update_data_tenant_objects"
+	DeleteObjectsTenant = "delete_data_tenant_objects"
 )
 
 var (
@@ -194,15 +194,15 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func Collections(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{"collections/*"}
+		return []string{"meta/collections/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = "collections/*"
+			resources[idx] = "meta/collections/*"
 		} else {
-			resources[idx] = fmt.Sprintf("collections/%s/*", classes[idx])
+			resources[idx] = fmt.Sprintf("meta/collections/%s/*", classes[idx])
 		}
 	}
 
@@ -227,15 +227,15 @@ func Shards(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("collections/%s/shards/*/*", class)}
+		return []string{fmt.Sprintf("meta/collections/%s/shards/*/*", class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/*/*", class)
+			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*/*", class)
 		} else {
-			resources[idx] = fmt.Sprintf("collections/%s/shards/%s/*", class, shards[idx])
+			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/%s/*", class, shards[idx])
 		}
 	}
 
@@ -267,7 +267,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if id == "" {
 		id = "*"
 	}
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
+	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", class, shard, id)
 }
 
 func String(s string) *string {
