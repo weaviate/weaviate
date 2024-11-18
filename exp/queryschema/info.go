@@ -58,15 +58,22 @@ func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string
 		return "", nil, 0, err
 	}
 	defer resp.Body.Close()
-
-	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
-		return "", nil, 0, err
+	// GET /schema/{className}/tenants/{tenantName} does not return a body for 401 or 404
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", nil, 0, errors.New("tenant status: unauthorized")
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil, 0, ErrTenantNotFound
 	}
 
+	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
+		return "", nil, 0, fmt.Errorf("tenant status: failed to json decode response: %w", err)
+	}
 	var rerr error
 	if resp.StatusCode/100 != 2 {
 		if len(respPayload.Error) == 0 {
-			return "", nil, 0, errors.New("status code is non-200 but error is not set")
+			return "", nil, 0, fmt.Errorf(
+				"tenant status: status code is non-200 but error is not set: %d", resp.StatusCode)
 		}
 		for _, e := range respPayload.Error {
 			rerr = errors.Join(rerr, errors.New(e.Message))
