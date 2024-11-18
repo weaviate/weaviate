@@ -20,40 +20,16 @@ import (
 )
 
 const (
-	users                   = "users"
-	roles                   = "roles"
-	cluster                 = "cluster"
-	collections             = "collections"
-	collectionsDomain       = "meta_collections"
-	tenants                 = "tenants"
-	tenantsDomain           = "meta_tenants"
-	objectsCollection       = "objects_collection"
-	objectsCollectionDomain = "data_collection_objects"
-	objectsTenant           = "objects_tenant"
-	objectsTenantDomain     = "data_tenant_objects"
+	users             = "users"
+	roles             = "roles"
+	cluster           = "cluster"
+	collections       = "meta_collections"
+	tenants           = "meta_tenants"
+	objectsCollection = "data_collection_objects"
+	objectsTenant     = "data_tenant_objects"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
-)
-
-var (
-	domains = map[string]string{
-		"roles":              "roles",
-		"cluster":            "cluster",
-		"collections":        "meta_collections",
-		"tenants":            "meta_tenants",
-		"objects_collection": "data_collection_objects",
-		"objects_tenant":     "data_tenant_objects",
-	}
-
-	permissionsFromDomains = map[string]string{
-		"roles":                   "roles",
-		"cluster":                 "cluster",
-		"meta_collections":        "collections",
-		"meta_tenants":            "tenants",
-		"data_collection_objects": "objects_collection",
-		"data_tenant_objects":     "objects_tenant",
-	}
 )
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -197,14 +173,14 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	return &authorization.Policy{
 		Resource: resource,
 		Verb:     verb,
-		Domain:   domains[domain],
+		Domain:   domain,
 	}, nil
 }
 
 func permission(policy []string) *models.Permission {
 	mapped := newPolicy(policy)
 
-	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], permissionsFromDomains[mapped.Domain])
+	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], mapped.Domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
@@ -214,12 +190,12 @@ func permission(policy []string) *models.Permission {
 	all := "*"
 
 	switch mapped.Domain {
-	case collectionsDomain:
+	case collections:
 		permission.Collection = &splits[2]
-	case tenantsDomain:
+	case tenants:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
-	case objectsCollectionDomain, objectsTenantDomain:
+	case objectsCollection, objectsTenant:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
