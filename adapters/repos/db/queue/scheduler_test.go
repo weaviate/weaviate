@@ -108,7 +108,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("chunks are processing in order", func(t *testing.T) {
+	t.Run("chunks are processed in order", func(t *testing.T) {
 		s := makeScheduler(t, 1)
 		s.Start()
 
@@ -181,8 +181,6 @@ func TestScheduler(t *testing.T) {
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
-		require.NotEqual(t, "chunk.bin.partial", entries[0].Name())
-		require.Equal(t, "chunk.bin.partial", entries[1].Name())
 
 		err = q.Close()
 		require.NoError(t, err)
@@ -205,7 +203,6 @@ func TestScheduler(t *testing.T) {
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
-		require.Equal(t, "chunk.bin.partial", entries[0].Name())
 
 		select {
 		case <-time.After(500 * time.Millisecond):
@@ -271,6 +268,8 @@ func makeRecord(op uint8, id uint64) []byte {
 }
 
 func pushMany(t testing.TB, q *DiskQueue, op uint8, ids ...uint64) {
+	t.Helper()
+
 	for _, id := range ids {
 		err := q.Push(makeRecord(op, id))
 		require.NoError(t, err)

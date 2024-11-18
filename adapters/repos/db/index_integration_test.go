@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -546,6 +547,7 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 
 func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
@@ -617,6 +619,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
@@ -710,6 +713,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 
 	ctx := context.Background()
 	var cfg hnsw.UserConfig
@@ -822,6 +826,15 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 
 	err = index.drop()
 	require.Nil(t, err)
+}
+
+func randVector(dim int) []float32 {
+	vec := make([]float32, dim)
+	for i := range vec {
+		vec[i] = rand.Float32()
+	}
+
+	return vec
 }
 
 func TestIndex_ConvertQueue(t *testing.T) {

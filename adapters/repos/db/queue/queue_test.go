@@ -156,7 +156,7 @@ func TestQueueDecodeTask(t *testing.T) {
 		// check if the entry name matches the regex pattern
 		require.Regexp(t, `chunk-\d+\.bin`, entries[0].Name())
 		require.Regexp(t, `chunk-\d+\.bin`, entries[1].Name())
-		require.Equal(t, "chunk.bin.partial", entries[2].Name())
+		require.Regexp(t, `chunk-\d+\.bin`, entries[2].Name())
 
 		// check the content of the files
 		checkContent := func(fName string, size int, start, end int) {
@@ -170,7 +170,7 @@ func TestQueueDecodeTask(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			if fName != "chunk.bin.partial" /* partial file header is empty until promotion */ {
+			if gotSize != 0 {
 				require.Equal(t, size, int(gotSize))
 			}
 
