@@ -46,7 +46,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.invertedData.propertyLenghts[data.DocIds[0]]
+		propLength := s.invertedData.propertyLengths[data.DocIds[0]]
 		tf := data.Tfs[0]
 		entries[0] = &terms.BlockEntry{
 			Offset:              0,
@@ -370,8 +370,8 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Con
 	}
 
 	freq := float32(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.segment.invertedData.propertyLenghts[s.blockDataDecoded.DocIds[s.blockDataIdx]]
-	tf := freq / (freq + s.k1*(1-s.b+s.b*float32(propLength)/s.averagePropLength))
+	propLength := s.segment.invertedData.propertyLengths[s.blockDataDecoded.DocIds[s.blockDataIdx]]
+	tf := freq / (freq + s.k1*(1-s.b+s.b*(float32(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountAdded++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
 		s.Metrics.BlockCountAdded++
@@ -431,7 +431,7 @@ func (s *SegmentBlockMax) Advance() {
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 	freq := float32(s.blockEntries[s.blockEntryIdx].MaxImpactTf)
 	propLength := float32(s.blockEntries[s.blockEntryIdx].MaxImpactPropLength)
-	return float32(s.idf) * (freq / (freq + s.k1*(1-s.b+s.b*propLength/float32(s.averagePropLength)))) * s.propertyBoost
+	return float32(s.idf) * (freq / (freq + s.k1*(1-s.b+s.b*(propLength/float32(s.averagePropLength))))) * s.propertyBoost
 }
 
 func (s *SegmentBlockMax) CurrentBlockImpact() float32 {

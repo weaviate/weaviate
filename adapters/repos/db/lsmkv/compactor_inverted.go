@@ -170,8 +170,8 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 }
 
 func (c *compactorInverted) combinePropertyLengths() (uint64, uint64) {
-	count := c.c1.segment.invertedData.avgPropertyLenghtsCount + c.c2.segment.invertedData.avgPropertyLenghtsCount
-	sum := c.c1.segment.invertedData.avgPropertyLenghtsSum + c.c2.segment.invertedData.avgPropertyLenghtsSum
+	count := c.c1.segment.invertedData.avgPropertyLengthsCount + c.c2.segment.invertedData.avgPropertyLengthsCount
+	sum := c.c1.segment.invertedData.avgPropertyLengthsSum + c.c2.segment.invertedData.avgPropertyLengthsSum
 
 	return count, sum
 }
