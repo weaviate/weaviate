@@ -32,9 +32,9 @@ type pools struct {
 	tempVectors *common.TempVectorsPool
 }
 
-func newPools(maxConnectionsLayerZero int) *pools {
+func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500),
+		visitedLists:     visited.NewPool(1, cache.InitialSize+500, initialVisitedListPoolSize),
 		visitedListsLock: &sync.RWMutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {

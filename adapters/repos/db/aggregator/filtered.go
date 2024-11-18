@@ -76,7 +76,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 			return nil, nil, err
 		}
 
-		res, dists, err := fa.objectVectorSearch(vec, allowList)
+		res, dists, err := fa.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
 		}
@@ -109,7 +109,7 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	}
 
 	if len(fa.params.SearchVector) > 0 {
-		foundIDs, _, err = fa.vectorSearch(allowList, fa.params.SearchVector)
+		foundIDs, _, err = fa.vectorSearch(ctx, allowList, fa.params.SearchVector)
 		if err != nil {
 			return nil, err
 		}

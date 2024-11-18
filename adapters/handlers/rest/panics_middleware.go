@@ -75,7 +75,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	logger.WithError(err).WithFields(logrus.Fields{
 		"method": r.Method,
 		"path":   r.URL,
-	}).Errorf(err.Error())
+	}).Error(err.Error())
 	// This was not expected, so we want to print the stack, this will help us
 	// find the source of the issue if the user sends their logs
 	metricRequestsTotal.logServerError("", err)

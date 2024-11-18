@@ -121,7 +121,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 		wg := sync.WaitGroup{}
 		worker := func(jobs chan tuple) {
 			for job := range jobs {
-				index.Add(job.id, job.vec)
+				index.Add(ctx, job.id, job.vec)
 			}
 
 			wg.Done()

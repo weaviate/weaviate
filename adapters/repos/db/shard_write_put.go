@@ -26,20 +26,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
-	return s.putOne(ctx, uuid, object)
+	return s.putOne(ctx, uid, object)
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
@@ -56,17 +55,17 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range object.Vectors {
-			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
 	} else {
-		if err := s.updateVectorIndex(object.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, object.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(object, status); err != nil {
+	if err := s.updatePropertySpecificIndices(ctx, object, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
@@ -84,7 +83,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
-func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
+func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32,
 	status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
@@ -100,7 +99,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 		return nil
 	}
 
-	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
+	if err := s.vectorIndex.Add(ctx, status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -110,8 +109,8 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
-func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
-	status objectInsertStatus,
+func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
+	vectors map[string][]float32, status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
 	// https://github.com/weaviate/weaviate/issues/3948
@@ -128,7 +127,7 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 
 	for targetVector, vector := range vectors {
 		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-			if err := vectorIndex.Add(status.docID, vector); err != nil {
+			if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 			}
 		}
@@ -137,13 +136,13 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 	return nil
 }
 
-func (s *Shard) updateVectorIndex(vector []float32,
+func (s *Shard) updateVectorIndex(ctx context.Context, vector []float32,
 	status objectInsertStatus,
 ) error {
-	return s.updateVectorInVectorIndex(vector, status, s.queue, s.vectorIndex)
+	return s.updateVectorInVectorIndex(ctx, vector, status, s.queue, s.vectorIndex)
 }
 
-func (s *Shard) updateVectorIndexForName(vector []float32,
+func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
 	status objectInsertStatus, targetVector string,
 ) error {
 	queue, ok := s.queues[targetVector]
@@ -154,10 +153,10 @@ func (s *Shard) updateVectorIndexForName(vector []float32,
 	if vectorIndex == nil {
 		return fmt.Errorf("vector index not found for target vector %s", targetVector)
 	}
-	return s.updateVectorInVectorIndex(vector, status, queue, vectorIndex)
+	return s.updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
 }
 
-func (s *Shard) updateVectorInVectorIndex(vector []float32,
+func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
 	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need
@@ -182,7 +181,7 @@ func (s *Shard) updateVectorInVectorIndex(vector []float32,
 		return nil
 	}
 
-	if err := vectorIndex.Add(status.docID, vector); err != nil {
+	if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 

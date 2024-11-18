@@ -21,16 +21,16 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (a *Aggregator) vectorSearch(allow helpers.AllowList, vec []float32) ([]uint64, []float32, error) {
+func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, vec []float32) ([]uint64, []float32, error) {
 	if a.params.ObjectLimit != nil {
-		return a.searchByVector(vec, a.params.ObjectLimit, allow)
+		return a.searchByVector(ctx, vec, a.params.ObjectLimit, allow)
 	}
 
-	return a.searchByVectorDistance(vec, allow)
+	return a.searchByVectorDistance(ctx, vec, allow)
 }
 
-func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
-	idsFound, dists, err := a.vectorIndex.SearchByVector(searchVector, *limit, ids)
+func (a *Aggregator) searchByVector(ctx context.Context, searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
+	idsFound, dists, err := a.vectorIndex.SearchByVector(ctx, searchVector, *limit, ids)
 	if err != nil {
 		return idsFound, nil, err
 	}
@@ -52,13 +52,13 @@ func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids help
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, []float32, error) {
+func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector []float32, ids helpers.AllowList) ([]uint64, []float32, error) {
 	if a.params.Certainty <= 0 {
 		return nil, nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 	}
 
 	targetDist := float32(1-a.params.Certainty) * 2
-	idsFound, dists, err := a.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
+	idsFound, dists, err := a.vectorIndex.SearchByVectorDistance(ctx, searchVector, targetDist, -1, ids)
 	if err != nil {
 		return nil, nil, fmt.Errorf("aggregate search by vector: %w", err)
 	}
@@ -66,10 +66,10 @@ func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids helpers.
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) objectVectorSearch(searchVector []float32,
+func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector []float32,
 	allowList helpers.AllowList,
 ) ([]*storobj.Object, []float32, error) {
-	ids, dists, err := a.vectorSearch(allowList, searchVector)
+	ids, dists, err := a.vectorSearch(ctx, allowList, searchVector)
 	if err != nil {
 		return nil, nil, err
 	}

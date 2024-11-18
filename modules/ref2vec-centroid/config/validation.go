@@ -46,5 +46,10 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	_, err := cfg.CalculationMethod()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

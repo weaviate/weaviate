@@ -36,6 +36,7 @@ import (
 func Test_NoRaceCompressionRecall(t *testing.T) {
 	path := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
 
 	efConstruction := 4
 	ef := 64
@@ -90,7 +91,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	init := time.Now()
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
-		index.Add(id, vectors[id])
+		index.Add(ctx, id, vectors[id])
 	})
 	before = time.Now()
 	fmt.Println("Start compressing...")
@@ -113,7 +114,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 		mutex := sync.Mutex{}
 		compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-			results, _, _ := index.flatSearch(queries[i], k, 100, allowList)
+			results, _, _ := index.flatSearch(ctx, queries[i], k, 100, allowList)
 			mutex.Lock()
 			retrieved += k
 			relevant += testinghelpers.MatchesInLists(truths[i], results)

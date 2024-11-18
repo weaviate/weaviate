@@ -327,8 +327,33 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	// wait for flushing to complete before acquiring the maintenance lock, this
 	// can help avoid blocking user requests
-	sg.waitForFlushingToComplete(10*time.Millisecond, 60*time.Second)
+	sg.waitForFlushingToComplete(10*time.Millisecond, 300*time.Second)
 
+	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
+	if err != nil {
+		return fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
+		// don't abort if the delete fails, we can still continue (albeit
+		// without freeing disk space that should have been freed). The
+		// compaction itself was successful.
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  oldL.path,
+			"file_right": oldR.path,
+		}).Error("failed to delete file already marked for deletion")
+	}
+
+	return nil
+}
+
+const replaceSegmentWarnThreshold = 300 * time.Millisecond
+
+func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
+	old1, old2 int, precomputedFiles []string,
+) (*segment, *segment, error) {
+	start := time.Now()
 	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.Lock()
 	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
@@ -341,24 +366,24 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
 	if err := rightSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
-	if err := leftSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := leftSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	if err := rightSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := rightSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err = fsync(sg.dir)
+	err := fsync(sg.dir)
 	if err != nil {
-		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
 
 	sg.segments[old1] = nil
@@ -371,7 +396,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	for i, path := range precomputedFiles {
 		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
 		if err != nil {
-			return errors.Wrap(err, "strip .tmp extension of new segment")
+			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
 
 		if i == 0 {
@@ -383,12 +408,46 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
 		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 	if err != nil {
-		return errors.Wrap(err, "create new segment")
+		return nil, nil, errors.Wrap(err, "create new segment")
 	}
 
 	sg.segments[old2] = seg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
+
+	sg.observeReplaceCompactedDuration(start, old1, leftSegment, rightSegment)
+	return leftSegment, rightSegment, nil
+}
+
+func (sg *SegmentGroup) observeReplaceCompactedDuration(
+	start time.Time, segmentIdx int, left, right *segment,
+) {
+	// observe duration - warn if it took too long
+	took := time.Since(start)
+	fields := sg.logger.WithFields(logrus.Fields{
+		"action":        "lsm_replace_compacted_segments_blocking",
+		"segment_index": segmentIdx,
+		"path_left":     left.path,
+		"path_right":    right.path,
+		"took":          took,
+	})
+	msg := fmt.Sprintf("replacing compacted segments took %s", took)
+	if took > replaceSegmentWarnThreshold {
+		fields.Warn(msg)
+	} else {
+		fields.Debug(msg)
+	}
+}
+
+func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+	// At this point those segments are no longer used, so we can drop them
+	// without holding the maintenance lock and therefore not block readers.
+
+	for pos, seg := range segments {
+		if err := seg.dropMarked(); err != nil {
+			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
+		}
+	}
 
 	return nil
 }

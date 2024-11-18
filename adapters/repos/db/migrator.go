@@ -84,6 +84,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                 m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:        m.db.config.HNSWWaitForCachePrefill,
+			VisitedListPoolMaxSize:         m.db.config.VisitedListPoolMaxSize,
 			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			DisableLazyLoadShards:          m.db.config.DisableLazyLoadShards,
@@ -333,7 +334,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	for _, pl := range creates {
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
@@ -369,7 +370,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		}
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if len(updatesHot) > 0 {
 		idx.backupMutex.RLock()

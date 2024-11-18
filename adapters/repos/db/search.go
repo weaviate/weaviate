@@ -342,7 +342,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	}
 
 	if groupBy != nil {
-		res, err := refcache.NewResolverWithGroup(refcache.NewCacherWithGroup(db, db.logger, tenant)).
+		res, err := refcache.NewResolverWithGroup(refcache.NewCacher(db, db.logger, tenant), groupBy.Properties).
 			Do(ctx, objs, props, addl)
 		if err != nil {
 			return nil, fmt.Errorf("resolve cross-refs: %w", err)

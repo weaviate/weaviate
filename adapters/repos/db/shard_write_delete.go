@@ -19,13 +19,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()

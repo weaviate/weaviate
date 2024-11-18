@@ -13,6 +13,7 @@ package validation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -82,7 +83,11 @@ func (v *Validator) Object(ctx context.Context, class *models.Class,
 	incoming *models.Object, existing *models.Object,
 ) error {
 	if incoming.Class == "" {
-		return fmt.Errorf(ErrorMissingClass)
+		return errors.New(ErrorMissingClass)
+	}
+
+	if err := v.vector(ctx, class, incoming); err != nil {
+		return err
 	}
 
 	return v.properties(ctx, class, incoming, existing)

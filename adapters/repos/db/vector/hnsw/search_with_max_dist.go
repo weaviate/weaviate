@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pkg/errors"
@@ -20,8 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
-	ef int, allowList helpers.AllowList,
+func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32,
+	dist float32, ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
@@ -40,7 +41,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
-		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
+		res, err := h.searchLayerByVector(ctx, searchVec, eps, 1, level, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -55,7 +56,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 
 	eps := priorityqueue.NewMin[any](1)
 	eps.Insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
+	res, err := h.searchLayerByVector(ctx, searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}

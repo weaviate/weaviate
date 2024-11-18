@@ -402,6 +402,51 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			want: []schema.DataType{schema.DataTypeUUIDArray},
 		},
 		{
+			name: "determine mixed string arrays, string first",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"string",
+					"57a8564d089b4cd9be3956681605e0da",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
+			name: "determine mixed string/UUID arrays, string later",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"57a8564d089b4cd9be3956681605e0da",
+					"string",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
+			name: "determine mixed string/date arrays, string later",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"2002-10-02T15:00:00Z",
+					"string",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
 			name: "[deprecated string] determine string",
 			fields: fields{
 				config: config.AutoSchema{

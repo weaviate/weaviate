@@ -67,7 +67,10 @@ jobs:
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.27.0
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          # NOTE: needed because sometimes GHCR hits the rate limit AWS will be used instead
+          TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db"
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
@@ -134,6 +137,7 @@ jobs:
           go-version: '1.22'
           cache: true
       - name: Login to Docker Hub
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         uses: docker/login-action@v3
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -167,6 +171,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -178,14 +183,21 @@ jobs:
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
-  Modules-Acceptance-Tests-gcp:
-    name: modules-acceptance-tests-gcp
+  Modules-Acceptance-Tests-api:
+    name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-multi2vec-google", "--only-module-generative-google", "--only-module-text2vec-google"]
+        test: [
+          "--only-module-text2vec-aws",
+          "--only-module-generative-aws",
+          "--only-module-multi2vec-google",
+          "--only-module-generative-google",
+          "--only-module-text2vec-google",
+          "--only-module-multi2vec-cohere"
+        ]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -200,56 +212,27 @@ jobs:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"[gcp]"* || "$commit_message" == "prepare release"* ]]; then
+          if [[ "$commit_message" == *"[api]"* || "$commit_message" == "prepare release"* ]]; then
             echo "Run pipeline"
             echo "run_pipeline=true" >> $GITHUB_ENV
           else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: [gcp]"
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
-      - name: configure
+      - name: configure gcp
         if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-        run: ./tools/ci/gcloud.sh
-      - name: Acceptance tests (modules)
-        env:
-          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
-        run: GOOGLE_APIKEY=$(gcloud auth print-access-token) ./test/run.sh ${{ matrix.test }}
-  Modules-Acceptance-Tests-aws:
-    name: modules-acceptance-tests-aws
-    runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
-    strategy:
-      fail-fast: false
-      matrix:
-        test: ["--only-module-text2vec-aws", "--only-module-generative-aws"]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
-      - name: check
-        env:
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"[aws]"* || "$commit_message" == "prepare release"* ]]; then
-            echo "Run pipeline"
-            echo "run_pipeline=true" >> $GITHUB_ENV
-          else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: [aws]"
-            echo "run_pipeline=false" >> $GITHUB_ENV
-          fi
-      - name: configure
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
-        id: creds
+          ./tools/ci/gcloud.sh
+          google_apikey=$(gcloud auth print-access-token)
+          echo "::add-mask::$google_apikey"
+          echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
+      - name: configure aws
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        id: creds-aws
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -260,12 +243,15 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GOOGLE_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-          AWS_ACCESS_KEY_ID: ${{ steps.creds.outputs.aws-access-key-id }}
-          AWS_SECRET_ACCESS_KEY: ${{ steps.creds.outputs.aws-secret-access-key }}
-          AWS_SESSION_TOKEN: ${{ steps.creds.outputs.aws-session-token }}
+          AWS_ACCESS_KEY_ID: ${{ steps.creds-aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.creds-aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.creds-aws.outputs.aws-session-token }}
+          COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
@@ -289,6 +275,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -303,7 +290,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors", "--acceptance-lsmkv"]
+        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -313,11 +300,27 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Determine retry max_attempts value
+        env:
+          MATRIX_TEST: ${{ matrix.test }}
+        run: |
+          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
+            echo "retry_max_attempts=2" >> $GITHUB_ENV
+          else
+            echo "retry_max_attempts=1" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests Large
-        run: ./test/run.sh ${{ matrix.test }}
+        uses: nick-fields/retry@v3
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: ${{ env.retry_max_attempts }}
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
@@ -436,6 +439,7 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
@@ -456,4 +460,5 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh

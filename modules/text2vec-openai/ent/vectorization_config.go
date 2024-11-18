@@ -12,11 +12,11 @@
 package ent
 
 type VectorizationConfig struct {
-	Type, Model, ModelVersion, ResourceName string
-	BaseURL                                 string
-	DeploymentID                            string `json:"deploymentId"`
-	ApiVersion                              string
-	IsAzure                                 bool
-	IsThirdPartyProvider                    bool
-	Dimensions                              *int64
+	Type, Model, ModelVersion, ModelString, ResourceName string
+	BaseURL                                              string
+	DeploymentID                                         string `json:"deploymentId"`
+	ApiVersion                                           string
+	IsAzure                                              bool
+	IsThirdPartyProvider                                 bool
+	Dimensions                                           *int64
 }

@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -146,4 +148,5 @@ type GroupBy struct {
 	Property        string
 	Groups          int
 	ObjectsPerGroup int
+	Properties      search.SelectProperties
 }

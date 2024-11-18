@@ -26,7 +26,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -57,7 +56,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: storagestate.StatusLoading,
+		status: NewShardStatus(),
 	}
 
 	defer func() {

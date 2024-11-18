@@ -11,7 +11,11 @@
 
 package config
 
-import "github.com/weaviate/weaviate/entities/moduletools"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/moduletools"
+)
 
 const (
 	MethodMean    = "mean"
@@ -49,8 +53,11 @@ func (c *Config) ReferenceProperties() map[string]struct{} {
 	return refProps
 }
 
-func (c *Config) CalculationMethod() string {
+func (c *Config) CalculationMethod() (string, error) {
 	props := c.class.Class()
-	calcMethod := props[calculationMethodField].(string)
-	return calcMethod
+	calcMethod, ok := props[calculationMethodField].(string)
+	if !ok {
+		return "", fmt.Errorf("could not parse calculation methode. Expected a string, got: %v", props[calculationMethodField])
+	}
+	return calcMethod, nil
 }

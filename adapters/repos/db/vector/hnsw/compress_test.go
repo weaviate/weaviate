@@ -27,61 +27,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func TestCompression_CalculateOptimalSegments(t *testing.T) {
-	h := &hnsw{}
-
-	type testCase struct {
-		dimensions       int
-		expectedSegments int
-	}
-
-	for _, tc := range []testCase{
-		{
-			dimensions:       2048,
-			expectedSegments: 256,
-		},
-		{
-			dimensions:       1536,
-			expectedSegments: 256,
-		},
-		{
-			dimensions:       768,
-			expectedSegments: 128,
-		},
-		{
-			dimensions:       512,
-			expectedSegments: 128,
-		},
-		{
-			dimensions:       256,
-			expectedSegments: 64,
-		},
-		{
-			dimensions:       125,
-			expectedSegments: 125,
-		},
-		{
-			dimensions:       64,
-			expectedSegments: 32,
-		},
-		{
-			dimensions:       27,
-			expectedSegments: 27,
-		},
-		{
-			dimensions:       19,
-			expectedSegments: 19,
-		},
-		{
-			dimensions:       2,
-			expectedSegments: 1,
-		},
-	} {
-		segments := h.calculateOptimalSegments(tc.dimensions)
-		assert.Equal(t, tc.expectedSegments, segments)
-	}
-}
-
 func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	efConstruction := 64
 	ef := 32
@@ -91,6 +36,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
 	distancer := distancer.NewL2SquaredProvider()
 	logger, _ := test.NewNullLogger()
+	ctx := context.Background()
 
 	uc := ent.UserConfig{}
 	uc.MaxConnections = maxNeighbors
@@ -127,7 +73,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
-		return index.Add(uint64(id), vectors[id])
+		return index.Add(ctx, uint64(id), vectors[id])
 	}))
 
 	cfg := ent.PQConfig{
