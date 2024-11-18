@@ -35,7 +35,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		class = match.Class
 	}
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenant)...)
+	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 func (b *BatchManager) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
-		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		class := b.schemaManager.ReadOnlyClass(name)

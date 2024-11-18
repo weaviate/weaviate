@@ -77,7 +77,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		tenant = *params.Tenant
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 	unlock, err := m.locks.LockConnector()
