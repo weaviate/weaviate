@@ -25,35 +25,46 @@ import (
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
-) (docBitmap, error) {
+) (bm docBitmap, err error) {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
-		helpers.AnnotateSlowQueryLog(ctx,
-			fmt.Sprintf("build_allow_list_prop_%s_operator_%v_took", pv.prop, pv.operator), took)
+		vals := map[string]any{
+			"prop":        pv.prop,
+			"operator":    pv.operator,
+			"took":        took,
+			"took_string": took.String(),
+			"value":       pv.value,
+			"count":       bm.count(),
+		}
+
+		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", vals)
 	}()
 
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
 	// request internally, we can pass it to an external geo index
 	if pv.operator == filters.OperatorWithinGeoRange {
-		return s.docBitmapGeo(ctx, pv)
+		bm, err = s.docBitmapGeo(ctx, pv)
+		return
 	}
 
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
 	switch b.Strategy() {
 	case lsmkv.StrategySetCollection:
-		return s.docBitmapInvertedSet(ctx, b, limit, pv)
+		bm, err = s.docBitmapInvertedSet(ctx, b, limit, pv)
 	case lsmkv.StrategyRoaringSet:
-		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
+		bm, err = s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
 	case lsmkv.StrategyRoaringSetRange:
-		return s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
+		bm, err = s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
 	case lsmkv.StrategyMapCollection:
-		return s.docBitmapInvertedMap(ctx, b, limit, pv)
+		bm, err = s.docBitmapInvertedMap(ctx, b, limit, pv)
 	default:
 		return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable nor rangeable", pv.prop)
 	}
+
+	return
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
