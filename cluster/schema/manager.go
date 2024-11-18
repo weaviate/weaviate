@@ -208,6 +208,9 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 	}
 
 	update := func(meta *metaClass) error {
+		// Ensure that if non-default values for properties is stored in raft we fix them before processing an update to
+		// avoid triggering diff on properties and therefore discarding a legitimate update.
+		migratePropertiesIfNecessary(&meta.Class)
 		u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", ErrBadRequest, err)
