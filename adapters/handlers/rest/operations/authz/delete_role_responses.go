@@ -32,16 +32,19 @@ DeleteRoleNoContent Successfully deleted.
 
 swagger:response deleteRoleNoContent
 */
-type DeleteRoleNoContent struct{}
+type DeleteRoleNoContent struct {
+}
 
 // NewDeleteRoleNoContent creates DeleteRoleNoContent with default headers values
 func NewDeleteRoleNoContent() *DeleteRoleNoContent {
+
 	return &DeleteRoleNoContent{}
 }
 
 // WriteResponse to the client
 func (o *DeleteRoleNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -55,6 +58,7 @@ DeleteRoleBadRequest Bad request
 swagger:response deleteRoleBadRequest
 */
 type DeleteRoleBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -63,6 +67,7 @@ type DeleteRoleBadRequest struct {
 
 // NewDeleteRoleBadRequest creates DeleteRoleBadRequest with default headers values
 func NewDeleteRoleBadRequest() *DeleteRoleBadRequest {
+
 	return &DeleteRoleBadRequest{}
 }
 
@@ -79,6 +84,7 @@ func (o *DeleteRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *DeleteRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -96,16 +102,19 @@ DeleteRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response deleteRoleUnauthorized
 */
-type DeleteRoleUnauthorized struct{}
+type DeleteRoleUnauthorized struct {
+}
 
 // NewDeleteRoleUnauthorized creates DeleteRoleUnauthorized with default headers values
 func NewDeleteRoleUnauthorized() *DeleteRoleUnauthorized {
+
 	return &DeleteRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *DeleteRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -119,6 +128,7 @@ DeleteRoleForbidden Forbidden
 swagger:response deleteRoleForbidden
 */
 type DeleteRoleForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type DeleteRoleForbidden struct {
 
 // NewDeleteRoleForbidden creates DeleteRoleForbidden with default headers values
 func NewDeleteRoleForbidden() *DeleteRoleForbidden {
+
 	return &DeleteRoleForbidden{}
 }
 
@@ -143,6 +154,7 @@ func (o *DeleteRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *DeleteRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ DeleteRoleInternalServerError An error has occurred while trying to fulfill the 
 swagger:response deleteRoleInternalServerError
 */
 type DeleteRoleInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type DeleteRoleInternalServerError struct {
 
 // NewDeleteRoleInternalServerError creates DeleteRoleInternalServerError with default headers values
 func NewDeleteRoleInternalServerError() *DeleteRoleInternalServerError {
+
 	return &DeleteRoleInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *DeleteRoleInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *DeleteRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

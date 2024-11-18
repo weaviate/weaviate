@@ -32,16 +32,19 @@ RevokeRoleOK Role revoked successfully
 
 swagger:response revokeRoleOK
 */
-type RevokeRoleOK struct{}
+type RevokeRoleOK struct {
+}
 
 // NewRevokeRoleOK creates RevokeRoleOK with default headers values
 func NewRevokeRoleOK() *RevokeRoleOK {
+
 	return &RevokeRoleOK{}
 }
 
 // WriteResponse to the client
 func (o *RevokeRoleOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -55,6 +58,7 @@ RevokeRoleBadRequest Bad request
 swagger:response revokeRoleBadRequest
 */
 type RevokeRoleBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -63,6 +67,7 @@ type RevokeRoleBadRequest struct {
 
 // NewRevokeRoleBadRequest creates RevokeRoleBadRequest with default headers values
 func NewRevokeRoleBadRequest() *RevokeRoleBadRequest {
+
 	return &RevokeRoleBadRequest{}
 }
 
@@ -79,6 +84,7 @@ func (o *RevokeRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *RevokeRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -96,16 +102,19 @@ RevokeRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response revokeRoleUnauthorized
 */
-type RevokeRoleUnauthorized struct{}
+type RevokeRoleUnauthorized struct {
+}
 
 // NewRevokeRoleUnauthorized creates RevokeRoleUnauthorized with default headers values
 func NewRevokeRoleUnauthorized() *RevokeRoleUnauthorized {
+
 	return &RevokeRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *RevokeRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -119,6 +128,7 @@ RevokeRoleForbidden Forbidden
 swagger:response revokeRoleForbidden
 */
 type RevokeRoleForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type RevokeRoleForbidden struct {
 
 // NewRevokeRoleForbidden creates RevokeRoleForbidden with default headers values
 func NewRevokeRoleForbidden() *RevokeRoleForbidden {
+
 	return &RevokeRoleForbidden{}
 }
 
@@ -143,6 +154,7 @@ func (o *RevokeRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *RevokeRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ RevokeRoleInternalServerError An error has occurred while trying to fulfill the 
 swagger:response revokeRoleInternalServerError
 */
 type RevokeRoleInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type RevokeRoleInternalServerError struct {
 
 // NewRevokeRoleInternalServerError creates RevokeRoleInternalServerError with default headers values
 func NewRevokeRoleInternalServerError() *RevokeRoleInternalServerError {
+
 	return &RevokeRoleInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *RevokeRoleInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *RevokeRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

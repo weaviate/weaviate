@@ -33,6 +33,7 @@ ClusterGetStatisticsOK Cluster statistics successfully returned
 swagger:response clusterGetStatisticsOK
 */
 type ClusterGetStatisticsOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type ClusterGetStatisticsOK struct {
 
 // NewClusterGetStatisticsOK creates ClusterGetStatisticsOK with default headers values
 func NewClusterGetStatisticsOK() *ClusterGetStatisticsOK {
+
 	return &ClusterGetStatisticsOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *ClusterGetStatisticsOK) SetPayload(payload *models.ClusterStatisticsRes
 
 // WriteResponse to the client
 func (o *ClusterGetStatisticsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ ClusterGetStatisticsUnauthorized Unauthorized or invalid credentials.
 
 swagger:response clusterGetStatisticsUnauthorized
 */
-type ClusterGetStatisticsUnauthorized struct{}
+type ClusterGetStatisticsUnauthorized struct {
+}
 
 // NewClusterGetStatisticsUnauthorized creates ClusterGetStatisticsUnauthorized with default headers values
 func NewClusterGetStatisticsUnauthorized() *ClusterGetStatisticsUnauthorized {
+
 	return &ClusterGetStatisticsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ClusterGetStatisticsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ ClusterGetStatisticsForbidden Forbidden
 swagger:response clusterGetStatisticsForbidden
 */
 type ClusterGetStatisticsForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type ClusterGetStatisticsForbidden struct {
 
 // NewClusterGetStatisticsForbidden creates ClusterGetStatisticsForbidden with default headers values
 func NewClusterGetStatisticsForbidden() *ClusterGetStatisticsForbidden {
+
 	return &ClusterGetStatisticsForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *ClusterGetStatisticsForbidden) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *ClusterGetStatisticsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ ClusterGetStatisticsUnprocessableEntity Invalid backup restoration status attemp
 swagger:response clusterGetStatisticsUnprocessableEntity
 */
 type ClusterGetStatisticsUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type ClusterGetStatisticsUnprocessableEntity struct {
 
 // NewClusterGetStatisticsUnprocessableEntity creates ClusterGetStatisticsUnprocessableEntity with default headers values
 func NewClusterGetStatisticsUnprocessableEntity() *ClusterGetStatisticsUnprocessableEntity {
+
 	return &ClusterGetStatisticsUnprocessableEntity{}
 }
 
@@ -163,6 +174,7 @@ func (o *ClusterGetStatisticsUnprocessableEntity) SetPayload(payload *models.Err
 
 // WriteResponse to the client
 func (o *ClusterGetStatisticsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ ClusterGetStatisticsInternalServerError An error has occurred while trying to fu
 swagger:response clusterGetStatisticsInternalServerError
 */
 type ClusterGetStatisticsInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type ClusterGetStatisticsInternalServerError struct {
 
 // NewClusterGetStatisticsInternalServerError creates ClusterGetStatisticsInternalServerError with default headers values
 func NewClusterGetStatisticsInternalServerError() *ClusterGetStatisticsInternalServerError {
+
 	return &ClusterGetStatisticsInternalServerError{}
 }
 
@@ -205,6 +219,7 @@ func (o *ClusterGetStatisticsInternalServerError) SetPayload(payload *models.Err
 
 // WriteResponse to the client
 func (o *ClusterGetStatisticsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

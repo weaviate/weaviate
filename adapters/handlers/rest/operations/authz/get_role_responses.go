@@ -33,6 +33,7 @@ GetRoleOK Successful response.
 swagger:response getRoleOK
 */
 type GetRoleOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetRoleOK struct {
 
 // NewGetRoleOK creates GetRoleOK with default headers values
 func NewGetRoleOK() *GetRoleOK {
+
 	return &GetRoleOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetRoleOK) SetPayload(payload *models.Role) {
 
 // WriteResponse to the client
 func (o *GetRoleOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ GetRoleBadRequest Malformed request.
 swagger:response getRoleBadRequest
 */
 type GetRoleBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type GetRoleBadRequest struct {
 
 // NewGetRoleBadRequest creates GetRoleBadRequest with default headers values
 func NewGetRoleBadRequest() *GetRoleBadRequest {
+
 	return &GetRoleBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *GetRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ GetRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getRoleUnauthorized
 */
-type GetRoleUnauthorized struct{}
+type GetRoleUnauthorized struct {
+}
 
 // NewGetRoleUnauthorized creates GetRoleUnauthorized with default headers values
 func NewGetRoleUnauthorized() *GetRoleUnauthorized {
+
 	return &GetRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ GetRoleForbidden Forbidden
 swagger:response getRoleForbidden
 */
 type GetRoleForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type GetRoleForbidden struct {
 
 // NewGetRoleForbidden creates GetRoleForbidden with default headers values
 func NewGetRoleForbidden() *GetRoleForbidden {
+
 	return &GetRoleForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *GetRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -180,16 +192,19 @@ GetRoleNotFound no role found
 
 swagger:response getRoleNotFound
 */
-type GetRoleNotFound struct{}
+type GetRoleNotFound struct {
+}
 
 // NewGetRoleNotFound creates GetRoleNotFound with default headers values
 func NewGetRoleNotFound() *GetRoleNotFound {
+
 	return &GetRoleNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetRoleNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -203,6 +218,7 @@ GetRoleInternalServerError An error has occurred while trying to fulfill the req
 swagger:response getRoleInternalServerError
 */
 type GetRoleInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type GetRoleInternalServerError struct {
 
 // NewGetRoleInternalServerError creates GetRoleInternalServerError with default headers values
 func NewGetRoleInternalServerError() *GetRoleInternalServerError {
+
 	return &GetRoleInternalServerError{}
 }
 
@@ -227,6 +244,7 @@ func (o *GetRoleInternalServerError) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

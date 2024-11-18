@@ -33,6 +33,7 @@ BackupsListOK Existed backups
 swagger:response backupsListOK
 */
 type BackupsListOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type BackupsListOK struct {
 
 // NewBackupsListOK creates BackupsListOK with default headers values
 func NewBackupsListOK() *BackupsListOK {
+
 	return &BackupsListOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *BackupsListOK) SetPayload(payload models.BackupListResponse) {
 
 // WriteResponse to the client
 func (o *BackupsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -77,16 +80,19 @@ BackupsListUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsListUnauthorized
 */
-type BackupsListUnauthorized struct{}
+type BackupsListUnauthorized struct {
+}
 
 // NewBackupsListUnauthorized creates BackupsListUnauthorized with default headers values
 func NewBackupsListUnauthorized() *BackupsListUnauthorized {
+
 	return &BackupsListUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BackupsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -100,6 +106,7 @@ BackupsListForbidden Forbidden
 swagger:response backupsListForbidden
 */
 type BackupsListForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -108,6 +115,7 @@ type BackupsListForbidden struct {
 
 // NewBackupsListForbidden creates BackupsListForbidden with default headers values
 func NewBackupsListForbidden() *BackupsListForbidden {
+
 	return &BackupsListForbidden{}
 }
 
@@ -124,6 +132,7 @@ func (o *BackupsListForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *BackupsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -142,6 +151,7 @@ BackupsListUnprocessableEntity Invalid backup list.
 swagger:response backupsListUnprocessableEntity
 */
 type BackupsListUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type BackupsListUnprocessableEntity struct {
 
 // NewBackupsListUnprocessableEntity creates BackupsListUnprocessableEntity with default headers values
 func NewBackupsListUnprocessableEntity() *BackupsListUnprocessableEntity {
+
 	return &BackupsListUnprocessableEntity{}
 }
 
@@ -166,6 +177,7 @@ func (o *BackupsListUnprocessableEntity) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *BackupsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,6 +196,7 @@ BackupsListInternalServerError An error has occurred while trying to fulfill the
 swagger:response backupsListInternalServerError
 */
 type BackupsListInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -192,6 +205,7 @@ type BackupsListInternalServerError struct {
 
 // NewBackupsListInternalServerError creates BackupsListInternalServerError with default headers values
 func NewBackupsListInternalServerError() *BackupsListInternalServerError {
+
 	return &BackupsListInternalServerError{}
 }
 
@@ -208,6 +222,7 @@ func (o *BackupsListInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *BackupsListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

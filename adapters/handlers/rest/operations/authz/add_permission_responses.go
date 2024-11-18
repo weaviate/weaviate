@@ -32,16 +32,19 @@ AddPermissionCreated Permission added successfully
 
 swagger:response addPermissionCreated
 */
-type AddPermissionCreated struct{}
+type AddPermissionCreated struct {
+}
 
 // NewAddPermissionCreated creates AddPermissionCreated with default headers values
 func NewAddPermissionCreated() *AddPermissionCreated {
+
 	return &AddPermissionCreated{}
 }
 
 // WriteResponse to the client
 func (o *AddPermissionCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(201)
 }
@@ -54,16 +57,19 @@ AddPermissionUnauthorized Unauthorized or invalid credentials.
 
 swagger:response addPermissionUnauthorized
 */
-type AddPermissionUnauthorized struct{}
+type AddPermissionUnauthorized struct {
+}
 
 // NewAddPermissionUnauthorized creates AddPermissionUnauthorized with default headers values
 func NewAddPermissionUnauthorized() *AddPermissionUnauthorized {
+
 	return &AddPermissionUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *AddPermissionUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ AddPermissionForbidden Forbidden
 swagger:response addPermissionForbidden
 */
 type AddPermissionForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type AddPermissionForbidden struct {
 
 // NewAddPermissionForbidden creates AddPermissionForbidden with default headers values
 func NewAddPermissionForbidden() *AddPermissionForbidden {
+
 	return &AddPermissionForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *AddPermissionForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *AddPermissionForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,6 +128,7 @@ AddPermissionUnprocessableEntity Request body is well-formed (i.e., syntacticall
 swagger:response addPermissionUnprocessableEntity
 */
 type AddPermissionUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type AddPermissionUnprocessableEntity struct {
 
 // NewAddPermissionUnprocessableEntity creates AddPermissionUnprocessableEntity with default headers values
 func NewAddPermissionUnprocessableEntity() *AddPermissionUnprocessableEntity {
+
 	return &AddPermissionUnprocessableEntity{}
 }
 
@@ -143,6 +154,7 @@ func (o *AddPermissionUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *AddPermissionUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ AddPermissionInternalServerError An error has occurred while trying to fulfill t
 swagger:response addPermissionInternalServerError
 */
 type AddPermissionInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type AddPermissionInternalServerError struct {
 
 // NewAddPermissionInternalServerError creates AddPermissionInternalServerError with default headers values
 func NewAddPermissionInternalServerError() *AddPermissionInternalServerError {
+
 	return &AddPermissionInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *AddPermissionInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *AddPermissionInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

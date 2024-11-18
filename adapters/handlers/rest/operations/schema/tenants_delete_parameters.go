@@ -30,6 +30,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewTenantsDeleteParams() TenantsDeleteParams {
+
 	return TenantsDeleteParams{}
 }
 
@@ -38,6 +39,7 @@ func NewTenantsDeleteParams() TenantsDeleteParams {
 //
 // swagger:parameters tenants.delete
 type TenantsDeleteParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

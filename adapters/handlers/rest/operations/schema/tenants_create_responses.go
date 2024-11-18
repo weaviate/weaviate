@@ -33,6 +33,7 @@ TenantsCreateOK Added new tenants to the specified class
 swagger:response tenantsCreateOK
 */
 type TenantsCreateOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type TenantsCreateOK struct {
 
 // NewTenantsCreateOK creates TenantsCreateOK with default headers values
 func NewTenantsCreateOK() *TenantsCreateOK {
+
 	return &TenantsCreateOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *TenantsCreateOK) SetPayload(payload []*models.Tenant) {
 
 // WriteResponse to the client
 func (o *TenantsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -77,16 +80,19 @@ TenantsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response tenantsCreateUnauthorized
 */
-type TenantsCreateUnauthorized struct{}
+type TenantsCreateUnauthorized struct {
+}
 
 // NewTenantsCreateUnauthorized creates TenantsCreateUnauthorized with default headers values
 func NewTenantsCreateUnauthorized() *TenantsCreateUnauthorized {
+
 	return &TenantsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *TenantsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -100,6 +106,7 @@ TenantsCreateForbidden Forbidden
 swagger:response tenantsCreateForbidden
 */
 type TenantsCreateForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -108,6 +115,7 @@ type TenantsCreateForbidden struct {
 
 // NewTenantsCreateForbidden creates TenantsCreateForbidden with default headers values
 func NewTenantsCreateForbidden() *TenantsCreateForbidden {
+
 	return &TenantsCreateForbidden{}
 }
 
@@ -124,6 +132,7 @@ func (o *TenantsCreateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *TenantsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -142,6 +151,7 @@ TenantsCreateUnprocessableEntity Invalid Tenant class
 swagger:response tenantsCreateUnprocessableEntity
 */
 type TenantsCreateUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type TenantsCreateUnprocessableEntity struct {
 
 // NewTenantsCreateUnprocessableEntity creates TenantsCreateUnprocessableEntity with default headers values
 func NewTenantsCreateUnprocessableEntity() *TenantsCreateUnprocessableEntity {
+
 	return &TenantsCreateUnprocessableEntity{}
 }
 
@@ -166,6 +177,7 @@ func (o *TenantsCreateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *TenantsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,6 +196,7 @@ TenantsCreateInternalServerError An error has occurred while trying to fulfill t
 swagger:response tenantsCreateInternalServerError
 */
 type TenantsCreateInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -192,6 +205,7 @@ type TenantsCreateInternalServerError struct {
 
 // NewTenantsCreateInternalServerError creates TenantsCreateInternalServerError with default headers values
 func NewTenantsCreateInternalServerError() *TenantsCreateInternalServerError {
+
 	return &TenantsCreateInternalServerError{}
 }
 
@@ -208,6 +222,7 @@ func (o *TenantsCreateInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *TenantsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

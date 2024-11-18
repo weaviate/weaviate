@@ -32,16 +32,19 @@ ObjectsPatchNoContent Successfully applied. No content provided.
 
 swagger:response objectsPatchNoContent
 */
-type ObjectsPatchNoContent struct{}
+type ObjectsPatchNoContent struct {
+}
 
 // NewObjectsPatchNoContent creates ObjectsPatchNoContent with default headers values
 func NewObjectsPatchNoContent() *ObjectsPatchNoContent {
+
 	return &ObjectsPatchNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -54,16 +57,19 @@ ObjectsPatchBadRequest The patch-JSON is malformed.
 
 swagger:response objectsPatchBadRequest
 */
-type ObjectsPatchBadRequest struct{}
+type ObjectsPatchBadRequest struct {
+}
 
 // NewObjectsPatchBadRequest creates ObjectsPatchBadRequest with default headers values
 func NewObjectsPatchBadRequest() *ObjectsPatchBadRequest {
+
 	return &ObjectsPatchBadRequest{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(400)
 }
@@ -76,16 +82,19 @@ ObjectsPatchUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsPatchUnauthorized
 */
-type ObjectsPatchUnauthorized struct{}
+type ObjectsPatchUnauthorized struct {
+}
 
 // NewObjectsPatchUnauthorized creates ObjectsPatchUnauthorized with default headers values
 func NewObjectsPatchUnauthorized() *ObjectsPatchUnauthorized {
+
 	return &ObjectsPatchUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsPatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -99,6 +108,7 @@ ObjectsPatchForbidden Forbidden
 swagger:response objectsPatchForbidden
 */
 type ObjectsPatchForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -107,6 +117,7 @@ type ObjectsPatchForbidden struct {
 
 // NewObjectsPatchForbidden creates ObjectsPatchForbidden with default headers values
 func NewObjectsPatchForbidden() *ObjectsPatchForbidden {
+
 	return &ObjectsPatchForbidden{}
 }
 
@@ -123,6 +134,7 @@ func (o *ObjectsPatchForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -140,16 +152,19 @@ ObjectsPatchNotFound Successful query result but no resource was found.
 
 swagger:response objectsPatchNotFound
 */
-type ObjectsPatchNotFound struct{}
+type ObjectsPatchNotFound struct {
+}
 
 // NewObjectsPatchNotFound creates ObjectsPatchNotFound with default headers values
 func NewObjectsPatchNotFound() *ObjectsPatchNotFound {
+
 	return &ObjectsPatchNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -163,6 +178,7 @@ ObjectsPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
 swagger:response objectsPatchUnprocessableEntity
 */
 type ObjectsPatchUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -171,6 +187,7 @@ type ObjectsPatchUnprocessableEntity struct {
 
 // NewObjectsPatchUnprocessableEntity creates ObjectsPatchUnprocessableEntity with default headers values
 func NewObjectsPatchUnprocessableEntity() *ObjectsPatchUnprocessableEntity {
+
 	return &ObjectsPatchUnprocessableEntity{}
 }
 
@@ -187,6 +204,7 @@ func (o *ObjectsPatchUnprocessableEntity) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ObjectsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -205,6 +223,7 @@ ObjectsPatchInternalServerError An error has occurred while trying to fulfill th
 swagger:response objectsPatchInternalServerError
 */
 type ObjectsPatchInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -213,6 +232,7 @@ type ObjectsPatchInternalServerError struct {
 
 // NewObjectsPatchInternalServerError creates ObjectsPatchInternalServerError with default headers values
 func NewObjectsPatchInternalServerError() *ObjectsPatchInternalServerError {
+
 	return &ObjectsPatchInternalServerError{}
 }
 
@@ -229,6 +249,7 @@ func (o *ObjectsPatchInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ObjectsPatchInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

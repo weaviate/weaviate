@@ -32,6 +32,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewCreateRoleParams() CreateRoleParams {
+
 	return CreateRoleParams{}
 }
 
@@ -40,6 +41,7 @@ func NewCreateRoleParams() CreateRoleParams {
 //
 // swagger:parameters createRole
 type CreateRoleParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

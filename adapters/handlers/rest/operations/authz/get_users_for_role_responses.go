@@ -33,6 +33,7 @@ GetUsersForRoleOK Users assigned to this role
 swagger:response getUsersForRoleOK
 */
 type GetUsersForRoleOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetUsersForRoleOK struct {
 
 // NewGetUsersForRoleOK creates GetUsersForRoleOK with default headers values
 func NewGetUsersForRoleOK() *GetUsersForRoleOK {
+
 	return &GetUsersForRoleOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetUsersForRoleOK) SetPayload(payload []string) {
 
 // WriteResponse to the client
 func (o *GetUsersForRoleOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ GetUsersForRoleBadRequest Bad request
 swagger:response getUsersForRoleBadRequest
 */
 type GetUsersForRoleBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type GetUsersForRoleBadRequest struct {
 
 // NewGetUsersForRoleBadRequest creates GetUsersForRoleBadRequest with default headers values
 func NewGetUsersForRoleBadRequest() *GetUsersForRoleBadRequest {
+
 	return &GetUsersForRoleBadRequest{}
 }
 
@@ -102,6 +107,7 @@ func (o *GetUsersForRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetUsersForRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,16 +125,19 @@ GetUsersForRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response getUsersForRoleUnauthorized
 */
-type GetUsersForRoleUnauthorized struct{}
+type GetUsersForRoleUnauthorized struct {
+}
 
 // NewGetUsersForRoleUnauthorized creates GetUsersForRoleUnauthorized with default headers values
 func NewGetUsersForRoleUnauthorized() *GetUsersForRoleUnauthorized {
+
 	return &GetUsersForRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GetUsersForRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -142,6 +151,7 @@ GetUsersForRoleForbidden Forbidden
 swagger:response getUsersForRoleForbidden
 */
 type GetUsersForRoleForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type GetUsersForRoleForbidden struct {
 
 // NewGetUsersForRoleForbidden creates GetUsersForRoleForbidden with default headers values
 func NewGetUsersForRoleForbidden() *GetUsersForRoleForbidden {
+
 	return &GetUsersForRoleForbidden{}
 }
 
@@ -166,6 +177,7 @@ func (o *GetUsersForRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GetUsersForRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -183,16 +195,19 @@ GetUsersForRoleNotFound no role found for user/key
 
 swagger:response getUsersForRoleNotFound
 */
-type GetUsersForRoleNotFound struct{}
+type GetUsersForRoleNotFound struct {
+}
 
 // NewGetUsersForRoleNotFound creates GetUsersForRoleNotFound with default headers values
 func NewGetUsersForRoleNotFound() *GetUsersForRoleNotFound {
+
 	return &GetUsersForRoleNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetUsersForRoleNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -206,6 +221,7 @@ GetUsersForRoleInternalServerError An error has occurred while trying to fulfill
 swagger:response getUsersForRoleInternalServerError
 */
 type GetUsersForRoleInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -214,6 +230,7 @@ type GetUsersForRoleInternalServerError struct {
 
 // NewGetUsersForRoleInternalServerError creates GetUsersForRoleInternalServerError with default headers values
 func NewGetUsersForRoleInternalServerError() *GetUsersForRoleInternalServerError {
+
 	return &GetUsersForRoleInternalServerError{}
 }
 
@@ -230,6 +247,7 @@ func (o *GetUsersForRoleInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *GetUsersForRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

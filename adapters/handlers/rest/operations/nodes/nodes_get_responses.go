@@ -33,6 +33,7 @@ NodesGetOK Nodes status successfully returned
 swagger:response nodesGetOK
 */
 type NodesGetOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type NodesGetOK struct {
 
 // NewNodesGetOK creates NodesGetOK with default headers values
 func NewNodesGetOK() *NodesGetOK {
+
 	return &NodesGetOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *NodesGetOK) SetPayload(payload *models.NodesStatusResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ NodesGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response nodesGetUnauthorized
 */
-type NodesGetUnauthorized struct{}
+type NodesGetUnauthorized struct {
+}
 
 // NewNodesGetUnauthorized creates NodesGetUnauthorized with default headers values
 func NewNodesGetUnauthorized() *NodesGetUnauthorized {
+
 	return &NodesGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *NodesGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ NodesGetForbidden Forbidden
 swagger:response nodesGetForbidden
 */
 type NodesGetForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type NodesGetForbidden struct {
 
 // NewNodesGetForbidden creates NodesGetForbidden with default headers values
 func NewNodesGetForbidden() *NodesGetForbidden {
+
 	return &NodesGetForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *NodesGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ NodesGetNotFound Not Found - Backup does not exist
 swagger:response nodesGetNotFound
 */
 type NodesGetNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type NodesGetNotFound struct {
 
 // NewNodesGetNotFound creates NodesGetNotFound with default headers values
 func NewNodesGetNotFound() *NodesGetNotFound {
+
 	return &NodesGetNotFound{}
 }
 
@@ -163,6 +174,7 @@ func (o *NodesGetNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ NodesGetUnprocessableEntity Invalid backup restoration status attempt.
 swagger:response nodesGetUnprocessableEntity
 */
 type NodesGetUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type NodesGetUnprocessableEntity struct {
 
 // NewNodesGetUnprocessableEntity creates NodesGetUnprocessableEntity with default headers values
 func NewNodesGetUnprocessableEntity() *NodesGetUnprocessableEntity {
+
 	return &NodesGetUnprocessableEntity{}
 }
 
@@ -205,6 +219,7 @@ func (o *NodesGetUnprocessableEntity) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *NodesGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -223,6 +238,7 @@ NodesGetInternalServerError An error has occurred while trying to fulfill the re
 swagger:response nodesGetInternalServerError
 */
 type NodesGetInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -231,6 +247,7 @@ type NodesGetInternalServerError struct {
 
 // NewNodesGetInternalServerError creates NodesGetInternalServerError with default headers values
 func NewNodesGetInternalServerError() *NodesGetInternalServerError {
+
 	return &NodesGetInternalServerError{}
 }
 
@@ -247,6 +264,7 @@ func (o *NodesGetInternalServerError) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *NodesGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

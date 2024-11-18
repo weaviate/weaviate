@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewBackupsRestoreParams() BackupsRestoreParams {
+
 	return BackupsRestoreParams{}
 }
 
@@ -41,6 +42,7 @@ func NewBackupsRestoreParams() BackupsRestoreParams {
 //
 // swagger:parameters backups.restore
 type BackupsRestoreParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

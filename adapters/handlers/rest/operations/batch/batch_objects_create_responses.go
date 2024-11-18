@@ -33,6 +33,7 @@ BatchObjectsCreateOK Request succeeded, see response body to get detailed inform
 swagger:response batchObjectsCreateOK
 */
 type BatchObjectsCreateOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type BatchObjectsCreateOK struct {
 
 // NewBatchObjectsCreateOK creates BatchObjectsCreateOK with default headers values
 func NewBatchObjectsCreateOK() *BatchObjectsCreateOK {
+
 	return &BatchObjectsCreateOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *BatchObjectsCreateOK) SetPayload(payload []*models.ObjectsGetResponse) 
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ BatchObjectsCreateBadRequest Malformed request.
 swagger:response batchObjectsCreateBadRequest
 */
 type BatchObjectsCreateBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type BatchObjectsCreateBadRequest struct {
 
 // NewBatchObjectsCreateBadRequest creates BatchObjectsCreateBadRequest with default headers values
 func NewBatchObjectsCreateBadRequest() *BatchObjectsCreateBadRequest {
+
 	return &BatchObjectsCreateBadRequest{}
 }
 
@@ -102,6 +107,7 @@ func (o *BatchObjectsCreateBadRequest) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,16 +125,19 @@ BatchObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchObjectsCreateUnauthorized
 */
-type BatchObjectsCreateUnauthorized struct{}
+type BatchObjectsCreateUnauthorized struct {
+}
 
 // NewBatchObjectsCreateUnauthorized creates BatchObjectsCreateUnauthorized with default headers values
 func NewBatchObjectsCreateUnauthorized() *BatchObjectsCreateUnauthorized {
+
 	return &BatchObjectsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -142,6 +151,7 @@ BatchObjectsCreateForbidden Forbidden
 swagger:response batchObjectsCreateForbidden
 */
 type BatchObjectsCreateForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type BatchObjectsCreateForbidden struct {
 
 // NewBatchObjectsCreateForbidden creates BatchObjectsCreateForbidden with default headers values
 func NewBatchObjectsCreateForbidden() *BatchObjectsCreateForbidden {
+
 	return &BatchObjectsCreateForbidden{}
 }
 
@@ -166,6 +177,7 @@ func (o *BatchObjectsCreateForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,6 +196,7 @@ BatchObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntact
 swagger:response batchObjectsCreateUnprocessableEntity
 */
 type BatchObjectsCreateUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -192,6 +205,7 @@ type BatchObjectsCreateUnprocessableEntity struct {
 
 // NewBatchObjectsCreateUnprocessableEntity creates BatchObjectsCreateUnprocessableEntity with default headers values
 func NewBatchObjectsCreateUnprocessableEntity() *BatchObjectsCreateUnprocessableEntity {
+
 	return &BatchObjectsCreateUnprocessableEntity{}
 }
 
@@ -208,6 +222,7 @@ func (o *BatchObjectsCreateUnprocessableEntity) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -226,6 +241,7 @@ BatchObjectsCreateInternalServerError An error has occurred while trying to fulf
 swagger:response batchObjectsCreateInternalServerError
 */
 type BatchObjectsCreateInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -234,6 +250,7 @@ type BatchObjectsCreateInternalServerError struct {
 
 // NewBatchObjectsCreateInternalServerError creates BatchObjectsCreateInternalServerError with default headers values
 func NewBatchObjectsCreateInternalServerError() *BatchObjectsCreateInternalServerError {
+
 	return &BatchObjectsCreateInternalServerError{}
 }
 
@@ -250,6 +267,7 @@ func (o *BatchObjectsCreateInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *BatchObjectsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -51,7 +51,7 @@ func (o *DeleteRoleURL) SetBasePath(bp string) {
 func (o *DeleteRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/authz/roles/{id}"
+	var _path = "/authz/roles/{id}"
 
 	id := o.ID
 	if id != "" {

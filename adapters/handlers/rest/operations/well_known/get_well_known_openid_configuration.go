@@ -62,7 +62,7 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewGetWellKnownOpenidConfigurationParams()
+	var Params = NewGetWellKnownOpenidConfigurationParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,12 +83,14 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
 //
 // swagger:model GetWellKnownOpenidConfigurationOKBody
 type GetWellKnownOpenidConfigurationOKBody struct {
+
 	// OAuth Client ID
 	ClientID string `json:"clientId,omitempty" yaml:"clientId,omitempty"`
 

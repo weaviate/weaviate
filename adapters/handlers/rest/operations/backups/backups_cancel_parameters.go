@@ -29,6 +29,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewBackupsCancelParams() BackupsCancelParams {
+
 	return BackupsCancelParams{}
 }
 
@@ -37,6 +38,7 @@ func NewBackupsCancelParams() BackupsCancelParams {
 //
 // swagger:parameters backups.cancel
 type BackupsCancelParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

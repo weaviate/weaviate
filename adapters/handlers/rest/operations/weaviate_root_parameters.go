@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewWeaviateRootParams() WeaviateRootParams {
+
 	return WeaviateRootParams{}
 }
 
@@ -35,6 +36,7 @@ func NewWeaviateRootParams() WeaviateRootParams {
 //
 // swagger:parameters weaviate.root
 type WeaviateRootParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

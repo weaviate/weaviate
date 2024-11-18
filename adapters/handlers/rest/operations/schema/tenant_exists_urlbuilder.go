@@ -52,7 +52,7 @@ func (o *TenantExistsURL) SetBasePath(bp string) {
 func (o *TenantExistsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema/{className}/tenants/{tenantName}"
+	var _path = "/schema/{className}/tenants/{tenantName}"
 
 	className := o.ClassName
 	if className != "" {

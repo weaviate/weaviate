@@ -53,7 +53,7 @@ func (o *ObjectsHeadURL) SetBasePath(bp string) {
 func (o *ObjectsHeadURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/objects/{id}"
+	var _path = "/objects/{id}"
 
 	id := o.ID.String()
 	if id != "" {

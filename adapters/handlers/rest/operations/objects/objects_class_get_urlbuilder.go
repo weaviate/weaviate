@@ -59,7 +59,7 @@ func (o *ObjectsClassGetURL) SetBasePath(bp string) {
 func (o *ObjectsClassGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/objects/{className}/{id}"
+	var _path = "/objects/{className}/{id}"
 
 	className := o.ClassName
 	if className != "" {

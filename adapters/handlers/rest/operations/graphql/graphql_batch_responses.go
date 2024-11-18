@@ -33,6 +33,7 @@ GraphqlBatchOK Successful query (with select).
 swagger:response graphqlBatchOK
 */
 type GraphqlBatchOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GraphqlBatchOK struct {
 
 // NewGraphqlBatchOK creates GraphqlBatchOK with default headers values
 func NewGraphqlBatchOK() *GraphqlBatchOK {
+
 	return &GraphqlBatchOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GraphqlBatchOK) SetPayload(payload models.GraphQLResponses) {
 
 // WriteResponse to the client
 func (o *GraphqlBatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -77,16 +80,19 @@ GraphqlBatchUnauthorized Unauthorized or invalid credentials.
 
 swagger:response graphqlBatchUnauthorized
 */
-type GraphqlBatchUnauthorized struct{}
+type GraphqlBatchUnauthorized struct {
+}
 
 // NewGraphqlBatchUnauthorized creates GraphqlBatchUnauthorized with default headers values
 func NewGraphqlBatchUnauthorized() *GraphqlBatchUnauthorized {
+
 	return &GraphqlBatchUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GraphqlBatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -100,6 +106,7 @@ GraphqlBatchForbidden Forbidden
 swagger:response graphqlBatchForbidden
 */
 type GraphqlBatchForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -108,6 +115,7 @@ type GraphqlBatchForbidden struct {
 
 // NewGraphqlBatchForbidden creates GraphqlBatchForbidden with default headers values
 func NewGraphqlBatchForbidden() *GraphqlBatchForbidden {
+
 	return &GraphqlBatchForbidden{}
 }
 
@@ -124,6 +132,7 @@ func (o *GraphqlBatchForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GraphqlBatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -142,6 +151,7 @@ GraphqlBatchUnprocessableEntity Request body is well-formed (i.e., syntactically
 swagger:response graphqlBatchUnprocessableEntity
 */
 type GraphqlBatchUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -150,6 +160,7 @@ type GraphqlBatchUnprocessableEntity struct {
 
 // NewGraphqlBatchUnprocessableEntity creates GraphqlBatchUnprocessableEntity with default headers values
 func NewGraphqlBatchUnprocessableEntity() *GraphqlBatchUnprocessableEntity {
+
 	return &GraphqlBatchUnprocessableEntity{}
 }
 
@@ -166,6 +177,7 @@ func (o *GraphqlBatchUnprocessableEntity) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *GraphqlBatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,6 +196,7 @@ GraphqlBatchInternalServerError An error has occurred while trying to fulfill th
 swagger:response graphqlBatchInternalServerError
 */
 type GraphqlBatchInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -192,6 +205,7 @@ type GraphqlBatchInternalServerError struct {
 
 // NewGraphqlBatchInternalServerError creates GraphqlBatchInternalServerError with default headers values
 func NewGraphqlBatchInternalServerError() *GraphqlBatchInternalServerError {
+
 	return &GraphqlBatchInternalServerError{}
 }
 
@@ -208,6 +222,7 @@ func (o *GraphqlBatchInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *GraphqlBatchInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewDeleteRoleParams() DeleteRoleParams {
+
 	return DeleteRoleParams{}
 }
 
@@ -36,6 +37,7 @@ func NewDeleteRoleParams() DeleteRoleParams {
 //
 // swagger:parameters deleteRole
 type DeleteRoleParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

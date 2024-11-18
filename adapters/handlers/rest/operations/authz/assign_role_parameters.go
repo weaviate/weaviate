@@ -31,6 +31,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewAssignRoleParams() AssignRoleParams {
+
 	return AssignRoleParams{}
 }
 
@@ -39,6 +40,7 @@ func NewAssignRoleParams() AssignRoleParams {
 //
 // swagger:parameters assignRole
 type AssignRoleParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

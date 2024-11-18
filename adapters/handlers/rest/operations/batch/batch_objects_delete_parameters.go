@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewBatchObjectsDeleteParams() BatchObjectsDeleteParams {
+
 	return BatchObjectsDeleteParams{}
 }
 
@@ -41,6 +42,7 @@ func NewBatchObjectsDeleteParams() BatchObjectsDeleteParams {
 //
 // swagger:parameters batch.objects.delete
 type BatchObjectsDeleteParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

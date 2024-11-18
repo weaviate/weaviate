@@ -30,6 +30,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewAddPermissionParams() AddPermissionParams {
+
 	return AddPermissionParams{}
 }
 
@@ -38,6 +39,7 @@ func NewAddPermissionParams() AddPermissionParams {
 //
 // swagger:parameters addPermission
 type AddPermissionParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

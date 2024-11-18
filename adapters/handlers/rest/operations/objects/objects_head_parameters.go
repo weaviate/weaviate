@@ -29,6 +29,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewObjectsHeadParams() ObjectsHeadParams {
+
 	return ObjectsHeadParams{}
 }
 
@@ -37,6 +38,7 @@ func NewObjectsHeadParams() ObjectsHeadParams {
 //
 // swagger:parameters objects.head
 type ObjectsHeadParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -92,6 +94,7 @@ func (o *ObjectsHeadParams) bindID(rawData []string, hasKey bool, formats strfmt
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsHeadParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

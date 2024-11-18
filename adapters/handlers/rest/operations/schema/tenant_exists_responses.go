@@ -32,16 +32,19 @@ TenantExistsOK The tenant exists in the specified class
 
 swagger:response tenantExistsOK
 */
-type TenantExistsOK struct{}
+type TenantExistsOK struct {
+}
 
 // NewTenantExistsOK creates TenantExistsOK with default headers values
 func NewTenantExistsOK() *TenantExistsOK {
+
 	return &TenantExistsOK{}
 }
 
 // WriteResponse to the client
 func (o *TenantExistsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -54,16 +57,19 @@ TenantExistsUnauthorized Unauthorized or invalid credentials.
 
 swagger:response tenantExistsUnauthorized
 */
-type TenantExistsUnauthorized struct{}
+type TenantExistsUnauthorized struct {
+}
 
 // NewTenantExistsUnauthorized creates TenantExistsUnauthorized with default headers values
 func NewTenantExistsUnauthorized() *TenantExistsUnauthorized {
+
 	return &TenantExistsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *TenantExistsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ TenantExistsForbidden Forbidden
 swagger:response tenantExistsForbidden
 */
 type TenantExistsForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type TenantExistsForbidden struct {
 
 // NewTenantExistsForbidden creates TenantExistsForbidden with default headers values
 func NewTenantExistsForbidden() *TenantExistsForbidden {
+
 	return &TenantExistsForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *TenantExistsForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *TenantExistsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -118,16 +127,19 @@ TenantExistsNotFound The tenant not found
 
 swagger:response tenantExistsNotFound
 */
-type TenantExistsNotFound struct{}
+type TenantExistsNotFound struct {
+}
 
 // NewTenantExistsNotFound creates TenantExistsNotFound with default headers values
 func NewTenantExistsNotFound() *TenantExistsNotFound {
+
 	return &TenantExistsNotFound{}
 }
 
 // WriteResponse to the client
 func (o *TenantExistsNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -141,6 +153,7 @@ TenantExistsUnprocessableEntity Invalid Tenant class
 swagger:response tenantExistsUnprocessableEntity
 */
 type TenantExistsUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -149,6 +162,7 @@ type TenantExistsUnprocessableEntity struct {
 
 // NewTenantExistsUnprocessableEntity creates TenantExistsUnprocessableEntity with default headers values
 func NewTenantExistsUnprocessableEntity() *TenantExistsUnprocessableEntity {
+
 	return &TenantExistsUnprocessableEntity{}
 }
 
@@ -165,6 +179,7 @@ func (o *TenantExistsUnprocessableEntity) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *TenantExistsUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -183,6 +198,7 @@ TenantExistsInternalServerError An error has occurred while trying to fulfill th
 swagger:response tenantExistsInternalServerError
 */
 type TenantExistsInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -191,6 +207,7 @@ type TenantExistsInternalServerError struct {
 
 // NewTenantExistsInternalServerError creates TenantExistsInternalServerError with default headers values
 func NewTenantExistsInternalServerError() *TenantExistsInternalServerError {
+
 	return &TenantExistsInternalServerError{}
 }
 
@@ -207,6 +224,7 @@ func (o *TenantExistsInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *TenantExistsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -32,6 +32,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewTenantsCreateParams() TenantsCreateParams {
+
 	return TenantsCreateParams{}
 }
 
@@ -40,6 +41,7 @@ func NewTenantsCreateParams() TenantsCreateParams {
 //
 // swagger:parameters tenants.create
 type TenantsCreateParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
