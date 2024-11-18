@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -626,23 +628,45 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 		i--
 	}
 	res.Reset()
-	for _, id := range ids {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("rescore: %w", err)
-		}
 
-		dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-		if err == nil {
-			res.Insert(id, dist)
-			if res.Len() > k {
-				res.Pop()
-			}
-		} else {
-			h.logger.
-				WithField("action", "rescore").
-				WithError(err).
-				Warnf("could not rescore node %d", id)
+	mu := sync.Mutex{} // protect res
+	addID := func(id uint64, dist float32) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		res.Insert(id, dist)
+		if res.Len() > k {
+			res.Pop()
 		}
+	}
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+		workerID := workerID
+
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("rescore: %w", err)
+				}
+
+				id := ids[idPos]
+				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+				if err == nil {
+					addID(id, dist)
+				} else {
+					h.logger.
+						WithField("action", "rescore").
+						WithError(err).
+						Warnf("could not rescore node %d", id)
+				}
+			}
+			return nil
+		}, h.logger)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	return nil

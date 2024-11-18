@@ -389,7 +389,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	for _, pl := range creates {
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
@@ -436,7 +436,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		}
 	}
 
-	ec := &errorcompounder.SafeErrorCompounder{}
+	ec := errorcompounder.NewSafe()
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
 		idx.shardTransferMutex.RLock()
@@ -520,7 +520,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	if len(frozen) > 0 {
 		m.logger.WithField("action", "tenants_to_frozen").Debug(frozen)
-		m.frozen(idx, frozen, ec)
+		m.frozen(ctx, idx, frozen, ec)
 	}
 
 	if len(freezing) > 0 {
