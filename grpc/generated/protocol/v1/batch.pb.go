@@ -657,7 +657,7 @@ func file_v1_batch_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_v1_batch_proto_goTypes = []interface{}{
+var file_v1_batch_proto_goTypes = []any{
 	(*BatchObjectsRequest)(nil),              // 0: weaviate.v1.BatchObjectsRequest
 	(*BatchObject)(nil),                      // 1: weaviate.v1.BatchObject
 	(*BatchObjectsReply)(nil),                // 2: weaviate.v1.BatchObjectsReply
@@ -704,7 +704,7 @@ func file_v1_batch_proto_init() {
 	}
 	file_v1_base_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_batch_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObjectsRequest); i {
 			case 0:
 				return &v.state
@@ -716,7 +716,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObject); i {
 			case 0:
 				return &v.state
@@ -728,7 +728,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObjectsReply); i {
 			case 0:
 				return &v.state
@@ -740,7 +740,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[3].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObject_Properties); i {
 			case 0:
 				return &v.state
@@ -752,7 +752,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[4].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObject_SingleTargetRefProps); i {
 			case 0:
 				return &v.state
@@ -764,7 +764,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[5].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObject_MultiTargetRefProps); i {
 			case 0:
 				return &v.state
@@ -776,7 +776,7 @@ func file_v1_batch_proto_init() {
 				return nil
 			}
 		}
-		file_v1_batch_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_batch_proto_msgTypes[6].Exporter = func(v any, i int) any {
 			switch v := v.(*BatchObjectsReply_BatchError); i {
 			case 0:
 				return &v.state
@@ -789,7 +789,7 @@ func file_v1_batch_proto_init() {
 			}
 		}
 	}
-	file_v1_batch_proto_msgTypes[0].OneofWrappers = []interface{}{}
+	file_v1_batch_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

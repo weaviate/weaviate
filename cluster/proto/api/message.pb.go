@@ -9,10 +9,11 @@
 package api
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -1308,30 +1309,32 @@ func file_api_message_proto_rawDescGZIP() []byte {
 	return file_api_message_proto_rawDescData
 }
 
-var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
-var file_api_message_proto_goTypes = []interface{}{
-	(ApplyRequest_Type)(0),           // 0: weaviate.internal.cluster.ApplyRequest.Type
-	(QueryRequest_Type)(0),           // 1: weaviate.internal.cluster.QueryRequest.Type
-	(TenantsProcess_Op)(0),           // 2: weaviate.internal.cluster.TenantsProcess.Op
-	(TenantProcessRequest_Action)(0), // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-	(*JoinPeerRequest)(nil),          // 4: weaviate.internal.cluster.JoinPeerRequest
-	(*JoinPeerResponse)(nil),         // 5: weaviate.internal.cluster.JoinPeerResponse
-	(*RemovePeerRequest)(nil),        // 6: weaviate.internal.cluster.RemovePeerRequest
-	(*RemovePeerResponse)(nil),       // 7: weaviate.internal.cluster.RemovePeerResponse
-	(*NotifyPeerRequest)(nil),        // 8: weaviate.internal.cluster.NotifyPeerRequest
-	(*NotifyPeerResponse)(nil),       // 9: weaviate.internal.cluster.NotifyPeerResponse
-	(*ApplyRequest)(nil),             // 10: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),            // 11: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),             // 12: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),            // 13: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),        // 14: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),     // 15: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),           // 16: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),     // 17: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),     // 18: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                   // 19: weaviate.internal.cluster.Tenant
-}
+var (
+	file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+	file_api_message_proto_msgTypes  = make([]protoimpl.MessageInfo, 16)
+	file_api_message_proto_goTypes   = []interface{}{
+		(ApplyRequest_Type)(0),           // 0: weaviate.internal.cluster.ApplyRequest.Type
+		(QueryRequest_Type)(0),           // 1: weaviate.internal.cluster.QueryRequest.Type
+		(TenantsProcess_Op)(0),           // 2: weaviate.internal.cluster.TenantsProcess.Op
+		(TenantProcessRequest_Action)(0), // 3: weaviate.internal.cluster.TenantProcessRequest.Action
+		(*JoinPeerRequest)(nil),          // 4: weaviate.internal.cluster.JoinPeerRequest
+		(*JoinPeerResponse)(nil),         // 5: weaviate.internal.cluster.JoinPeerResponse
+		(*RemovePeerRequest)(nil),        // 6: weaviate.internal.cluster.RemovePeerRequest
+		(*RemovePeerResponse)(nil),       // 7: weaviate.internal.cluster.RemovePeerResponse
+		(*NotifyPeerRequest)(nil),        // 8: weaviate.internal.cluster.NotifyPeerRequest
+		(*NotifyPeerResponse)(nil),       // 9: weaviate.internal.cluster.NotifyPeerResponse
+		(*ApplyRequest)(nil),             // 10: weaviate.internal.cluster.ApplyRequest
+		(*ApplyResponse)(nil),            // 11: weaviate.internal.cluster.ApplyResponse
+		(*QueryRequest)(nil),             // 12: weaviate.internal.cluster.QueryRequest
+		(*QueryResponse)(nil),            // 13: weaviate.internal.cluster.QueryResponse
+		(*AddTenantsRequest)(nil),        // 14: weaviate.internal.cluster.AddTenantsRequest
+		(*UpdateTenantsRequest)(nil),     // 15: weaviate.internal.cluster.UpdateTenantsRequest
+		(*TenantsProcess)(nil),           // 16: weaviate.internal.cluster.TenantsProcess
+		(*TenantProcessRequest)(nil),     // 17: weaviate.internal.cluster.TenantProcessRequest
+		(*DeleteTenantsRequest)(nil),     // 18: weaviate.internal.cluster.DeleteTenantsRequest
+		(*Tenant)(nil),                   // 19: weaviate.internal.cluster.Tenant
+	}
+)
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type

@@ -10,6 +10,7 @@ package api
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -104,21 +105,24 @@ type ClusterServiceServer interface {
 }
 
 // UnimplementedClusterServiceServer should be embedded to have forward compatible implementations.
-type UnimplementedClusterServiceServer struct {
-}
+type UnimplementedClusterServiceServer struct{}
 
 func (UnimplementedClusterServiceServer) RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemovePeer not implemented")
 }
+
 func (UnimplementedClusterServiceServer) JoinPeer(context.Context, *JoinPeerRequest) (*JoinPeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method JoinPeer not implemented")
 }
+
 func (UnimplementedClusterServiceServer) NotifyPeer(context.Context, *NotifyPeerRequest) (*NotifyPeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NotifyPeer not implemented")
 }
+
 func (UnimplementedClusterServiceServer) Apply(context.Context, *ApplyRequest) (*ApplyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Apply not implemented")
 }
+
 func (UnimplementedClusterServiceServer) Query(context.Context, *QueryRequest) (*QueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Query not implemented")
 }
