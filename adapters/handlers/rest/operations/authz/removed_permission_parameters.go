@@ -30,7 +30,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewRemovedPermissionParams() RemovedPermissionParams {
-
 	return RemovedPermissionParams{}
 }
 
@@ -39,7 +38,6 @@ func NewRemovedPermissionParams() RemovedPermissionParams {
 //
 // swagger:parameters removedPermission
 type RemovedPermissionParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

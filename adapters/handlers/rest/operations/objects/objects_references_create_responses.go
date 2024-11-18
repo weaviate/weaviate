@@ -32,19 +32,16 @@ ObjectsReferencesCreateOK Successfully added the reference.
 
 swagger:response objectsReferencesCreateOK
 */
-type ObjectsReferencesCreateOK struct {
-}
+type ObjectsReferencesCreateOK struct{}
 
 // NewObjectsReferencesCreateOK creates ObjectsReferencesCreateOK with default headers values
 func NewObjectsReferencesCreateOK() *ObjectsReferencesCreateOK {
-
 	return &ObjectsReferencesCreateOK{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -57,19 +54,16 @@ ObjectsReferencesCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsReferencesCreateUnauthorized
 */
-type ObjectsReferencesCreateUnauthorized struct {
-}
+type ObjectsReferencesCreateUnauthorized struct{}
 
 // NewObjectsReferencesCreateUnauthorized creates ObjectsReferencesCreateUnauthorized with default headers values
 func NewObjectsReferencesCreateUnauthorized() *ObjectsReferencesCreateUnauthorized {
-
 	return &ObjectsReferencesCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsReferencesCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -83,7 +77,6 @@ ObjectsReferencesCreateForbidden Forbidden
 swagger:response objectsReferencesCreateForbidden
 */
 type ObjectsReferencesCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -92,7 +85,6 @@ type ObjectsReferencesCreateForbidden struct {
 
 // NewObjectsReferencesCreateForbidden creates ObjectsReferencesCreateForbidden with default headers values
 func NewObjectsReferencesCreateForbidden() *ObjectsReferencesCreateForbidden {
-
 	return &ObjectsReferencesCreateForbidden{}
 }
 
@@ -109,7 +101,6 @@ func (o *ObjectsReferencesCreateForbidden) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -128,7 +119,6 @@ ObjectsReferencesCreateUnprocessableEntity Request body is well-formed (i.e., sy
 swagger:response objectsReferencesCreateUnprocessableEntity
 */
 type ObjectsReferencesCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type ObjectsReferencesCreateUnprocessableEntity struct {
 
 // NewObjectsReferencesCreateUnprocessableEntity creates ObjectsReferencesCreateUnprocessableEntity with default headers values
 func NewObjectsReferencesCreateUnprocessableEntity() *ObjectsReferencesCreateUnprocessableEntity {
-
 	return &ObjectsReferencesCreateUnprocessableEntity{}
 }
 
@@ -154,7 +143,6 @@ func (o *ObjectsReferencesCreateUnprocessableEntity) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ObjectsReferencesCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -173,7 +161,6 @@ ObjectsReferencesCreateInternalServerError An error has occurred while trying to
 swagger:response objectsReferencesCreateInternalServerError
 */
 type ObjectsReferencesCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type ObjectsReferencesCreateInternalServerError struct {
 
 // NewObjectsReferencesCreateInternalServerError creates ObjectsReferencesCreateInternalServerError with default headers values
 func NewObjectsReferencesCreateInternalServerError() *ObjectsReferencesCreateInternalServerError {
-
 	return &ObjectsReferencesCreateInternalServerError{}
 }
 
@@ -199,7 +185,6 @@ func (o *ObjectsReferencesCreateInternalServerError) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ObjectsReferencesCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

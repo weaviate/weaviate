@@ -33,7 +33,6 @@ BackupsCreateOK Backup create process successfully started.
 swagger:response backupsCreateOK
 */
 type BackupsCreateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type BackupsCreateOK struct {
 
 // NewBackupsCreateOK creates BackupsCreateOK with default headers values
 func NewBackupsCreateOK() *BackupsCreateOK {
-
 	return &BackupsCreateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *BackupsCreateOK) SetPayload(payload *models.BackupCreateResponse) {
 
 // WriteResponse to the client
 func (o *BackupsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ BackupsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCreateUnauthorized
 */
-type BackupsCreateUnauthorized struct {
-}
+type BackupsCreateUnauthorized struct{}
 
 // NewBackupsCreateUnauthorized creates BackupsCreateUnauthorized with default headers values
 func NewBackupsCreateUnauthorized() *BackupsCreateUnauthorized {
-
 	return &BackupsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BackupsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ BackupsCreateForbidden Forbidden
 swagger:response backupsCreateForbidden
 */
 type BackupsCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type BackupsCreateForbidden struct {
 
 // NewBackupsCreateForbidden creates BackupsCreateForbidden with default headers values
 func NewBackupsCreateForbidden() *BackupsCreateForbidden {
-
 	return &BackupsCreateForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *BackupsCreateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *BackupsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ BackupsCreateUnprocessableEntity Invalid backup creation attempt.
 swagger:response backupsCreateUnprocessableEntity
 */
 type BackupsCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type BackupsCreateUnprocessableEntity struct {
 
 // NewBackupsCreateUnprocessableEntity creates BackupsCreateUnprocessableEntity with default headers values
 func NewBackupsCreateUnprocessableEntity() *BackupsCreateUnprocessableEntity {
-
 	return &BackupsCreateUnprocessableEntity{}
 }
 
@@ -174,7 +163,6 @@ func (o *BackupsCreateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *BackupsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ BackupsCreateInternalServerError An error has occurred while trying to fulfill t
 swagger:response backupsCreateInternalServerError
 */
 type BackupsCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type BackupsCreateInternalServerError struct {
 
 // NewBackupsCreateInternalServerError creates BackupsCreateInternalServerError with default headers values
 func NewBackupsCreateInternalServerError() *BackupsCreateInternalServerError {
-
 	return &BackupsCreateInternalServerError{}
 }
 
@@ -219,7 +205,6 @@ func (o *BackupsCreateInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *BackupsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

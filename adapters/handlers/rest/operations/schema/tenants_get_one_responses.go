@@ -33,7 +33,6 @@ TenantsGetOneOK load the tenant given the specified class
 swagger:response tenantsGetOneOK
 */
 type TenantsGetOneOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type TenantsGetOneOK struct {
 
 // NewTenantsGetOneOK creates TenantsGetOneOK with default headers values
 func NewTenantsGetOneOK() *TenantsGetOneOK {
-
 	return &TenantsGetOneOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *TenantsGetOneOK) SetPayload(payload *models.TenantResponse) {
 
 // WriteResponse to the client
 func (o *TenantsGetOneOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ TenantsGetOneUnauthorized Unauthorized or invalid credentials.
 
 swagger:response tenantsGetOneUnauthorized
 */
-type TenantsGetOneUnauthorized struct {
-}
+type TenantsGetOneUnauthorized struct{}
 
 // NewTenantsGetOneUnauthorized creates TenantsGetOneUnauthorized with default headers values
 func NewTenantsGetOneUnauthorized() *TenantsGetOneUnauthorized {
-
 	return &TenantsGetOneUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *TenantsGetOneUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ TenantsGetOneForbidden Forbidden
 swagger:response tenantsGetOneForbidden
 */
 type TenantsGetOneForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type TenantsGetOneForbidden struct {
 
 // NewTenantsGetOneForbidden creates TenantsGetOneForbidden with default headers values
 func NewTenantsGetOneForbidden() *TenantsGetOneForbidden {
-
 	return &TenantsGetOneForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *TenantsGetOneForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *TenantsGetOneForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -147,19 +138,16 @@ TenantsGetOneNotFound Tenant not found
 
 swagger:response tenantsGetOneNotFound
 */
-type TenantsGetOneNotFound struct {
-}
+type TenantsGetOneNotFound struct{}
 
 // NewTenantsGetOneNotFound creates TenantsGetOneNotFound with default headers values
 func NewTenantsGetOneNotFound() *TenantsGetOneNotFound {
-
 	return &TenantsGetOneNotFound{}
 }
 
 // WriteResponse to the client
 func (o *TenantsGetOneNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -173,7 +161,6 @@ TenantsGetOneUnprocessableEntity Invalid tenant or class
 swagger:response tenantsGetOneUnprocessableEntity
 */
 type TenantsGetOneUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type TenantsGetOneUnprocessableEntity struct {
 
 // NewTenantsGetOneUnprocessableEntity creates TenantsGetOneUnprocessableEntity with default headers values
 func NewTenantsGetOneUnprocessableEntity() *TenantsGetOneUnprocessableEntity {
-
 	return &TenantsGetOneUnprocessableEntity{}
 }
 
@@ -199,7 +185,6 @@ func (o *TenantsGetOneUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *TenantsGetOneUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -218,7 +203,6 @@ TenantsGetOneInternalServerError An error has occurred while trying to fulfill t
 swagger:response tenantsGetOneInternalServerError
 */
 type TenantsGetOneInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -227,7 +211,6 @@ type TenantsGetOneInternalServerError struct {
 
 // NewTenantsGetOneInternalServerError creates TenantsGetOneInternalServerError with default headers values
 func NewTenantsGetOneInternalServerError() *TenantsGetOneInternalServerError {
-
 	return &TenantsGetOneInternalServerError{}
 }
 
@@ -244,7 +227,6 @@ func (o *TenantsGetOneInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *TenantsGetOneInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

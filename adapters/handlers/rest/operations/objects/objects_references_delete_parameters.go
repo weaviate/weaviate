@@ -33,7 +33,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewObjectsReferencesDeleteParams() ObjectsReferencesDeleteParams {
-
 	return ObjectsReferencesDeleteParams{}
 }
 
@@ -42,7 +41,6 @@ func NewObjectsReferencesDeleteParams() ObjectsReferencesDeleteParams {
 //
 // swagger:parameters objects.references.delete
 type ObjectsReferencesDeleteParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -152,7 +150,6 @@ func (o *ObjectsReferencesDeleteParams) bindID(rawData []string, hasKey bool, fo
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsReferencesDeleteParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

@@ -29,11 +29,9 @@ import (
 // with the default values initialized.
 func NewTenantExistsParams() TenantExistsParams {
 
-	var (
-		// initialize parameters with default values
+	// initialize parameters with default values
 
-		consistencyDefault = bool(true)
-	)
+	consistencyDefault := bool(true)
 
 	return TenantExistsParams{
 		Consistency: &consistencyDefault,
@@ -45,7 +43,6 @@ func NewTenantExistsParams() TenantExistsParams {
 //
 // swagger:parameters tenant.exists
 type TenantExistsParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

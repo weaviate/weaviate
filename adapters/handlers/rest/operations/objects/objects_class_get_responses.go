@@ -33,7 +33,6 @@ ObjectsClassGetOK Successful response.
 swagger:response objectsClassGetOK
 */
 type ObjectsClassGetOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type ObjectsClassGetOK struct {
 
 // NewObjectsClassGetOK creates ObjectsClassGetOK with default headers values
 func NewObjectsClassGetOK() *ObjectsClassGetOK {
-
 	return &ObjectsClassGetOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *ObjectsClassGetOK) SetPayload(payload *models.Object) {
 
 // WriteResponse to the client
 func (o *ObjectsClassGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -78,7 +75,6 @@ ObjectsClassGetBadRequest Malformed request.
 swagger:response objectsClassGetBadRequest
 */
 type ObjectsClassGetBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -87,7 +83,6 @@ type ObjectsClassGetBadRequest struct {
 
 // NewObjectsClassGetBadRequest creates ObjectsClassGetBadRequest with default headers values
 func NewObjectsClassGetBadRequest() *ObjectsClassGetBadRequest {
-
 	return &ObjectsClassGetBadRequest{}
 }
 
@@ -104,7 +99,6 @@ func (o *ObjectsClassGetBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsClassGetBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -122,19 +116,16 @@ ObjectsClassGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassGetUnauthorized
 */
-type ObjectsClassGetUnauthorized struct {
-}
+type ObjectsClassGetUnauthorized struct{}
 
 // NewObjectsClassGetUnauthorized creates ObjectsClassGetUnauthorized with default headers values
 func NewObjectsClassGetUnauthorized() *ObjectsClassGetUnauthorized {
-
 	return &ObjectsClassGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -148,7 +139,6 @@ ObjectsClassGetForbidden Forbidden
 swagger:response objectsClassGetForbidden
 */
 type ObjectsClassGetForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type ObjectsClassGetForbidden struct {
 
 // NewObjectsClassGetForbidden creates ObjectsClassGetForbidden with default headers values
 func NewObjectsClassGetForbidden() *ObjectsClassGetForbidden {
-
 	return &ObjectsClassGetForbidden{}
 }
 
@@ -174,7 +163,6 @@ func (o *ObjectsClassGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsClassGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -192,19 +180,16 @@ ObjectsClassGetNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassGetNotFound
 */
-type ObjectsClassGetNotFound struct {
-}
+type ObjectsClassGetNotFound struct{}
 
 // NewObjectsClassGetNotFound creates ObjectsClassGetNotFound with default headers values
 func NewObjectsClassGetNotFound() *ObjectsClassGetNotFound {
-
 	return &ObjectsClassGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -218,7 +203,6 @@ ObjectsClassGetUnprocessableEntity Request is well-formed (i.e., syntactically c
 swagger:response objectsClassGetUnprocessableEntity
 */
 type ObjectsClassGetUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -227,7 +211,6 @@ type ObjectsClassGetUnprocessableEntity struct {
 
 // NewObjectsClassGetUnprocessableEntity creates ObjectsClassGetUnprocessableEntity with default headers values
 func NewObjectsClassGetUnprocessableEntity() *ObjectsClassGetUnprocessableEntity {
-
 	return &ObjectsClassGetUnprocessableEntity{}
 }
 
@@ -244,7 +227,6 @@ func (o *ObjectsClassGetUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsClassGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -263,7 +245,6 @@ ObjectsClassGetInternalServerError An error has occurred while trying to fulfill
 swagger:response objectsClassGetInternalServerError
 */
 type ObjectsClassGetInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -272,7 +253,6 @@ type ObjectsClassGetInternalServerError struct {
 
 // NewObjectsClassGetInternalServerError creates ObjectsClassGetInternalServerError with default headers values
 func NewObjectsClassGetInternalServerError() *ObjectsClassGetInternalServerError {
-
 	return &ObjectsClassGetInternalServerError{}
 }
 
@@ -289,7 +269,6 @@ func (o *ObjectsClassGetInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsClassGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

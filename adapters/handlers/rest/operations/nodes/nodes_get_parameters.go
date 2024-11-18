@@ -29,11 +29,9 @@ import (
 // with the default values initialized.
 func NewNodesGetParams() NodesGetParams {
 
-	var (
-		// initialize parameters with default values
+	// initialize parameters with default values
 
-		outputDefault = string("minimal")
-	)
+	outputDefault := string("minimal")
 
 	return NodesGetParams{
 		Output: &outputDefault,
@@ -45,7 +43,6 @@ func NewNodesGetParams() NodesGetParams {
 //
 // swagger:parameters nodes.get
 type NodesGetParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

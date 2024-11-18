@@ -33,7 +33,6 @@ ObjectsCreateOK Object created.
 swagger:response objectsCreateOK
 */
 type ObjectsCreateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type ObjectsCreateOK struct {
 
 // NewObjectsCreateOK creates ObjectsCreateOK with default headers values
 func NewObjectsCreateOK() *ObjectsCreateOK {
-
 	return &ObjectsCreateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *ObjectsCreateOK) SetPayload(payload *models.Object) {
 
 // WriteResponse to the client
 func (o *ObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -78,7 +75,6 @@ ObjectsCreateBadRequest Malformed request.
 swagger:response objectsCreateBadRequest
 */
 type ObjectsCreateBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -87,7 +83,6 @@ type ObjectsCreateBadRequest struct {
 
 // NewObjectsCreateBadRequest creates ObjectsCreateBadRequest with default headers values
 func NewObjectsCreateBadRequest() *ObjectsCreateBadRequest {
-
 	return &ObjectsCreateBadRequest{}
 }
 
@@ -104,7 +99,6 @@ func (o *ObjectsCreateBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsCreateBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -122,19 +116,16 @@ ObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsCreateUnauthorized
 */
-type ObjectsCreateUnauthorized struct {
-}
+type ObjectsCreateUnauthorized struct{}
 
 // NewObjectsCreateUnauthorized creates ObjectsCreateUnauthorized with default headers values
 func NewObjectsCreateUnauthorized() *ObjectsCreateUnauthorized {
-
 	return &ObjectsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -148,7 +139,6 @@ ObjectsCreateForbidden Forbidden
 swagger:response objectsCreateForbidden
 */
 type ObjectsCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type ObjectsCreateForbidden struct {
 
 // NewObjectsCreateForbidden creates ObjectsCreateForbidden with default headers values
 func NewObjectsCreateForbidden() *ObjectsCreateForbidden {
-
 	return &ObjectsCreateForbidden{}
 }
 
@@ -174,7 +163,6 @@ func (o *ObjectsCreateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ ObjectsCreateUnprocessableEntity Request body is well-formed (i.e., syntacticall
 swagger:response objectsCreateUnprocessableEntity
 */
 type ObjectsCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type ObjectsCreateUnprocessableEntity struct {
 
 // NewObjectsCreateUnprocessableEntity creates ObjectsCreateUnprocessableEntity with default headers values
 func NewObjectsCreateUnprocessableEntity() *ObjectsCreateUnprocessableEntity {
-
 	return &ObjectsCreateUnprocessableEntity{}
 }
 
@@ -219,7 +205,6 @@ func (o *ObjectsCreateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,7 +223,6 @@ ObjectsCreateInternalServerError An error has occurred while trying to fulfill t
 swagger:response objectsCreateInternalServerError
 */
 type ObjectsCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -247,7 +231,6 @@ type ObjectsCreateInternalServerError struct {
 
 // NewObjectsCreateInternalServerError creates ObjectsCreateInternalServerError with default headers values
 func NewObjectsCreateInternalServerError() *ObjectsCreateInternalServerError {
-
 	return &ObjectsCreateInternalServerError{}
 }
 
@@ -264,7 +247,6 @@ func (o *ObjectsCreateInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

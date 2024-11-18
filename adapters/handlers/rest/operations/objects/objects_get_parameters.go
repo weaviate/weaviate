@@ -30,7 +30,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewObjectsGetParams() ObjectsGetParams {
-
 	return ObjectsGetParams{}
 }
 
@@ -39,7 +38,6 @@ func NewObjectsGetParams() ObjectsGetParams {
 //
 // swagger:parameters objects.get
 type ObjectsGetParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -106,7 +104,6 @@ func (o *ObjectsGetParams) bindID(rawData []string, hasKey bool, formats strfmt.
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsGetParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

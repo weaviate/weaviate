@@ -46,7 +46,7 @@ func (o *RemovedPermissionURL) SetBasePath(bp string) {
 func (o *RemovedPermissionURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles/remove-permission"
+	_path := "/authz/roles/remove-permission"
 
 	_basePath := o._basePath
 	if _basePath == "" {

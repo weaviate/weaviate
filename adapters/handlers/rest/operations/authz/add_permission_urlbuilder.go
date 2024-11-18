@@ -46,7 +46,7 @@ func (o *AddPermissionURL) SetBasePath(bp string) {
 func (o *AddPermissionURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles/add-permission"
+	_path := "/authz/roles/add-permission"
 
 	_basePath := o._basePath
 	if _basePath == "" {

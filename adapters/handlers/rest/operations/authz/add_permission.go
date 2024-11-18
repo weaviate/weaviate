@@ -62,7 +62,7 @@ func (o *AddPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewAddPermissionParams()
+	Params := NewAddPermissionParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,14 +83,12 @@ func (o *AddPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // AddPermissionBody add permission body
 //
 // swagger:model AddPermissionBody
 type AddPermissionBody struct {
-
 	// name
 	Name interface{} `json:"name,omitempty" yaml:"name,omitempty"`
 
@@ -153,9 +151,7 @@ func (o *AddPermissionBody) ContextValidate(ctx context.Context, formats strfmt.
 }
 
 func (o *AddPermissionBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(o.Permissions); i++ {
-
 		if o.Permissions[i] != nil {
 			if err := o.Permissions[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -166,7 +162,6 @@ func (o *AddPermissionBody) contextValidatePermissions(ctx context.Context, form
 				return err
 			}
 		}
-
 	}
 
 	return nil

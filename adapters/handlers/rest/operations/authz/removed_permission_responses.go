@@ -32,19 +32,16 @@ RemovedPermissionCreated Permission removed successfully
 
 swagger:response removedPermissionCreated
 */
-type RemovedPermissionCreated struct {
-}
+type RemovedPermissionCreated struct{}
 
 // NewRemovedPermissionCreated creates RemovedPermissionCreated with default headers values
 func NewRemovedPermissionCreated() *RemovedPermissionCreated {
-
 	return &RemovedPermissionCreated{}
 }
 
 // WriteResponse to the client
 func (o *RemovedPermissionCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(201)
 }
@@ -57,19 +54,16 @@ RemovedPermissionUnauthorized Unauthorized or invalid credentials.
 
 swagger:response removedPermissionUnauthorized
 */
-type RemovedPermissionUnauthorized struct {
-}
+type RemovedPermissionUnauthorized struct{}
 
 // NewRemovedPermissionUnauthorized creates RemovedPermissionUnauthorized with default headers values
 func NewRemovedPermissionUnauthorized() *RemovedPermissionUnauthorized {
-
 	return &RemovedPermissionUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *RemovedPermissionUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -83,7 +77,6 @@ RemovedPermissionForbidden Forbidden
 swagger:response removedPermissionForbidden
 */
 type RemovedPermissionForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -92,7 +85,6 @@ type RemovedPermissionForbidden struct {
 
 // NewRemovedPermissionForbidden creates RemovedPermissionForbidden with default headers values
 func NewRemovedPermissionForbidden() *RemovedPermissionForbidden {
-
 	return &RemovedPermissionForbidden{}
 }
 
@@ -109,7 +101,6 @@ func (o *RemovedPermissionForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *RemovedPermissionForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -128,7 +119,6 @@ RemovedPermissionUnprocessableEntity Request body is well-formed (i.e., syntacti
 swagger:response removedPermissionUnprocessableEntity
 */
 type RemovedPermissionUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type RemovedPermissionUnprocessableEntity struct {
 
 // NewRemovedPermissionUnprocessableEntity creates RemovedPermissionUnprocessableEntity with default headers values
 func NewRemovedPermissionUnprocessableEntity() *RemovedPermissionUnprocessableEntity {
-
 	return &RemovedPermissionUnprocessableEntity{}
 }
 
@@ -154,7 +143,6 @@ func (o *RemovedPermissionUnprocessableEntity) SetPayload(payload *models.ErrorR
 
 // WriteResponse to the client
 func (o *RemovedPermissionUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -173,7 +161,6 @@ RemovedPermissionInternalServerError An error has occurred while trying to fulfi
 swagger:response removedPermissionInternalServerError
 */
 type RemovedPermissionInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type RemovedPermissionInternalServerError struct {
 
 // NewRemovedPermissionInternalServerError creates RemovedPermissionInternalServerError with default headers values
 func NewRemovedPermissionInternalServerError() *RemovedPermissionInternalServerError {
-
 	return &RemovedPermissionInternalServerError{}
 }
 
@@ -199,7 +185,6 @@ func (o *RemovedPermissionInternalServerError) SetPayload(payload *models.ErrorR
 
 // WriteResponse to the client
 func (o *RemovedPermissionInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

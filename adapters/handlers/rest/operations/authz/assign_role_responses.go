@@ -32,19 +32,16 @@ AssignRoleOK Role assigned successfully
 
 swagger:response assignRoleOK
 */
-type AssignRoleOK struct {
-}
+type AssignRoleOK struct{}
 
 // NewAssignRoleOK creates AssignRoleOK with default headers values
 func NewAssignRoleOK() *AssignRoleOK {
-
 	return &AssignRoleOK{}
 }
 
 // WriteResponse to the client
 func (o *AssignRoleOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,7 +55,6 @@ AssignRoleBadRequest Bad request
 swagger:response assignRoleBadRequest
 */
 type AssignRoleBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -67,7 +63,6 @@ type AssignRoleBadRequest struct {
 
 // NewAssignRoleBadRequest creates AssignRoleBadRequest with default headers values
 func NewAssignRoleBadRequest() *AssignRoleBadRequest {
-
 	return &AssignRoleBadRequest{}
 }
 
@@ -84,7 +79,6 @@ func (o *AssignRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *AssignRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -102,19 +96,16 @@ AssignRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response assignRoleUnauthorized
 */
-type AssignRoleUnauthorized struct {
-}
+type AssignRoleUnauthorized struct{}
 
 // NewAssignRoleUnauthorized creates AssignRoleUnauthorized with default headers values
 func NewAssignRoleUnauthorized() *AssignRoleUnauthorized {
-
 	return &AssignRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *AssignRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -128,7 +119,6 @@ AssignRoleForbidden Forbidden
 swagger:response assignRoleForbidden
 */
 type AssignRoleForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type AssignRoleForbidden struct {
 
 // NewAssignRoleForbidden creates AssignRoleForbidden with default headers values
 func NewAssignRoleForbidden() *AssignRoleForbidden {
-
 	return &AssignRoleForbidden{}
 }
 
@@ -154,7 +143,6 @@ func (o *AssignRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *AssignRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -172,19 +160,16 @@ AssignRoleNotFound role is not found.
 
 swagger:response assignRoleNotFound
 */
-type AssignRoleNotFound struct {
-}
+type AssignRoleNotFound struct{}
 
 // NewAssignRoleNotFound creates AssignRoleNotFound with default headers values
 func NewAssignRoleNotFound() *AssignRoleNotFound {
-
 	return &AssignRoleNotFound{}
 }
 
 // WriteResponse to the client
 func (o *AssignRoleNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -198,7 +183,6 @@ AssignRoleInternalServerError An error has occurred while trying to fulfill the 
 swagger:response assignRoleInternalServerError
 */
 type AssignRoleInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -207,7 +191,6 @@ type AssignRoleInternalServerError struct {
 
 // NewAssignRoleInternalServerError creates AssignRoleInternalServerError with default headers values
 func NewAssignRoleInternalServerError() *AssignRoleInternalServerError {
-
 	return &AssignRoleInternalServerError{}
 }
 
@@ -224,7 +207,6 @@ func (o *AssignRoleInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *AssignRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -51,7 +51,7 @@ func (o *TenantsUpdateURL) SetBasePath(bp string) {
 func (o *TenantsUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/tenants"
+	_path := "/schema/{className}/tenants"
 
 	className := o.ClassName
 	if className != "" {

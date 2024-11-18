@@ -33,7 +33,6 @@ NodesGetClassOK Nodes status successfully returned
 swagger:response nodesGetClassOK
 */
 type NodesGetClassOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type NodesGetClassOK struct {
 
 // NewNodesGetClassOK creates NodesGetClassOK with default headers values
 func NewNodesGetClassOK() *NodesGetClassOK {
-
 	return &NodesGetClassOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *NodesGetClassOK) SetPayload(payload *models.NodesStatusResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetClassOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ NodesGetClassUnauthorized Unauthorized or invalid credentials.
 
 swagger:response nodesGetClassUnauthorized
 */
-type NodesGetClassUnauthorized struct {
-}
+type NodesGetClassUnauthorized struct{}
 
 // NewNodesGetClassUnauthorized creates NodesGetClassUnauthorized with default headers values
 func NewNodesGetClassUnauthorized() *NodesGetClassUnauthorized {
-
 	return &NodesGetClassUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *NodesGetClassUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ NodesGetClassForbidden Forbidden
 swagger:response nodesGetClassForbidden
 */
 type NodesGetClassForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type NodesGetClassForbidden struct {
 
 // NewNodesGetClassForbidden creates NodesGetClassForbidden with default headers values
 func NewNodesGetClassForbidden() *NodesGetClassForbidden {
-
 	return &NodesGetClassForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *NodesGetClassForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetClassForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ NodesGetClassNotFound Not Found - Backup does not exist
 swagger:response nodesGetClassNotFound
 */
 type NodesGetClassNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type NodesGetClassNotFound struct {
 
 // NewNodesGetClassNotFound creates NodesGetClassNotFound with default headers values
 func NewNodesGetClassNotFound() *NodesGetClassNotFound {
-
 	return &NodesGetClassNotFound{}
 }
 
@@ -174,7 +163,6 @@ func (o *NodesGetClassNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *NodesGetClassNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ NodesGetClassUnprocessableEntity Invalid backup restoration status attempt.
 swagger:response nodesGetClassUnprocessableEntity
 */
 type NodesGetClassUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type NodesGetClassUnprocessableEntity struct {
 
 // NewNodesGetClassUnprocessableEntity creates NodesGetClassUnprocessableEntity with default headers values
 func NewNodesGetClassUnprocessableEntity() *NodesGetClassUnprocessableEntity {
-
 	return &NodesGetClassUnprocessableEntity{}
 }
 
@@ -219,7 +205,6 @@ func (o *NodesGetClassUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *NodesGetClassUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,7 +223,6 @@ NodesGetClassInternalServerError An error has occurred while trying to fulfill t
 swagger:response nodesGetClassInternalServerError
 */
 type NodesGetClassInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -247,7 +231,6 @@ type NodesGetClassInternalServerError struct {
 
 // NewNodesGetClassInternalServerError creates NodesGetClassInternalServerError with default headers values
 func NewNodesGetClassInternalServerError() *NodesGetClassInternalServerError {
-
 	return &NodesGetClassInternalServerError{}
 }
 
@@ -264,7 +247,6 @@ func (o *NodesGetClassInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *NodesGetClassInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

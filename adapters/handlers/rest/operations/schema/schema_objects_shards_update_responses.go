@@ -33,7 +33,6 @@ SchemaObjectsShardsUpdateOK Shard status was updated successfully
 swagger:response schemaObjectsShardsUpdateOK
 */
 type SchemaObjectsShardsUpdateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SchemaObjectsShardsUpdateOK struct {
 
 // NewSchemaObjectsShardsUpdateOK creates SchemaObjectsShardsUpdateOK with default headers values
 func NewSchemaObjectsShardsUpdateOK() *SchemaObjectsShardsUpdateOK {
-
 	return &SchemaObjectsShardsUpdateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SchemaObjectsShardsUpdateOK) SetPayload(payload *models.ShardStatus) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ SchemaObjectsShardsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsShardsUpdateUnauthorized
 */
-type SchemaObjectsShardsUpdateUnauthorized struct {
-}
+type SchemaObjectsShardsUpdateUnauthorized struct{}
 
 // NewSchemaObjectsShardsUpdateUnauthorized creates SchemaObjectsShardsUpdateUnauthorized with default headers values
 func NewSchemaObjectsShardsUpdateUnauthorized() *SchemaObjectsShardsUpdateUnauthorized {
-
 	return &SchemaObjectsShardsUpdateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ SchemaObjectsShardsUpdateForbidden Forbidden
 swagger:response schemaObjectsShardsUpdateForbidden
 */
 type SchemaObjectsShardsUpdateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type SchemaObjectsShardsUpdateForbidden struct {
 
 // NewSchemaObjectsShardsUpdateForbidden creates SchemaObjectsShardsUpdateForbidden with default headers values
 func NewSchemaObjectsShardsUpdateForbidden() *SchemaObjectsShardsUpdateForbidden {
-
 	return &SchemaObjectsShardsUpdateForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *SchemaObjectsShardsUpdateForbidden) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ SchemaObjectsShardsUpdateNotFound Shard to be updated does not exist
 swagger:response schemaObjectsShardsUpdateNotFound
 */
 type SchemaObjectsShardsUpdateNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type SchemaObjectsShardsUpdateNotFound struct {
 
 // NewSchemaObjectsShardsUpdateNotFound creates SchemaObjectsShardsUpdateNotFound with default headers values
 func NewSchemaObjectsShardsUpdateNotFound() *SchemaObjectsShardsUpdateNotFound {
-
 	return &SchemaObjectsShardsUpdateNotFound{}
 }
 
@@ -174,7 +163,6 @@ func (o *SchemaObjectsShardsUpdateNotFound) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ SchemaObjectsShardsUpdateUnprocessableEntity Invalid update attempt
 swagger:response schemaObjectsShardsUpdateUnprocessableEntity
 */
 type SchemaObjectsShardsUpdateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type SchemaObjectsShardsUpdateUnprocessableEntity struct {
 
 // NewSchemaObjectsShardsUpdateUnprocessableEntity creates SchemaObjectsShardsUpdateUnprocessableEntity with default headers values
 func NewSchemaObjectsShardsUpdateUnprocessableEntity() *SchemaObjectsShardsUpdateUnprocessableEntity {
-
 	return &SchemaObjectsShardsUpdateUnprocessableEntity{}
 }
 
@@ -219,7 +205,6 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) SetPayload(payload *model
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,7 +223,6 @@ SchemaObjectsShardsUpdateInternalServerError An error has occurred while trying 
 swagger:response schemaObjectsShardsUpdateInternalServerError
 */
 type SchemaObjectsShardsUpdateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -247,7 +231,6 @@ type SchemaObjectsShardsUpdateInternalServerError struct {
 
 // NewSchemaObjectsShardsUpdateInternalServerError creates SchemaObjectsShardsUpdateInternalServerError with default headers values
 func NewSchemaObjectsShardsUpdateInternalServerError() *SchemaObjectsShardsUpdateInternalServerError {
-
 	return &SchemaObjectsShardsUpdateInternalServerError{}
 }
 
@@ -264,7 +247,6 @@ func (o *SchemaObjectsShardsUpdateInternalServerError) SetPayload(payload *model
 
 // WriteResponse to the client
 func (o *SchemaObjectsShardsUpdateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

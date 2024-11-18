@@ -32,19 +32,16 @@ BackupsCancelNoContent Successfully deleted.
 
 swagger:response backupsCancelNoContent
 */
-type BackupsCancelNoContent struct {
-}
+type BackupsCancelNoContent struct{}
 
 // NewBackupsCancelNoContent creates BackupsCancelNoContent with default headers values
 func NewBackupsCancelNoContent() *BackupsCancelNoContent {
-
 	return &BackupsCancelNoContent{}
 }
 
 // WriteResponse to the client
 func (o *BackupsCancelNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -57,19 +54,16 @@ BackupsCancelUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCancelUnauthorized
 */
-type BackupsCancelUnauthorized struct {
-}
+type BackupsCancelUnauthorized struct{}
 
 // NewBackupsCancelUnauthorized creates BackupsCancelUnauthorized with default headers values
 func NewBackupsCancelUnauthorized() *BackupsCancelUnauthorized {
-
 	return &BackupsCancelUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BackupsCancelUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -83,7 +77,6 @@ BackupsCancelForbidden Forbidden
 swagger:response backupsCancelForbidden
 */
 type BackupsCancelForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -92,7 +85,6 @@ type BackupsCancelForbidden struct {
 
 // NewBackupsCancelForbidden creates BackupsCancelForbidden with default headers values
 func NewBackupsCancelForbidden() *BackupsCancelForbidden {
-
 	return &BackupsCancelForbidden{}
 }
 
@@ -109,7 +101,6 @@ func (o *BackupsCancelForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *BackupsCancelForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -128,7 +119,6 @@ BackupsCancelUnprocessableEntity Invalid backup cancellation attempt.
 swagger:response backupsCancelUnprocessableEntity
 */
 type BackupsCancelUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type BackupsCancelUnprocessableEntity struct {
 
 // NewBackupsCancelUnprocessableEntity creates BackupsCancelUnprocessableEntity with default headers values
 func NewBackupsCancelUnprocessableEntity() *BackupsCancelUnprocessableEntity {
-
 	return &BackupsCancelUnprocessableEntity{}
 }
 
@@ -154,7 +143,6 @@ func (o *BackupsCancelUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *BackupsCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -173,7 +161,6 @@ BackupsCancelInternalServerError An error has occurred while trying to fulfill t
 swagger:response backupsCancelInternalServerError
 */
 type BackupsCancelInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type BackupsCancelInternalServerError struct {
 
 // NewBackupsCancelInternalServerError creates BackupsCancelInternalServerError with default headers values
 func NewBackupsCancelInternalServerError() *BackupsCancelInternalServerError {
-
 	return &BackupsCancelInternalServerError{}
 }
 
@@ -199,7 +185,6 @@ func (o *BackupsCancelInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *BackupsCancelInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

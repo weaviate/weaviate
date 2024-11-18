@@ -29,11 +29,9 @@ import (
 // with the default values initialized.
 func NewTenantsGetOneParams() TenantsGetOneParams {
 
-	var (
-		// initialize parameters with default values
+	// initialize parameters with default values
 
-		consistencyDefault = bool(true)
-	)
+	consistencyDefault := bool(true)
 
 	return TenantsGetOneParams{
 		Consistency: &consistencyDefault,
@@ -45,7 +43,6 @@ func NewTenantsGetOneParams() TenantsGetOneParams {
 //
 // swagger:parameters tenants.get.one
 type TenantsGetOneParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

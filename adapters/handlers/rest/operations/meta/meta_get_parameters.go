@@ -27,7 +27,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewMetaGetParams() MetaGetParams {
-
 	return MetaGetParams{}
 }
 
@@ -36,7 +35,6 @@ func NewMetaGetParams() MetaGetParams {
 //
 // swagger:parameters meta.get
 type MetaGetParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

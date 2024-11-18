@@ -27,7 +27,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewClusterGetStatisticsParams() ClusterGetStatisticsParams {
-
 	return ClusterGetStatisticsParams{}
 }
 
@@ -36,7 +35,6 @@ func NewClusterGetStatisticsParams() ClusterGetStatisticsParams {
 //
 // swagger:parameters cluster.get.statistics
 type ClusterGetStatisticsParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

@@ -33,7 +33,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewBackupsCreateParams() BackupsCreateParams {
-
 	return BackupsCreateParams{}
 }
 
@@ -42,7 +41,6 @@ func NewBackupsCreateParams() BackupsCreateParams {
 //
 // swagger:parameters backups.create
 type BackupsCreateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

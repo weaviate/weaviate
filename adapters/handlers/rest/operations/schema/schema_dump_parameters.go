@@ -29,11 +29,9 @@ import (
 // with the default values initialized.
 func NewSchemaDumpParams() SchemaDumpParams {
 
-	var (
-		// initialize parameters with default values
+	// initialize parameters with default values
 
-		consistencyDefault = bool(true)
-	)
+	consistencyDefault := bool(true)
 
 	return SchemaDumpParams{
 		Consistency: &consistencyDefault,
@@ -45,7 +43,6 @@ func NewSchemaDumpParams() SchemaDumpParams {
 //
 // swagger:parameters schema.dump
 type SchemaDumpParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

@@ -31,7 +31,6 @@ WeaviateRootOK Weaviate is alive and ready to serve content
 swagger:response weaviateRootOK
 */
 type WeaviateRootOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -40,7 +39,6 @@ type WeaviateRootOK struct {
 
 // NewWeaviateRootOK creates WeaviateRootOK with default headers values
 func NewWeaviateRootOK() *WeaviateRootOK {
-
 	return &WeaviateRootOK{}
 }
 
@@ -57,7 +55,6 @@ func (o *WeaviateRootOK) SetPayload(payload *WeaviateRootOKBody) {
 
 // WriteResponse to the client
 func (o *WeaviateRootOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload

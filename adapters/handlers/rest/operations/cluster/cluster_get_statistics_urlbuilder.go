@@ -46,7 +46,7 @@ func (o *ClusterGetStatisticsURL) SetBasePath(bp string) {
 func (o *ClusterGetStatisticsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/cluster/statistics"
+	_path := "/cluster/statistics"
 
 	_basePath := o._basePath
 	if _basePath == "" {

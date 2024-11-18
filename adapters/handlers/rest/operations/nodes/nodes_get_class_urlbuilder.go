@@ -53,7 +53,7 @@ func (o *NodesGetClassURL) SetBasePath(bp string) {
 func (o *NodesGetClassURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/nodes/{className}"
+	_path := "/nodes/{className}"
 
 	className := o.ClassName
 	if className != "" {

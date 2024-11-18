@@ -32,7 +32,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewTenantsUpdateParams() TenantsUpdateParams {
-
 	return TenantsUpdateParams{}
 }
 
@@ -41,7 +40,6 @@ func NewTenantsUpdateParams() TenantsUpdateParams {
 //
 // swagger:parameters tenants.update
 type TenantsUpdateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

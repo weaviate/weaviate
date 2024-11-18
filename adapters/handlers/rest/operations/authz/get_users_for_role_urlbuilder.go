@@ -51,7 +51,7 @@ func (o *GetUsersForRoleURL) SetBasePath(bp string) {
 func (o *GetUsersForRoleURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles/{id}/users"
+	_path := "/authz/roles/{id}/users"
 
 	id := o.ID
 	if id != "" {

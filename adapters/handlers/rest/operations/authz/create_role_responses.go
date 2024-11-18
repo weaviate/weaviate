@@ -32,19 +32,16 @@ CreateRoleCreated Role created successfully
 
 swagger:response createRoleCreated
 */
-type CreateRoleCreated struct {
-}
+type CreateRoleCreated struct{}
 
 // NewCreateRoleCreated creates CreateRoleCreated with default headers values
 func NewCreateRoleCreated() *CreateRoleCreated {
-
 	return &CreateRoleCreated{}
 }
 
 // WriteResponse to the client
 func (o *CreateRoleCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(201)
 }
@@ -57,19 +54,16 @@ CreateRoleUnauthorized Unauthorized or invalid credentials.
 
 swagger:response createRoleUnauthorized
 */
-type CreateRoleUnauthorized struct {
-}
+type CreateRoleUnauthorized struct{}
 
 // NewCreateRoleUnauthorized creates CreateRoleUnauthorized with default headers values
 func NewCreateRoleUnauthorized() *CreateRoleUnauthorized {
-
 	return &CreateRoleUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *CreateRoleUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -83,7 +77,6 @@ CreateRoleForbidden Forbidden
 swagger:response createRoleForbidden
 */
 type CreateRoleForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -92,7 +85,6 @@ type CreateRoleForbidden struct {
 
 // NewCreateRoleForbidden creates CreateRoleForbidden with default headers values
 func NewCreateRoleForbidden() *CreateRoleForbidden {
-
 	return &CreateRoleForbidden{}
 }
 
@@ -109,7 +101,6 @@ func (o *CreateRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *CreateRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -128,7 +119,6 @@ CreateRoleUnprocessableEntity Request body is well-formed (i.e., syntactically c
 swagger:response createRoleUnprocessableEntity
 */
 type CreateRoleUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type CreateRoleUnprocessableEntity struct {
 
 // NewCreateRoleUnprocessableEntity creates CreateRoleUnprocessableEntity with default headers values
 func NewCreateRoleUnprocessableEntity() *CreateRoleUnprocessableEntity {
-
 	return &CreateRoleUnprocessableEntity{}
 }
 
@@ -154,7 +143,6 @@ func (o *CreateRoleUnprocessableEntity) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *CreateRoleUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -173,7 +161,6 @@ CreateRoleInternalServerError An error has occurred while trying to fulfill the 
 swagger:response createRoleInternalServerError
 */
 type CreateRoleInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type CreateRoleInternalServerError struct {
 
 // NewCreateRoleInternalServerError creates CreateRoleInternalServerError with default headers values
 func NewCreateRoleInternalServerError() *CreateRoleInternalServerError {
-
 	return &CreateRoleInternalServerError{}
 }
 
@@ -199,7 +185,6 @@ func (o *CreateRoleInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *CreateRoleInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

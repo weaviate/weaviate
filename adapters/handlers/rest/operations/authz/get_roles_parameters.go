@@ -27,7 +27,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewGetRolesParams() GetRolesParams {
-
 	return GetRolesParams{}
 }
 
@@ -36,7 +35,6 @@ func NewGetRolesParams() GetRolesParams {
 //
 // swagger:parameters getRoles
 type GetRolesParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

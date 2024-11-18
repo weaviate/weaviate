@@ -33,7 +33,6 @@ SchemaObjectsPropertiesAddOK Added the property.
 swagger:response schemaObjectsPropertiesAddOK
 */
 type SchemaObjectsPropertiesAddOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SchemaObjectsPropertiesAddOK struct {
 
 // NewSchemaObjectsPropertiesAddOK creates SchemaObjectsPropertiesAddOK with default headers values
 func NewSchemaObjectsPropertiesAddOK() *SchemaObjectsPropertiesAddOK {
-
 	return &SchemaObjectsPropertiesAddOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SchemaObjectsPropertiesAddOK) SetPayload(payload *models.Property) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsPropertiesAddOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ SchemaObjectsPropertiesAddUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsPropertiesAddUnauthorized
 */
-type SchemaObjectsPropertiesAddUnauthorized struct {
-}
+type SchemaObjectsPropertiesAddUnauthorized struct{}
 
 // NewSchemaObjectsPropertiesAddUnauthorized creates SchemaObjectsPropertiesAddUnauthorized with default headers values
 func NewSchemaObjectsPropertiesAddUnauthorized() *SchemaObjectsPropertiesAddUnauthorized {
-
 	return &SchemaObjectsPropertiesAddUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsPropertiesAddUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ SchemaObjectsPropertiesAddForbidden Forbidden
 swagger:response schemaObjectsPropertiesAddForbidden
 */
 type SchemaObjectsPropertiesAddForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type SchemaObjectsPropertiesAddForbidden struct {
 
 // NewSchemaObjectsPropertiesAddForbidden creates SchemaObjectsPropertiesAddForbidden with default headers values
 func NewSchemaObjectsPropertiesAddForbidden() *SchemaObjectsPropertiesAddForbidden {
-
 	return &SchemaObjectsPropertiesAddForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *SchemaObjectsPropertiesAddForbidden) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *SchemaObjectsPropertiesAddForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ SchemaObjectsPropertiesAddUnprocessableEntity Invalid property.
 swagger:response schemaObjectsPropertiesAddUnprocessableEntity
 */
 type SchemaObjectsPropertiesAddUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type SchemaObjectsPropertiesAddUnprocessableEntity struct {
 
 // NewSchemaObjectsPropertiesAddUnprocessableEntity creates SchemaObjectsPropertiesAddUnprocessableEntity with default headers values
 func NewSchemaObjectsPropertiesAddUnprocessableEntity() *SchemaObjectsPropertiesAddUnprocessableEntity {
-
 	return &SchemaObjectsPropertiesAddUnprocessableEntity{}
 }
 
@@ -174,7 +163,6 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) SetPayload(payload *mode
 
 // WriteResponse to the client
 func (o *SchemaObjectsPropertiesAddUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ SchemaObjectsPropertiesAddInternalServerError An error has occurred while trying
 swagger:response schemaObjectsPropertiesAddInternalServerError
 */
 type SchemaObjectsPropertiesAddInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type SchemaObjectsPropertiesAddInternalServerError struct {
 
 // NewSchemaObjectsPropertiesAddInternalServerError creates SchemaObjectsPropertiesAddInternalServerError with default headers values
 func NewSchemaObjectsPropertiesAddInternalServerError() *SchemaObjectsPropertiesAddInternalServerError {
-
 	return &SchemaObjectsPropertiesAddInternalServerError{}
 }
 
@@ -219,7 +205,6 @@ func (o *SchemaObjectsPropertiesAddInternalServerError) SetPayload(payload *mode
 
 // WriteResponse to the client
 func (o *SchemaObjectsPropertiesAddInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

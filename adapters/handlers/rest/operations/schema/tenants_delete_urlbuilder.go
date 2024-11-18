@@ -51,7 +51,7 @@ func (o *TenantsDeleteURL) SetBasePath(bp string) {
 func (o *TenantsDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{className}/tenants"
+	_path := "/schema/{className}/tenants"
 
 	className := o.ClassName
 	if className != "" {

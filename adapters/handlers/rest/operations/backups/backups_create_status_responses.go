@@ -33,7 +33,6 @@ BackupsCreateStatusOK Backup creation status successfully returned
 swagger:response backupsCreateStatusOK
 */
 type BackupsCreateStatusOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type BackupsCreateStatusOK struct {
 
 // NewBackupsCreateStatusOK creates BackupsCreateStatusOK with default headers values
 func NewBackupsCreateStatusOK() *BackupsCreateStatusOK {
-
 	return &BackupsCreateStatusOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *BackupsCreateStatusOK) SetPayload(payload *models.BackupCreateStatusRes
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ BackupsCreateStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCreateStatusUnauthorized
 */
-type BackupsCreateStatusUnauthorized struct {
-}
+type BackupsCreateStatusUnauthorized struct{}
 
 // NewBackupsCreateStatusUnauthorized creates BackupsCreateStatusUnauthorized with default headers values
 func NewBackupsCreateStatusUnauthorized() *BackupsCreateStatusUnauthorized {
-
 	return &BackupsCreateStatusUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ BackupsCreateStatusForbidden Forbidden
 swagger:response backupsCreateStatusForbidden
 */
 type BackupsCreateStatusForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type BackupsCreateStatusForbidden struct {
 
 // NewBackupsCreateStatusForbidden creates BackupsCreateStatusForbidden with default headers values
 func NewBackupsCreateStatusForbidden() *BackupsCreateStatusForbidden {
-
 	return &BackupsCreateStatusForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *BackupsCreateStatusForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ BackupsCreateStatusNotFound Not Found - Backup does not exist
 swagger:response backupsCreateStatusNotFound
 */
 type BackupsCreateStatusNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type BackupsCreateStatusNotFound struct {
 
 // NewBackupsCreateStatusNotFound creates BackupsCreateStatusNotFound with default headers values
 func NewBackupsCreateStatusNotFound() *BackupsCreateStatusNotFound {
-
 	return &BackupsCreateStatusNotFound{}
 }
 
@@ -174,7 +163,6 @@ func (o *BackupsCreateStatusNotFound) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ BackupsCreateStatusUnprocessableEntity Invalid backup restoration status attempt
 swagger:response backupsCreateStatusUnprocessableEntity
 */
 type BackupsCreateStatusUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type BackupsCreateStatusUnprocessableEntity struct {
 
 // NewBackupsCreateStatusUnprocessableEntity creates BackupsCreateStatusUnprocessableEntity with default headers values
 func NewBackupsCreateStatusUnprocessableEntity() *BackupsCreateStatusUnprocessableEntity {
-
 	return &BackupsCreateStatusUnprocessableEntity{}
 }
 
@@ -219,7 +205,6 @@ func (o *BackupsCreateStatusUnprocessableEntity) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,7 +223,6 @@ BackupsCreateStatusInternalServerError An error has occurred while trying to ful
 swagger:response backupsCreateStatusInternalServerError
 */
 type BackupsCreateStatusInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -247,7 +231,6 @@ type BackupsCreateStatusInternalServerError struct {
 
 // NewBackupsCreateStatusInternalServerError creates BackupsCreateStatusInternalServerError with default headers values
 func NewBackupsCreateStatusInternalServerError() *BackupsCreateStatusInternalServerError {
-
 	return &BackupsCreateStatusInternalServerError{}
 }
 
@@ -264,7 +247,6 @@ func (o *BackupsCreateStatusInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *BackupsCreateStatusInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

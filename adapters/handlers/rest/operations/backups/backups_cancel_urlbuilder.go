@@ -55,7 +55,7 @@ func (o *BackupsCancelURL) SetBasePath(bp string) {
 func (o *BackupsCancelURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/backups/{backend}/{id}"
+	_path := "/backups/{backend}/{id}"
 
 	backend := o.Backend
 	if backend != "" {

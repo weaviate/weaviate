@@ -31,7 +31,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewBatchObjectsCreateParams() BatchObjectsCreateParams {
-
 	return BatchObjectsCreateParams{}
 }
 
@@ -40,7 +39,6 @@ func NewBatchObjectsCreateParams() BatchObjectsCreateParams {
 //
 // swagger:parameters batch.objects.create
 type BatchObjectsCreateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

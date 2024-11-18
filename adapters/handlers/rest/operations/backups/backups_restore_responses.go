@@ -33,7 +33,6 @@ BackupsRestoreOK Backup restoration process successfully started.
 swagger:response backupsRestoreOK
 */
 type BackupsRestoreOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type BackupsRestoreOK struct {
 
 // NewBackupsRestoreOK creates BackupsRestoreOK with default headers values
 func NewBackupsRestoreOK() *BackupsRestoreOK {
-
 	return &BackupsRestoreOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *BackupsRestoreOK) SetPayload(payload *models.BackupRestoreResponse) {
 
 // WriteResponse to the client
 func (o *BackupsRestoreOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ BackupsRestoreUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsRestoreUnauthorized
 */
-type BackupsRestoreUnauthorized struct {
-}
+type BackupsRestoreUnauthorized struct{}
 
 // NewBackupsRestoreUnauthorized creates BackupsRestoreUnauthorized with default headers values
 func NewBackupsRestoreUnauthorized() *BackupsRestoreUnauthorized {
-
 	return &BackupsRestoreUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BackupsRestoreUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ BackupsRestoreForbidden Forbidden
 swagger:response backupsRestoreForbidden
 */
 type BackupsRestoreForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type BackupsRestoreForbidden struct {
 
 // NewBackupsRestoreForbidden creates BackupsRestoreForbidden with default headers values
 func NewBackupsRestoreForbidden() *BackupsRestoreForbidden {
-
 	return &BackupsRestoreForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *BackupsRestoreForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *BackupsRestoreForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ BackupsRestoreNotFound Not Found - Backup does not exist
 swagger:response backupsRestoreNotFound
 */
 type BackupsRestoreNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type BackupsRestoreNotFound struct {
 
 // NewBackupsRestoreNotFound creates BackupsRestoreNotFound with default headers values
 func NewBackupsRestoreNotFound() *BackupsRestoreNotFound {
-
 	return &BackupsRestoreNotFound{}
 }
 
@@ -174,7 +163,6 @@ func (o *BackupsRestoreNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ BackupsRestoreUnprocessableEntity Invalid backup restoration attempt.
 swagger:response backupsRestoreUnprocessableEntity
 */
 type BackupsRestoreUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type BackupsRestoreUnprocessableEntity struct {
 
 // NewBackupsRestoreUnprocessableEntity creates BackupsRestoreUnprocessableEntity with default headers values
 func NewBackupsRestoreUnprocessableEntity() *BackupsRestoreUnprocessableEntity {
-
 	return &BackupsRestoreUnprocessableEntity{}
 }
 
@@ -219,7 +205,6 @@ func (o *BackupsRestoreUnprocessableEntity) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *BackupsRestoreUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -238,7 +223,6 @@ BackupsRestoreInternalServerError An error has occurred while trying to fulfill 
 swagger:response backupsRestoreInternalServerError
 */
 type BackupsRestoreInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -247,7 +231,6 @@ type BackupsRestoreInternalServerError struct {
 
 // NewBackupsRestoreInternalServerError creates BackupsRestoreInternalServerError with default headers values
 func NewBackupsRestoreInternalServerError() *BackupsRestoreInternalServerError {
-
 	return &BackupsRestoreInternalServerError{}
 }
 
@@ -264,7 +247,6 @@ func (o *BackupsRestoreInternalServerError) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *BackupsRestoreInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

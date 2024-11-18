@@ -30,19 +30,16 @@ WeaviateWellknownReadinessOK The application has completed its start-up routine 
 
 swagger:response weaviateWellknownReadinessOK
 */
-type WeaviateWellknownReadinessOK struct {
-}
+type WeaviateWellknownReadinessOK struct{}
 
 // NewWeaviateWellknownReadinessOK creates WeaviateWellknownReadinessOK with default headers values
 func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
-
 	return &WeaviateWellknownReadinessOK{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateWellknownReadinessOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -55,19 +52,16 @@ WeaviateWellknownReadinessServiceUnavailable The application is currently not ab
 
 swagger:response weaviateWellknownReadinessServiceUnavailable
 */
-type WeaviateWellknownReadinessServiceUnavailable struct {
-}
+type WeaviateWellknownReadinessServiceUnavailable struct{}
 
 // NewWeaviateWellknownReadinessServiceUnavailable creates WeaviateWellknownReadinessServiceUnavailable with default headers values
 func NewWeaviateWellknownReadinessServiceUnavailable() *WeaviateWellknownReadinessServiceUnavailable {
-
 	return &WeaviateWellknownReadinessServiceUnavailable{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateWellknownReadinessServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(503)
 }

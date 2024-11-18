@@ -46,7 +46,7 @@ func (o *WeaviateRootURL) SetBasePath(bp string) {
 func (o *WeaviateRootURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/"
+	_path := "/"
 
 	_basePath := o._basePath
 	if _basePath == "" {
