@@ -531,7 +531,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -550,12 +550,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user or key",
+        "summary": "Assign a role to a user",
         "operationId": "assignRole",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -567,7 +567,7 @@ func init() {
             "schema": {
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to the key or user",
+                  "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -621,7 +621,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -679,12 +679,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user or a key",
+        "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -713,7 +713,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6792,7 +6792,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6811,12 +6811,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user or key",
+        "summary": "Assign a role to a user",
         "operationId": "assignRole",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6828,7 +6828,7 @@ func init() {
             "schema": {
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to the key or user",
+                  "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -6882,7 +6882,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6940,12 +6940,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user or a key",
+        "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6974,7 +6974,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
