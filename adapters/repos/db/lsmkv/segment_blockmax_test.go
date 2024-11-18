@@ -19,6 +19,7 @@ import (
 )
 
 func TestSerializeAndParseInvertedNodeTest(t *testing.T) {
+	t.Skip()
 	seg, err := newSegment("/Users/amourao/code/weaviate/weaviate/data-weaviate-0/msmarco/6Jx2gaSLtsnd/lsm/property_text_searchable/segment-1729794337023372000.db", nil,
 		nil, nil, false, false, false, true)
 	if err != nil {
