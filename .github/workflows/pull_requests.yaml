@@ -357,7 +357,7 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
