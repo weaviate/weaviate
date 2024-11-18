@@ -133,7 +133,7 @@ func Cluster() string {
 }
 
 // Users generates a list of user resource strings based on the provided user names.
-// If no role names are provided, it returns a default user resource string "users/*".
+// If no user names are provided, it returns a default user resource string "users/*".
 //
 // Parameters:
 //
@@ -141,7 +141,7 @@ func Cluster() string {
 //
 // Returns:
 //
-//	A slice of strings where each string is a formatted role resource string.
+//	A slice of strings where each string is a formatted user resource string.
 func Users(users ...string) []string {
 	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
 		return []string{
