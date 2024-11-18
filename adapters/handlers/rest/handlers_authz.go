@@ -225,7 +225,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 
 	perms, err := conv.PoliciesToPermission(roles[params.ID]...)
 	if err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewGetRoleBadRequest().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{

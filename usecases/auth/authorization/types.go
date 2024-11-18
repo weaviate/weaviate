@@ -33,6 +33,16 @@ const (
 	DELETE = "D"
 )
 
+const (
+	UsersDomain              = "users"
+	RolesDomain              = "roles"
+	ClusterDomain            = "cluster"
+	CollectionsDomain        = "meta_collections"
+	TenantsDomain            = "meta_tenants"
+	ObjectsCollectionsDomain = "data_collection_objects"
+	ObjectsTenantsDomain     = "data_tenant_objects"
+)
+
 var Actions = map[string]string{
 	CRUD:   "manage",
 	CRU:    "manage",
@@ -129,7 +139,7 @@ type Policy struct {
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
-	return "cluster/*"
+	return "meta/cluster/*"
 }
 
 // Users generates a list of user resource strings based on the provided user names.
@@ -145,13 +155,13 @@ func Cluster() string {
 func Users(users ...string) []string {
 	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
 		return []string{
-			"users/*",
+			"meta/users/*",
 		}
 	}
 
 	resources := make([]string, len(users))
 	for idx := range users {
-		resources[idx] = fmt.Sprintf("users/%s", users[idx])
+		resources[idx] = fmt.Sprintf("meta/users/%s", users[idx])
 	}
 
 	return resources
@@ -170,13 +180,13 @@ func Users(users ...string) []string {
 func Roles(roles ...string) []string {
 	if len(roles) == 0 || (len(roles) == 1 && (roles[0] == "" || roles[0] == "*")) {
 		return []string{
-			"roles/*",
+			"meta/roles/*",
 		}
 	}
 
 	resources := make([]string, len(roles))
 	for idx := range roles {
-		resources[idx] = fmt.Sprintf("roles/%s", roles[idx])
+		resources[idx] = fmt.Sprintf("meta/roles/%s", roles[idx])
 	}
 
 	return resources

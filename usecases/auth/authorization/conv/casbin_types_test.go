@@ -90,7 +90,8 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinUsers("*"),
-				Domain:   "users",
+				Domain:   authorization.UsersDomain,
+				Verb:     *authorization.All,
 			},
 			tests: usersTests,
 		},
@@ -101,7 +102,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinUsers("user1"),
-				Domain:   "users",
+				Domain:   authorization.UsersDomain,
 			},
 			tests: usersTests,
 		},
@@ -110,7 +111,7 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("*"),
-				Domain:   "roles",
+				Domain:   authorization.RolesDomain,
 			},
 			tests: rolesTests,
 		},
@@ -121,7 +122,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("admin"),
-				Domain:   "roles",
+				Domain:   authorization.RolesDomain,
 			},
 			tests: rolesTests,
 		},
@@ -129,8 +130,8 @@ func Test_policy(t *testing.T) {
 			name:       "manage cluster",
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
-				Resource: "cluster/*",
-				Domain:   "cluster",
+				Resource: CasbinClusters(),
+				Domain:   authorization.ClusterDomain,
 			},
 			tests: clusterTests,
 		},
@@ -139,7 +140,7 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinCollections("*"),
-				Domain:   "meta_collections",
+				Domain:   authorization.CollectionsDomain,
 			},
 			tests: collectionsTests,
 		},
@@ -150,7 +151,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinCollections("foo"),
-				Domain:   "meta_collections",
+				Domain:   authorization.CollectionsDomain,
 			},
 			tests: collectionsTests,
 		},
@@ -159,7 +160,7 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinShards("*", "*"),
-				Domain:   "meta_tenants",
+				Domain:   authorization.TenantsDomain,
 			},
 			tests: tenantsTests,
 		},
@@ -170,7 +171,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinShards("foo", "*"),
-				Domain:   "meta_tenants",
+				Domain:   authorization.TenantsDomain,
 			},
 			tests: tenantsTests,
 		},
@@ -181,7 +182,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinShards("*", "bar"),
-				Domain:   "meta_tenants",
+				Domain:   authorization.TenantsDomain,
 			},
 			tests: tenantsTests,
 		},
@@ -193,7 +194,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinShards("foo", "bar"),
-				Domain:   "meta_tenants",
+				Domain:   authorization.TenantsDomain,
 			},
 			tests: tenantsTests,
 		},
@@ -202,7 +203,7 @@ func Test_policy(t *testing.T) {
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("*", "*", "*"),
-				Domain:   "data_collection_objects",
+				Domain:   authorization.ObjectsCollectionsDomain,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -213,7 +214,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "*", "*"),
-				Domain:   "data_collection_objects",
+				Domain:   authorization.ObjectsCollectionsDomain,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -224,7 +225,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("*", "*", "baz"),
-				Domain:   "data_collection_objects",
+				Domain:   authorization.ObjectsCollectionsDomain,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -236,7 +237,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "*", "baz"),
-				Domain:   "data_collection_objects",
+				Domain:   authorization.ObjectsCollectionsDomain,
 			},
 			tests: objectsCollectionTests,
 		},
@@ -247,7 +248,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "*", "*"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -258,7 +259,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("*", "bar", "*"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -270,7 +271,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "bar", "*"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -281,7 +282,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("*", "*", "baz"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -293,7 +294,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "*", "baz"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -305,7 +306,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("*", "bar", "baz"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -318,7 +319,7 @@ func Test_policy(t *testing.T) {
 			},
 			policy: &authorization.Policy{
 				Resource: CasbinObjects("foo", "bar", "baz"),
-				Domain:   "data_tenant_objects",
+				Domain:   authorization.ObjectsTenantsDomain,
 			},
 			tests: objectsTenantTests,
 		},
@@ -345,7 +346,7 @@ func Test_permission(t *testing.T) {
 	}{
 		{
 			name:   "all users",
-			policy: []string{"p", "users/*", "", "users"},
+			policy: []string{"p", "meta/users/*", "", "users"},
 			permission: &models.Permission{
 				User: authorization.All,
 			},
@@ -353,7 +354,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "users/user1", "", "users"},
+			policy: []string{"p", "meta/users/user1", "", "users"},
 			permission: &models.Permission{
 				User: authorization.String("user1"),
 			},
@@ -361,7 +362,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all roles",
-			policy: []string{"p", "roles/*", "", "roles"},
+			policy: []string{"p", "meta/roles/*", "", "roles"},
 			permission: &models.Permission{
 				Role: authorization.All,
 			},
@@ -369,7 +370,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "roles/admin", "", "roles"},
+			policy: []string{"p", "meta/roles/admin", "", "roles"},
 			permission: &models.Permission{
 				Role: authorization.String("admin"),
 			},
@@ -377,7 +378,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:       "cluster",
-			policy:     []string{"p", "cluster/*", "", "cluster"},
+			policy:     []string{"p", "meta/cluster/*", "", "cluster"},
 			permission: &models.Permission{},
 			tests:      clusterTests,
 		},
@@ -558,8 +559,9 @@ func Test_permission(t *testing.T) {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = authorization.String(ttt.permissionAction)
 				tt.policy[2] = ttt.policyVerb
-				permission := permission(tt.policy)
+				permission, err := permission(tt.policy)
 				require.Equal(t, tt.permission, permission)
+				require.Nil(t, err)
 			})
 		}
 	}
@@ -570,9 +572,9 @@ func Test_pUsers(t *testing.T) {
 		user     string
 		expected string
 	}{
-		{user: "", expected: "users/.*"},
-		{user: "*", expected: "users/.*"},
-		{user: "foo", expected: "users/foo"},
+		{user: "", expected: "meta/users/.*"},
+		{user: "*", expected: "meta/users/.*"},
+		{user: "foo", expected: "meta/users/foo"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("user: %s", tt.user)
@@ -588,9 +590,9 @@ func Test_pRoles(t *testing.T) {
 		role     string
 		expected string
 	}{
-		{role: "", expected: "roles/.*"},
-		{role: "*", expected: "roles/.*"},
-		{role: "foo", expected: "roles/foo"},
+		{role: "", expected: "meta/roles/.*"},
+		{role: "*", expected: "meta/roles/.*"},
+		{role: "foo", expected: "meta/roles/foo"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("role: %s", tt.role)
@@ -686,6 +688,98 @@ func Test_fromCasbinResource(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := fromCasbinResource(tt.resource)
 			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func TestValidResource(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "valid resource - users",
+			input:    "meta/users/testUser",
+			expected: true,
+		},
+		{
+			name:     "valid resource - roles",
+			input:    "meta/roles/testRole",
+			expected: true,
+		},
+		{
+			name:     "valid resource - collections",
+			input:    "meta/collections/testCollection",
+			expected: true,
+		},
+		{
+			name:     "valid resource - objects",
+			input:    "data/collections/testCollection/shards/testShard/objects/testObject",
+			expected: true,
+		},
+		{
+			name:     "invalid resource",
+			input:    "invalid/resource",
+			expected: false,
+		},
+		{
+			name:     "invalid resource",
+			input:    "some resource",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := validResource(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidVerb(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{
+			name:     "valid verb - create",
+			input:    "C",
+			expected: true,
+		},
+		{
+			name:     "valid verb - read",
+			input:    "R",
+			expected: true,
+		},
+		{
+			name:     "valid verb - update",
+			input:    "U",
+			expected: true,
+		},
+		{
+			name:     "valid verb - delete",
+			input:    "D",
+			expected: true,
+		},
+		{
+			name:     "All",
+			input:    "CRUD",
+			expected: true,
+		},
+		{
+			name:     "invalid verb",
+			input:    "X",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := validVerb(tt.input)
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }

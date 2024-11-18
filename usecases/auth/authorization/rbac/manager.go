@@ -48,14 +48,14 @@ func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy
 
 func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	// TODO sort by name
-	var casbinPolicies [][][]string
+	var casbinStoragePolicies [][][]string
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
 		if err != nil {
 			return nil, err
 		}
-		casbinPolicies = append(casbinPolicies, polices)
+		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 	} else {
 		for _, name := range names {
 			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name)
@@ -65,11 +65,11 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			if len(polices) == 0 {
 				continue
 			}
-			casbinPolicies = append(casbinPolicies, polices)
+			casbinStoragePolicies = append(casbinStoragePolicies, polices)
 		}
 	}
 
-	return conv.CasbinPolicies(casbinPolicies...)
+	return conv.CasbinPolicies(casbinStoragePolicies...)
 }
 
 func (m *manager) RemovePermissions(role string, permissions []*authorization.Policy) error {
