@@ -47,10 +47,16 @@
           "default": "*",
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
         },
+        "user": {
+          "type": "string",
+          "default": "*",
+          "description": "string or regex. if a specific user name, if left empty it will be ALL or *"
+        },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
           "enum": [
+            "manage_users",
             "manage_roles",
             "read_roles",
             "manage_cluster",

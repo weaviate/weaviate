@@ -5349,6 +5349,7 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
+            "manage_users",
             "manage_roles",
             "read_roles",
             "manage_cluster",
@@ -5387,6 +5388,11 @@ func init() {
         },
         "tenant": {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "user": {
+          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -11904,6 +11910,7 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
+            "manage_users",
             "manage_roles",
             "read_roles",
             "manage_cluster",
@@ -11942,6 +11949,11 @@ func init() {
         },
         "tenant": {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "user": {
+          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
