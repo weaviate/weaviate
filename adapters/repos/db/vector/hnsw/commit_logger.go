@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -27,11 +28,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const defaultCommitLogSize = 500 * 1024 * 1024
+const (
+	defaultCommitLogSize = 500 * 1024 * 1024
+	checksumExt          = "checksum"
+)
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -39,6 +44,12 @@ func commitLogFileName(rootPath, indexName, fileName string) string {
 
 func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+}
+
+func commitLogChecksumFileName(commitFilePath string) string {
+	// checksum files are dot prefixed so to be ignored when unsupported
+	dir, commitFileName := path.Split(commitFilePath)
+	return path.Join(dir, fmt.Sprintf(".%s.%s", commitFileName, checksumExt))
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -61,7 +72,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		}
 	}
 
-	fd, err := getLatestCommitFileOrCreate(rootPath, name)
+	commitFile, checksumLogger, err := getLatestCommitFileOrCreate(rootPath, name)
 	if err != nil {
 		return nil, err
 	}
@@ -71,37 +82,55 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		elems = append(elems, l.id)
 		return strings.Join(elems, "/")
 	}
-	l.commitLogger = commitlog.NewLoggerWithFile(fd)
+	l.commitLogger = commitlog.NewLoggerWithFile(commitFile, checksumLogger)
 	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
 	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), l.startCombineAndCondenseLogs)
 
 	return l, nil
 }
 
-func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
+func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, commitlog.ChecksumLogger, error) {
 	dir := commitLogDirectory(rootPath, name)
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
-		return nil, errors.Wrap(err, "create commit logger directory")
+		return nil, nil, errors.Wrapf(err, "create commit logger directory %q", dir)
 	}
 
-	fileName, ok, err := getCurrentCommitLogFileName(dir)
+	fileName, existingCommitFile, err := getCurrentCommitLogFileName(dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "find commit logger file in directory")
+		return nil, nil, errors.Wrapf(err, "find commit logger file in directory %q", dir)
 	}
-
-	if !ok {
+	if !existingCommitFile {
 		// this is a new commit log, initialize with the current time stamp
 		fileName = fmt.Sprintf("%d", time.Now().Unix())
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	commitFileName := commitLogFileName(rootPath, name, fileName)
+
+	commitFile, err := os.OpenFile(commitFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return nil, errors.Wrap(err, "create commit log file")
+		return nil, nil, errors.Wrapf(err, "create commit log file %q", commitFileName)
 	}
 
-	return fd, nil
+	checksumFileName := commitLogChecksumFileName(commitFileName)
+
+	existingChecksumFile, err := diskio.FileExists(checksumFileName)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "verifying checksum file existence %q", checksumFileName)
+	}
+
+	var checksumLogger commitlog.ChecksumLogger
+
+	if existingCommitFile && !existingChecksumFile {
+		checksumLogger = commitlog.NewNoopChecksumLogger()
+	} else {
+		checksumLogger, err = commitlog.OpenCRC32ChecksumLogger(checksumFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "create commit log checksum file %q", checksumFileName)
+		}
+	}
+
+	return commitFile, checksumLogger, nil
 }
 
 // getCommitFileNames in order, from old to new
@@ -195,6 +224,10 @@ func removeTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
+			continue
+		}
+
+		if strings.HasSuffix(info.Name(), "."+checksumExt) {
 			continue
 		}
 
@@ -493,13 +526,21 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 			Info("commit log size crossed threshold, switching to new file")
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	commitFileName := commitLogFileName(l.rootPath, l.id, fileName)
+
+	commitFile, err := os.OpenFile(commitFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return true, errors.Wrap(err, "create commit log file")
 	}
 
-	l.commitLogger = commitlog.NewLoggerWithFile(fd)
+	checksumFileName := commitLogChecksumFileName(commitFileName)
+
+	checksumLogger, err := commitlog.OpenCRC32ChecksumLogger(checksumFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return false, errors.Wrapf(err, "create commit log checksum file %q", checksumFileName)
+	}
+
+	l.commitLogger = commitlog.NewLoggerWithFile(commitFile, checksumLogger)
 
 	return true, nil
 }

@@ -18,11 +18,14 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type Logger struct {
 	file *os.File
 	bufw *bufWriter
+
+	checksumLogger ChecksumLogger
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -45,39 +48,57 @@ const (
 	AddSQ
 )
 
-func NewLogger(fileName string) *Logger {
+func NewLogger(fileName string, checksumLogger ChecksumLogger) *Logger {
 	file, err := os.Create(fileName)
 	if err != nil {
 		panic(err)
 	}
 
-	return &Logger{file: file, bufw: NewWriter(file)}
+	return NewLoggerWithFile(file, checksumLogger)
 }
 
-func NewLoggerWithFile(file *os.File) *Logger {
-	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
+func NewLoggerWithFile(file *os.File, checksumLogger ChecksumLogger) *Logger {
+	return &Logger{
+		file:           file,
+		bufw:           NewWriter(file),
+		checksumLogger: checksumLogger,
+	}
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	toWrite := make([]byte, 11)
+	var toWrite [11]byte
 	toWrite[0] = byte(SetEntryPointMaxLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) AddNode(id uint64, level int) error {
-	toWrite := make([]byte, 11)
+	var toWrite [11]byte
 	toWrite[0] = byte(AddNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) AddPQCompression(data compressionhelpers.PQData) error {
-	toWrite := make([]byte, 10)
+	var toWrite [10]byte
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
 	toWrite[3] = byte(data.EncoderType)
@@ -90,30 +111,66 @@ func (l *Logger) AddPQCompression(data compressionhelpers.PQData) error {
 		toWrite[9] = 0
 	}
 
-	for _, encoder := range data.Encoders {
-		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
 	}
-	_, err := l.bufw.Write(toWrite)
-	return err
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	for _, encoder := range data.Encoders {
+		b := encoder.ExposeDataForRestore()
+
+		_, err := l.bufw.Write(b)
+		if err != nil {
+			return err
+		}
+
+		_, err = l.checksumLogger.Checksum(b)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
-	toWrite := make([]byte, 11)
+	var toWrite [11]byte
 	toWrite[0] = byte(AddSQ)
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {
-	toWrite := make([]byte, 19)
+	var toWrite [19]byte
 	toWrite[0] = byte(AddLinkAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 	binary.LittleEndian.PutUint64(toWrite[11:19], target)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
@@ -123,35 +180,60 @@ func (l *Logger) AddLinksAtLevel(id uint64, level int, targets []uint64) error {
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 	binary.LittleEndian.PutUint16(toWrite[11:13], uint16(len(targets)))
+
 	for i, target := range targets {
 		offsetStart := 13 + i*8
 		offsetEnd := offsetStart + 8
 		binary.LittleEndian.PutUint64(toWrite[offsetStart:offsetEnd], target)
 	}
 	_, err := l.bufw.Write(toWrite)
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:13])
+	if err != nil {
+		return err
+	}
+
+	_, err = l.checksumLogger.Checksum(toWrite[13:])
 	return err
 }
 
 // chunks links in increments of 8, so that we never have to allocate a dynamic
 // []byte size which would be guaranteed to escape to the heap
 func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) error {
-	headers := make([]byte, 13)
+	var headers [13]byte
 	headers[0] = byte(ReplaceLinksAtLevel)
 	binary.LittleEndian.PutUint64(headers[1:9], id)
 	binary.LittleEndian.PutUint16(headers[9:11], uint16(level))
 	binary.LittleEndian.PutUint16(headers[11:13], uint16(len(targets)))
-	_, err := l.bufw.Write(headers)
+	_, err := l.bufw.Write(headers[:])
 	if err != nil {
 		return errors.Wrap(err, "write headers")
 	}
 
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(headers[:])
+	if err != nil {
+		return errors.Wrap(err, "write headers checksum")
+	}
+
 	i := 0
 	// chunks of 8
-	buf := make([]byte, 64)
+	var buf [64]byte
 	for i < len(targets) {
 		if i != 0 && i%8 == 0 {
-			if _, err := l.bufw.Write(buf); err != nil {
+			if _, err := l.bufw.Write(buf[:]); err != nil {
 				return errors.Wrap(err, "write link chunk")
+			}
+
+			_, err = l.checksumLogger.Write(buf[:])
+			if err != nil {
+				return errors.Wrap(err, "write link chunk checksum")
 			}
 		}
 
@@ -174,56 +256,104 @@ func (l *Logger) ReplaceLinksAtLevel(id uint64, level int, targets []uint64) err
 		if _, err := l.bufw.Write(buf[start:end]); err != nil {
 			return errors.Wrap(err, "write link remainder")
 		}
+
+		_, err = l.checksumLogger.Write(buf[start:end])
+		if err != nil {
+			return errors.Wrap(err, "write link remainder checksum")
+		}
 	}
 
-	return nil
+	_, err = l.checksumLogger.Checksum(nil)
+	return err
 }
 
 func (l *Logger) AddTombstone(id uint64) error {
-	toWrite := make([]byte, 9)
+	var toWrite [9]byte
 	toWrite[0] = byte(AddTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) RemoveTombstone(id uint64) error {
-	toWrite := make([]byte, 9)
+	var toWrite [9]byte
 	toWrite[0] = byte(RemoveTombstone)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) ClearLinks(id uint64) error {
-	toWrite := make([]byte, 9)
+	var toWrite [9]byte
 	toWrite[0] = byte(ClearLinks)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) ClearLinksAtLevel(id uint64, level uint16) error {
-	toWrite := make([]byte, 11)
+	var toWrite [11]byte
 	toWrite[0] = byte(ClearLinksAtLevel)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], level)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) DeleteNode(id uint64) error {
-	toWrite := make([]byte, 9)
+	var toWrite [9]byte
 	toWrite[0] = byte(DeleteNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
 func (l *Logger) Reset() error {
-	toWrite := make([]byte, 1)
+	var toWrite [1]byte
 	toWrite[0] = byte(ResetIndex)
-	_, err := l.bufw.Write(toWrite)
+	_, err := l.bufw.Write(toWrite[:])
+	if err != nil {
+		return err
+	}
+
+	l.checksumLogger.Reset()
+
+	_, err = l.checksumLogger.Checksum(toWrite[:])
 	return err
 }
 
@@ -246,17 +376,20 @@ func (l *Logger) FileName() (string, error) {
 }
 
 func (l *Logger) Flush() error {
-	return l.bufw.Flush()
+	ec := &errorcompounder.ErrorCompounder{}
+
+	ec.Add(l.bufw.Flush())
+	ec.Add(l.checksumLogger.Flush())
+
+	return ec.ToError()
 }
 
 func (l *Logger) Close() error {
-	if err := l.bufw.Flush(); err != nil {
-		return err
-	}
+	ec := &errorcompounder.ErrorCompounder{}
 
-	if err := l.file.Close(); err != nil {
-		return err
-	}
+	ec.Add(l.Flush())
+	ec.Add(l.file.Close())
+	ec.Add(l.checksumLogger.Close())
 
-	return nil
+	return ec.ToError()
 }

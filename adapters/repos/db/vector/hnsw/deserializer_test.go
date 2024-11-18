@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -150,7 +151,10 @@ func TestDeserializerReadDeleteNode(t *testing.T) {
 		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
 
-		err := d.ReadDeleteNode(reader, res, res.NodesDeleted)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadDeleteNode(r, checksumReader, res, res.NodesDeleted)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
 		}
@@ -179,7 +183,10 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadClearLinks(reader, res, true)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadClearLinks(r, checksumReader, res, true)
 		if err != nil {
 			t.Errorf("Error reading links: %v", err)
 		}
@@ -222,7 +229,10 @@ func TestDeserializerReadNode(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadNode(reader, res)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadNode(r, checksumReader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
 		assert.Equal(t, int(level), res.Nodes[id].level)
@@ -243,7 +253,10 @@ func TestDeserializerReadEP(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		ep, l, err := d.ReadEP(reader)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		ep, l, err := d.ReadEP(r, checksumReader)
 		require.Nil(t, err)
 		assert.Equal(t, id, ep)
 		assert.Equal(t, level, l)
@@ -267,7 +280,10 @@ func TestDeserializerReadLink(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadLink(reader, res)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadLink(r, checksumReader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
 		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
@@ -296,7 +312,10 @@ func TestDeserializerReadLinks(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		_, err := d.ReadLinks(reader, res, true)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		_, err := d.ReadLinks(r, checksumReader, res, true)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
 		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
@@ -325,7 +344,10 @@ func TestDeserializerReadAddLinks(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		_, err := d.ReadAddLinks(reader, res)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		_, err := d.ReadAddLinks(r, checksumReader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
 		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
@@ -346,7 +368,10 @@ func TestDeserializerAddTombstone(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadAddTombstone(reader, tombstones)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadAddTombstone(r, checksumReader, tombstones)
 		require.Nil(t, err)
 	}
 
@@ -383,7 +408,10 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadRemoveTombstone(reader, tombstones, deletedTombstones)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadRemoveTombstone(r, checksumReader, tombstones, deletedTombstones)
 		require.Nil(t, err)
 	}
 
@@ -434,7 +462,10 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadClearLinksAtLevel(reader, res, true)
+		r := commitlog.NewNoopReaderHasher(reader)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		err := d.ReadClearLinksAtLevel(r, checksumReader, res, true)
 		require.Nil(t, err)
 	}
 }
@@ -494,7 +525,10 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		defer fd.Close()
 		fdBuf := bufio.NewReaderSize(fd, 256*1024)
 
-		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		reader := commitlog.NewNoopReaderHasher(fdBuf)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		_, deserializeSize, _, err := NewDeserializer(nullLogger).Do(reader, checksumReader, nil, true)
 		require.Nil(t, err)
 
 		require.Equal(t, 4*centroids*dimensions+10, deserializeSize)

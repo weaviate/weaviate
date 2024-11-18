@@ -90,11 +90,14 @@ func TestBackup_ListFiles(t *testing.T) {
 		// in the check above.
 		ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
 		require.Nil(t, err)
-		require.Len(t, ls, 1)
+		require.Len(t, ls, 2)
+
+		require.Equal(t, ls[0].Name(), "."+ls[1].Name()+".checksum")
+
 		// filename should just be a 10 digit int
-		matched, err := regexp.MatchString("[0-9]{10}", ls[0].Name())
-		assert.Nil(t, err)
-		assert.True(t, matched, "regex does not match")
+		matched, err := regexp.MatchString("[0-9]{10}", ls[1].Name())
+		require.Nil(t, err)
+		require.True(t, matched, "regex does not match")
 	})
 
 	err = idx.Shutdown(ctx)

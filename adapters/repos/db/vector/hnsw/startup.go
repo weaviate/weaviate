@@ -22,7 +22,9 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -88,10 +90,34 @@ func (h *hnsw) restoreFromDisk() error {
 			h.metrics.TrackStartupReadCommitlogDiskIO)
 		fdBuf := bufio.NewReaderSize(metered, 256*1024)
 
-		var valid int
-		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
+		var reader rwhasher.ReaderHasher
+		var checksumReader commitlog.ChecksumReader
+
+		checksumFileName := commitLogChecksumFileName(fileName)
+		hasChecksumFile, err := diskio.FileExists(checksumFileName)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return errors.Wrapf(err, "verifying checksum file existence %q", checksumFileName)
+		}
+
+		if hasChecksumFile {
+			checksumFile, err := os.Open(checksumFileName)
+			if err != nil {
+				return errors.Wrapf(err, "opening checksum file %q for reading", checksumFileName)
+			}
+
+			defer checksumFile.Close()
+
+			reader = rwhasher.NewCRC32Reader(fdBuf)
+			checksumReader = commitlog.NewCRC32ChecksumReader(bufio.NewReader(checksumFile))
+		} else {
+			reader = commitlog.NewNoopReaderHasher(fdBuf)
+			checksumReader = commitlog.NewNoopChecksumReader()
+		}
+
+		var commitLogValidSize, checksumValidSize int
+		state, commitLogValidSize, checksumValidSize, err = NewDeserializer(h.logger).Do(reader, checksumReader, state, false)
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, commitlog.ErrInvalidChecksum) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where
 				// the commit log got corrupted, a field ending that weset a longer
 				// encoding for would return EOF, whereas a field read with binary.Read
@@ -102,8 +128,14 @@ func (h *hnsw) restoreFromDisk() error {
 					WithField("path", fileName).
 					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
 
+				if hasChecksumFile {
+					if err := os.Truncate(checksumFileName, int64(checksumValidSize)); err != nil {
+						return errors.Wrapf(err, "truncate checksum commit log %q", checksumFileName)
+					}
+				}
+
 				// we need to truncate the file to its valid length!
-				if err := os.Truncate(fileName, int64(valid)); err != nil {
+				if err := os.Truncate(fileName, int64(commitLogValidSize)); err != nil {
 					return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
 				}
 			} else {
