@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -32,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
 
-var metrics = lsmkv.BlockMetrics{}
+// var metrics = lsmkv.BlockMetrics{}
 
 func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
