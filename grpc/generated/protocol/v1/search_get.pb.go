@@ -3529,7 +3529,7 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 
 var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
-var file_v1_search_get_proto_goTypes = []any{
+var file_v1_search_get_proto_goTypes = []interface{}{
 	(CombinationMethod)(0),          // 0: weaviate.v1.CombinationMethod
 	(Hybrid_FusionType)(0),          // 1: weaviate.v1.Hybrid.FusionType
 	(*SearchRequest)(nil),           // 2: weaviate.v1.SearchRequest
@@ -3662,7 +3662,7 @@ func file_v1_search_get_proto_init() {
 	file_v1_generative_proto_init()
 	file_v1_properties_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_search_get_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchRequest); i {
 			case 0:
 				return &v.state
@@ -3674,7 +3674,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GroupBy); i {
 			case 0:
 				return &v.state
@@ -3686,7 +3686,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SortBy); i {
 			case 0:
 				return &v.state
@@ -3698,7 +3698,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*MetadataRequest); i {
 			case 0:
 				return &v.state
@@ -3710,7 +3710,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3722,7 +3722,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ObjectPropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3734,7 +3734,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*WeightsForTarget); i {
 			case 0:
 				return &v.state
@@ -3746,7 +3746,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Targets); i {
 			case 0:
 				return &v.state
@@ -3758,7 +3758,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Hybrid); i {
 			case 0:
 				return &v.state
@@ -3770,7 +3770,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearTextSearch); i {
 			case 0:
 				return &v.state
@@ -3782,7 +3782,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearImageSearch); i {
 			case 0:
 				return &v.state
@@ -3794,7 +3794,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearAudioSearch); i {
 			case 0:
 				return &v.state
@@ -3806,7 +3806,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[12].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearVideoSearch); i {
 			case 0:
 				return &v.state
@@ -3818,7 +3818,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[13].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearDepthSearch); i {
 			case 0:
 				return &v.state
@@ -3830,7 +3830,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[14].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearThermalSearch); i {
 			case 0:
 				return &v.state
@@ -3842,7 +3842,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[15].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearIMUSearch); i {
 			case 0:
 				return &v.state
@@ -3854,7 +3854,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[16].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BM25); i {
 			case 0:
 				return &v.state
@@ -3866,7 +3866,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[17].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*RefPropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3878,7 +3878,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[18].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*VectorForTarget); i {
 			case 0:
 				return &v.state
@@ -3890,7 +3890,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[19].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearVector); i {
 			case 0:
 				return &v.state
@@ -3902,7 +3902,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[20].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearObject); i {
 			case 0:
 				return &v.state
@@ -3914,7 +3914,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[21].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Rerank); i {
 			case 0:
 				return &v.state
@@ -3926,7 +3926,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[22].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchReply); i {
 			case 0:
 				return &v.state
@@ -3938,7 +3938,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[23].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*RerankReply); i {
 			case 0:
 				return &v.state
@@ -3950,7 +3950,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[24].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GroupByResult); i {
 			case 0:
 				return &v.state
@@ -3962,7 +3962,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[25].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*SearchResult); i {
 			case 0:
 				return &v.state
@@ -3974,7 +3974,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[26].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*MetadataResult); i {
 			case 0:
 				return &v.state
@@ -3986,7 +3986,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[27].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PropertiesResult); i {
 			case 0:
 				return &v.state
@@ -3998,7 +3998,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[28].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*RefPropertiesResult); i {
 			case 0:
 				return &v.state
@@ -4010,7 +4010,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[30].Exporter = func(v any, i int) any {
+		file_v1_search_get_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearTextSearch_Move); i {
 			case 0:
 				return &v.state
@@ -4023,24 +4023,24 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 	}
-	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{
+	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []interface{}{
 		(*Hybrid_VectorDistance)(nil),
 	}
-	file_v1_search_get_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[10].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[11].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[15].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[19].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[20].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[21].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[22].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[24].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []any{}
-	file_v1_search_get_proto_msgTypes[26].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[9].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[10].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[11].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[15].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[19].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[20].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[21].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[22].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[24].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[26].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

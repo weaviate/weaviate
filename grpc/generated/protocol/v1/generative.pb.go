@@ -3729,7 +3729,7 @@ func file_v1_generative_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_generative_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
-var file_v1_generative_proto_goTypes = []any{
+var file_v1_generative_proto_goTypes = []interface{}{
 	(*GenerativeSearch)(nil),                       // 0: weaviate.v1.GenerativeSearch
 	(*GenerativeProvider)(nil),                     // 1: weaviate.v1.GenerativeProvider
 	(*GenerativeAnthropic)(nil),                    // 2: weaviate.v1.GenerativeAnthropic
@@ -3838,7 +3838,7 @@ func file_v1_generative_proto_init() {
 	}
 	file_v1_base_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_generative_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeSearch); i {
 			case 0:
 				return &v.state
@@ -3850,7 +3850,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeProvider); i {
 			case 0:
 				return &v.state
@@ -3862,7 +3862,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAnthropic); i {
 			case 0:
 				return &v.state
@@ -3874,7 +3874,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAnyscale); i {
 			case 0:
 				return &v.state
@@ -3886,7 +3886,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAWS); i {
 			case 0:
 				return &v.state
@@ -3898,7 +3898,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[5].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeCohere); i {
 			case 0:
 				return &v.state
@@ -3910,7 +3910,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[6].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDummy); i {
 			case 0:
 				return &v.state
@@ -3922,7 +3922,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[7].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeMistral); i {
 			case 0:
 				return &v.state
@@ -3934,7 +3934,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[8].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeOllama); i {
 			case 0:
 				return &v.state
@@ -3946,7 +3946,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[9].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeOpenAI); i {
 			case 0:
 				return &v.state
@@ -3958,7 +3958,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[10].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogle); i {
 			case 0:
 				return &v.state
@@ -3970,7 +3970,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[11].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDatabricks); i {
 			case 0:
 				return &v.state
@@ -3982,7 +3982,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[12].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeFriendliAI); i {
 			case 0:
 				return &v.state
@@ -3994,7 +3994,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[13].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAnthropicMetadata); i {
 			case 0:
 				return &v.state
@@ -4006,7 +4006,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[14].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAnyscaleMetadata); i {
 			case 0:
 				return &v.state
@@ -4018,7 +4018,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[15].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAWSMetadata); i {
 			case 0:
 				return &v.state
@@ -4030,7 +4030,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[16].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeCohereMetadata); i {
 			case 0:
 				return &v.state
@@ -4042,7 +4042,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[17].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDummyMetadata); i {
 			case 0:
 				return &v.state
@@ -4054,7 +4054,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[18].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeMistralMetadata); i {
 			case 0:
 				return &v.state
@@ -4066,7 +4066,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[19].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeOllamaMetadata); i {
 			case 0:
 				return &v.state
@@ -4078,7 +4078,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[20].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeOpenAIMetadata); i {
 			case 0:
 				return &v.state
@@ -4090,7 +4090,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[21].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogleMetadata); i {
 			case 0:
 				return &v.state
@@ -4102,7 +4102,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[22].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDatabricksMetadata); i {
 			case 0:
 				return &v.state
@@ -4114,7 +4114,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[23].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeFriendliAIMetadata); i {
 			case 0:
 				return &v.state
@@ -4126,7 +4126,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[24].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeMetadata); i {
 			case 0:
 				return &v.state
@@ -4138,7 +4138,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[25].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeReply); i {
 			case 0:
 				return &v.state
@@ -4150,7 +4150,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[26].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeResult); i {
 			case 0:
 				return &v.state
@@ -4162,7 +4162,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[27].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDebug); i {
 			case 0:
 				return &v.state
@@ -4174,7 +4174,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[28].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeSearch_Single); i {
 			case 0:
 				return &v.state
@@ -4186,7 +4186,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[29].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeSearch_Grouped); i {
 			case 0:
 				return &v.state
@@ -4198,7 +4198,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[30].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeAnthropicMetadata_Usage); i {
 			case 0:
 				return &v.state
@@ -4210,7 +4210,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[31].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeCohereMetadata_ApiVersion); i {
 			case 0:
 				return &v.state
@@ -4222,7 +4222,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[32].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeCohereMetadata_BilledUnits); i {
 			case 0:
 				return &v.state
@@ -4234,7 +4234,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[33].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeCohereMetadata_Tokens); i {
 			case 0:
 				return &v.state
@@ -4246,7 +4246,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[34].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeMistralMetadata_Usage); i {
 			case 0:
 				return &v.state
@@ -4258,7 +4258,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[35].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeOpenAIMetadata_Usage); i {
 			case 0:
 				return &v.state
@@ -4270,7 +4270,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[36].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogleMetadata_TokenCount); i {
 			case 0:
 				return &v.state
@@ -4282,7 +4282,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[37].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogleMetadata_TokenMetadata); i {
 			case 0:
 				return &v.state
@@ -4294,7 +4294,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[38].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogleMetadata_Metadata); i {
 			case 0:
 				return &v.state
@@ -4306,7 +4306,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[39].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeGoogleMetadata_UsageMetadata); i {
 			case 0:
 				return &v.state
@@ -4318,7 +4318,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[40].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeDatabricksMetadata_Usage); i {
 			case 0:
 				return &v.state
@@ -4330,7 +4330,7 @@ func file_v1_generative_proto_init() {
 				return nil
 			}
 		}
-		file_v1_generative_proto_msgTypes[41].Exporter = func(v any, i int) any {
+		file_v1_generative_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GenerativeFriendliAIMetadata_Usage); i {
 			case 0:
 				return &v.state
@@ -4343,7 +4343,7 @@ func file_v1_generative_proto_init() {
 			}
 		}
 	}
-	file_v1_generative_proto_msgTypes[1].OneofWrappers = []any{
+	file_v1_generative_proto_msgTypes[1].OneofWrappers = []interface{}{
 		(*GenerativeProvider_Anthropic)(nil),
 		(*GenerativeProvider_Anyscale)(nil),
 		(*GenerativeProvider_Aws)(nil),
@@ -4356,23 +4356,23 @@ func file_v1_generative_proto_init() {
 		(*GenerativeProvider_Databricks)(nil),
 		(*GenerativeProvider_Friendliai)(nil),
 	}
-	file_v1_generative_proto_msgTypes[2].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[3].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[4].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[5].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[7].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[8].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[9].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[10].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[11].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[12].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[16].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[18].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[20].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[21].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[22].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[23].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[24].OneofWrappers = []any{
+	file_v1_generative_proto_msgTypes[2].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[3].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[4].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[5].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[7].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[8].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[9].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[10].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[11].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[12].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[16].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[18].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[20].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[21].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[22].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[23].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[24].OneofWrappers = []interface{}{
 		(*GenerativeMetadata_Anthropic)(nil),
 		(*GenerativeMetadata_Anyscale)(nil),
 		(*GenerativeMetadata_Aws)(nil),
@@ -4385,20 +4385,20 @@ func file_v1_generative_proto_init() {
 		(*GenerativeMetadata_Databricks)(nil),
 		(*GenerativeMetadata_Friendliai)(nil),
 	}
-	file_v1_generative_proto_msgTypes[25].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[27].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[29].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[31].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[32].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[33].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[34].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[35].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[36].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[37].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[38].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[39].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[40].OneofWrappers = []any{}
-	file_v1_generative_proto_msgTypes[41].OneofWrappers = []any{}
+	file_v1_generative_proto_msgTypes[25].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[27].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[29].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[31].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[32].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[33].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[34].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[35].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[36].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[37].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[38].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[39].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[40].OneofWrappers = []interface{}{}
+	file_v1_generative_proto_msgTypes[41].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -10,7 +10,6 @@ package api
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -85,7 +84,8 @@ type MetadataServiceServer interface {
 }
 
 // UnimplementedMetadataServiceServer should be embedded to have forward compatible implementations.
-type UnimplementedMetadataServiceServer struct{}
+type UnimplementedMetadataServiceServer struct {
+}
 
 func (UnimplementedMetadataServiceServer) QuerierStream(MetadataService_QuerierStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method QuerierStream not implemented")

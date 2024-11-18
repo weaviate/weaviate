@@ -9,11 +9,10 @@
 package api
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -352,17 +351,15 @@ func file_api_metadata_server_proto_rawDescGZIP() []byte {
 	return file_api_metadata_server_proto_rawDescData
 }
 
-var (
-	file_api_metadata_server_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_api_metadata_server_proto_msgTypes  = make([]protoimpl.MessageInfo, 3)
-	file_api_metadata_server_proto_goTypes   = []interface{}{
-		(QuerierStreamRequest_Type)(0),  // 0: weaviate.internal.metadata.QuerierStreamRequest.Type
-		(QuerierStreamResponse_Type)(0), // 1: weaviate.internal.metadata.QuerierStreamResponse.Type
-		(*QuerierStreamRequest)(nil),    // 2: weaviate.internal.metadata.QuerierStreamRequest
-		(*QuerierStreamResponse)(nil),   // 3: weaviate.internal.metadata.QuerierStreamResponse
-		(*ClassTenant)(nil),             // 4: weaviate.internal.metadata.ClassTenant
-	}
-)
+var file_api_metadata_server_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_api_metadata_server_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_metadata_server_proto_goTypes = []interface{}{
+	(QuerierStreamRequest_Type)(0),  // 0: weaviate.internal.metadata.QuerierStreamRequest.Type
+	(QuerierStreamResponse_Type)(0), // 1: weaviate.internal.metadata.QuerierStreamResponse.Type
+	(*QuerierStreamRequest)(nil),    // 2: weaviate.internal.metadata.QuerierStreamRequest
+	(*QuerierStreamResponse)(nil),   // 3: weaviate.internal.metadata.QuerierStreamResponse
+	(*ClassTenant)(nil),             // 4: weaviate.internal.metadata.ClassTenant
+}
 var file_api_metadata_server_proto_depIdxs = []int32{
 	0, // 0: weaviate.internal.metadata.QuerierStreamRequest.type:type_name -> weaviate.internal.metadata.QuerierStreamRequest.Type
 	1, // 1: weaviate.internal.metadata.QuerierStreamResponse.type:type_name -> weaviate.internal.metadata.QuerierStreamResponse.Type
