@@ -104,7 +104,7 @@ func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.C
 }
 
 /*
-AssignRole assigns a role to a user or key
+AssignRole assigns a role to a user
 */
 func (a *Client) AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -299,7 +299,7 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForUser gets roles assigned to user or a key
+GetRolesForUser gets roles assigned to user
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending

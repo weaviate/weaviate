@@ -48,7 +48,7 @@ func NewAssignRole(ctx *middleware.Context, handler AssignRoleHandler) *AssignRo
 /*
 	AssignRole swagger:route POST /authz/users/{id}/assign authz assignRole
 
-Assign a role to a user or key
+Assign a role to a user
 */
 type AssignRole struct {
 	Context *middleware.Context
@@ -89,7 +89,7 @@ func (o *AssignRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model AssignRoleBody
 type AssignRoleBody struct {
 
-	// the roles that assigned to the key or user
+	// the roles that assigned to user
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
