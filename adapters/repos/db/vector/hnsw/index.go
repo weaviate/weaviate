@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -164,6 +165,10 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
+	// rescore sequentially, as that would take very long. This setting allows us
+	// to define the rescoring concurrency.
+	rescoreConcurrency int
 
 	compressActionLock *sync.RWMutex
 	className          string
@@ -282,6 +287,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		pqConfig:             uc.PQ,
 		bqConfig:             uc.BQ,
 		sqConfig:             uc.SQ,
+		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
