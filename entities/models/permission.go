@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_roles read_roles manage_cluster create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants create_objects_collection read_objects_collection update_objects_collection delete_objects_collection create_objects_tenant read_objects_tenant update_objects_tenant delete_objects_tenant]
+	// Enum: [manage_users manage_roles read_roles manage_cluster create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants create_objects_collection read_objects_collection update_objects_collection delete_objects_collection create_objects_tenant read_objects_tenant update_objects_tenant delete_objects_tenant]
 	Action *string `json:"action"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
@@ -47,6 +47,9 @@ type Permission struct {
 
 	// string or regex. if a specific tenant name, if left empty it will be ALL or *
 	Tenant *string `json:"tenant,omitempty"`
+
+	// string or regex. if a specific user name, if left empty it will be ALL or *
+	User *string `json:"user,omitempty"`
 }
 
 // Validate validates this permission
@@ -67,7 +70,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants","create_objects_collection","read_objects_collection","update_objects_collection","delete_objects_collection","create_objects_tenant","read_objects_tenant","update_objects_tenant","delete_objects_tenant"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants","create_objects_collection","read_objects_collection","update_objects_collection","delete_objects_collection","create_objects_tenant","read_objects_tenant","update_objects_tenant","delete_objects_tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -76,6 +79,9 @@ func init() {
 }
 
 const (
+
+	// PermissionActionManageUsers captures enum value "manage_users"
+	PermissionActionManageUsers string = "manage_users"
 
 	// PermissionActionManageRoles captures enum value "manage_roles"
 	PermissionActionManageRoles string = "manage_roles"

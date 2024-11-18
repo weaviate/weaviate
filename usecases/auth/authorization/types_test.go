@@ -18,6 +18,25 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestUsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		users    []string
+		expected []string
+	}{
+		{"No users", []string{}, []string{"users/*"}},
+		{"Single user", []string{"user1"}, []string{"users/user1"}},
+		{"Multiple users", []string{"user1", "user2"}, []string{"users/user1", "users/user2"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Users(tt.users...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestRoles(t *testing.T) {
 	tests := []struct {
 		name     string

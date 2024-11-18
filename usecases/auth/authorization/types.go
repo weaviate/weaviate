@@ -35,7 +35,7 @@ const (
 
 var Actions = map[string]string{
 	CRUD:   "manage",
-	CRU:    "view",
+	CRU:    "manage",
 	CREATE: "create",
 	READ:   "read",
 	UPDATE: "update",
@@ -44,6 +44,7 @@ var Actions = map[string]string{
 
 const (
 	ManageRoles   = "manage_roles"
+	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
 
 	CreateCollections = "create_collections"
@@ -70,6 +71,10 @@ const (
 var (
 	All = String("*")
 
+	manageAllUsers = &models.Permission{
+		Action: String(ManageUsers),
+		Role:   All,
+	}
 	manageAllRoles = &models.Permission{
 		Action: String(ManageRoles),
 		Role:   All,
@@ -109,7 +114,7 @@ var (
 	BuiltInPermissions = map[string][]*models.Permission{
 		viewer: {readAllCollections},
 		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		admin:  {manageAllUsers, manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
 	}
 )
 
@@ -124,6 +129,31 @@ type Policy struct {
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
 	return "cluster/*"
+}
+
+// Users generates a list of user resource strings based on the provided user names.
+// If no role names are provided, it returns a default user resource string "users/*".
+//
+// Parameters:
+//
+//	users - A variadic parameter representing the user names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted role resource string.
+func Users(users ...string) []string {
+	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
+		return []string{
+			"users/*",
+		}
+	}
+
+	resources := make([]string, len(users))
+	for idx := range users {
+		resources[idx] = fmt.Sprintf("users/%s", users[idx])
+	}
+
+	return resources
 }
 
 // Roles generates a list of role resource strings based on the provided role names.
