@@ -23,10 +23,9 @@ import (
 
 func TestSimpleEncodeDecode(t *testing.T) {
 	enc := &SimpleEncoder[uint64]{}
-	valueCount := terms.BLOCK_SIZE
-	enc.buf = make([]byte, 8+8*valueCount)
-	enc.values = make([]uint64, valueCount)
 
+	valueCount := terms.BLOCK_SIZE
+	enc.Init(valueCount)
 	values := make([]uint64, valueCount)
 	for i := 0; i < valueCount; i++ {
 		values[i] = uint64(i)
@@ -42,8 +41,7 @@ func TestSimpleEncodeDecode(t *testing.T) {
 func TestVarIntEncodeDecode(t *testing.T) {
 	enc := &VarIntEncoder{}
 	valueCount := terms.BLOCK_SIZE
-	enc.buf = make([]byte, 8+8*valueCount)
-	enc.values = make([]uint64, valueCount)
+	enc.Init(valueCount)
 
 	values := make([]uint64, valueCount)
 	for i := 0; i < valueCount; i++ {
@@ -60,8 +58,7 @@ func TestVarIntEncodeDecode(t *testing.T) {
 func TestVarIntDeltaEncodeDecode(t *testing.T) {
 	enc := &VarIntDeltaEncoder{}
 	valueCount := terms.BLOCK_SIZE
-	enc.buf = make([]byte, 8+8*valueCount)
-	enc.values = make([]uint64, valueCount)
+	enc.Init(valueCount)
 
 	values := make([]uint64, valueCount)
 	for i := 0; i < valueCount; i++ {
