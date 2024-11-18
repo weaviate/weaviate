@@ -51,7 +51,14 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
 	permissions := []*models.Permission{}
 	for idx := range policies {
-		permissions = append(permissions, permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})) // TODO another converter because of []sting positions
+		// 1st empty string to replace casbin pattern of having policy name as 1st place
+		// e.g.  tester, roles/.*, (C)|(R)|(U)|(D), roles
+		// see newPolicy()
+		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})
+		if err != nil {
+			return nil, err
+		}
+		permissions = append(permissions, perm)
 	}
 	return permissions, nil
 }
@@ -71,11 +78,15 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 					rolesPermissions[name] = append(rolesPermissions[name], *perm)
 				}
 			} else {
-				perm, err := policy(permission(policyParts))
+				perm, err := permission(policyParts)
 				if err != nil {
 					return nil, err
 				}
-				rolesPermissions[name] = append(rolesPermissions[name], *perm)
+				weaviatePerm, err := policy(perm)
+				if err != nil {
+					return nil, err
+				}
+				rolesPermissions[name] = append(rolesPermissions[name], *weaviatePerm)
 			}
 		}
 	}

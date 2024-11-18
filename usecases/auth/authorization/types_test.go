@@ -24,9 +24,9 @@ func TestUsers(t *testing.T) {
 		users    []string
 		expected []string
 	}{
-		{"No users", []string{}, []string{"users/*"}},
-		{"Single user", []string{"user1"}, []string{"users/user1"}},
-		{"Multiple users", []string{"user1", "user2"}, []string{"users/user1", "users/user2"}},
+		{"No users", []string{}, []string{"meta/users/*"}},
+		{"Single user", []string{"user1"}, []string{"meta/users/user1"}},
+		{"Multiple users", []string{"user1", "user2"}, []string{"meta/users/user1", "meta/users/user2"}},
 	}
 
 	for _, tt := range tests {
@@ -43,9 +43,9 @@ func TestRoles(t *testing.T) {
 		roles    []string
 		expected []string
 	}{
-		{"No roles", []string{}, []string{"roles/*"}},
-		{"Single role", []string{"admin"}, []string{"roles/admin"}},
-		{"Multiple roles", []string{"admin", "user"}, []string{"roles/admin", "roles/user"}},
+		{"No roles", []string{}, []string{"meta/roles/*"}},
+		{"Single role", []string{"admin"}, []string{"meta/roles/admin"}},
+		{"Multiple roles", []string{"admin", "user"}, []string{"meta/roles/admin", "meta/roles/user"}},
 	}
 
 	for _, tt := range tests {
@@ -57,7 +57,7 @@ func TestRoles(t *testing.T) {
 }
 
 func TestCluster(t *testing.T) {
-	expected := "cluster/*"
+	expected := "meta/cluster/*"
 	result := Cluster()
 	assert.Equal(t, expected, result)
 }
