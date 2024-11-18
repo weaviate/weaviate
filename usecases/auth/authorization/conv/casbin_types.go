@@ -20,13 +20,13 @@ import (
 )
 
 const (
-	usersD            = "users"
-	rolesD            = "roles"
+	users             = "users"
+	roles             = "roles"
 	cluster           = "cluster"
-	collections       = "collections"
-	tenants           = "tenants"
-	objectsCollection = "objects_collection"
-	objectsTenant     = "objects_tenant"
+	collections       = "meta_collections"
+	tenants           = "meta_tenants"
+	objectsCollection = "data_collection_objects"
+	objectsTenant     = "data_tenant_objects"
 
 	// rolePrefix = "r_"
 	// userPrefix = "u_"
@@ -65,7 +65,7 @@ func CasbinCollections(collection string) string {
 		collection = "*"
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("collections/%s/*", collection)
+	return fmt.Sprintf("meta/collections/%s/*", collection)
 }
 
 func CasbinShards(collection, shard string) string {
@@ -78,7 +78,7 @@ func CasbinShards(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 
-	return fmt.Sprintf("collections/%s/shards/%s/*", collection, shard)
+	return fmt.Sprintf("meta/collections/%s/shards/%s/*", collection, shard)
 }
 
 func CasbinObjects(collection, shard, object string) string {
@@ -94,7 +94,7 @@ func CasbinObjects(collection, shard, object string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", collection, shard, object)
+	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", collection, shard, object)
 }
 
 func policy(permission *models.Permission) (*authorization.Policy, error) {
@@ -112,13 +112,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}
 	var resource string
 	switch domain {
-	case usersD:
+	case users:
 		user := "*"
 		if permission.User != nil {
 			user = *permission.User
 		}
 		resource = CasbinUsers(user)
-	case rolesD:
+	case roles:
 		role := "*"
 		if permission.Role != nil {
 			role = *permission.Role
@@ -191,17 +191,17 @@ func permission(policy []string) *models.Permission {
 
 	switch mapped.Domain {
 	case collections:
-		permission.Collection = &splits[1]
+		permission.Collection = &splits[2]
 	case tenants:
-		permission.Collection = &splits[1]
-		permission.Tenant = &splits[3]
+		permission.Collection = &splits[2]
+		permission.Tenant = &splits[4]
 	case objectsCollection, objectsTenant:
-		permission.Collection = &splits[1]
-		permission.Tenant = &splits[3]
-		permission.Object = &splits[5]
-	case rolesD:
+		permission.Collection = &splits[2]
+		permission.Tenant = &splits[4]
+		permission.Object = &splits[6]
+	case roles:
 		permission.Role = &splits[1]
-	case usersD:
+	case users:
 		permission.User = &splits[1]
 	// case cluster:
 
