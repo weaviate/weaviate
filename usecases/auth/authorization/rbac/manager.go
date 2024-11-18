@@ -170,10 +170,10 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		}
 
 		// TODO audit-log ?
-		if allow {
-			return nil
+		if !allow {
+			return errors.NewForbidden(principal, verb, resources...)
 		}
 	}
 
-	return errors.NewForbidden(principal, verb, resources...)
+	return nil
 }
