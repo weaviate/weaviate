@@ -176,7 +176,7 @@ func Test_nearParamsVector_validateNearParams(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &nearParamsVector{
 				modulesProvider: &fakeModulesProvider{},
-				search:          &fakeNearParamsSearcher{},
+				search:          &fakeNearParamsSearcher{returnVec: true},
 			}
 			err := e.validateNearParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className...)
 			if (err != nil) != tt.wantErr {
@@ -269,7 +269,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &nearParamsVector{
 				modulesProvider: &fakeModulesProvider{},
-				search:          &fakeNearParamsSearcher{},
+				search:          &fakeNearParamsSearcher{returnVec: true},
 			}
 			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
 			if (err != nil) != tt.wantErr {
@@ -296,6 +296,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 		name             string
 		args             args
 		want             []float32
+		returnVec        bool
 		wantErr          bool
 		wantTargetVector string
 	}{
@@ -308,6 +309,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 				className: "SingleMultiVector",
 			},
 			want:             []float32{2.0, 2.0, 2.0},
+			returnVec:        true,
 			wantErr:          false,
 			wantTargetVector: "Vector",
 		},
@@ -321,6 +323,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 				className: "SingleMultiVector",
 			},
 			want:             []float32{2.0, 2.0, 2.0},
+			returnVec:        true,
 			wantErr:          false,
 			wantTargetVector: "Vector",
 		},
@@ -334,15 +337,27 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 				className: "MultiMultiVector",
 			},
 			want:             []float32{4.0, 4.0, 4.0},
+			returnVec:        true,
 			wantErr:          false,
 			wantTargetVector: "B",
+		},
+		{
+			name: "Error if no vector is present",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID: "uuid",
+				},
+				className: "SpecifiedClass",
+			},
+			returnVec: false,
+			wantErr:   true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &nearParamsVector{
 				modulesProvider: &fakeModulesProvider{},
-				search:          &fakeNearParamsSearcher{},
+				search:          &fakeNearParamsSearcher{returnVec: tt.returnVec},
 			}
 			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
 			if (err != nil) != tt.wantErr {
@@ -482,7 +497,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &nearParamsVector{
 				modulesProvider: &fakeModulesProvider{},
-				search:          &fakeNearParamsSearcher{},
+				search:          &fakeNearParamsSearcher{returnVec: true},
 			}
 			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.hybrid)
 			if !assert.InDelta(t, tt.want, got, 1e-9) {
@@ -492,7 +507,9 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 	}
 }
 
-type fakeNearParamsSearcher struct{}
+type fakeNearParamsSearcher struct {
+	returnVec bool
+}
 
 func (f *fakeNearParamsSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties, tenant string,
@@ -507,8 +524,13 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
 	if className == "SpecifiedClass" {
+		vec := []float32{0.0, 0.0, 0.0}
+		if !f.returnVec {
+			vec = nil
+		}
+
 		return &search.Result{
-			Vector: []float32{0.0, 0.0, 0.0},
+			Vector: vec,
 		}, nil
 	} else if className == "SingleMultiVector" {
 		return &search.Result{

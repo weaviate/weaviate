@@ -61,6 +61,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status // Return the shard status
 	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
+	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
@@ -108,7 +109,7 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() bool
+	isReadOnly() error
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -141,9 +142,9 @@ type ShardLike interface {
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
-	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
-	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
-	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
+	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
+	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
+	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
@@ -177,7 +178,7 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	status              storagestate.Status
+	status              ShardStatus
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 
@@ -266,11 +267,11 @@ func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
 }
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
+	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -281,10 +282,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
+	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 

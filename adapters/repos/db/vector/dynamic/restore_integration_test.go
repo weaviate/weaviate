@@ -34,6 +34,7 @@ import (
 )
 
 func TestBackup_Integration(t *testing.T) {
+	ctx := context.Background()
 	currentIndexing := os.Getenv("ASYNC_INDEXING")
 	os.Setenv("ASYNC_INDEXING", "true")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
@@ -97,7 +98,7 @@ func TestBackup_Integration(t *testing.T) {
 	idx.PostStartup()
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		idx.Add(i, vectors[i])
+		idx.Add(ctx, i, vectors[i])
 	})
 
 	wg := sync.WaitGroup{}
@@ -106,7 +107,7 @@ func TestBackup_Integration(t *testing.T) {
 		wg.Done()
 	})
 	wg.Wait()
-	recall1, _ := recallAndLatency(queries, k, idx, truths)
+	recall1, _ := recallAndLatency(ctx, queries, k, idx, truths)
 	assert.True(t, recall1 > 0.9)
 
 	assert.Nil(t, idx.Shutdown(context.Background()))
@@ -114,6 +115,6 @@ func TestBackup_Integration(t *testing.T) {
 	require.Nil(t, err)
 	idx.PostStartup()
 
-	recall2, _ := recallAndLatency(queries, k, idx, truths)
+	recall2, _ := recallAndLatency(ctx, queries, k, idx, truths)
 	assert.True(t, math.Abs(float64(recall1-recall2)) <= 0.1)
 }

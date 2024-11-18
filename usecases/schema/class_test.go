@@ -1236,7 +1236,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("module config is immutable"),
+				expectedError: fmt.Errorf("can only update generative and reranker module configs"),
 			},
 			{
 				name: "updating vector index config",

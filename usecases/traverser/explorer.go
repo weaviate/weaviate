@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -472,7 +471,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		if len(additionalProperties) > 0 {
 			if additionalProperties["group"] != nil {
-				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.Properties)
+				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.GroupBy.Properties)
 			}
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
@@ -487,23 +486,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
 	additionalGroup interface{},
-	params search.SelectProperties,
+	props search.SelectProperties,
 ) {
 	if group, ok := additionalGroup.(*additional.Group); ok {
 		if len(group.Hits) > 0 {
-			var groupSelectProperties search.SelectProperties
-			for _, selectProp := range params {
-				if strings.HasPrefix(selectProp.Name, "_additional:group:hits:") {
-					groupSelectProperties = append(groupSelectProperties, search.SelectProperty{
-						Name:            strings.Replace(selectProp.Name, "_additional:group:hits:", "", 1),
-						IsPrimitive:     selectProp.IsPrimitive,
-						IncludeTypeName: selectProp.IncludeTypeName,
-						Refs:            selectProp.Refs,
-					})
-				}
-			}
 			for _, hit := range group.Hits {
-				e.extractAdditionalPropertiesFromRefs(hit, groupSelectProperties)
+				e.extractAdditionalPropertiesFromRefs(hit, props)
 			}
 		}
 	}

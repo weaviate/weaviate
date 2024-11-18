@@ -48,11 +48,11 @@ var dynamicBucket = []byte("dynamic")
 
 type VectorIndex interface {
 	Dump(labels ...string)
-	Add(id uint64, vector []float32) error
+	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
@@ -225,10 +225,10 @@ func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]
 	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 
-func (dynamic *dynamic) Add(id uint64, vector []float32) error {
+func (dynamic *dynamic) Add(ctx context.Context, id uint64, vector []float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.Add(id, vector)
+	return dynamic.index.Add(ctx, id, vector)
 }
 
 func (dynamic *dynamic) Delete(ids ...uint64) error {
@@ -237,16 +237,16 @@ func (dynamic *dynamic) Delete(ids ...uint64) error {
 	return dynamic.index.Delete(ids...)
 }
 
-func (dynamic *dynamic) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVector(vector, k, allow)
+	return dynamic.index.SearchByVector(ctx, vector, k, allow)
 }
 
-func (dynamic *dynamic) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
+	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
 }
 
 func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {
@@ -415,10 +415,15 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	ch := make(chan task, workerCount)
 
+	// For now use an unlimited context here – for backward compatibility. This
+	// is probably not ideal and I assume also an upgrade operation should have
+	// some sort of a timeout.
+	ctx := context.TODO()
+
 	for i := 0; i < workerCount; i++ {
 		g.Go(func() error {
 			for t := range ch {
-				err := index.Add(t.id, t.vector)
+				err := index.Add(ctx, t.id, t.vector)
 				if err != nil {
 					return err
 				}

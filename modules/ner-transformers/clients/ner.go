@@ -88,7 +88,7 @@ func (n *ner) GetTokens(ctx context.Context, property,
 
 	var resBody nerResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode > 399 {

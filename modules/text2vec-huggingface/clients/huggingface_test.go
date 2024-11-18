@@ -43,7 +43,7 @@ func TestClient(t *testing.T) {
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{
 				"Model":        "sentence-transformers/gtr-t5-xxl",
 				"endpointURL":  server.URL,
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)
@@ -84,7 +84,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)
@@ -108,7 +108,7 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 		}
 
-		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{
 				"Model":        "sentence-transformers/gtr-t5-xxl",
 				"endpointURL":  server.URL,
@@ -135,7 +135,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{""})
 
-		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{
 				"Model":       "sentence-transformers/gtr-t5-xxl",
 				"endpointURL": server.URL,
@@ -155,7 +155,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)

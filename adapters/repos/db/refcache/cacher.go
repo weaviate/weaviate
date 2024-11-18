@@ -32,23 +32,10 @@ type repo interface {
 
 func NewCacher(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
 	return &Cacher{
-		logger:    logger,
-		repo:      repo,
-		store:     map[multi.Identifier]search.Result{},
-		withGroup: false,
-		tenant:    tenant,
-	}
-}
-
-func NewCacherWithGroup(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
-	return &Cacher{
 		logger: logger,
 		repo:   repo,
 		store:  map[multi.Identifier]search.Result{},
-		// for groupBy feature
-		withGroup:                true,
-		getGroupSelectProperties: getGroupSelectProperties,
-		tenant:                   tenant,
+		tenant: tenant,
 	}
 }
 
@@ -60,15 +47,13 @@ type cacherJob struct {
 
 type Cacher struct {
 	sync.Mutex
-	jobs       []cacherJob
-	logger     logrus.FieldLogger
-	repo       repo
-	store      map[multi.Identifier]search.Result
-	additional additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
-	// for groupBy feature
-	withGroup                bool
-	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
-	tenant                   string
+	jobs         []cacherJob
+	logger       logrus.FieldLogger
+	repo         repo
+	store        map[multi.Identifier]search.Result
+	additional   additional.Properties // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	tenant       string
+	groupByProps search.SelectProperties
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -91,9 +76,10 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties search.SelectProperties, additional additional.Properties,
+	properties search.SelectProperties, additional additional.Properties, groupByProperties search.SelectProperties,
 ) error {
 	c.additional = additional
+	c.groupByProps = groupByProperties
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %v", err)
@@ -145,8 +131,8 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 			return err
 		}
 
-		if c.withGroup {
-			if err := c.parseAdditionalGroup(obj, properties); err != nil {
+		if c.groupByProps != nil {
+			if err := c.parseAdditionalGroup(obj); err != nil {
 				return err
 			}
 		}
@@ -155,11 +141,11 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties search
 	return nil
 }
 
-func (c *Cacher) parseAdditionalGroup(obj search.Result, properties search.SelectProperties) error {
+func (c *Cacher) parseAdditionalGroup(obj search.Result) error {
 	if obj.AdditionalProperties != nil && obj.AdditionalProperties["group"] != nil {
 		if group, ok := obj.AdditionalProperties["group"].(*additional.Group); ok {
 			for _, hitMap := range group.Hits {
-				if err := c.parseSchemaMap(hitMap, c.getGroupSelectProperties(properties)); err != nil {
+				if err := c.parseSchemaMap(hitMap, c.groupByProps); err != nil {
 					return err
 				}
 			}
@@ -367,7 +353,7 @@ func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
 	// iteration which will eventually come to this place again
 	c.markAllJobsAsDone()
 
-	err := c.Build(ctx, removeEmptyResults(res), nil, c.additional)
+	err := c.Build(ctx, removeEmptyResults(res), nil, c.additional, nil)
 	if err != nil {
 		return errors.Wrap(err, "build nested cache")
 	}

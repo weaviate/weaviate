@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	DefaultJinaAIDocumentType    = "text"
+	// Default values for URL (model is ok) cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultJinaAIModel           = "jina-embeddings-v2-base-en"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true

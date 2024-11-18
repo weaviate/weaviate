@@ -93,33 +93,32 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 			name            string
 			generativeModel string
 		}{
+			// AI21 Labs
 			{
-				name:            "cohere.command-text-v14",
-				generativeModel: "cohere.command-text-v14",
+				name:            "ai21.j2-ultra-v1",
+				generativeModel: "ai21.j2-ultra-v1",
 			},
 			{
-				name:            "cohere.command-light-text-v14",
-				generativeModel: "cohere.command-light-text-v14",
+				name:            "ai21.j2-mid-v1",
+				generativeModel: "ai21.j2-mid-v1",
+			},
+			// Amazon
+			{
+				name:            "amazon.titan-text-lite-v1",
+				generativeModel: "amazon.titan-text-lite-v1",
 			},
 			{
-				name:            "cohere.command-r-v1:0",
-				generativeModel: "cohere.command-r-v1:0",
+				name:            "amazon.titan-text-express-v1",
+				generativeModel: "amazon.titan-text-express-v1",
 			},
 			{
-				name:            "cohere.command-r-plus-v1:0",
-				generativeModel: "cohere.command-r-plus-v1:0",
+				name:            "amazon.titan-text-premier-v1:0",
+				generativeModel: "amazon.titan-text-premier-v1:0",
 			},
+			// Anthropic
 			{
-				name:            "anthropic.claude-v2",
-				generativeModel: "anthropic.claude-v2",
-			},
-			{
-				name:            "anthropic.claude-v2:1",
-				generativeModel: "anthropic.claude-v2:1",
-			},
-			{
-				name:            "anthropic.claude-instant-v1",
-				generativeModel: "anthropic.claude-instant-v1",
+				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
 			},
 			{
 				name:            "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -130,25 +129,36 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
 			},
 			{
-				name:            "ai21.j2-ultra-v1",
-				generativeModel: "ai21.j2-ultra-v1",
+				name:            "anthropic.claude-v2:1",
+				generativeModel: "anthropic.claude-v2:1",
 			},
 			{
-				name:            "ai21.j2-mid-v1",
-				generativeModel: "ai21.j2-mid-v1",
+				name:            "anthropic.claude-v2",
+				generativeModel: "anthropic.claude-v2",
 			},
 			{
-				name:            "amazon.titan-text-lite-v1",
-				generativeModel: "amazon.titan-text-lite-v1",
+				name:            "anthropic.claude-instant-v1",
+				generativeModel: "anthropic.claude-instant-v1",
+			},
+			// Cohere
+			{
+				name:            "cohere.command-r-v1:0",
+				generativeModel: "cohere.command-r-v1:0",
 			},
 			{
-				name:            "amazon.titan-text-premier-v1:0",
-				generativeModel: "amazon.titan-text-premier-v1:0",
+				name:            "cohere.command-r-plus-v1:0",
+				generativeModel: "cohere.command-r-plus-v1:0",
+			},
+			// Meta
+			{
+				name:            "meta.llama3-8b-instruct-v1:0",
+				generativeModel: "meta.llama3-8b-instruct-v1:0",
 			},
 			{
-				name:            "amazon.titan-text-express-v1",
-				generativeModel: "amazon.titan-text-express-v1",
+				name:            "meta.llama3-70b-instruct-v1:0",
+				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
 				generativeModel: "mistral.mistral-7b-instruct-v0:2",
@@ -162,20 +172,8 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 				generativeModel: "mistral.mistral-large-2402-v1:0",
 			},
 			{
-				name:            "meta.llama3-8b-instruct-v1:0",
-				generativeModel: "meta.llama3-8b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama3-70b-instruct-v1:0",
-				generativeModel: "meta.llama3-70b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama2-13b-chat-v1",
-				generativeModel: "meta.llama2-13b-chat-v1",
-			},
-			{
-				name:            "meta.llama2-70b-chat-v1",
-				generativeModel: "meta.llama2-70b-chat-v1",
+				name:            "mistral.mistral-small-2402-v1:0",
+				generativeModel: "mistral.mistral-small-2402-v1:0",
 			},
 		}
 		for _, tt := range tests {

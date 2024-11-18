@@ -11,7 +11,10 @@
 
 package storagestate
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	StatusReadOnly Status = "READONLY"
@@ -19,6 +22,10 @@ const (
 	StatusLoading  Status = "LOADING"
 	StatusReady    Status = "READY"
 )
+
+var ErrStatusReadOnlyWithReason = func(reason string) error {
+	return fmt.Errorf("store is read-only due to: %v", reason)
+}
 
 var (
 	ErrStatusReadOnly = errors.New("store is read-only")

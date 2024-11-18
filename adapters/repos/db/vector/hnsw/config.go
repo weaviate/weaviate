@@ -41,10 +41,12 @@ type Config struct {
 	// metadata for monitoring
 	ShardName string
 	ClassName string
+
+	VisitedListPoolMaxSize int
 }
 
 func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")

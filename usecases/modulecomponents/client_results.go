@@ -61,6 +61,15 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
 	return percentageOfRequests <= 15 && percentageOfTokens <= 15
 }
 
+func (rl *RateLimits) UpdateWithRateLimit(other *RateLimits) {
+	rl.LimitRequests = other.LimitRequests
+	rl.LimitTokens = other.LimitTokens
+	rl.ResetRequests = other.ResetRequests
+	rl.ResetTokens = other.ResetTokens
+	rl.RemainingRequests = other.RemainingRequests
+	rl.RemainingTokens = other.RemainingTokens
+}
+
 func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
@@ -70,4 +79,17 @@ type VectorizationResult struct {
 	Dimensions int
 	Vector     [][]float32
 	Errors     []error
+}
+
+type Usage struct {
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
+}
+
+func GetTotalTokens(usage *Usage) int {
+	if usage == nil {
+		return -1
+	}
+	return usage.TotalTokens
 }

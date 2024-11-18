@@ -73,6 +73,7 @@ func int32FromBytes(bytes []byte) int {
 }
 
 func BenchmarkConcurrentSearch(b *testing.B) {
+	ctx := context.Background()
 	siftFile := "datasets/ann-benchmarks/sift/sift_base.fvecs"
 	siftFileQuery := "datasets/ann-benchmarks/sift/sift_query.fvecs"
 
@@ -87,7 +88,7 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 	index := createEmptyHnswIndexForTests(b, idVector)
 	// add elements
 	for k, vec := range vectors {
-		err := index.Add(uint64(k), vec)
+		err := index.Add(ctx, uint64(k), vec)
 		require.Nil(b, err)
 	}
 
@@ -112,7 +113,7 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 			go func() {
 				goroutineIndex := k * vectorsPerGoroutineSearch
 				for j := 0; j < vectorsPerGoroutineSearch; j++ {
-					_, _, err := index.SearchByVector(vectors[goroutineIndex+j], 0, nil)
+					_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil)
 					require.Nil(b, err)
 
 				}
@@ -126,6 +127,7 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 }
 
 func TestHnswStress(t *testing.T) {
+	ctx := context.Background()
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
 	_, err2 := os.Stat(siftFileQuery)
@@ -151,7 +153,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					for i := 0; i < vectorsPerGoroutine; i++ {
 
-						err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
+						err := index.Add(ctx, uint64(goroutineIndex+i), vectors[goroutineIndex+i])
 						require.Nil(t, err)
 					}
 					wg.Done()
@@ -160,7 +162,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					for i := 0; i < vectorsPerGoroutine; i++ {
 						for j := 0; j < 5; j++ { // try a couple of times to delete if found
-							_, dists, err := index.SearchByVector(vectors[goroutineIndex+i], 0, nil)
+							_, dists, err := index.SearchByVector(ctx, vectors[goroutineIndex+i], 0, nil)
 							require.Nil(t, err)
 
 							if len(dists) > 0 && dists[0] == 0 {
@@ -189,7 +191,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					for i := 0; i < vectorsPerGoroutine; i++ {
 
-						err := index.Add(uint64(goroutineIndex+i), vectors[goroutineIndex+i])
+						err := index.Add(ctx, uint64(goroutineIndex+i), vectors[goroutineIndex+i])
 						require.Nil(t, err)
 						err = index.Delete(uint64(goroutineIndex + i))
 						require.Nil(t, err)
@@ -208,7 +210,7 @@ Ex: go test -v -run TestHnswStress . -download
 		index := createEmptyHnswIndexForTests(t, idVector)
 		// add elements
 		for k, vec := range vectors {
-			err := index.Add(uint64(k), vec)
+			err := index.Add(ctx, uint64(k), vec)
 			require.Nil(t, err)
 		}
 
@@ -222,7 +224,7 @@ Ex: go test -v -run TestHnswStress . -download
 				go func() {
 					goroutineIndex := k * vectorsPerGoroutineSearch
 					for j := 0; j < vectorsPerGoroutineSearch; j++ {
-						_, _, err := index.SearchByVector(vectors[goroutineIndex+j], 0, nil)
+						_, _, err := index.SearchByVector(ctx, vectors[goroutineIndex+j], 0, nil)
 						require.Nil(t, err)
 
 					}
@@ -240,7 +242,7 @@ Ex: go test -v -run TestHnswStress . -download
 			index := createEmptyHnswIndexForTests(t, idVector)
 			deleteIds := make([]uint64, 50)
 			for j := 0; j < len(deleteIds); j++ {
-				err := index.Add(uint64(j), vectors[j])
+				err := index.Add(ctx, uint64(j), vectors[j])
 				require.Nil(t, err)
 				deleteIds[j] = uint64(j)
 			}
@@ -343,7 +345,7 @@ Ex: go test -v -run TestHnswStress . -download
 						return
 					}
 
-					err := index.Add(id, vectors[id])
+					err := index.Add(ctx, id, vectors[id])
 					require.Nil(t, err)
 				},
 				// Delete
@@ -369,7 +371,7 @@ Ex: go test -v -run TestHnswStress . -download
 
 					id := rand.Intn(len(vectors))
 
-					_, _, err := index.SearchByVector(vectors[id], 0, nil)
+					_, _, err := index.SearchByVector(ctx, vectors[id], 0, nil)
 					require.Nil(t, err)
 				},
 			}
@@ -455,6 +457,7 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 }
 
 func TestConcurrentDelete(t *testing.T) {
+	ctx := context.Background()
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	if _, err := os.Stat(siftFile); err != nil {
 		if !*download {
@@ -495,7 +498,7 @@ Ex: go test -v -run TestHnswStress . -download
 			go func() {
 				defer wg.Done()
 				for j := 0; j < numVectors; j++ {
-					require.Nil(t, index.Add(uint64(goroutineIndex+j), vectors[goroutineIndex+j]))
+					require.Nil(t, index.Add(ctx, uint64(goroutineIndex+j), vectors[goroutineIndex+j]))
 				}
 			}()
 		}

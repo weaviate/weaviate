@@ -527,7 +527,7 @@ func (h *Handler) validateProperty(
 		}
 
 		if existingPropertyNames[strings.ToLower(property.Name)] {
-			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", class.Class, property.Name)
 		}
 
 		// Validate data type of property.
@@ -792,10 +792,6 @@ func validateImmutableFields(initial, updated *models.Class) error {
 
 	if err := validateImmutableTextFields(initial, updated, immutableFields...); err != nil {
 		return err
-	}
-
-	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return fmt.Errorf("module config is immutable")
 	}
 
 	for k, v := range updated.VectorConfig {

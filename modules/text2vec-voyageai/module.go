@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,11 +29,29 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-voyageai/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-voyageai/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-voyageai"
+
+var batchSettings = batch.Settings{
+	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+	// using 30% more than the OpenAI model is a rough estimate but seems to work
+	TokenMultiplier:    1.3,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 128, //  https://docs.voyageai.com/docs/embeddings#python-api
+	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int {
+		model := ent.NewClassSettings(cfg).Model()
+		if model == "voyage-2" {
+			return 320000
+		} else if model == "voyage-large-2" || model == "voyage-code-2" {
+			return 120000
+		}
+		return 120000 // unknown model, use the smallest limit
+	},
+	HasTokenLimit:    true,
+	ReturnsRateLimit: true,
+}
 
 func New() *VoyageAIModule {
 	return &VoyageAIModule{}
@@ -95,7 +115,11 @@ func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Durati
 	apiKey := os.Getenv("VOYAGEAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings,
+			logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
+	)
 	m.metaProvider = client
 
 	return nil
