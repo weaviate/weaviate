@@ -50,6 +50,7 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	var parsed segmentCollectionNode
 
 	if s.segment.strategy == segmentindex.StrategyInverted {
+		s.nextOffset = node.Start
 		parsed, err = s.parseInvertedNode(nodeOffset{start: s.nextOffset})
 	} else {
 		parsed, err = s.parseCollectionNode(nodeOffset{start: s.nextOffset})

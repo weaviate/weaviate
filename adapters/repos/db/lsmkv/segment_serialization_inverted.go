@@ -110,7 +110,7 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 		for j := start; j < end; j++ {
 			tf := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4]))
 			pl := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8]))
-			impact := tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*pl/defaultAveragePropLength))
+			impact := tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*(pl/defaultAveragePropLength)))
 
 			if impact > maxImpact {
 				maxImpact = impact
@@ -214,6 +214,31 @@ func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
 	return blockEntries, blockDatas, dataOffset
 }
 
+func decodeAndConvertValuesFromBlocks(data []byte) ([]value, int) {
+	return decodeAndConvertValuesFromBlocksTest(data, terms.ENCODE_AS_FULL_BYTES)
+}
+
+func decodeAndConvertValuesFromBlocksTest(data []byte, encodeSingleSeparate int) ([]value, int) {
+	collectionSize := binary.LittleEndian.Uint64(data)
+
+	if collectionSize <= uint64(encodeSingleSeparate) {
+		values := make([]value, 0, collectionSize)
+		offset := 8
+		for i := 0; i < int(collectionSize*16); i += 16 {
+			val := make([]byte, 16)
+			copy(val, data[offset:offset+16])
+			values = append(values, value{
+				value:     val,
+				tombstone: false,
+			})
+			offset += 16
+		}
+		return values, offset
+	}
+	blockEntries, blockDatas, offset := decodeBlocks(data)
+	return convertFromBlocksValue(blockEntries, blockDatas, collectionSize), offset
+}
+
 func decodeAndConvertFromBlocks(data []byte) ([]MapPair, int) {
 	return decodeAndConvertFromBlocksTest(data, terms.ENCODE_AS_FULL_BYTES)
 }
@@ -239,6 +264,38 @@ func decodeAndConvertFromBlocksTest(data []byte, encodeSingleSeparate int) ([]Ma
 	}
 	blockEntries, blockDatas, offset := decodeBlocks(data)
 	return convertFromBlocks(blockEntries, blockDatas, collectionSize), offset
+}
+
+func convertFromBlocksValue(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.BlockData, objectCount uint64) []value {
+	out := make([]value, 0, objectCount)
+
+	for i := range blockEntries {
+
+		blockSize := uint64(terms.BLOCK_SIZE)
+		if i == len(blockEntries)-1 {
+			blockSize = objectCount - uint64(terms.BLOCK_SIZE)*uint64(i)
+		}
+		blockSizeInt := int(blockSize)
+
+		docIds, tfs := packedDecode(encodedBlocks[i], blockSizeInt)
+
+		for j := 0; j < blockSizeInt; j++ {
+			docId := docIds[j]
+			tf := float32(tfs[j])
+			// pl := float32(propLengths[j])
+
+			val := make([]byte, 16)
+			binary.BigEndian.PutUint64(val, docId)
+			binary.LittleEndian.PutUint32(val[8:], math.Float32bits(tf))
+			// binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
+
+			out = append(out, value{
+				value:     val,
+				tombstone: false,
+			})
+		}
+	}
+	return out
 }
 
 func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.BlockData, objectCount uint64) []MapPair {
@@ -344,39 +401,39 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 // contents have already been `pread` from the segment contentFile.
 func ParseInvertedNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
-	// 8 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
-	// read in between.
-	tmpBuf := make([]byte, 8)
+	buffer := make([]byte, 24)
 
-	if n, err := io.ReadFull(r, tmpBuf[0:8]); err != nil {
+	if _, err := io.ReadFull(r, buffer); err != nil {
 		return out, errors.Wrap(err, "read values len")
-	} else {
-		out.offset += n
 	}
-
-	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
-	out.values = make([]value, valuesLen)
-	for i := range out.values {
-		out.values[i].value = make([]byte, invPayloadLen)
-		n, err := io.ReadFull(r, out.values[i].value)
+	out.offset = 24
+	docCount := binary.LittleEndian.Uint64(buffer[:8])
+	allBytes := buffer
+	if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
+		toRead := binary.LittleEndian.Uint64(buffer[8:16]) + 4
+		bufferSize := 24 + toRead
+		allBytes = make([]byte, bufferSize)
+		copy(allBytes, buffer)
+		_, err := r.Read(allBytes[24:])
 		if err != nil {
-			return out, errors.Wrap(err, "read value")
+			return out, err
 		}
-		out.offset += n
+		out.offset += int(toRead)
 	}
 
-	if n, err := io.ReadFull(r, tmpBuf[0:4]); err != nil {
-		return out, errors.Wrap(err, "read key len")
-	} else {
-		out.offset += n
-	}
-	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
-	out.primaryKey = make([]byte, keyLen)
-	n, err := io.ReadFull(r, out.primaryKey)
+	nodes, _ := decodeAndConvertValuesFromBlocks(allBytes)
+
+	keyLen := binary.LittleEndian.Uint32(allBytes[len(allBytes)-4:])
+
+	key := make([]byte, keyLen)
+	_, err := r.Read(key)
 	if err != nil {
-		return out, errors.Wrap(err, "read key")
+		return out, err
 	}
-	out.offset += n
+
+	out.offset += int(keyLen)
+	out.primaryKey = key
+	out.values = nodes
 
 	return out, nil
 }
