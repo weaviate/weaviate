@@ -83,6 +83,7 @@ type PrometheusMetrics struct {
 	VectorSegmentsSum                  *prometheus.GaugeVec
 	VectorDimensionsSumByVector        *prometheus.GaugeVec
 	VectorSegmentsSumByVector          *prometheus.GaugeVec
+	VectorRescoreErrors                *prometheus.CounterVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
@@ -174,6 +175,7 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
 	pm.VectorIndexSize.DeletePartialMatch(labels)
+	pm.VectorRescoreErrors.DeletePartialMatch(labels)
 	pm.StartupProgress.DeletePartialMatch(labels)
 	pm.StartupDurations.DeletePartialMatch(labels)
 	pm.StartupDiskIO.DeletePartialMatch(labels)
@@ -421,6 +423,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_segments_sum_by_vector",
 			Help: "Total segments in a shard for target vector if quantization enabled",
 		}, []string{"class_name", "shard_name", "target_vector"}),
+		VectorRescoreErrors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_rescore_errors",
+			Help: "Total number of vector rescore errors",
+		}, []string{"class_name", "shard_name"}),
 
 		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
