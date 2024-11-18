@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzRolesWithPermissions(t *testing.T) {
@@ -46,14 +47,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String("create_collections"), Collection: String("*")},
+				{Action: String(authorization.CreateCollections), Collection: String("*")},
 			},
 		})
 		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, "create_collections", *role.Permissions[0].Action)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, "*", *role.Permissions[0].Collection)
 	})
 
@@ -62,17 +63,17 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String("create_collections"), Collection: String("foo")},
-				{Action: String("create_tenants"), Collection: String("*")},
+				{Action: String(authorization.CreateCollections), Collection: String("foo")},
+				{Action: String(authorization.CreateTenants), Collection: String("*")},
 			},
 		})
 		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
-		require.Equal(t, "create_collections", *role.Permissions[0].Action)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, "foo", *role.Permissions[0].Collection)
-		require.Equal(t, "create_tenants", *role.Permissions[1].Action)
+		require.Equal(t, authorization.CreateTenants, *role.Permissions[1].Action)
 		require.Equal(t, "*", *role.Permissions[1].Collection)
 	})
 
@@ -81,14 +82,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String("manage_roles"), Role: String("*")},
+				{Action: String(authorization.ManageRoles), Role: String("*")},
 			},
 		})
 		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, "manage_roles", *role.Permissions[0].Action)
+		require.Equal(t, authorization.ManageRoles, *role.Permissions[0].Action)
 		require.Equal(t, "*", *role.Permissions[0].Role)
 	})
 
@@ -97,7 +98,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String("manage_roles"), Role: String("foo")},
+				{Action: String(authorization.ManageRoles), Role: String("foo")},
 			},
 		})
 		require.Nil(t, err)
@@ -105,7 +106,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, "manage_roles", *role.Permissions[0].Action)
+		require.Equal(t, authorization.ManageRoles, *role.Permissions[0].Action)
 		require.Equal(t, "foo", *role.Permissions[0].Role)
 	})
 
@@ -114,17 +115,17 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String("read_roles"), Role: String("foo")},
-				{Action: String("read_roles"), Role: String("bar")},
+				{Action: String(authorization.ReadRoles), Role: String("foo")},
+				{Action: String(authorization.ReadRoles), Role: String("bar")},
 			},
 		})
 		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
-		require.Equal(t, "read_roles", *role.Permissions[0].Action)
+		require.Equal(t, authorization.ReadRoles, *role.Permissions[0].Action)
 		require.Equal(t, "foo", *role.Permissions[0].Role)
-		require.Equal(t, "read_roles", *role.Permissions[1].Action)
+		require.Equal(t, authorization.ReadRoles, *role.Permissions[1].Action)
 		require.Equal(t, "bar", *role.Permissions[1].Role)
 	})
 }
