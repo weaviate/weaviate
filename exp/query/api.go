@@ -65,7 +65,7 @@ type API struct {
 
 type SchemaQuerier interface {
 	// TenantStatus returns (STATUS, BELONGSTONODES, VERSION) tuple
-	TenantStatus(ctx context.Context, collection, tenant string) (string, []string, uint64, error)
+	TenantStatus(ctx context.Context, collection, tenant string) (string, []string, int64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
 }
 
