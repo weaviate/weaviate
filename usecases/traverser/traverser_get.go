@@ -45,7 +45,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
-	err := t.authorizer.Authorize(principal, authorization.READ, authorization.Collections(params.ClassName)...)
+	err := t.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(params.ClassName)...)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (t *Traverser) validateFilters(principal *models.Principal, filter *filters
 	}
 
 	f := func(name string) (*models.Class, error) {
-		err := t.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...)
+		err := t.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...)
 		if err != nil {
 			return nil, err
 		}

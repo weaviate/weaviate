@@ -37,7 +37,7 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		shardNames[idx] = refs[idx].Tenant
 	}
 
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards("", shardNames...)...)
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata("", shardNames...)...)
 	if err != nil {
 		return nil, err
 	}

@@ -192,7 +192,7 @@ func Roles(roles ...string) []string {
 	return resources
 }
 
-// Collections generates a list of resource strings for the given classes.
+// CollectionsMetadata generates a list of resource strings for the given classes.
 // If no classes are provided, it returns a default resource string "collections/*".
 // Each class is formatted as "collection/{class}".
 //
@@ -203,7 +203,7 @@ func Roles(roles ...string) []string {
 // Returns:
 //
 //	A slice of strings representing the resource paths.
-func Collections(classes ...string) []string {
+func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{"meta/collections/*"}
 	}
@@ -220,7 +220,19 @@ func Collections(classes ...string) []string {
 	return resources
 }
 
-// Shards generates a list of shard resource strings for a given class and shards.
+func CollectionsData(classes ...string) []string {
+	var paths []string
+	for _, class := range classes {
+		paths = append(paths, Objects(class, "*", "*"))
+	}
+	return paths
+}
+
+func Collections(classes ...string) []string {
+	return append(CollectionsData(classes...), CollectionsMetadata(classes...)...)
+}
+
+// ShardsMetadata generates a list of shard resource strings for a given class and shards.
 // If the class is an empty string, it defaults to "*". If no shards are provided,
 // it returns a single resource string with a wildcard for shards. If shards are
 // provided, it returns a list of resource strings for each shard.
@@ -232,7 +244,7 @@ func Collections(classes ...string) []string {
 // Returns:
 //
 //	A slice of strings representing the resource paths for the given class and shards.
-func Shards(class string, shards ...string) []string {
+func ShardsMetadata(class string, shards ...string) []string {
 	if class == "" {
 		class = "*"
 	}
@@ -251,6 +263,18 @@ func Shards(class string, shards ...string) []string {
 	}
 
 	return resources
+}
+
+func ShardsData(class string, shards ...string) []string {
+	var paths []string
+	for _, shard := range shards {
+		paths = append(paths, Objects(class, shard, "*"))
+	}
+	return paths
+}
+
+func Shards(class string, shards ...string) []string {
+	return append(ShardsData(class, shards...), ShardsMetadata(class, shards...)...)
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.

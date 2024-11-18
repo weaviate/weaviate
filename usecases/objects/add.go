@@ -39,7 +39,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		class = object.Class
 		tenant = object.Tenant
 	}
-	err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, tenant)...)
+	err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.Shards(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}

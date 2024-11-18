@@ -110,7 +110,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(req.Collection, tenant)...); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 

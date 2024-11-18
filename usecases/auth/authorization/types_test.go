@@ -76,7 +76,7 @@ func TestCollections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Collections(tt.classes...)
+			result := CollectionsMetadata(tt.classes...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -99,7 +99,7 @@ func TestShards(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Shards(tt.class, tt.shards...)
+			result := ShardsMetadata(tt.class, tt.shards...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

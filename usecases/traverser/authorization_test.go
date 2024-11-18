@@ -45,21 +45,21 @@ func Test_Traverser_Authorization(t *testing.T) {
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{dto.GetParams{}},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Collections(),
+			expectedResource: authorization.CollectionsMetadata(),
 		},
 
 		{
 			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&aggregation.Params{}},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Collections(),
+			expectedResource: authorization.CollectionsMetadata(),
 		},
 
 		{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Collections(),
+			expectedResource: authorization.CollectionsMetadata(),
 		},
 	}
 
