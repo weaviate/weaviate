@@ -25,20 +25,18 @@ const (
 // userPrefix = "u_"
 )
 
-var (
-	resourcePatterns = []string{
-		`^meta/users/.*$`,
-		`^meta/users/[^/]+$`,
-		`^meta/roles/.*$`,
-		`^meta/roles/[^/]+$`,
-		`^meta/cluster/.*$`,
-		`^meta/collections/.*$`,
-		`^meta/collections/[^/]+$`,
-		`^meta/collections/[^/]+/shards/.*$`,
-		`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
-		`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
-	}
-)
+var resourcePatterns = []string{
+	`^meta/users/.*$`,
+	`^meta/users/[^/]+$`,
+	`^meta/roles/.*$`,
+	`^meta/roles/[^/]+$`,
+	`^meta/cluster/.*$`,
+	`^meta/collections/.*$`,
+	`^meta/collections/[^/]+$`,
+	`^meta/collections/[^/]+/shards/.*$`,
+	`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
+	`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
+}
 
 func newPolicy(policy []string) *authorization.Policy {
 	return &authorization.Policy{
