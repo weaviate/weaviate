@@ -220,7 +220,7 @@ def test_batch_delete_with_filter(request: SubRequest) -> None:
         client.collections.delete([target.name, source.name])
 
 
-def test_search_with_filter(request: SubRequest) -> None:
+def test_search_with_filter_and_return(request: SubRequest) -> None:
     col_name = _sanitize_role_name(request.node.name)
 
     with weaviate.connect_to_local(
@@ -236,13 +236,8 @@ def test_search_with_filter(request: SubRequest) -> None:
             name=col_name + "source",
             references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
         )
-        uuid_target1 = target.data.insert({})
-        uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
-        source.data.reference_add(
-            from_uuid=uuid_source,
-            from_property="ref",
-            to=uuid_target1,
-        )
+        uuid_target1 = target.data.insert({"prop": "word"})
+        source.data.insert(properties={}, references={"ref": uuid_target1})
 
         role_name = _sanitize_role_name(request.node.name)
         client.roles.delete(role_name)
@@ -264,10 +259,19 @@ def test_search_with_filter(request: SubRequest) -> None:
                 source.name
             )  # no network call => no RBAC check
 
-            ret = source_no_rights.query.fetch_objects(
-                filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+            ret_filter = source_no_rights.query.fetch_objects(
+                filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1),
             )
-            assert len(ret.objects) == 1
+            assert len(ret_filter.objects) == 1
+
+            ret_return = source_no_rights.query.fetch_objects(
+                return_references=wvc.query.QueryReference(
+                    link_on="ref",
+                    return_properties=["prop"],
+                ),
+            )
+            assert len(ret_return.objects[0].references["ref"].objects) == 1
+
             client.roles.revoke(user="custom-user", roles=role_name)
             client.roles.delete(role_name)
 
@@ -291,6 +295,15 @@ def test_search_with_filter(request: SubRequest) -> None:
                 with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
                     source_no_rights.query.fetch_objects(
                         filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                    )
+                assert "forbidden" in e.value.args[0]
+
+                with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                    source_no_rights.query.fetch_objects(
+                        return_references=wvc.query.QueryReference(
+                            link_on="ref",
+                            return_properties=["prop"],
+                        ),
                     )
                 assert "forbidden" in e.value.args[0]
 
