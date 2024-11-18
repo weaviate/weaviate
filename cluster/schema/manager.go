@@ -131,7 +131,7 @@ func (s *SchemaManager) Close(ctx context.Context) (err error) {
 	return s.db.Close(ctx)
 }
 
-func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -149,16 +149,16 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	shardingStateCopy := req.State.DeepCopy()
 	return s.apply(
 		applyOp{
-			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { return s.schema.addClass(req.Class, &shardingStateCopy, cmd.Version) },
-			updateStore:           func() error { return s.db.AddClass(req) },
-			schemaOnly:            schemaOnly,
-			triggerSchemaCallback: true,
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.addClass(req.Class, &shardingStateCopy, cmd.Version) },
+			updateStore:          func() error { return s.db.AddClass(req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
 }
 
-func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -179,11 +179,11 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 
 	return s.apply(
 		applyOp{
-			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
-			updateStore:           func() error { return s.db.AddClass(req) },
-			schemaOnly:            schemaOnly,
-			triggerSchemaCallback: true,
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
+			updateStore:          func() error { return s.db.AddClass(req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
 }
@@ -198,7 +198,7 @@ func (s *SchemaManager) ReplaceStatesNodeName(new string) {
 
 // UpdateClass modifies the vectors and inverted indexes associated with a class
 // Other class properties are handled by separate functions
-func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.UpdateClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -227,16 +227,16 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 
 	return s.apply(
 		applyOp{
-			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { return s.schema.updateClass(req.Class.Class, update) },
-			updateStore:           func() error { return s.db.UpdateClass(req) },
-			schemaOnly:            schemaOnly,
-			triggerSchemaCallback: true,
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.updateClass(req.Class.Class, update) },
+			updateStore:          func() error { return s.db.UpdateClass(req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
 }
 
-func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
 	var hasFrozen bool
 	tenants, err := s.schema.getTenants(cmd.Class, nil)
 	if err != nil {
@@ -253,16 +253,16 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) 
 
 	return s.apply(
 		applyOp{
-			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { s.schema.deleteClass(cmd.Class); return nil },
-			updateStore:           func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
-			schemaOnly:            schemaOnly,
-			triggerSchemaCallback: true,
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { s.schema.deleteClass(cmd.Class); return nil },
+			updateStore:          func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
 }
 
-func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddPropertyRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -273,11 +273,11 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) 
 
 	return s.apply(
 		applyOp{
-			op:                    cmd.GetType().String(),
-			updateSchema:          func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
-			updateStore:           func() error { return s.db.AddProperty(cmd.Class, req) },
-			schemaOnly:            schemaOnly,
-			triggerSchemaCallback: true,
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
+			updateStore:          func() error { return s.db.AddProperty(cmd.Class, req) },
+			schemaOnly:           schemaOnly,
+			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
 }
@@ -366,11 +366,11 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 }
 
 type applyOp struct {
-	op                    string
-	updateSchema          func() error
-	updateStore           func() error
-	schemaOnly            bool
-	triggerSchemaCallback bool
+	op                   string
+	updateSchema         func() error
+	updateStore          func() error
+	schemaOnly           bool
+	enableSchemaCallback bool
 }
 
 func (op applyOp) validate() error {
@@ -404,7 +404,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// Always trigger the schema callback last
-	if op.triggerSchemaCallback {
+	if op.enableSchemaCallback {
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
 	return nil
