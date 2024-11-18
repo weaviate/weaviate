@@ -27,7 +27,7 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.Collections(className)...)
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -87,7 +87,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.Collections(class)...)
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,12 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.rbac.models import RBAC, RolesAction, CollectionsAction
+from weaviate.rbac.models import (
+    RBAC,
+    RolesAction,
+    CollectionsAction,
+    CollectionsDataAction,
+)
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
@@ -30,6 +35,9 @@ def test_rbac_search(request: SubRequest):
                 name=name_role,
                 permissions=RBAC.permissions.collections(
                     collection=col1.name, actions=CollectionsAction.READ
+                )
+                + RBAC.permissions.collections_data(
+                    collection=col1.name, actions=CollectionsDataAction.READ
                 ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
@@ -82,6 +90,52 @@ def test_rbac_search(request: SubRequest):
             with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
                 col_no_rights.query.fetch_objects()
             assert "forbidden" in e.value.args[0]
+            client.roles.revoke(user="custom-user", roles=name_role)
+            client.roles.delete(name_role)
+
+        # only metadata rights
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(
+                name=name_role,
+                permissions=RBAC.permissions.collections(
+                    collection=col1.name, actions=CollectionsAction.READ
+                ),
+            )
+            client.roles.assign(user="custom-user", roles=name_role)
+
+            col_no_rights = client_no_rights.collections.get(
+                col1.name
+            )  # no network call => no RBAC check
+
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                col_no_rights.query.fetch_objects()
+            assert "forbidden" in e.value.args[0]
+
+            client.roles.revoke(user="custom-user", roles=name_role)
+            client.roles.delete(name_role)
+
+        # only data rights
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(
+                name=name_role,
+                permissions=RBAC.permissions.collections_data(
+                    collection=col1.name, actions=CollectionsDataAction.READ
+                ),
+            )
+            client.roles.assign(user="custom-user", roles=name_role)
+
+            col_no_rights = client_no_rights.collections.get(
+                col1.name
+            )  # no network call => no RBAC check
+
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                col_no_rights.query.fetch_objects()
+            assert "forbidden" in e.value.args[0]
+
             client.roles.revoke(user="custom-user", roles=name_role)
             client.roles.delete(name_role)
 

@@ -131,7 +131,7 @@ type NeighborRef struct {
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, authorization.UPDATE, authorization.Collections(params.Class)...)
+	err := c.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(params.Class)...)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +230,7 @@ func (c *Classifier) validateFilter(principal *models.Principal, filter *libfilt
 		return nil
 	}
 	f := func(name string) (*models.Class, error) {
-		if err := c.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+		if err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		class := c.schemaGetter.ReadOnlyClass(name)
@@ -254,7 +254,7 @@ func (c *Classifier) assignNewID(params *models.Classification) error {
 }
 
 func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+	err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 	if err != nil {
 		return nil, err
 	}
