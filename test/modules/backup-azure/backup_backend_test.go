@@ -64,7 +64,7 @@ func testAzureBackendBackup(overrideBucket, overridePath string) func(t *testing
 		if err != nil {
 			t.Fatalf("cannot start: %v", err)
 		}
-		time.Sleep(3)
+		time.Sleep(3*time.Second)
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
 				t.Fatalf("failed to terminate test containers: %v", err)
