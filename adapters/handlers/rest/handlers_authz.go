@@ -338,9 +338,13 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 		return authz.NewGetUsersForRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	if params.ID == "" {
+		return authz.NewGetUsersForRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user name is required")))
+	}
+
 	users, err := h.controller.GetUsersForRole(params.ID)
 	if err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return authz.NewGetUsersForRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{
