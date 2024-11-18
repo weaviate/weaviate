@@ -13,6 +13,7 @@ package conv
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -20,17 +21,22 @@ import (
 )
 
 const (
-	users             = "users"
-	roles             = "roles"
-	cluster           = "cluster"
-	collections       = "meta_collections"
-	tenants           = "meta_tenants"
-	objectsCollection = "data_collection_objects"
-	objectsTenant     = "data_tenant_objects"
-
-	// rolePrefix = "r_"
-	// userPrefix = "u_"
+// rolePrefix = "r_"
+// userPrefix = "u_"
 )
+
+var resourcePatterns = []string{
+	`^meta/users/.*$`,
+	`^meta/users/[^/]+$`,
+	`^meta/roles/.*$`,
+	`^meta/roles/[^/]+$`,
+	`^meta/cluster/.*$`,
+	`^meta/collections/.*$`,
+	`^meta/collections/[^/]+$`,
+	`^meta/collections/[^/]+/shards/.*$`,
+	`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
+	`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
+}
 
 func newPolicy(policy []string) *authorization.Policy {
 	return &authorization.Policy{
@@ -44,12 +50,16 @@ func fromCasbinResource(resource string) string {
 	return strings.ReplaceAll(resource, ".*", "*")
 }
 
+func CasbinClusters() string {
+	return "meta/cluster/.*"
+}
+
 func CasbinUsers(user string) string {
 	if user == "" {
 		user = "*"
 	}
 	user = strings.ReplaceAll(user, "*", ".*")
-	return fmt.Sprintf("users/%s", user)
+	return fmt.Sprintf("meta/users/%s", user)
 }
 
 func CasbinRoles(role string) string {
@@ -57,7 +67,7 @@ func CasbinRoles(role string) string {
 		role = "*"
 	}
 	role = strings.ReplaceAll(role, "*", ".*")
-	return fmt.Sprintf("roles/%s", role)
+	return fmt.Sprintf("meta/roles/%s", role)
 }
 
 func CasbinCollections(collection string) string {
@@ -110,29 +120,34 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if verb == "M" {
 		verb = authorization.CRUD
 	}
+
+	if !validVerb(verb) {
+		return nil, fmt.Errorf("invalid verb: %s", verb)
+	}
+
 	var resource string
 	switch domain {
-	case users:
+	case authorization.UsersDomain:
 		user := "*"
 		if permission.User != nil {
 			user = *permission.User
 		}
 		resource = CasbinUsers(user)
-	case roles:
+	case authorization.RolesDomain:
 		role := "*"
 		if permission.Role != nil {
 			role = *permission.Role
 		}
 		resource = CasbinRoles(role)
-	case cluster:
-		resource = authorization.Cluster()
-	case collections:
+	case authorization.ClusterDomain:
+		resource = CasbinClusters()
+	case authorization.CollectionsDomain:
 		collection := "*"
 		if permission.Collection != nil {
 			collection = *permission.Collection
 		}
 		resource = CasbinCollections(collection)
-	case tenants:
+	case authorization.TenantsDomain:
 		collection := "*"
 		tenant := "*"
 		if permission.Collection != nil {
@@ -142,7 +157,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			tenant = *permission.Tenant
 		}
 		resource = CasbinShards(collection, tenant)
-	case objectsCollection:
+	case authorization.ObjectsCollectionsDomain:
 		collection := "*"
 		object := "*"
 		if permission.Collection != nil {
@@ -152,7 +167,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Object
 		}
 		resource = CasbinObjects(collection, "*", object)
-	case objectsTenant:
+	case authorization.ObjectsTenantsDomain:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -170,6 +185,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
 
+	if !validResource(resource) {
+		return nil, fmt.Errorf("invalid resource: %s", resource)
+	}
+
 	return &authorization.Policy{
 		Resource: resource,
 		Verb:     verb,
@@ -177,8 +196,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}, nil
 }
 
-func permission(policy []string) *models.Permission {
+func permission(policy []string) (*models.Permission, error) {
 	mapped := newPolicy(policy)
+
+	if !validVerb(mapped.Verb) {
+		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
+	}
 
 	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], mapped.Domain)
 	action = strings.ReplaceAll(action, "_*", "")
@@ -187,31 +210,53 @@ func permission(policy []string) *models.Permission {
 	}
 
 	splits := strings.Split(mapped.Resource, "/")
-	all := "*"
+	if !validResource(mapped.Resource) {
+		return nil, fmt.Errorf("invalid resource: %s", mapped.Resource)
+	}
 
 	switch mapped.Domain {
-	case collections:
+	case authorization.CollectionsDomain:
 		permission.Collection = &splits[2]
-	case tenants:
+	case authorization.TenantsDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
-	case objectsCollection, objectsTenant:
+	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
-	case roles:
-		permission.Role = &splits[1]
-	case users:
-		permission.User = &splits[1]
-	// case cluster:
-
-	case "*":
-		permission.Collection = &all
-		permission.Tenant = &all
-		permission.Object = &all
-		permission.Role = &all
-		permission.User = &all
+	case authorization.RolesDomain:
+		permission.Role = &splits[2]
+	case authorization.UsersDomain:
+		permission.User = &splits[2]
+	case authorization.ClusterDomain:
+		// do nothing
+	case *authorization.All:
+		permission.Collection = authorization.All
+		permission.Tenant = authorization.All
+		permission.Object = authorization.All
+		permission.Role = authorization.All
+		permission.User = authorization.All
+	default:
+		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
 
-	return permission
+	return permission, nil
+}
+
+func validResource(input string) bool {
+	for _, pattern := range resourcePatterns {
+		matched, err := regexp.MatchString(pattern, input)
+		if err != nil {
+			fmt.Printf("Error matching pattern: %v\n", err)
+			return false
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+func validVerb(input string) bool {
+	return regexp.MustCompile(authorization.CRUD).MatchString(input)
 }
