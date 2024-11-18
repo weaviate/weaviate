@@ -33,11 +33,7 @@ const (
 	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
 	defaultChunkSize = 100 * 1024 * 1024
 
-	// name of the file that stores records before they reach the target size.
-	partialChunkFile = "chunk.bin.partial"
-	// chunkFileFmt is the format string for the promoted chunk files,
-	// i.e. files that have reached the target size, or those that are
-	// stale and need to be promoted.
+	// chunkFileFmt is the format string for the chunk files,
 	chunkFileFmt = "chunk-%d.bin"
 
 	magicHeader = "WV8Q"
@@ -60,12 +56,13 @@ var _ Queue = &DiskQueue{}
 
 type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
-	Logger       logrus.FieldLogger
-	staleTimeout time.Duration
-	taskDecoder  TaskDecoder
-	scheduler    *Scheduler
-	id           string
-	dir          string
+	Logger           logrus.FieldLogger
+	staleTimeout     time.Duration
+	taskDecoder      TaskDecoder
+	scheduler        *Scheduler
+	id               string
+	dir              string
+	onBatchProcessed func()
 
 	// m protects the disk operations
 	m            sync.RWMutex
@@ -86,9 +83,10 @@ type DiskQueueOptions struct {
 	TaskDecoder TaskDecoder
 
 	// Optional
-	Logger       logrus.FieldLogger
-	StaleTimeout time.Duration
-	ChunkSize    uint64
+	Logger           logrus.FieldLogger
+	StaleTimeout     time.Duration
+	ChunkSize        uint64
+	OnBatchProcessed func()
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -116,26 +114,34 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		opt.ChunkSize = defaultChunkSize
 	}
 
-	q := DiskQueue{
-		id:           opt.ID,
-		scheduler:    opt.Scheduler,
-		dir:          opt.Dir,
-		Logger:       opt.Logger,
-		staleTimeout: opt.StaleTimeout,
-		taskDecoder:  opt.TaskDecoder,
-		r:            newChunkReader(opt.Dir),
-	}
-
 	// create the directory if it doesn't exist
-	err := os.MkdirAll(q.dir, 0o755)
+	err := os.MkdirAll(opt.Dir, 0o755)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create directory")
 	}
 
-	// create or open a partial chunk
-	q.w, err = newChunkWriter(opt.Dir, opt.Logger, opt.ChunkSize)
+	// create chunk reader
+	r, err := newChunkReader(opt.Dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to open or create partial chunk")
+		return nil, errors.Wrap(err, "failed to create chunk reader")
+	}
+
+	// create chunk writer
+	w, err := newChunkWriter(opt.Dir, r, opt.Logger, opt.ChunkSize)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create chunk writer")
+	}
+
+	q := DiskQueue{
+		id:               opt.ID,
+		scheduler:        opt.Scheduler,
+		dir:              opt.Dir,
+		Logger:           opt.Logger,
+		staleTimeout:     opt.StaleTimeout,
+		taskDecoder:      opt.TaskDecoder,
+		onBatchProcessed: opt.OnBatchProcessed,
+		r:                r,
+		w:                w,
 	}
 
 	// determine the number of records stored on disk
@@ -318,6 +324,9 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 
 	doneFn := func() {
 		q.removeChunk(c)
+		if q.onBatchProcessed != nil {
+			q.onBatchProcessed()
+		}
 	}
 
 	return &Batch{
@@ -332,6 +341,11 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 	}
 
 	q.m.Lock()
+
+	if q.w.f == nil {
+		q.m.Unlock()
+		return nil, nil
+	}
 
 	if q.w.recordCount == 0 {
 		q.m.Unlock()
@@ -399,15 +413,8 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	_ = c.Close()
-
-	err := os.Remove(c.path)
+	err := q.r.RemoveChunk(c)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			// already removed
-			return
-		}
-
 		q.Logger.WithError(err).WithField("file", c.path).Error("failed to remove chunk")
 		return
 	}
@@ -458,6 +465,15 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	}
 	defer f.Close()
 
+	stat, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+
+	if stat.Size() == 0 {
+		return 0, nil
+	}
+
 	return readChunkHeader(f)
 }
 
@@ -481,6 +497,51 @@ func openChunk(path string) (*chunk, error) {
 	}
 
 	c.f, err = os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	stat, err := c.f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	if stat.Size() == 0 {
+		// empty file
+		// remove it
+		err = c.f.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		err = os.Remove(path)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}
+
+	c.r = readerPool.Get().(*bufio.Reader)
+	c.r.Reset(c.f)
+
+	// check the header
+	c.count, err = readChunkHeader(c.r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &c, nil
+}
+
+func chunkFromFile(f *os.File) (*chunk, error) {
+	var err error
+	c := chunk{
+		path: f.Name(),
+		f:    f,
+	}
+
+	_, err = f.Seek(0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -545,11 +606,14 @@ type chunkWriter struct {
 	size        uint64
 	recordCount uint64
 	buf         [8]byte
+
+	reader *chunkReader
 }
 
-func newChunkWriter(dir string, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
+func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, maxSize uint64) (*chunkWriter, error) {
 	ch := &chunkWriter{
 		dir:     dir,
+		reader:  reader,
 		logger:  logger,
 		maxSize: maxSize,
 		w:       bufio.NewWriterSize(nil, 10*1024*1024),
@@ -563,100 +627,121 @@ func newChunkWriter(dir string, logger logrus.FieldLogger, maxSize uint64) (*chu
 	return ch, nil
 }
 
-func (p *chunkWriter) Write(buf []byte) (int, error) {
-	if p.IsFull() {
-		err := p.Promote()
-		if err != nil {
-			return 0, err
-		}
-
-		err = p.Create()
+func (w *chunkWriter) Write(buf []byte) (int, error) {
+	if w.f == nil {
+		err := w.Create()
 		if err != nil {
 			return 0, err
 		}
 	}
 
-	n, err := p.w.Write(buf)
+	if w.IsFull() {
+		err := w.Promote()
+		if err != nil {
+			return 0, err
+		}
+
+		err = w.Create()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	n, err := w.w.Write(buf)
 	if err != nil {
 		return n, err
 	}
 
-	p.size += uint64(n)
-	p.recordCount++
+	w.size += uint64(n)
+	w.recordCount++
 
 	return n, nil
 }
 
-func (p *chunkWriter) Flush() error {
-	return p.w.Flush()
+func (w *chunkWriter) Flush() error {
+	if w.f == nil {
+		return nil
+	}
+
+	return w.w.Flush()
 }
 
-func (p *chunkWriter) Close() error {
-	err := p.w.Flush()
+func (w *chunkWriter) Close() error {
+	err := w.w.Flush()
 	if err != nil {
 		return err
 	}
 
-	if p.f != nil {
-		err = p.f.Sync()
+	if w.f != nil {
+		err = w.f.Sync()
 		if err != nil {
 			return errors.Wrap(err, "failed to sync")
 		}
 
-		err := p.f.Close()
+		err := w.f.Close()
 		if err != nil {
 			return errors.Wrap(err, "failed to close chunk")
 		}
 
-		p.f = nil
+		w.f = nil
 	}
 
 	return nil
 }
 
-func (p *chunkWriter) Create() error {
+func (w *chunkWriter) Create() error {
 	var err error
 
-	p.f, err = os.OpenFile(filepath.Join(p.dir, partialChunkFile), os.O_CREATE|os.O_RDWR, 0o644)
+	path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMicro()))
+	w.f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return errors.Wrap(err, "failed to create chunk file")
 	}
 
-	p.w.Reset(p.f)
+	w.w.Reset(w.f)
 
 	// magic
-	_, err = p.w.Write([]byte(magicHeader))
+	_, err = w.w.Write([]byte(magicHeader))
 	if err != nil {
 		return errors.Wrap(err, "failed to write header")
 	}
 	// version
-	err = p.w.WriteByte(1)
+	err = w.w.WriteByte(1)
 	if err != nil {
 		return errors.Wrap(err, "failed to write version")
 	}
 	// number of records
-	binary.BigEndian.PutUint64(p.buf[:], uint64(0))
-	_, err = p.w.Write(p.buf[:])
+	binary.BigEndian.PutUint64(w.buf[:], uint64(0))
+	_, err = w.w.Write(w.buf[:])
 	if err != nil {
 		return errors.Wrap(err, "failed to write size")
 	}
-	p.size = uint64(len(magicHeader) + 1 + 8)
+	w.size = uint64(len(magicHeader) + 1 + 8)
 
 	return nil
 }
 
-func (p *chunkWriter) Open() error {
-	var err error
-
-	p.f, err = os.OpenFile(filepath.Join(p.dir, partialChunkFile), os.O_CREATE|os.O_RDWR, 0o644)
+func (w *chunkWriter) Open() error {
+	entries, err := os.ReadDir(w.dir)
 	if err != nil {
-		return errors.Wrap(err, "failed to create chunk file")
+		return errors.Wrap(err, "failed to read directory")
 	}
 
-	p.w.Reset(p.f)
+	if len(entries) == 0 {
+		return w.Create()
+	}
+
+	lastChunk := entries[len(entries)-1].Name()
+
+	w.f, err = os.OpenFile(filepath.Join(w.dir, lastChunk), os.O_RDWR, 0o644)
+	if err != nil {
+		return errors.Wrap(err, "failed to open chunk file")
+	}
+
+	w.w.Reset(w.f)
 
 	// get file size
-	info, err := p.f.Stat()
+	info, err := w.f.Stat()
 	if err != nil {
 		return errors.Wrap(err, "failed to stat chunk file")
 	}
@@ -664,50 +749,62 @@ func (p *chunkWriter) Open() error {
 	// new file, write the header
 	if info.Size() == 0 {
 		// magic
-		_, err = p.w.Write([]byte(magicHeader))
+		_, err = w.w.Write([]byte(magicHeader))
 		if err != nil {
 			return errors.Wrap(err, "failed to write header")
 		}
 		// version
-		err = p.w.WriteByte(1)
+		err = w.w.WriteByte(1)
 		if err != nil {
 			return errors.Wrap(err, "failed to write version")
 		}
 		// number of records
-		binary.BigEndian.PutUint64(p.buf[:], uint64(0))
-		_, err = p.w.Write(p.buf[:])
+		binary.BigEndian.PutUint64(w.buf[:], uint64(0))
+		_, err = w.w.Write(w.buf[:])
 		if err != nil {
 			return errors.Wrap(err, "failed to write size")
 		}
-		p.size = uint64(len(magicHeader) + 1 + 8)
+		w.size = uint64(len(magicHeader) + 1 + 8)
 
 		return nil
 	}
 
-	// existing file, count the number of records
-	p.size = uint64(info.Size())
-
-	r := bufio.NewReader(p.f)
-
-	// skip the header
-	_, err = r.Discard(len(magicHeader) + 1 + 8)
+	// existing file:
+	// either the record count is already written in the header
+	// of this is a partial chunk and we need to count the records
+	recordCount, err := readChunkHeader(w.f)
 	if err != nil {
-		return errors.Wrap(err, "failed to skip header")
+		return errors.Wrap(err, "failed to read chunk header")
 	}
+
+	if recordCount > 0 {
+		// the file is a complete chunk
+		// close the file and open a new one
+		err = w.f.Close()
+		if err != nil {
+			return errors.Wrap(err, "failed to close chunk file")
+		}
+
+		return w.Create()
+	}
+
+	w.size = uint64(info.Size())
+
+	r := bufio.NewReader(w.f)
 
 	// count the records by reading the length of each record
 	// and skipping it
 	var count uint64
 	for {
 		// read the record length
-		_, err := io.ReadFull(r, p.buf[:4])
+		_, err := io.ReadFull(r, w.buf[:4])
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return errors.Wrap(err, "failed to read record length")
 		}
-		length := binary.BigEndian.Uint32(p.buf[:4])
+		length := binary.BigEndian.Uint32(w.buf[:4])
 		if length == 0 {
 			return errors.New("invalid record length")
 		}
@@ -721,10 +818,10 @@ func (p *chunkWriter) Open() error {
 		count++
 	}
 
-	p.recordCount = count
+	w.recordCount = count
 
 	// place the cursor at the end of the file
-	_, err = p.f.Seek(0, 2)
+	_, err = w.f.Seek(0, 2)
 	if err != nil {
 		return errors.Wrap(err, "failed to seek to the end of the file")
 	}
@@ -732,102 +829,60 @@ func (p *chunkWriter) Open() error {
 	return nil
 }
 
-func (p *chunkWriter) IsFull() bool {
-	return p.f != nil && p.size >= p.maxSize
+func (w *chunkWriter) IsFull() bool {
+	return w.f != nil && w.size >= w.maxSize
 }
 
-func (p *chunkWriter) Promote() error {
-	if p.f == nil {
+func (w *chunkWriter) Promote() error {
+	if w.f == nil {
 		return nil
 	}
 
-	fName := p.f.Name()
-
 	// flush the buffer
-	err := p.w.Flush()
+	err := w.w.Flush()
 	if err != nil {
 		return errors.Wrap(err, "failed to flush chunk")
 	}
 
 	// update the number of records in the header
-	_, err = p.f.Seek(int64(len(magicHeader)+1), 0)
+	_, err = w.f.Seek(int64(len(magicHeader)+1), 0)
 	if err != nil {
 		return errors.Wrap(err, "failed to seek to record count")
 	}
-	err = binary.Write(p.f, binary.BigEndian, p.recordCount)
+	err = binary.Write(w.f, binary.BigEndian, w.recordCount)
 	if err != nil {
 		return errors.Wrap(err, "failed to write record count")
 	}
 
-	// sync and close the chunk
-	err = p.f.Sync()
+	err = w.reader.PromoteChunk(w.f)
 	if err != nil {
-		return errors.Wrap(err, "failed to sync chunk")
-	}
-	err = p.f.Close()
-	if err != nil {
-		return errors.Wrap(err, "failed to close chunk")
+		return errors.Wrap(err, "failed to promote chunk")
 	}
 
-	p.f = nil
-	p.size = 0
-	p.recordCount = 0
-
-	// rename the file to remove the .partial suffix
-	// and add a timestamp to the filename
-	newPath := filepath.Join(p.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMilli()))
-
-	err = os.Rename(fName, newPath)
-	if err != nil {
-		return errors.Wrap(err, "failed to rename chunk file")
-	}
-
-	p.logger.WithField("file", newPath).Debug("chunk file created")
+	w.f = nil
+	w.size = 0
+	w.recordCount = 0
+	w.w.Reset(nil)
 
 	return nil
 }
 
 type chunkReader struct {
+	m         sync.RWMutex
 	dir       string
-	chunkList []string
-	chunkRead map[string]struct{}
 	cursor    int
+	chunkList []string
+	chunks    map[string]*os.File
 }
 
-func newChunkReader(dir string) *chunkReader {
-	return &chunkReader{
-		dir:       dir,
-		chunkRead: make(map[string]struct{}),
+func newChunkReader(dir string) (*chunkReader, error) {
+	r := chunkReader{
+		dir:    dir,
+		chunks: make(map[string]*os.File),
 	}
-}
-
-func (r *chunkReader) ReadChunk() (*chunk, error) {
-	if r.cursor+1 < len(r.chunkList) {
-		r.cursor++
-
-		for r.cursor < len(r.chunkList) {
-			if _, ok := r.chunkRead[r.chunkList[r.cursor]]; ok {
-				r.cursor++
-				continue
-			}
-			break
-		}
-
-		if r.cursor < len(r.chunkList) {
-			path := r.chunkList[r.cursor]
-
-			// mark the chunk as read
-			r.chunkRead[path] = struct{}{}
-
-			return openChunk(path)
-		}
-	}
-
-	r.chunkList = r.chunkList[:0]
-	r.cursor = 0
 
 	// read the directory
-	entries, err := os.ReadDir(r.dir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -837,11 +892,7 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 			continue
 		}
 
-		path := filepath.Join(r.dir, entry.Name())
-		// skip files that have already been read
-		if _, ok := r.chunkRead[path]; ok {
-			continue
-		}
+		path := filepath.Join(dir, entry.Name())
 
 		// check if the entry name matches the regex pattern of a chunk file
 		if !chunkFilePattern.Match([]byte(entry.Name())) {
@@ -852,13 +903,85 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 	}
 
 	if len(r.chunkList) == 0 {
-		return nil, nil
+		return &r, nil
 	}
 
 	// make sure the list is sorted
 	sort.Strings(r.chunkList)
 
-	r.chunkRead[r.chunkList[r.cursor]] = struct{}{}
+	return &r, nil
+}
 
-	return openChunk(r.chunkList[r.cursor])
+func (r *chunkReader) ReadChunk() (*chunk, error) {
+	r.m.RLock()
+
+	if r.cursor >= len(r.chunkList) {
+		r.m.RUnlock()
+		return nil, nil
+	}
+
+	path := r.chunkList[r.cursor]
+	f, ok := r.chunks[path]
+
+	r.cursor++
+
+	r.m.RUnlock()
+
+	if ok {
+		return chunkFromFile(f)
+	}
+
+	return openChunk(path)
+}
+
+func (r *chunkReader) PromoteChunk(f *os.File) error {
+	r.m.Lock()
+	// do not keep more than 10 files open
+	if len(r.chunks) > 10 {
+		r.m.Unlock()
+
+		// sync and close the chunk
+		err := f.Sync()
+		if err != nil {
+			return errors.Wrap(err, "failed to sync chunk")
+		}
+
+		err = f.Close()
+		if err != nil {
+			return errors.Wrap(err, "failed to close chunk")
+		}
+
+		// add the file to the list
+		r.m.Lock()
+		r.chunkList = append(r.chunkList, f.Name())
+		r.m.Unlock()
+
+		return nil
+	}
+	defer r.m.Unlock()
+
+	r.chunks[f.Name()] = f
+	r.chunkList = append(r.chunkList, f.Name())
+
+	return nil
+}
+
+func (r *chunkReader) RemoveChunk(c *chunk) error {
+	_ = c.Close()
+
+	r.m.Lock()
+	delete(r.chunks, c.path)
+	r.m.Unlock()
+
+	err := os.Remove(c.path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			// already removed
+			return nil
+		}
+
+		return err
+	}
+
+	return nil
 }

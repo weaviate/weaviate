@@ -74,7 +74,8 @@ func NewVectorIndexQueue(
 			TaskDecoder: &vectorIndexQueueDecoder{
 				q: &viq,
 			},
-			StaleTimeout: staleTimeout,
+			OnBatchProcessed: viq.OnBatchProcessed,
+			StaleTimeout:     staleTimeout,
 		},
 	)
 	if err != nil {
@@ -108,6 +109,13 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 		}
 
 		return iq.vectorIndex.AddBatch(ctx, ids, vecs)
+	}
+
+	// ensure the shard is in the right state
+	status, err := iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+	if status != storagestate.StatusIndexing || err != nil {
+		iq.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in ", iq.scheduler.ScheduleInterval)
+		return errors.Errorf("failed to set shard status to 'indexing'")
 	}
 
 	var buf []byte
@@ -177,6 +185,11 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 }
 
 func (iq *VectorIndexQueue) Flush() error {
+	if iq == nil {
+		// the queue is nil when the shard is not fully initialized
+		return nil
+	}
+
 	if !iq.asyncEnabled {
 		return iq.vectorIndex.Flush()
 	}
@@ -210,6 +223,13 @@ func (iq *VectorIndexQueue) updateShardStatus() bool {
 	}
 
 	return false
+}
+
+// Flush the vector index after a batch is processed.
+func (iq *VectorIndexQueue) OnBatchProcessed() {
+	if err := iq.vectorIndex.Flush(); err != nil {
+		iq.Logger.WithError(err).Error("failed to flush vector index")
+	}
 }
 
 type upgradableIndexer interface {
