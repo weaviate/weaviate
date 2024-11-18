@@ -50,10 +50,9 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	var parsed segmentCollectionNode
 
 	if s.segment.strategy == segmentindex.StrategyInverted {
-		s.nextOffset = node.Start
-		parsed, err = s.parseInvertedNode(nodeOffset{start: s.nextOffset})
+		parsed, err = s.parseInvertedNode(nodeOffset{node.Start, node.End})
 	} else {
-		parsed, err = s.parseCollectionNode(nodeOffset{start: s.nextOffset})
+		parsed, err = s.parseCollectionNode(nodeOffset{node.Start, node.End})
 	}
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
