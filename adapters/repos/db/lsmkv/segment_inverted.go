@@ -16,36 +16,42 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"sync"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type segmentInvertedData struct {
+	// lock to read tombstones and property lengths
+	lockInvertedData sync.RWMutex
+
 	tombstones       *sroar.Bitmap
 	tombstonesLoaded bool
 
-	propertyLenghts       map[uint64]uint32
-	propertyLenghtsLoaded bool
+	propertyLengths       map[uint64]uint32
+	propertyLengthsLoaded bool
 
-	avgPropertyLenghtsSum   uint64
-	avgPropertyLenghtsCount uint64
+	avgPropertyLengthsSum   uint64
+	avgPropertyLengthsCount uint64
 }
 
-func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
+func (s *segment) loadTombstones() error {
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
 	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+		return fmt.Errorf("property only supported for inverted strategy")
 	}
 
 	if s.invertedData.tombstonesLoaded {
-		return s.invertedData.tombstones, nil
+		return nil
 	}
 
 	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.TombstoneOffset : s.invertedHeader.TombstoneOffset+8])
 
 	if bitmapSize == 0 {
 		s.invertedData.tombstonesLoaded = true
-		return nil, nil
+		return nil
 	}
 
 	bitmapStart := s.invertedHeader.TombstoneOffset + 8
@@ -55,27 +61,29 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 
 	s.invertedData.tombstones = bitmap
 	s.invertedData.tombstonesLoaded = true
-	return s.invertedData.tombstones, nil
+	return nil
 }
 
-func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
+func (s *segment) loadPropertyLenghts() error {
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
 	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("property only supported for inverted strategy")
+		return fmt.Errorf("property only supported for inverted strategy")
 	}
 
-	if s.invertedData.propertyLenghtsLoaded {
-		return s.invertedData.propertyLenghts, nil
+	if s.invertedData.propertyLengthsLoaded {
+		return nil
 	}
 
-	s.invertedData.avgPropertyLenghtsSum = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
-	s.invertedData.avgPropertyLenghtsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
+	s.invertedData.avgPropertyLengthsSum = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset : s.invertedHeader.PropertyLengthsOffset+8])
+	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
 
 	// read property lengths, the first 16 bytes are the propLengthCount and sum, the 8 bytes are the size of the gob encoded map
 	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+16 : s.invertedHeader.PropertyLengthsOffset+16+8])
 
 	if propertyLenghtsSize == 0 {
-		s.invertedData.propertyLenghtsLoaded = true
-		return nil, nil
+		s.invertedData.propertyLengthsLoaded = true
+		return nil
 	}
 
 	propertyLenghtsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
@@ -86,12 +94,42 @@ func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
 	propLenghts := map[uint64]uint32{}
 	err := e.Decode(&propLenghts)
 	if err != nil {
-		return nil, fmt.Errorf("decode property lengths: %w", err)
+		return fmt.Errorf("decode property lengths: %w", err)
 	}
 
-	s.invertedData.propertyLenghtsLoaded = true
-	s.invertedData.propertyLenghts = propLenghts
-	return s.invertedData.propertyLenghts, nil
+	s.invertedData.propertyLengthsLoaded = true
+	s.invertedData.propertyLengths = propLenghts
+	return nil
+}
+
+func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	if !s.invertedData.tombstonesLoaded {
+		s.loadTombstones()
+	}
+
+	s.invertedData.lockInvertedData.RLock()
+	defer s.invertedData.lockInvertedData.RUnlock()
+
+	return s.invertedData.tombstones, nil
+}
+
+func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("property only supported for inverted strategy")
+	}
+
+	if !s.invertedData.propertyLengthsLoaded {
+		s.loadPropertyLenghts()
+	}
+
+	s.invertedData.lockInvertedData.RLock()
+	defer s.invertedData.lockInvertedData.RUnlock()
+
+	return s.invertedData.propertyLengths, nil
 }
 
 func (s *segment) hasKey(key []byte) bool {
