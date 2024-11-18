@@ -50,7 +50,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -97,7 +97,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(input.Refs[i].Class.String(), tenant)...); err != nil {
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Refs[i].Class.String(), tenant)...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
 

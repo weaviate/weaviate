@@ -37,7 +37,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	}
 
 	for class, shards := range classesShards {
-		err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, shards...)...)
+		err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shards...)...)
 		if err != nil {
 			return nil, err
 		}

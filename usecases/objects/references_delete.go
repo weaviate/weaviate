@@ -45,7 +45,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -64,7 +64,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 			input.Reference.Beacon = toBeacon
 		}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Shards(input.Reference.Class.String(), tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Reference.Class.String(), tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

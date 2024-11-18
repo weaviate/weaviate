@@ -46,7 +46,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "AddObject",
 			additionalArgs:    []interface{}{(*models.Object)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
 			methodName:        "ValidateObject",
@@ -123,7 +123,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "Query",
 			additionalArgs:    []interface{}{new(QueryParams)},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Shards("", "")[0]},
+			expectedResources: []string{authorization.ShardsMetadata("", "")[0]},
 		},
 
 		{ // list objects is deprecated by query
@@ -217,7 +217,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
 			methodName: "AddReferences",
@@ -226,7 +226,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
 			methodName: "DeleteObjects",
@@ -238,7 +238,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				"",
 			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 	}
 
