@@ -277,28 +277,30 @@ func (b *BM25Searcher) wand(
 
 	topKHeap := b.doWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 
-	metrics.QueryCount++
-	for _, result3 := range combinedTerms.T {
-		if result3 != nil {
-			m, ok := result3.(*lsmkv.SegmentBlockMax)
-			if !ok {
-				continue
+	/*
+		metrics.QueryCount++
+		for _, result3 := range combinedTerms.T {
+			if result3 != nil {
+				m, ok := result3.(*lsmkv.SegmentBlockMax)
+				if !ok {
+					continue
+				}
+				metrics.BlockCountAdded += m.Metrics.BlockCountAdded
+				metrics.BlockCountTotal += m.Metrics.BlockCountTotal
+				metrics.BlockCountExamined += m.Metrics.BlockCountExamined
+				metrics.DocCountAdded += m.Metrics.DocCountAdded
+				metrics.DocCountTotal += m.Metrics.DocCountTotal
+				metrics.DocCountExamined += m.Metrics.DocCountExamined
+				metrics.LastAddedBlock = m.Metrics.LastAddedBlock
+
 			}
-			metrics.BlockCountAdded += m.Metrics.BlockCountAdded
-			metrics.BlockCountTotal += m.Metrics.BlockCountTotal
-			metrics.BlockCountExamined += m.Metrics.BlockCountExamined
-			metrics.DocCountAdded += m.Metrics.DocCountAdded
-			metrics.DocCountTotal += m.Metrics.DocCountTotal
-			metrics.DocCountExamined += m.Metrics.DocCountExamined
-			metrics.LastAddedBlock = m.Metrics.LastAddedBlock
-
 		}
-	}
 
-	if metrics.QueryCount%100 == 0 {
-		b.logger.Error("BlockMax metrics", "BlockCountTotal ", metrics.BlockCountTotal/metrics.QueryCount, " BlockCountExamined ", metrics.BlockCountExamined/metrics.QueryCount, " BlockCountAdded ", metrics.BlockCountAdded/metrics.QueryCount, " DocCountTotal ", metrics.DocCountTotal/metrics.QueryCount, " DocCountExamined ", metrics.DocCountExamined/metrics.QueryCount, " DocCountAdded ", metrics.DocCountAdded/metrics.QueryCount)
-		metrics = lsmkv.BlockMetrics{}
-	}
+		if metrics.QueryCount%100 == 0 {
+			b.logger.Error("BlockMax metrics", "BlockCountTotal ", metrics.BlockCountTotal/metrics.QueryCount, " BlockCountExamined ", metrics.BlockCountExamined/metrics.QueryCount, " BlockCountAdded ", metrics.BlockCountAdded/metrics.QueryCount, " DocCountTotal ", metrics.DocCountTotal/metrics.QueryCount, " DocCountExamined ", metrics.DocCountExamined/metrics.QueryCount, " DocCountAdded ", metrics.DocCountAdded/metrics.QueryCount)
+			metrics = lsmkv.BlockMetrics{}
+		}
+	*/
 
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }
