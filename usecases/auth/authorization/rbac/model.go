@@ -118,10 +118,6 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 	}
 
 	for i := range authConfig.Roles {
-		// TODO do we need to add to keys as users ?
-		if _, err := enforcer.AddRoleForUser(authConfig.AllowedKeys[i], authConfig.Roles[i]); err != nil {
-			return nil, fmt.Errorf("add role for key: %w", err)
-		}
 		if _, err := enforcer.AddRoleForUser(authConfig.Users[i], authConfig.Roles[i]); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}

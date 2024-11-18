@@ -455,7 +455,7 @@ swagger:model AssignRoleBody
 */
 type AssignRoleBody struct {
 
-	// the roles that assigned to the key or user
+	// the roles that assigned to user
 	Roles []string `json:"roles"`
 }
 
