@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
@@ -76,9 +77,9 @@ func (f *fakeClient) PutObject(ctx context.Context, host, index, shard, requestI
 }
 
 func (f *fakeClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
-	id strfmt.UUID,
+	id strfmt.UUID, deletionTime time.Time,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, id)
+	args := f.Called(ctx, host, index, shard, requestID, id, deletionTime)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
@@ -97,9 +98,9 @@ func (f *fakeClient) PutObjects(ctx context.Context, host, index, shard, request
 }
 
 func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, uuids, dryRun)
+	args := f.Called(ctx, host, index, shard, requestID, uuids, deletionTime, dryRun)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 

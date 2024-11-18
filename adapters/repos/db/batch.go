@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -160,7 +161,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	className := params.ClassName
@@ -197,16 +198,17 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, deletionTime, params.DryRun, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}
 
 	result := objects.BatchDeleteResult{
-		Matches: matches,
-		Limit:   db.config.QueryMaximumResults,
-		DryRun:  params.DryRun,
-		Objects: deletedObjects,
+		Matches:      matches,
+		Limit:        db.config.QueryMaximumResults,
+		DeletionTime: deletionTime,
+		DryRun:       params.DryRun,
+		Objects:      deletedObjects,
 	}
 	return result, nil
 }

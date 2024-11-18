@@ -1634,7 +1634,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("Delete object and filter again", func(t *testing.T) {
-		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "")
+		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, time.Now(), nil, "")
 
 		filterNil := buildFilter("other", true, null, dtBool)
 		paramsNil := dto.GetParams{

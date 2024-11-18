@@ -598,7 +598,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			}
 
 			node := nodes[rnd.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "")
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, time.Now(), nil, "")
 			require.Nil(t, err)
 		}
 	})
@@ -650,7 +650,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "")
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), time.Now(), nil, "")
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
