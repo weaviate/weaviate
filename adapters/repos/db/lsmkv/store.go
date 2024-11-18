@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -220,13 +221,23 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
+	// shutdown must be called on every bucket
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
+
 	for name, bucket := range s.bucketsByName {
-		if err := bucket.Shutdown(ctx); err != nil {
-			return errors.Wrapf(err, "shutdown bucket %q", name)
-		}
+		name := name
+		bucket := bucket
+
+		eg.Go(func() error {
+			if err := bucket.Shutdown(ctx); err != nil {
+				return errors.Wrapf(err, "shutdown bucket %q of store %q", name, s.dir)
+			}
+			return nil
+		})
 	}
 
-	return nil
+	return eg.Wait()
 }
 
 func (s *Store) WriteWALs() error {
