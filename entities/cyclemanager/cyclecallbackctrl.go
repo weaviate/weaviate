@@ -181,7 +181,7 @@ func (c *cycleCombinedCallbackCtrl) locked(lock *sync.Mutex, mutate func()) {
 }
 
 func (c *cycleCombinedCallbackCtrl) combineErrors(errors ...error) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	for _, err := range errors {
 		ec.Add(err)
 	}
