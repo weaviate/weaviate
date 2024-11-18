@@ -150,13 +150,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case cluster:
 		resource = authorization.Cluster()
-	case collections, collectionsDomain:
+	case collections:
 		collection := "*"
 		if permission.Collection != nil {
 			collection = *permission.Collection
 		}
 		resource = CasbinCollections(collection)
-	case tenants, tenantsDomain:
+	case tenants:
 		collection := "*"
 		tenant := "*"
 		if permission.Collection != nil {
@@ -166,7 +166,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			tenant = *permission.Tenant
 		}
 		resource = CasbinShards(collection, tenant)
-	case objectsCollection, objectsCollectionDomain:
+	case objectsCollection:
 		collection := "*"
 		object := "*"
 		if permission.Collection != nil {
@@ -176,7 +176,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Object
 		}
 		resource = CasbinObjects(collection, "*", object)
-	case objectsTenant, objectsTenantDomain:
+	case objectsTenant:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -214,12 +214,12 @@ func permission(policy []string) *models.Permission {
 	all := "*"
 
 	switch mapped.Domain {
-	case collections, collectionsDomain:
+	case collectionsDomain:
 		permission.Collection = &splits[2]
-	case tenants, tenantsDomain:
+	case tenantsDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
-	case objectsCollection, objectsCollectionDomain, objectsTenant, objectsTenantDomain:
+	case objectsCollectionDomain, objectsTenantDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
