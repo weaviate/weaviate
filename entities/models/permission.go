@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_roles read_roles manage_cluster create_meta_collections read_meta_collections update_meta_collections delete_meta_collections create_meta_tenants read_meta_tenants update_meta_tenants delete_meta_tenants create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
+	// Enum: [manage_users manage_roles read_roles manage_cluster create_meta_collections read_meta_collections update_meta_collections delete_meta_collections create_meta_tenants read_meta_tenants update_meta_tenants delete_meta_tenants create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
 	Action *string `json:"action"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
@@ -70,7 +70,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_roles","read_roles","manage_cluster","create_meta_collections","read_meta_collections","update_meta_collections","delete_meta_collections","create_meta_tenants","read_meta_tenants","update_meta_tenants","delete_meta_tenants","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_meta_collections","read_meta_collections","update_meta_collections","delete_meta_collections","create_meta_tenants","read_meta_tenants","update_meta_tenants","delete_meta_tenants","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
