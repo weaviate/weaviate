@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
@@ -56,7 +57,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String("create_collections"),
+					Action:     String(authorization.CreateCollections),
 					Collection: String("*"),
 				}},
 			}),
@@ -84,7 +85,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String("create_collections"),
+					Action:     String(authorization.CreateCollections),
 					Collection: String("*"),
 				}},
 			}),
@@ -101,7 +102,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String("create_collections"),
+					Action:     String(authorization.CreateCollections),
 					Collection: String("*"),
 				}},
 			}),
@@ -120,8 +121,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	existingRole := "admin"
 
 	testRoleName := "test-role"
-	testAction1 := "create_collections"
-	testAction2 := "delete_collections"
+	testAction1 := authorization.CreateCollections
+	testAction2 := authorization.DeleteCollections
 	all := "*"
 
 	testRole1 := &models.Role{
@@ -296,8 +297,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	existingRole := "admin"
 
 	testRole := "test-role"
-	testAction1 := "create_collections"
-	testAction2 := "delete_collections"
+	testAction1 := authorization.CreateCollections
+	testAction2 := authorization.DeleteCollections
 	all := "*"
 
 	clientAuth := helper.CreateAuth(existingKey)
