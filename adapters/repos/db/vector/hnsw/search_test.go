@@ -13,9 +13,11 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"testing"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,95 +99,107 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 }
 
 func TestRescore(t *testing.T) {
-	type test struct {
-		name        string
-		concurrency int
-		k           int
-		objects     int
-	}
+	for _, contextCancelled := range []bool{false, true} {
+		type test struct {
+			name        string
+			concurrency int
+			k           int
+			objects     int
+		}
 
-	tests := []test{
-		{
-			name:        "single-threaded, limit < objects",
-			concurrency: 1,
-			k:           10,
-			objects:     100,
-		},
-		{
-			name:        "two threads, limit < objects",
-			concurrency: 2,
-			k:           10,
-			objects:     50,
-		},
-		{
-			name:        "more threads than objects",
-			concurrency: 60,
-			k:           10,
-			objects:     50,
-		},
-		{
-			name:        "result limit above objects with no concurrency",
-			concurrency: 1,
-			k:           60,
-			objects:     50,
-		},
-		{
-			name:        "result limit above objects with low concurrency",
-			concurrency: 4,
-			k:           60,
-			objects:     50,
-		},
-		{
-			name:        "result limit above objects with high concurrency",
-			concurrency: 100,
-			k:           60,
-			objects:     50,
-		},
-	}
+		tests := []test{
+			{
+				name:        "single-threaded, limit < objects",
+				concurrency: 1,
+				k:           10,
+				objects:     100,
+			},
+			{
+				name:        "two threads, limit < objects",
+				concurrency: 2,
+				k:           10,
+				objects:     50,
+			},
+			{
+				name:        "more threads than objects",
+				concurrency: 60,
+				k:           10,
+				objects:     50,
+			},
+			{
+				name:        "result limit above objects with no concurrency",
+				concurrency: 1,
+				k:           60,
+				objects:     50,
+			},
+			{
+				name:        "result limit above objects with low concurrency",
+				concurrency: 4,
+				k:           60,
+				objects:     50,
+			},
+			{
+				name:        "result limit above objects with high concurrency",
+				concurrency: 100,
+				k:           60,
+				objects:     50,
+			},
+		}
 
-	logger := logrus.New()
+		logger := logrus.New()
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			vectors, queries := testinghelpers.RandomVecs(test.objects, 1, 128)
+		for _, test := range tests {
+			name := fmt.Sprintf("%s, context cancelled: %v", test.name, contextCancelled)
+			t.Run(name, func(t *testing.T) {
+				vectors, queries := testinghelpers.RandomVecs(test.objects, 1, 128)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
 
-			d := distancer.NewDotProductProvider()
-			distFn := func(a, b []float32) float32 {
-				dist, _ := d.SingleDist(a, b)
-				return dist
-			}
-			ids, _ := testinghelpers.BruteForce(logger, vectors, queries[0], test.k, distFn)
+				d := distancer.NewDotProductProvider()
+				distFn := func(a, b []float32) float32 {
+					dist, _ := d.SingleDist(a, b)
+					return dist
+				}
+				ids, _ := testinghelpers.BruteForce(logger, vectors, queries[0], test.k, distFn)
 
-			res := priorityqueue.NewMax[any](test.k)
-			// insert with random distances, so the result can't possibly be correct
-			// without re-ranking
-			for i := 0; i < test.objects; i++ {
-				res.Insert(uint64(i), rand.Float32())
-			}
+				res := priorityqueue.NewMax[any](test.k)
+				// insert with random distances, so the result can't possibly be correct
+				// without re-ranking
+				for i := 0; i < test.objects; i++ {
+					res.Insert(uint64(i), rand.Float32())
+				}
 
-			h := &hnsw{
-				rescoreConcurrency: test.concurrency,
-				logger:             logger,
-				TempVectorForIDThunk: func(
-					ctx context.Context, id uint64, container *common.VectorSlice,
-				) ([]float32, error) {
-					return vectors[id], nil
-				},
-				pools:             newPools(32),
-				distancerProvider: d,
-			}
+				h := &hnsw{
+					rescoreConcurrency: test.concurrency,
+					logger:             logger,
+					TempVectorForIDThunk: func(
+						ctx context.Context, id uint64, container *common.VectorSlice,
+					) ([]float32, error) {
+						return vectors[id], nil
+					},
+					pools:             newPools(32, 1),
+					distancerProvider: d,
+				}
 
-			compDistancer := newFakeCompressionDistancer(queries[0], distFn)
-			h.rescore(res, test.k, compDistancer)
+				compDistancer := newFakeCompressionDistancer(queries[0], distFn)
+				if contextCancelled {
+					cancel()
+				}
+				err := h.rescore(ctx, res, test.k, compDistancer)
 
-			resultIDs := make([]uint64, res.Len())
-			for res.Len() > 0 {
-				item := res.Pop()
-				resultIDs[res.Len()] = item.ID
-			}
+				if contextCancelled {
+					assert.True(t, errors.Is(err, context.Canceled))
+				} else {
+					resultIDs := make([]uint64, res.Len())
+					for res.Len() > 0 {
+						item := res.Pop()
+						resultIDs[res.Len()] = item.ID
+					}
 
-			assert.Equal(t, ids, resultIDs)
-		})
+					assert.Equal(t, ids, resultIDs)
+				}
+			})
+		}
 	}
 }
 
