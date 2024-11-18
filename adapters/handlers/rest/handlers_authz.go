@@ -272,6 +272,21 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	if params.ID == "" {
+		return authz.NewAssignRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
+	}
+
+	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
+	if err != nil {
+		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if len(existedRoles) != len(params.Body.Roles) {
+		return authz.NewAssignRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign doesn't exists")))
+	}
+
+	// TODO check for users when we have dynamic users
+
 	if err := h.controller.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}

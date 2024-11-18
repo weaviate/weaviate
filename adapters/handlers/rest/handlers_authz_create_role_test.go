@@ -96,7 +96,6 @@ func TestCreateRoleBadRequest(t *testing.T) {
 		name          string
 		params        authz.CreateRoleParams
 		principal     *models.Principal
-		authorizeErr  error
 		upsertErr     error
 		expectedError string
 	}
@@ -166,9 +165,9 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.CREATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 			if tt.expectedError == "" {
-				controller.On("GetRoles", *tt.params.Body.Name).Return([]*models.Role{}, nil)
+				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
