@@ -53,7 +53,7 @@ func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValu
 	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 
 		// TODO text_rbm_inverted_index find better way check whether prop len
@@ -87,7 +87,6 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		ctx := context.TODO() // TODO: pass through instead of spawning new
 		dbm, err := s.docBitmap(ctx, b, limit, pv)
 		if err != nil {
 			return err
@@ -105,7 +104,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0)
+				err := child.fetchDocIDs(ctx, s, 0)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}

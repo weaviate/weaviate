@@ -186,9 +186,11 @@ type Config struct {
 	MemtablesMinActiveSeconds      int
 	MemtablesMaxActiveSeconds      int
 	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
 	MaxSegmentSize                 int64
 	HNSWMaxLogSize                 int64
 	HNSWWaitForCachePrefill        bool
+	HNSWFlatSearchConcurrency      int
 	VisitedListPoolMaxSize         int
 	TrackVectorDimensions          bool
 	ServerVersion                  string

@@ -37,6 +37,7 @@ type Config struct {
 	PrometheusMetrics     *monitoring.PrometheusMetrics
 	AllocChecker          memwatch.AllocChecker
 	WaitForCachePrefill   bool
+	FlatSearchConcurrency int
 
 	// metadata for monitoring
 	ShardName string
@@ -46,7 +47,7 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")

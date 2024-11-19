@@ -38,7 +38,7 @@ func (p *Params) setDefaults(inputSize, dims int) {
 }
 
 func (p *Params) validate(inputSize, dims int) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	if *p.Algorithm != "tsne" {
 		ec.Addf("algorithm %s is not supported: must be one of: tsne", *p.Algorithm)
 	}
