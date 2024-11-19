@@ -111,44 +111,12 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 	for _, docID := range docIDs {
 		vecIDs := h.docIDVectorMap[docID]
 
-		if err := h.addTombstone(vecIDs...); err != nil {
-			return err
-		}
-
 		for _, id := range vecIDs {
-			h.metrics.DeleteVector()
 
-			// Adding a tombstone might not be enough in some cases, if the tombstoned
-			// entry was the entrypoint this might lead to issues for following inserts:
-			// On a nearly empty graph the entrypoint might be the only viable element to
-			// connect to, however, because the entrypoint itself is tombstones
-			// connections to it are impossible. So, unless we find a new entrypoint,
-			// subsequent inserts might end up isolated (without edges) in the graph.
-			// This is especially true if the tombstoned entrypoint is the only node in
-			// the graph. In this case we must reset the graph, so it acts like an empty
-			// one. Otherwise we'd insert the next id and have only one possible node to
-			// connect it to (the entrypoint). With that one being tombstoned, the new
-			// node would be guaranteed to have zero edges
-
-			node := h.nodeByID(id)
-			if node == nil {
-				// node was already deleted/cleaned up
-				continue
+			if err := h.Delete(id); err != nil {
+				return err
 			}
 
-			if h.getEntrypoint() == id {
-				beforeDeleteEP := time.Now()
-				defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
-
-				denyList := h.tombstonesAsDenyList()
-				if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
-					return errors.Wrap(err, "reset index")
-				} else if !onlyNode {
-					if err := h.deleteEntrypoint(node, denyList); err != nil {
-						return errors.Wrap(err, "delete entrypoint")
-					}
-				}
-			}
 			h.Lock()
 			delete(h.relativeIDMap, id)
 			delete(h.vectorDocIDMap, id)

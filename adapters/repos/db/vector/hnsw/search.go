@@ -84,6 +84,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 }
 
 func (h *hnsw) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	if !h.multivector.Load() {
+		return nil, nil, errors.New("multivector search is not enabled")
+	}
+
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
