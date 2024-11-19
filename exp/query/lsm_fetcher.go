@@ -50,7 +50,7 @@ type LSMCache interface {
 	Tenant(collection, tenantID string) (*TenantCache, error)
 
 	// put tenant
-	AddTenant(collection, tenantID string, version uint64) error
+	AddTenant(collection, tenantID string, version int64) error
 
 	BasePath() string
 }
@@ -77,7 +77,7 @@ func NewLSMFetcherWithCache(basePath string, upstream LSMDownloader, cache LSMCa
 // 2. If cache is enabled and not found in cache, fetch from upstream.
 // 3. If cache is enabled and found in the cache but local version is outdated, fetch from the upstream and remove old version.
 // 4. if cache is enabled, found in the cache and local version is up to date, return from the cache.
-func (l *LSMFetcher) Fetch(ctx context.Context, node, collection, tenant string, version uint64) (*lsmkv.Store, string, error) {
+func (l *LSMFetcher) Fetch(ctx context.Context, node, collection, tenant string, version int64) (*lsmkv.Store, string, error) {
 	// unique key for (collection, tenant, version). this key make sure only one in-flight requests hitting upstream.
 	key := fmt.Sprintf("%s-%s-%d", collection, tenant, version)
 	val, err, _ := l.sg.Do(key, func() (any, error) {
@@ -99,12 +99,12 @@ func (l *LSMFetcher) Fetch(ctx context.Context, node, collection, tenant string,
 	return store, lsmPath, nil
 }
 
-func (l *LSMFetcher) fetch(ctx context.Context, node, collection, tenant string, version uint64) (string, error) {
+func (l *LSMFetcher) fetch(ctx context.Context, node, collection, tenant string, version int64) (string, error) {
 	var (
 		basePath          = l.basePath
 		tenantPath string = ""
 		download   bool   = true
-		oldVersion uint64
+		oldVersion int64
 	)
 
 	if l.cache != nil {
@@ -153,7 +153,7 @@ func (l *LSMFetcher) fetch(ctx context.Context, node, collection, tenant string,
 	return tenantPath, nil
 }
 
-func (l *LSMFetcher) download(ctx context.Context, basePath string, node, collection, tenant string, version uint64) (string, error) {
+func (l *LSMFetcher) download(ctx context.Context, basePath string, node, collection, tenant string, version int64) (string, error) {
 	versionStr := fmt.Sprintf("%d", version)
 
 	tenantPath := path.Join(
@@ -178,7 +178,7 @@ func (l *LSMFetcher) download(ctx context.Context, basePath string, node, collec
 	return tenantPath, nil
 }
 
-func (l *LSMFetcher) remove(basePath string, collection, tenant string, version uint64) error {
+func (l *LSMFetcher) remove(basePath string, collection, tenant string, version int64) error {
 	dst := path.Join(
 		basePath,
 		strings.ToLower(collection),
