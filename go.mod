@@ -68,7 +68,7 @@ require (
 	github.com/tailor-inc/graphql v0.4.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
-	github.com/weaviate/sroar v0.0.6
+	github.com/weaviate/sroar v0.0.7-0.20241119141327-5124bc4ab6c2
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/text v0.18.0
