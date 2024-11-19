@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // GRPC transport on top of the query.API.
@@ -65,7 +64,7 @@ func (g *GRPC) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchRep
 		return nil, err
 	}
 
-	res, err := g.api.Search(ctx, params)
+	res, vectors, err := g.api.Search(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -75,98 +74,17 @@ func (g *GRPC) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchRep
 		return nil, err
 	}
 
-	return g.encode(res, params, start, schema)
+	return g.encode(res, vectors, params, start, schema)
 }
 
-func (g *GRPC) encode(res []search.Result, params dto.GetParams, searchStart time.Time, schema schema.Schema) (*pb.SearchReply, error) {
-	var xres []interface{}
-
-	// []search.Result -> []interface{} as needed by grpc.Replier
-	var exp traverser.Explorer
-
-	exp.
-
-	return g.replier.Search(xres, searchStart, params, schema)
+func (g *GRPC) encode(res []search.Result, vectors []float32, params dto.GetParams, searchStart time.Time, schema schema.Schema) (*pb.SearchReply, error) {
+	resp, err := g.api.explorer.SearchResultsToGetResponse(context.Background(), res, vectors, params)
+	if err != nil {
+		return nil, err
+	}
+	return g.replier.Search(resp, searchStart, params, schema)
 }
 
 func (g *GRPC) decode(req *pb.SearchRequest) (dto.GetParams, error) {
 	return g.parser.Search(req, maxQueryObjectsLimit)
 }
-
-// TODO(kavi): This is duplicated code from `traverser.Explorer`.
-func (g *GRPC) toReponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
-	output := make([]interface{}, 0, len(input))
-	results, err := g.toResponseWithType(ctx, input, searchVector, params)
-	if err != nil {
-		return nil, err
-	}
-
-	if params.GroupBy != nil {
-		for _, result := range results {
-			wrapper := map[string]interface{}{}
-			wrapper["_additional"] = result.AdditionalProperties
-			output = append(output, wrapper)
-		}
-	} else {
-		for _, result := range results {
-			output = append(output, result.Schema)
-		}
-	}
-	return output, nil
-}
-
-func (g *GRPC) toResponseWithType(ctx, input, searchVector, params) ([]search.Result, error) {}
-
-// func requestFromProto(req *pb.SearchRequest, getClass func(string) *models.Class) (*SearchRequest, error) {
-// 	sr := &SearchRequest{
-// 		Collection: req.Collection,
-// 		Tenant:     req.Tenant,
-// 		Limit:      int(req.Limit),
-// 	}
-// 	if req.NearText != nil {
-// 		sr.NearText = req.NearText.Query
-// 		if req.NearText.Certainty != nil {
-// 			sr.Certainty = *req.NearText.Certainty
-// 		}
-// 	}
-// 	if req.Filters != nil {
-// 		filter, err := v1.ExtractFilters(req.Filters, getClass, req.Collection)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		sr.Filters = &filters.LocalFilter{Root: &filter}
-// 	}
-// 	return sr, nil
-// }
-
-// func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
-// 	var resp protocol.SearchReply
-
-// 	// TODO(kavi): copy rest of the fields accordingly.
-// 	for _, v := range res.Results {
-// 		props := protocol.Properties{
-// 			Fields: make(map[string]*protocol.Value),
-// 		}
-// 		objprops := v.Obj.Object.Properties.(map[string]interface{})
-// 		for prop, val := range objprops {
-// 			props.Fields[prop] = &protocol.Value{
-// 				Kind: &protocol.Value_StringValue{
-// 					StringValue: val.(string),
-// 				},
-// 			}
-// 		}
-
-// 		resp.Results = append(resp.Results, &protocol.SearchResult{
-// 			Metadata: &protocol.MetadataResult{
-// 				Id:        v.Obj.ID().String(),
-// 				Certainty: float32(v.Certainty),
-// 			},
-// 			Properties: &protocol.PropertiesResult{
-// 				TargetCollection: v.Obj.Object.Class,
-// 				NonRefProps:      &props,
-// 			},
-// 		})
-
-// 	}
-// 	return &resp
-// }

@@ -116,10 +116,8 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 	e.schemaGetter = sg
 }
 
-// GetClass from search and connector repo
-func (e *Explorer) GetClass(ctx context.Context,
-	params dto.GetParams,
-) ([]interface{}, error) {
+// Same as GetClass, but returns []search.Result instead of []interfaces{}
+func (e *Explorer) Search(ctx context.Context, params dto.GetParams) ([]search.Result, []float32, error) {
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
@@ -128,38 +126,47 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if err := e.validateFilters(params.Filters); err != nil {
-		return nil, errors.Wrap(err, "invalid 'where' filter")
+		return nil, nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
-		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+		return nil, nil, errors.Wrap(err, "invalid 'sort' parameter")
 	}
 
 	if err := e.validateCursor(params); err != nil {
-		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
+		return nil, nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
 	if params.KeywordRanking != nil {
 		res, err := e.getClassKeywordBased(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, nil, params)
+		return res, nil, nil
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		res, searchVector, err := e.getClassVectorSearch(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return e.searchResultsToGetResponse(ctx, res, searchVector, params)
+		return res, searchVector, nil
 	}
 
 	res, err := e.getClassList(ctx, params)
 	if err != nil {
+		return nil, nil, err
+	}
+	return res, nil, nil
+}
+
+// GetClass from search and connector repo
+func (e *Explorer) GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error) {
+	res, vector, err := e.Search(ctx, params)
+	if err != nil {
 		return nil, err
 	}
-	return e.searchResultsToGetResponse(ctx, res, nil, params)
+	return e.SearchResultsToGetResponse(ctx, res, vector, params)
 }
 
 func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -397,9 +404,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 	return res, nil
 }
 
-func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
+func (e *Explorer) SearchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
-	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
+	results, err := e.SearchResultsToGetResponseWithType(ctx, input, searchVector, params)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +425,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]search.Result, error) {
+func (e *Explorer) SearchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
