@@ -174,7 +174,15 @@ func readRepairTimebasedResolution(t *testing.T) {
 	}
 
 	t.Run("replace object in node2", func(t *testing.T) {
-		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
+		err := updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
+		require.Nil(t, err)
+	})
+
+	t.Run("deleted article should be present in node2", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.True(t, exists)
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
@@ -188,13 +196,6 @@ func readRepairTimebasedResolution(t *testing.T) {
 		require.False(t, exists)
 	})
 
-	t.Run("deleted article should be present in node2", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
-			replaceObj.Class, replaceObj.ID, replica.One)
-		require.Nil(t, err)
-		require.True(t, exists)
-	})
-
 	t.Run("run exists to trigger read repair with deleted object resolution", func(t *testing.T) {
 		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
 			replaceObj.Class, replaceObj.ID, replica.All)
@@ -202,15 +203,15 @@ func readRepairTimebasedResolution(t *testing.T) {
 		require.True(t, exists)
 	})
 
-	t.Run("deleted article should be present in node3", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode3().URI(),
+	t.Run("deleted article should be present in node2", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
 
-	t.Run("deleted article should be present in node2", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+	t.Run("deleted article should be present in node3", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)

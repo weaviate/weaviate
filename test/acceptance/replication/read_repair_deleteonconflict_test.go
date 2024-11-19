@@ -101,7 +101,7 @@ func readRepairDeleteOnConflict(t *testing.T) {
 	})
 
 	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, true)
+		_, err := getObjectCL(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, replica.All)
 		require.Nil(t, err)
 	})
 
