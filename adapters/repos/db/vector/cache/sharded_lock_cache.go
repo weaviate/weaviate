@@ -46,7 +46,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 
 const (
 	InitialSize             = 1000
-	RelativeInitialSize     = 20
+	RelativeInitialSize     = 1100
 	MinimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
 )
