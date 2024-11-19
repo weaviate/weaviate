@@ -36,7 +36,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 		class = match.Class
 	}
 
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenant)...)
+	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
