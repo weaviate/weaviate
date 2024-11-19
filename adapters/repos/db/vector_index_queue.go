@@ -116,13 +116,6 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	start := time.Now()
 	defer iq.metrics.Insert(start, len(vectors))
 
-	// ensure the shard is in the right state
-	status, err := iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
-	if status != storagestate.StatusIndexing || err != nil {
-		iq.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in ", iq.scheduler.ScheduleInterval)
-		return errors.Errorf("failed to set shard status to 'indexing'")
-	}
-
 	var buf []byte
 
 	for i, v := range vectors {
@@ -206,29 +199,11 @@ func (iq *VectorIndexQueue) Flush() error {
 }
 
 func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
-	skip = iq.updateShardStatus()
-	if skip {
+	if iq.shard.GetStatus() != storagestate.StatusIndexing {
 		return true
 	}
 
 	iq.checkCompressionSettings()
-
-	return false
-}
-
-// updates the shard status to 'indexing' if the queue is not empty
-// and the status is 'ready' otherwise.
-func (iq *VectorIndexQueue) updateShardStatus() bool {
-	if iq.Size() == 0 {
-		_, _ = iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
-		return false /* do not skip, let the scheduler decide what to do */
-	}
-
-	status, err := iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
-	if status != storagestate.StatusIndexing || err != nil {
-		iq.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in ", iq.scheduler.ScheduleInterval)
-		return true
-	}
 
 	return false
 }
