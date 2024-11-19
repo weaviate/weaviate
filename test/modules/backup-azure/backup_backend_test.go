@@ -64,42 +64,45 @@ func testAzureBackendBackup(overrideBucket, overridePath string) func(t *testing
 		if err != nil {
 			t.Fatalf("cannot start: %v", err)
 		}
-		time.Sleep(3 * time.Second)
+
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
 				t.Fatalf("failed to terminate test containers: %v", err)
 			}
 		}()
 
-		t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
 
-		subTests := []struct {
-			name string
-			test func(t *testing.T)
-		}{
-			{
-				name: "store backup meta",
-				test: func(t *testing.T) {
-					moduleLevelStoreBackupMeta(t, overrideBucket, overridePath)
-				},
-			},
-			{
-				name: "copy objects",
-				test: func(t *testing.T) {
-					moduleLevelCopyObjects(t, overrideBucket, overridePath)
-				},
-			},
-			{
-				name: "copy files",
-				test: func(t *testing.T) {
-					moduleLevelCopyFiles(t, overrideBucket, overridePath)
-				},
-			},
-		}
+		assert.EventuallyWithT(t, func(collect *assert.CollectT)  {
+			t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
 
-		for _, st := range subTests {
-			t.Run(st.name, st.test)
-		}
+			subTests := []struct {
+				name string
+				test func(t *testing.T)
+			}{
+				{
+					name: "store backup meta",
+					test: func(t *testing.T) {
+						moduleLevelStoreBackupMeta(t, overrideBucket, overridePath)
+					},
+				},
+				{
+					name: "copy objects",
+					test: func(t *testing.T) {
+						moduleLevelCopyObjects(t, overrideBucket, overridePath)
+					},
+				},
+				{
+					name: "copy files",
+					test: func(t *testing.T) {
+						moduleLevelCopyFiles(t, overrideBucket, overridePath)
+					},
+				},
+			}
+
+			for _, st := range subTests {
+				t.Run(st.name, st.test)
+			}
+		}, 5 * time.Second, 1 * time.Second, "failed to create container")
 	}
 }
 
