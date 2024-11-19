@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -59,6 +60,61 @@ func TestQueuePush(t *testing.T) {
 
 		err = q.Push(makeRecord(1, 100))
 		require.Error(t, err)
+	})
+
+	t.Run("lazily creates chunk", func(t *testing.T) {
+		q := makeQueue(t, s, discardExecutor())
+
+		entries, err := os.ReadDir(q.dir)
+		require.NoError(t, err)
+
+		require.Len(t, entries, 0)
+
+		err = q.Push(makeRecord(1, 100))
+		require.NoError(t, err)
+
+		entries, err = os.ReadDir(q.dir)
+		require.NoError(t, err)
+
+		require.Len(t, entries, 1)
+	})
+
+	t.Run("re-open", func(t *testing.T) {
+		dir := t.TempDir()
+		decoder := &mockTaskDecoder{}
+		q, err := NewDiskQueue(DiskQueueOptions{
+			ID:           "test_queue",
+			Scheduler:    s,
+			Logger:       newTestLogger(),
+			Dir:          dir,
+			TaskDecoder:  decoder,
+			StaleTimeout: 500 * time.Millisecond,
+			ChunkSize:    50,
+		})
+		require.NoError(t, err)
+
+		pushMany(t, q, 1, 100, 200, 300)
+
+		err = q.Close()
+		require.NoError(t, err)
+
+		q, err = NewDiskQueue(DiskQueueOptions{
+			ID:           "test_queue",
+			Scheduler:    s,
+			Logger:       newTestLogger(),
+			Dir:          dir,
+			TaskDecoder:  decoder,
+			StaleTimeout: 500 * time.Millisecond,
+			ChunkSize:    50,
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, int64(3), q.Size())
+
+		err = q.Push(makeRecord(1, 100))
+		require.NoError(t, err)
+
+		require.Equal(t, int64(4), q.Size())
 	})
 
 	t.Run("keeps track of last push time", func(t *testing.T) {
