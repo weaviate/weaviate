@@ -30,7 +30,7 @@ func readRepairTimebasedResolution(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -46,13 +46,13 @@ func readRepairTimebasedResolution(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           2,
+			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           2,
+			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 		}
 		helper.CreateClass(t, articleClass)
@@ -82,7 +82,6 @@ func readRepairTimebasedResolution(t *testing.T) {
 
 	t.Run("stop node 2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
-		time.Sleep(10 * time.Second)
 	})
 
 	repairObj := models.Object{
@@ -98,19 +97,15 @@ func readRepairTimebasedResolution(t *testing.T) {
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-		require.Nil(t, err)
+		startNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, true)
+		_, err := getObjectCL(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, replica.All)
 		require.Nil(t, err)
 	})
 
 	t.Run("require new object read repair was made", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 1)
-		time.Sleep(10 * time.Second)
-
 		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
@@ -125,12 +120,16 @@ func readRepairTimebasedResolution(t *testing.T) {
 		"contents": "this paragraph was replaced",
 	}
 
+	t.Run("stop node 3", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 3)
+	})
+
 	t.Run("replace object", func(t *testing.T) {
 		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
 	})
 
-	t.Run("restart node 1", func(t *testing.T) {
-		require.Nil(t, compose.StartAt(ctx, 1))
+	t.Run("restart node 3", func(t *testing.T) {
+		startNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("run exists to trigger read repair", func(t *testing.T) {
@@ -142,14 +141,13 @@ func readRepairTimebasedResolution(t *testing.T) {
 
 	t.Run("require updated object read repair was made", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
-		time.Sleep(10 * time.Second)
 
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
 
-		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
+		resp, err := getObjectCL(t, compose.GetWeaviateNode3().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		require.Equal(t, replaceObj.ID, resp.ID)
@@ -163,14 +161,12 @@ func readRepairTimebasedResolution(t *testing.T) {
 		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
 	})
 
-	t.Run("stop node1", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 1)
-		time.Sleep(10 * time.Second)
+	t.Run("stop node3", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-		require.Nil(t, err)
+		startNodeAt(ctx, t, compose, 2)
 	})
 
 	replaceObj.Properties = map[string]interface{}{
@@ -181,12 +177,12 @@ func readRepairTimebasedResolution(t *testing.T) {
 		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
 	})
 
-	t.Run("restart node 1", func(t *testing.T) {
-		require.Nil(t, compose.StartAt(ctx, 1))
+	t.Run("restart node 3", func(t *testing.T) {
+		startNodeAt(ctx, t, compose, 3)
 	})
 
-	t.Run("deleted article should not be present in node1", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+	t.Run("deleted article should not be present in node3", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.False(t, exists)
@@ -206,8 +202,8 @@ func readRepairTimebasedResolution(t *testing.T) {
 		require.True(t, exists)
 	})
 
-	t.Run("deleted article should be present in node1", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+	t.Run("deleted article should be present in node3", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode3().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
