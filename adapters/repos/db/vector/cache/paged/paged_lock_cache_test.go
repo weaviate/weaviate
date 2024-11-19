@@ -121,8 +121,8 @@ func TestCacheCleanup(t *testing.T) {
 }
 
 func countCached(c *PagedLockCache[float32]) int {
-	c.pagedLocks.LockAll()
-	defer c.pagedLocks.UnlockAll()
+	c.PagedLocks.LockAll()
+	defer c.PagedLocks.UnlockAll()
 
 	count := 0
 	for _, vec := range c.cache {

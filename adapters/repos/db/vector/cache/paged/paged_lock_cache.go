@@ -28,7 +28,7 @@ import (
 )
 
 type PagedLockCache[T float32 | byte | uint64] struct {
-	pagedLocks       *common.PagedRWLocks
+	PagedLocks       *common.PagedRWLocks
 	cache            [][]T
 	vectorForID      common.VectorForID[T]
 	normalizeOnRead  bool
@@ -71,7 +71,7 @@ func NewPagedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		pagedLocks:       common.NewDefaultPagedRWLocks(),
+		PagedLocks:       common.NewDefaultPagedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -93,7 +93,7 @@ func NewPagedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		pagedLocks:       common.NewDefaultPagedRWLocks(),
+		PagedLocks:       common.NewDefaultPagedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -115,7 +115,7 @@ func NewPagedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		pagedLocks:       common.NewDefaultPagedRWLocks(),
+		PagedLocks:       common.NewDefaultPagedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -130,9 +130,9 @@ func (s *PagedLockCache[T]) All() [][]T {
 }
 
 func (s *PagedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
-	s.pagedLocks.RLock(id)
+	s.PagedLocks.RLock(id)
 	vec := s.cache[id]
-	s.pagedLocks.RUnlock(id)
+	s.PagedLocks.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -142,8 +142,8 @@ func (s *PagedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 }
 
 func (s *PagedLockCache[T]) Delete(ctx context.Context, id uint64) {
-	s.pagedLocks.Lock(id)
-	defer s.pagedLocks.Unlock(id)
+	s.PagedLocks.Lock(id)
+	defer s.PagedLocks.Unlock(id)
 
 	if int(id) >= len(s.cache) || s.cache[id] == nil {
 		return
@@ -180,9 +180,9 @@ func (s *PagedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.pagedLocks.Lock(id)
+	s.PagedLocks.Lock(id)
 	s.cache[id] = vec
-	s.pagedLocks.Unlock(id)
+	s.PagedLocks.Unlock(id)
 
 	return vec, nil
 }
@@ -199,10 +199,10 @@ func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, 
 		newLock := s.GetCorrespondingLock(id)
 		if newLock != currentLock || !currentLockSet {
 			if currentLockSet {
-				s.pagedLocks.RUnlock(currentId)
+				s.PagedLocks.RUnlock(currentId)
 			}
 			currentLock = newLock
-			s.pagedLocks.RLock(id)
+			s.PagedLocks.RLock(id)
 		}
 
 		vec := s.cache[id]
@@ -216,16 +216,15 @@ func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, 
 		out[i] = vec
 	}
 
-	// s.pagedLocks.RUnlock(uint64(len(ids) - 1))
-	s.pagedLocks.RUnlock(ids[len(ids)-1])
+	s.PagedLocks.RUnlock(ids[len(ids)-1])
 
 	return out, errs
 }
 
 func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]T, errs []error) ([][]T, []error, uint64, uint64) {
 
-	start := (id / s.pagedLocks.PageSize) * s.pagedLocks.PageSize
-	end := start + s.pagedLocks.PageSize
+	start := (id / s.PagedLocks.PageSize) * s.PagedLocks.PageSize
+	end := start + s.PagedLocks.PageSize
 
 	if end > uint64(len(s.cache)) {
 		end = uint64(len(s.cache))
@@ -233,7 +232,7 @@ func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, 
 
 	lockId := s.GetCorrespondingLock(start)
 
-	s.pagedLocks.RLock(lockId)
+	s.PagedLocks.RLock(lockId)
 
 	for i := start; i < end; i++ {
 		vec := s.cache[i]
@@ -252,13 +251,13 @@ func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, 
 		out[i-start] = vec
 	}
 
-	s.pagedLocks.RUnlock(lockId)
+	s.PagedLocks.RUnlock(lockId)
 
 	return out, errs, start, end
 }
 
 func (s *PagedLockCache[T]) GetCorrespondingLock(id uint64) uint64 {
-	return (id / s.pagedLocks.PageSize) % s.pagedLocks.Count
+	return (id / s.PagedLocks.PageSize) % s.PagedLocks.Count
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {
@@ -267,23 +266,23 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 }
 
 func (s *PagedLockCache[T]) LockAll() {
-	s.pagedLocks.LockAll()
+	s.PagedLocks.LockAll()
 }
 
 func (s *PagedLockCache[T]) UnlockAll() {
-	s.pagedLocks.UnlockAll()
+	s.PagedLocks.UnlockAll()
 }
 
 func (s *PagedLockCache[T]) Prefetch(id uint64) {
-	s.pagedLocks.RLock(id)
-	defer s.pagedLocks.RUnlock(id)
+	s.PagedLocks.RLock(id)
+	defer s.PagedLocks.RUnlock(id)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
 func (s *PagedLockCache[T]) Preload(id uint64, vec []T) {
-	s.pagedLocks.Lock(id)
-	defer s.pagedLocks.Unlock(id)
+	s.PagedLocks.Lock(id)
+	defer s.PagedLocks.Unlock(id)
 
 	atomic.AddInt64(&s.count, 1)
 	s.cache[id] = vec
@@ -322,8 +321,8 @@ func (s *PagedLockCache[T]) Grow(node uint64) {
 		return
 	}
 
-	s.pagedLocks.LockAll()
-	defer s.pagedLocks.UnlockAll()
+	s.PagedLocks.LockAll()
+	defer s.PagedLocks.UnlockAll()
 
 	newSize := node + MinimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
@@ -350,8 +349,8 @@ func (s *PagedLockCache[T]) Drop() {
 }
 
 func (s *PagedLockCache[T]) deleteAllVectors() {
-	s.pagedLocks.LockAll()
-	defer s.pagedLocks.UnlockAll()
+	s.PagedLocks.LockAll()
+	defer s.PagedLocks.UnlockAll()
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")

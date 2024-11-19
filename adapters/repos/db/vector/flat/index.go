@@ -556,8 +556,8 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	}
 	all := index.bqCache.Len()
 
-	out := make([][]uint64, 32)
-	errs := make([]error, 32)
+	out := make([][]uint64, index.bqCache.PagedLocks.PageSize)
+	errs := make([]error, index.bqCache.PagedLocks.PageSize)
 
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
@@ -591,22 +591,6 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 		}
 	}
 
-	// for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
-	// 	if allow == nil || allow.Contains(id) {
-	// 		vec, err := index.bqCache.Get(context.Background(), id)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 		if len(vec) == 0 {
-	// 			continue
-	// 		}
-	// 		distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-	// 		if err != nil {
-	// 			return err
-	// 		}
-	// 		index.insertToHeap(heap, limit, id, distance)
-	// 	}
-	// }
 	return nil
 }
 
