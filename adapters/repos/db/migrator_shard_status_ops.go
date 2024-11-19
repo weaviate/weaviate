@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.SafeErrorCompounder) {
+func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *errorcompounder.SafeErrorCompounder) {
 	if m.cluster == nil {
 		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
 		return
@@ -40,7 +40,7 @@ func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.SafeE
 	for _, name := range frozen {
 		name := name
 		eg.Go(func() error {
-			shard, release, err := idx.getLocalShardNoShutdown(name)
+			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {
 				ec.Add(err)
 				return nil
@@ -101,7 +101,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		uidx := uidx
 		eg.Go(func() error {
 			originalStatus := models.TenantActivityStatusHOT
-			shard, release, err := idx.getLocalShardNoShutdown(name)
+			shard, release, err := idx.getOrInitShard(ctx, name)
 			if err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "get_local_shard_no_shutdown",
