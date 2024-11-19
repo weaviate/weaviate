@@ -5,7 +5,6 @@ from weaviate.rbac.models import (
     RBAC,
     RolesAction,
     CollectionsAction,
-    CollectionsDataAction,
 )
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
@@ -33,12 +32,10 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collections(
-                    collection=col1.name, actions=CollectionsAction.READ
-                )
-                + RBAC.permissions.collections_data(
-                    collection=col1.name, actions=CollectionsDataAction.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.read(collection=col1.name),
+                    RBAC.permissions.collections.objects.read(collection=col1.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name_role)
 
@@ -58,7 +55,7 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.roles(actions=RolesAction.READ),
+                permissions=RBAC.permissions.roles.read(),
             )
             client.roles.assign(user="custom-user", roles=name_role)
 
@@ -77,8 +74,8 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collections(
-                    collection=col2.name, actions=CollectionsAction.READ
+                permissions=RBAC.permissions.collections.read(
+                    collection=col2.name,
                 ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
@@ -99,8 +96,8 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collections(
-                    collection=col1.name, actions=CollectionsAction.READ
+                permissions=RBAC.permissions.collections.read(
+                    collection=col1.name,
                 ),
             )
             client.roles.assign(user="custom-user", roles=name_role)
@@ -122,9 +119,7 @@ def test_rbac_search(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name_role,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col1.name, actions=CollectionsDataAction.READ
-                ),
+                permissions=RBAC.permissions.collections.objects.read(collection=col1.name),
             )
             client.roles.assign(user="custom-user", roles=name_role)
 
