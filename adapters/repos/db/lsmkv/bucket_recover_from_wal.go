@@ -17,11 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
+
+var logOnceWhenRecoveringFromWAL sync.Once
 
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	beforeAll := time.Now()
@@ -70,9 +73,14 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			return err
 		}
 
+		logOnceWhenRecoveringFromWAL.Do(func() {
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+		})
+
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
 			WithField("path", path).
-			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
+			Debug("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
 
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 
