@@ -21,8 +21,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadata/proto/api"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
@@ -30,20 +28,16 @@ import (
 type Server struct {
 	grpcServer                *grpc.Server
 	listenAddress             string
-	grpcMessageMaxSize        int
-	sentryEnabled             bool
 	querierManager            *QuerierManager
 	dataEventsChannelCapacity int
 	log                       *logrus.Logger
 }
 
-func NewServer(listenAddress string, grpcMessageMaxSize int,
-	sentryEnabled bool, querierManager *QuerierManager, dataEventsChannelCapacity int, log *logrus.Logger,
+func NewServer(listenAddress string, querierManager *QuerierManager, dataEventsChannelCapacity int,
+	log *logrus.Logger,
 ) *Server {
 	return &Server{
 		listenAddress:             listenAddress,
-		grpcMessageMaxSize:        grpcMessageMaxSize,
-		sentryEnabled:             sentryEnabled,
 		querierManager:            querierManager,
 		dataEventsChannelCapacity: dataEventsChannelCapacity,
 		log:                       log,
@@ -54,27 +48,7 @@ func NewServer(listenAddress string, grpcMessageMaxSize int,
 // Returns an error if the configured listenAddress is invalid.
 // Returns an error if the configured listenAddress is un-usable to listen on.
 // When the passed in context is cancelled, the server will stop.
-func (s *Server) Serve(ctx context.Context) error {
-	s.log.WithField("address", s.listenAddress).Info("starting metadata rpc server ...")
-	if s.listenAddress == "" {
-		return fmt.Errorf("address of rpc server cannot be empty")
-	}
-
-	// use ListenConfig so we can pass a context to Listen
-	lc := &net.ListenConfig{}
-	listener, err := lc.Listen(ctx, "tcp", s.listenAddress)
-	if err != nil {
-		return fmt.Errorf("server tcp net.listen: %w", err)
-	}
-
-	var options []grpc.ServerOption
-	options = append(options, grpc.MaxRecvMsgSize(s.grpcMessageMaxSize))
-	if s.sentryEnabled {
-		options = append(options,
-			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
-				grpc_sentry.UnaryServerInterceptor(),
-			)))
-	}
+func (s *Server) Serve(ctx context.Context, listener net.Listener, options []grpc.ServerOption) error {
 	s.grpcServer = grpc.NewServer(options...)
 	api.RegisterMetadataServiceServer(s.grpcServer, s)
 
