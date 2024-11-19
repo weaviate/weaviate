@@ -365,7 +365,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	vectorRepo = repo
 	// migrator = vectorMigrator
-	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
+	// appState.ServerConfig.Config)
+	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), &traverser.ExplorerConfig{
+		QueryDefaultLimit: int(appState.ServerConfig.Config.QueryDefaults.Limit),
+		QueryMaxResults:   int(appState.ServerConfig.Config.QueryMaximumResults),
+	})
+
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.

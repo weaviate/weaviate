@@ -57,7 +57,7 @@ type SchemaQuerier interface {
 	// TenantStatus returns (STATUS, VERSION) tuple
 	TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
-	Schema(ctx context.Context) (schema.Schema, error)
+	Schema(ctx context.Context) (*schema.Schema, error)
 }
 
 func NewAPI(

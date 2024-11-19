@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const (
@@ -46,6 +47,11 @@ func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 		schemaPrefix: schemaPrefix,
 		client:       c,
 	}
+}
+
+func (t *SchemaInfo) Schema(ctx context.Context) (*schema.Schema, error) {
+	// TODO(kavi): implement based on schema endpoint
+	panic("not implemented")
 }
 
 func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error) {

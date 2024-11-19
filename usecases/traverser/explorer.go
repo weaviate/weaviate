@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
@@ -54,7 +53,7 @@ type Explorer struct {
 	nearParamsVector  *nearParamsVector
 	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
-	config            config.Config
+	config            *ExplorerConfig
 }
 
 type explorerMetrics interface {
@@ -99,7 +98,7 @@ type objectsSearcher interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf config.Config) *Explorer {
+func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf *ExplorerConfig) *Explorer {
 	return &Explorer{
 		searcher:          searcher,
 		logger:            logger,
@@ -110,6 +109,11 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesPro
 		targetParamHelper: NewTargetParamHelper(),
 		config:            conf,
 	}
+}
+
+type ExplorerConfig struct {
+	QueryDefaultLimit int
+	QueryMaxResults   int
 }
 
 func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
@@ -333,12 +337,12 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	}
 
 	if pagination.Limit == -1 {
-		return int(e.config.QueryDefaults.Limit + int64(pagination.Offset)), nil
+		return e.config.QueryDefaultLimit + pagination.Offset, nil
 	}
 
 	totalLimit := pagination.Offset + pagination.Limit
 
-	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
+	return MinInt(totalLimit, e.config.QueryMaxResults), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,

@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -45,14 +46,23 @@ type GRPC struct {
 	getClass func(name string) *models.Class
 }
 
-func NewGRPC(api *API, schema SchemaQuerier, getClass func(name string) *models.Class, log logrus.FieldLogger) *GRPC {
+func NewGRPC(api *API, schema SchemaQuerier, log logrus.FieldLogger) *GRPC {
+	getClass := func(name string) *models.Class {
+		// Terrible idea. Come back later
+		c, _ := schema.Collection(context.Background(), name)
+		return c
+	}
+
+	parser := v1.NewParser(false, getClass)
+	replier := v1.NewReplier(false, false, false, generative.NewParser(false), log)
+
 	return &GRPC{
 		api:      api,
 		log:      log,
 		schema:   schema,
-		parser:   v1.NewParser(false, getClass),
+		parser:   parser,
 		getClass: getClass,
-		replier:  v1.NewReplier(false, false, false, nil, log),
+		replier:  replier,
 	}
 }
 
@@ -77,12 +87,12 @@ func (g *GRPC) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchRep
 	return g.encode(res, vectors, params, start, schema)
 }
 
-func (g *GRPC) encode(res []search.Result, vectors []float32, params dto.GetParams, searchStart time.Time, schema schema.Schema) (*pb.SearchReply, error) {
+func (g *GRPC) encode(res []search.Result, vectors []float32, params dto.GetParams, searchStart time.Time, schema *schema.Schema) (*pb.SearchReply, error) {
 	resp, err := g.api.explorer.SearchResultsToGetResponse(context.Background(), res, vectors, params)
 	if err != nil {
 		return nil, err
 	}
-	return g.replier.Search(resp, searchStart, params, schema)
+	return g.replier.Search(resp, searchStart, params, *schema)
 }
 
 func (g *GRPC) decode(req *pb.SearchRequest) (dto.GetParams, error) {

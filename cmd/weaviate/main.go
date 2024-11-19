@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/query"
@@ -31,7 +32,9 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -97,12 +100,20 @@ func main() {
 			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
 		}
 
+		searcher := db.NewSearcher(&db.SearchConfig{QueryMaximumResults: 1000, QueryLimit: 1000}, log, opts.Query.DataPath)
+
+		e := traverser.NewExplorer(searcher, log, modules.NewProvider(log), nil, &traverser.ExplorerConfig{
+			QueryMaxResults:   1000,
+			QueryDefaultLimit: 100,
+		})
+
 		a := query.NewAPI(
 			schemaInfo,
 			lsm,
 			vectorizer.New(vclient),
 			detectStopwords,
 			&opts.Query,
+			e,
 			log,
 		)
 

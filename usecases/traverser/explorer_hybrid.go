@@ -88,7 +88,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 		vector = searchVectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	results, err := e.SearchResultsToGetResponseWithType(ctx, partialResults, vector, params)
 	if err != nil {
 		return nil, "", err
 	}
@@ -162,7 +162,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		vector = vectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
+	results, err := e.SearchResultsToGetResponseWithType(ctx, partialResults, vector, params)
 	if err != nil {
 		return nil, "", err
 	}

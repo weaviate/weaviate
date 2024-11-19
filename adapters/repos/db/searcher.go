@@ -25,13 +25,24 @@ import (
 var ErrIndexNotFound = errors.New("searcher: index not found")
 
 type Searcher struct {
-	log logrus.FieldLogger
-	// instead of creating on the fly?
-	cacheref *refcache.Cacher
-	config   SearchConfig
+	log    logrus.FieldLogger
+	config *SearchConfig
+
+	// basePath where all the collection/tenant data is available.
+	// we lazy load (class,tenant) data into index on demand.
+	basePath string
 
 	// map["collection"] -> Index
 	indices map[string]ReadIndex
+}
+
+func NewSearcher(conf *SearchConfig, log logrus.FieldLogger, basePath string) *Searcher {
+	return &Searcher{
+		config:   conf,
+		log:      log,
+		basePath: basePath,
+		indices:  make(map[string]ReadIndex),
+	}
 }
 
 func (s *Searcher) GetIndex(id string) (ReadIndex, error) {
@@ -89,7 +100,7 @@ type ReadIndex interface {
 
 type SearchConfig struct {
 	QueryMaximumResults int
-	QueryLimit          int
+	QueryLimit          int // no idea what's the diff between these two.
 }
 
 func (s *Searcher) MultiGet(ctx context.Context,
