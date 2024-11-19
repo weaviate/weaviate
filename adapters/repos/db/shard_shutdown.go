@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 /*
@@ -48,20 +48,20 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return
 	}
 
-	if err = s.GetPropertyLengthTracker().Close(); err != nil {
-		return errors.Wrap(err, "close prop length tracker")
-	}
+	ec := errorcompounder.New()
+
+	err = s.GetPropertyLengthTracker().Close()
+	ec.AddWrap(err, "close prop length tracker")
 
 	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.compactionAuxCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-	).Unregister(ctx); err != nil {
-		return err
-	}
+	).Unregister(ctx)
+	ec.Add(err)
 
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
@@ -73,10 +73,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
-			if err = queue.Close(); err != nil {
-				return fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err)
+			err := queue.Close()
+			if err != nil {
+				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 			}
 		}
+
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			if vectorIndex == nil {
 				// a nil-vector index during shutdown would indicate that the shard was not
@@ -84,17 +86,20 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				continue
 			}
 
-			if err = vectorIndex.Flush(); err != nil {
-				return fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err)
+			err := vectorIndex.Flush()
+			if err != nil {
+				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
 			}
-			if err = vectorIndex.Shutdown(ctx); err != nil {
-				return fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err)
+
+			err = vectorIndex.Shutdown(ctx)
+			if err != nil {
+				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
 			}
 		}
 	} else {
-		if err = s.queue.Close(); err != nil {
-			return errors.Wrap(err, "shut down vector index queue")
-		}
+		err = s.queue.Close()
+		ec.AddWrap(err, "shut down vector index queue")
+
 		if s.vectorIndex != nil {
 			// a nil-vector index during shutdown would indicate that the shard was not
 			// fully initialized, the vector index shutdown becomes a no-op
@@ -104,21 +109,19 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			// 'RemoveTombstone' entry is not picked up on restarts
 			// resulting in perpetually attempting to remove a tombstone
 			// which doesn't actually exist anymore
-			if err = s.vectorIndex.Flush(); err != nil {
-				return errors.Wrap(err, "flush vector index commitlog")
-			}
-			if err = s.vectorIndex.Shutdown(ctx); err != nil {
-				return errors.Wrap(err, "shut down vector index")
-			}
+			err = s.vectorIndex.Flush()
+			ec.AddWrap(err, "flush vector index commitlog")
+
+			err = s.vectorIndex.Shutdown(ctx)
+			ec.AddWrap(err, "shut down vector index")
 		}
 	}
 
 	if s.store != nil {
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
-		if err = s.store.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "stop lsmkv store")
-		}
+		err = s.store.Shutdown(ctx)
+		ec.AddWrap(err, "stop lsmkv store")
 	}
 
 	if s.dimensionTrackingInitialized.Load() {
@@ -128,7 +131,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		s.stopDimensionTracking <- struct{}{}
 	}
 
-	return nil
+	return ec.ToError()
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {
