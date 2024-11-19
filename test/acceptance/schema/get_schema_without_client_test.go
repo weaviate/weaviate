@@ -45,6 +45,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"flatSearchCutoff":       float64(40000),
 					"ef":                     float64(-1),
 					"maxConnections":         float64(32),
+					"multivector":            false,
 					"vectorCacheMaxObjects":  float64(1e12),
 					"dynamicEfMin":           float64(100),
 					"dynamicEfMax":           float64(500),
