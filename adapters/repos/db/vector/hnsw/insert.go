@@ -181,7 +181,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				level: levels[j],
 			}
 
-			err := h.addOneMultiple(ctx, vector, node, docID, uint64(j))
+			err := h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}
@@ -262,7 +262,15 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	if h.compressed.Load() {
 		h.compressor.Preload(node.id, vector)
 	} else {
-		h.cache.Preload(node.id, vector)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, vector)
+		} else {
+			h.RLock()
+			docId := h.vectorDocIDMap[node.id]
+			relativeId := h.relativeIDMap[node.id]
+			h.RUnlock()
+			h.cache.PreloadMultiple(docId, relativeId, vector)
+		}
 	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
@@ -285,124 +293,6 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(ctx, node, entryPointID, vector, distancer,
-		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
-		return errors.Wrap(err, "find and connect neighbors")
-	}
-
-	h.insertMetrics.findAndConnectTotal(before)
-	before = time.Now()
-
-	node.unmarkAsMaintenance()
-
-	h.RLock()
-	if targetLevel > h.currentMaximumLayer {
-		h.RUnlock()
-		h.Lock()
-		// check again to avoid changes from RUnlock to Lock again
-		if targetLevel > h.currentMaximumLayer {
-			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
-				h.Unlock()
-				return err
-			}
-
-			h.entryPointID = nodeId
-			h.currentMaximumLayer = targetLevel
-		}
-		h.Unlock()
-	} else {
-		h.RUnlock()
-	}
-
-	return nil
-}
-
-func (h *hnsw) addOneMultiple(ctx context.Context, vector []float32, node *vertex, docID uint64, relativeID uint64) error {
-	h.compressActionLock.RLock()
-	h.deleteVsInsertLock.RLock()
-
-	before := time.Now()
-
-	defer func() {
-		h.deleteVsInsertLock.RUnlock()
-		h.compressActionLock.RUnlock()
-		h.insertMetrics.updateGlobalEntrypoint(before)
-	}()
-
-	wasFirst := false
-	var firstInsertError error
-	h.initialInsertOnce.Do(func() {
-		if h.isEmpty() {
-			wasFirst = true
-			firstInsertError = h.insertInitialElementMultiple(node, vector, docID, relativeID)
-		}
-	})
-	if wasFirst {
-		if firstInsertError != nil {
-			return firstInsertError
-		}
-		return nil
-	}
-
-	node.markAsMaintenance()
-
-	h.RLock()
-	// initially use the "global" entrypoint which is guaranteed to be on the
-	// currently highest layer
-	entryPointID := h.entryPointID
-	// initially use the level of the entrypoint which is the highest level of
-	// the h-graph in the first iteration
-	currentMaximumLayer := h.currentMaximumLayer
-	h.RUnlock()
-
-	targetLevel := node.level
-	node.connections = make([][]uint64, targetLevel+1)
-
-	for i := targetLevel; i >= 0; i-- {
-		capacity := h.maximumConnections
-		if i == 0 {
-			capacity = h.maximumConnectionsLayerZero
-		}
-
-		node.connections[i] = make([]uint64, 0, capacity)
-	}
-
-	if err := h.commitLog.AddNode(node); err != nil {
-		return err
-	}
-
-	nodeId := node.id
-
-	h.shardedNodeLocks.Lock(nodeId)
-	h.nodes[nodeId] = node
-	h.shardedNodeLocks.Unlock(nodeId)
-
-	if h.compressed.Load() {
-		h.compressor.Preload(node.id, vector)
-	} else {
-		// h.cache.Preload(node.id, vector)
-		h.cache.PreloadMultiple(docID, relativeID, vector)
-	}
-
-	h.insertMetrics.prepareAndInsertNode(before)
-	before = time.Now()
-
-	var err error
-	var distancer compressionhelpers.CompressorDistancer
-	var returnFn compressionhelpers.ReturnDistancerFn
-	if h.compressed.Load() {
-		distancer, returnFn = h.compressor.NewDistancer(vector)
-		defer returnFn()
-	}
-	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
-		entryPointID, vector, distancer)
-	if err != nil {
-		return errors.Wrap(err, "find best entrypoint")
-	}
-
-	h.insertMetrics.findEntrypoint(before)
-	before = time.Now()
-
 	if err := h.findAndConnectNeighbors(ctx, node, entryPointID, vector, distancer,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
@@ -473,44 +363,13 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	if h.compressed.Load() {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
-		h.cache.Preload(node.id, nodeVec)
-	}
-
-	// go h.insertHook(node.id, 0, node.connections)
-	return nil
-}
-
-func (h *hnsw) insertInitialElementMultiple(node *vertex, nodeVec []float32, docID uint64, vecID uint64) error {
-	h.Lock()
-	defer h.Unlock()
-
-	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
-		return err
-	}
-
-	h.entryPointID = node.id
-	h.currentMaximumLayer = 0
-	node.connections = [][]uint64{
-		make([]uint64, 0, h.maximumConnectionsLayerZero),
-	}
-	node.level = 0
-	if err := h.commitLog.AddNode(node); err != nil {
-		return err
-	}
-
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
-	if err != nil {
-		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
-	}
-
-	h.shardedNodeLocks.Lock(node.id)
-	h.nodes[node.id] = node
-	h.shardedNodeLocks.Unlock(node.id)
-
-	if h.compressed.Load() {
-		h.compressor.Preload(node.id, nodeVec)
-	} else {
-		h.cache.PreloadMultiple(docID, vecID, nodeVec)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, nodeVec)
+		} else {
+			docId := h.vectorDocIDMap[node.id]
+			relativeId := h.relativeIDMap[node.id]
+			h.cache.PreloadMultiple(docId, relativeId, nodeVec)
+		}
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)

@@ -436,9 +436,9 @@ func (s *shardedMultipleLockCache) All() [][]float32 {
 }
 
 func (s *shardedMultipleLockCache) GetMultiple(ctx context.Context, docID uint64, vecID uint64) ([]float32, error) {
-	s.shardedLocks.RLock(docID + vecID)
+	s.shardedLocks.RLock(docID)
 	vec := s.cache[docID][vecID]
-	s.shardedLocks.RUnlock(docID + vecID)
+	s.shardedLocks.RUnlock(docID)
 
 	if vec != nil {
 		return vec, nil
@@ -479,9 +479,9 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.shardedLocks.Lock(docID + vecID)
+	s.shardedLocks.Lock(docID)
 	s.cache[docID][vecID] = vec
-	s.shardedLocks.Unlock(docID + vecID)
+	s.shardedLocks.Unlock(docID)
 
 	return vec, nil
 }
@@ -491,9 +491,9 @@ func (s *shardedMultipleLockCache) MultiGetMultiple(ctx context.Context, docIDs 
 	errs := make([]error, len(vecIDs))
 
 	for i, id := range vecIDs {
-		s.shardedLocks.RLock(docIDs[i] + id)
+		s.shardedLocks.RLock(docIDs[i])
 		vec := s.cache[docIDs[i]][id]
-		s.shardedLocks.RUnlock(docIDs[i] + id)
+		s.shardedLocks.RUnlock(docIDs[i])
 
 		if vec == nil {
 			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, docIDs[i], id)
@@ -520,15 +520,15 @@ func (s *shardedMultipleLockCache) Prefetch(id uint64) {
 }
 
 func (s *shardedMultipleLockCache) PrefetchMultiple(docID uint64, vecID uint64) {
-	s.shardedLocks.RLock(docID + vecID)
-	defer s.shardedLocks.RUnlock(docID + vecID)
+	s.shardedLocks.RLock(docID)
+	defer s.shardedLocks.RUnlock(docID)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[docID][vecID])))
 }
 
 func (s *shardedMultipleLockCache) PreloadMultiple(docID uint64, vecID uint64, vec []float32) {
-	s.shardedLocks.Lock(docID + vecID)
-	defer s.shardedLocks.Unlock(docID + vecID)
+	s.shardedLocks.Lock(docID)
+	defer s.shardedLocks.Unlock(docID)
 
 	atomic.AddInt64(&s.count, 1)
 	s.cache[docID][vecID] = vec
