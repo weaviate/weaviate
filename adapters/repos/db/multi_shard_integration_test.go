@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -711,7 +712,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(className, true), nil, "", 0)
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(className, true), time.Now(), nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -723,7 +724,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, beforeDelete, len(res))
 			// dryRun == false, perform actual delete
-			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(className, false), nil, "", 0)
+			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(className, false), time.Now(), nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))

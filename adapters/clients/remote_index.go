@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -256,9 +257,9 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, schemaVersion uint64,
+	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s/%d", indexName, shardName, id, deletionTime.UnixMilli())
 	method := http.MethodDelete
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
@@ -521,7 +522,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
@@ -533,7 +534,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
 
-	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
+	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, deletionTime, dryRun)
 	if err != nil {
 		err := errors.Wrap(err, "marshal payload")
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}

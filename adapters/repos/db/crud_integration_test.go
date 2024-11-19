@@ -918,7 +918,7 @@ func TestCRUD(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "", 0)
+			err := repo.DeleteObject(context.Background(), td.className, td.id, time.Now(), nil, "", 0)
 			assert.Nil(t, err)
 		}
 	})
@@ -972,19 +972,19 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil, "", 0)
+		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, time.Now(), nil, "", 0)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("deleting a action again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil, "", 0)
+		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, time.Now(), nil, "", 0)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil, "", 0)
+		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, time.Now(), nil, "", 0)
 
 		assert.Equal(t, fmt.Errorf(
 			"delete from non-existing index for WrongClass"), err)
@@ -1518,7 +1518,7 @@ func TestCRUD_Query(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "", 0)
+			err := repo.DeleteObject(context.Background(), td.className, td.id, time.Now(), nil, "", 0)
 			assert.Nil(t, err)
 		}
 	})
