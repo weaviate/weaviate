@@ -131,7 +131,8 @@ func TestRaftEndpoints(t *testing.T) {
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusHOT,
 		},
-		DataVersion: &zero,
+		BelongsToNodes: []string{},
+		DataVersion:    &zero,
 	}}, getTenantsAll)
 
 	// QueryTenants one
@@ -143,7 +144,8 @@ func TestRaftEndpoints(t *testing.T) {
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusHOT,
 		},
-		DataVersion: &zero,
+		BelongsToNodes: []string{},
+		DataVersion:    &zero,
 	}}, getTenantsOne)
 
 	// QueryTenants one
@@ -446,7 +448,8 @@ func TestRaftQueryDataVersion(t *testing.T) {
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusHOT,
 		},
-		DataVersion: &zero,
+		BelongsToNodes: []string{},
+		DataVersion:    &zero,
 	}}, getTenantsAll)
 
 	// freeze tenant to trigger data version increment
@@ -477,6 +480,7 @@ func TestRaftQueryDataVersion(t *testing.T) {
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusFROZEN,
 		},
-		DataVersion: &one,
+		BelongsToNodes: []string{},
+		DataVersion:    &one,
 	}}, getTenantsAll2)
 }
