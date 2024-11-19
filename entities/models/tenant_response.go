@@ -31,6 +31,9 @@ import (
 type TenantResponse struct {
 	Tenant
 
+	// The list of nodes that owns that tenant data.
+	BelongsToNodes []string `json:"belongsToNodes"`
+
 	// Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.
 	// Example: 3
 	// Minimum: 0
@@ -48,11 +51,15 @@ func (m *TenantResponse) UnmarshalJSON(raw []byte) error {
 
 	// AO1
 	var dataAO1 struct {
+		BelongsToNodes []string `json:"belongsToNodes"`
+
 		DataVersion *int64 `json:"dataVersion,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
+
+	m.BelongsToNodes = dataAO1.BelongsToNodes
 
 	m.DataVersion = dataAO1.DataVersion
 
@@ -69,8 +76,12 @@ func (m TenantResponse) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 	var dataAO1 struct {
+		BelongsToNodes []string `json:"belongsToNodes"`
+
 		DataVersion *int64 `json:"dataVersion,omitempty"`
 	}
+
+	dataAO1.BelongsToNodes = m.BelongsToNodes
 
 	dataAO1.DataVersion = m.DataVersion
 
