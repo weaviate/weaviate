@@ -89,8 +89,8 @@ func (d *DiskCache) Tenant(collection, tenantID string) (*TenantCache, error) {
 
 // AddTenant is called after having the files in right directory
 // AddTenant checks if file is present on that directory
-// deterministically generated from `collection` & `tenant` with basePath
-func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error {
+// deterministically generated from `collection` & `tenant` & `version` with basePath
+func (d *DiskCache) AddTenant(collection, tenantID string, version int64) error {
 	timer := prometheus.NewTimer(d.metrics.OpsDuration.WithLabelValues(collection, tenantID, "put")) // "put" is the operation type, meaning the write path of the cache.
 	defer timer.ObserveDuration()
 
@@ -179,7 +179,7 @@ func (d *DiskCache) TenantKey(collection, tenantID string) string {
 type TenantCache struct {
 	Collection   string
 	TenantID     string
-	Version      uint64
+	Version      int64
 	LastAccessed time.Time
 
 	basePath string
