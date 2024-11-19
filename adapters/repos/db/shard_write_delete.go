@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -51,7 +52,11 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
-	err = bucket.Delete(idBytes)
+	if deletionTime.IsZero() {
+		err = bucket.Delete(idBytes)
+	} else {
+		err = bucket.DeleteWith(idBytes, deletionTime)
+	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
@@ -112,11 +117,18 @@ func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv
 	return bucket, existing, uid, docID, nil
 }
 
-func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
+func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64, deletionTime time.Time) error {
 	if obj == nil || bucket == nil {
 		return nil
 	}
-	err := bucket.Delete(idBytes)
+
+	var err error
+
+	if deletionTime.IsZero() {
+		err = bucket.Delete(idBytes)
+	} else {
+		err = bucket.DeleteWith(idBytes, deletionTime)
+	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
