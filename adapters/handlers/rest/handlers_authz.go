@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -24,17 +25,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type authZHandlers struct {
-	authorizer authorization.Authorizer
-	controller authorization.Controller
-	logger     logrus.FieldLogger
-	metrics    *monitoring.PrometheusMetrics
+	authorizer   authorization.Authorizer
+	controller   authorization.Controller
+	schemaReader schemaUC.SchemaGetter
+	logger       logrus.FieldLogger
+	metrics      *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Controller, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, logger: logger, metrics: metrics}
+func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -60,8 +63,8 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	if err := h.validatePermissions(params.Body.Permissions); err != nil {
+		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	policies, err := conv.RolesToPolicies(params.Body)
@@ -105,8 +108,8 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	if err := h.validatePermissions(params.Body.Permissions); err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
@@ -144,6 +147,9 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
+	// we don't validate permissions entity existence
+	// in case of the permissions gets removed after the entity got removed
+	// delete class ABC, then remove permissions on class ABC
 	if len(params.Body.Permissions) == 0 {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
@@ -393,4 +399,58 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	}).Info("roles revoked")
 
 	return authz.NewRevokeRoleOK()
+}
+
+func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
+	if len(permissions) == 0 {
+		return fmt.Errorf("role has to have at least 1 permission")
+	}
+
+	for _, perm := range permissions {
+		if perm == nil {
+			continue
+		}
+
+		// collection filtration
+		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" {
+			if class := h.schemaReader.ReadOnlyClass(*perm.Collection); class == nil {
+				return fmt.Errorf("collection %s doesn't exists", *perm.Collection)
+			}
+		}
+
+		// tenants filtration specific collection, specific tenant
+		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
+			if err != nil {
+				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
+			}
+
+			if _, ok := shardsStatus[*perm.Tenant]; !ok {
+				return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+			}
+		}
+
+		// tenants filtration all collections, specific tenant
+		if (perm.Collection == nil || *perm.Collection == "" || *perm.Collection == "*") && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+			schema := h.schemaReader.GetSchemaSkipAuth()
+			for _, class := range schema.Objects.Classes {
+				state := h.schemaReader.CopyShardingState(class.Class)
+				if state == nil {
+					continue
+				}
+				if _, ok := state.Physical[*perm.Tenant]; ok {
+					// exists
+					return nil
+				}
+			}
+			return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+		}
+
+		// TODO validate mapping filter to weaviate permissions
+		// TODO users checking
+		// TODO roles checking
+		// TODO object checking
+	}
+
+	return nil
 }
