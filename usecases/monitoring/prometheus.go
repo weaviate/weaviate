@@ -18,11 +18,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const (
+	// DefaultMetricsNamespace is used to group the weaviate metrics with common prefix.
+	DefaultMetricsNamespace = "weaviate"
+)
+
 type Config struct {
-	Enabled bool   `json:"enabled" yaml:"enabled" long:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port" long:"port" default:"8081"`
-	Group   bool   `json:"group_classes" yaml:"group_classes"`
+	Enabled                    bool   `json:"enabled" yaml:"enabled" long:"enabled"`
+	Tool                       string `json:"tool" yaml:"tool"`
+	Port                       int    `json:"port" yaml:"port" long:"port" default:"8081"`
+	Group                      bool   `json:"group_classes" yaml:"group_classes"`
+	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
 
 	// Metrics namespace group the metrics with common prefix.
 	// currently used only on ServerMetrics.
@@ -30,38 +36,40 @@ type Config struct {
 }
 
 type PrometheusMetrics struct {
-	BatchTime                         *prometheus.HistogramVec
-	BatchSizeBytes                    *prometheus.SummaryVec
-	BatchSizeObjects                  prometheus.Summary
-	BatchSizeTenants                  prometheus.Summary
-	BatchDeleteTime                   *prometheus.SummaryVec
-	BatchCount                        *prometheus.CounterVec
-	BatchCountBytes                   *prometheus.CounterVec
-	ObjectsTime                       *prometheus.SummaryVec
-	LSMBloomFilters                   *prometheus.SummaryVec
-	AsyncOperations                   *prometheus.GaugeVec
-	LSMSegmentCount                   *prometheus.GaugeVec
-	LSMSegmentCountByLevel            *prometheus.GaugeVec
-	LSMSegmentObjects                 *prometheus.GaugeVec
-	LSMSegmentSize                    *prometheus.GaugeVec
-	LSMMemtableSize                   *prometheus.GaugeVec
-	LSMMemtableDurations              *prometheus.SummaryVec
-	ObjectCount                       *prometheus.GaugeVec
-	QueriesCount                      *prometheus.GaugeVec
-	RequestsTotal                     *prometheus.GaugeVec
-	QueriesDurations                  *prometheus.HistogramVec
-	QueriesFilteredVectorDurations    *prometheus.SummaryVec
-	QueryDimensions                   *prometheus.CounterVec
-	QueryDimensionsCombined           prometheus.Counter
-	GoroutinesCount                   *prometheus.GaugeVec
-	BackupRestoreDurations            *prometheus.SummaryVec
-	BackupStoreDurations              *prometheus.SummaryVec
-	BucketPauseDurations              *prometheus.SummaryVec
-	BackupRestoreClassDurations       *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations *prometheus.SummaryVec
-	BackupRestoreDataTransferred      *prometheus.CounterVec
-	BackupStoreDataTransferred        *prometheus.CounterVec
+	BatchTime                           *prometheus.HistogramVec
+	BatchSizeBytes                      *prometheus.SummaryVec
+	BatchSizeObjects                    prometheus.Summary
+	BatchSizeTenants                    prometheus.Summary
+	BatchDeleteTime                     *prometheus.SummaryVec
+	BatchCount                          *prometheus.CounterVec
+	BatchCountBytes                     *prometheus.CounterVec
+	ObjectsTime                         *prometheus.SummaryVec
+	LSMBloomFilters                     *prometheus.SummaryVec
+	AsyncOperations                     *prometheus.GaugeVec
+	LSMSegmentCount                     *prometheus.GaugeVec
+	LSMObjectsBucketSegmentCount        *prometheus.GaugeVec
+	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
+	LSMSegmentCountByLevel              *prometheus.GaugeVec
+	LSMSegmentObjects                   *prometheus.GaugeVec
+	LSMSegmentSize                      *prometheus.GaugeVec
+	LSMMemtableSize                     *prometheus.GaugeVec
+	LSMMemtableDurations                *prometheus.SummaryVec
+	ObjectCount                         *prometheus.GaugeVec
+	QueriesCount                        *prometheus.GaugeVec
+	RequestsTotal                       *prometheus.GaugeVec
+	QueriesDurations                    *prometheus.HistogramVec
+	QueriesFilteredVectorDurations      *prometheus.SummaryVec
+	QueryDimensions                     *prometheus.CounterVec
+	QueryDimensionsCombined             prometheus.Counter
+	GoroutinesCount                     *prometheus.GaugeVec
+	BackupRestoreDurations              *prometheus.SummaryVec
+	BackupStoreDurations                *prometheus.SummaryVec
+	BucketPauseDurations                *prometheus.SummaryVec
+	BackupRestoreClassDurations         *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
+	BackupRestoreDataTransferred        *prometheus.CounterVec
+	BackupStoreDataTransferred          *prometheus.CounterVec
 
 	// offload metric
 
@@ -113,6 +121,9 @@ type PrometheusMetrics struct {
 	TombstoneDeleteListSize       *prometheus.GaugeVec
 
 	Group bool
+	// Keeping metering to only the critical buckets (objects, vectors_compressed)
+	// helps cut down on noise when monitoring
+	LSMCriticalBucketsOnly bool
 
 	// Deprecated metrics, keeping around because the classification features
 	// seems to sill use the old logic. However, those metrics are not actually
@@ -145,7 +156,7 @@ func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOfflo
 		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
 			Name:      "tenant_offload_operation_duration_seconds",
-			Buckets:   latencyBuckets,
+			Buckets:   LatencyBuckets,
 		}, []string{"operation", "status"}), // status can be "success" or "failure"
 	}
 }
@@ -172,13 +183,13 @@ func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
 			Namespace: cfg.MetricsNamespace,
 			Name:      "request_duration_seconds",
 			Help:      "Time (in seconds) spent serving HTTP requests.",
-			Buckets:   latencyBuckets,
+			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
 			Name:      "per_tenant_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
-			Buckets:   latencyBuckets,
+			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code", "tenant", "collection"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
@@ -299,13 +310,13 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 const mb = 1024 * 1024
 
 var (
-	// msBuckets and sBuckets are deprecated. Use `latencyBuckets` and `sizeBuckets` instead.
+	// msBuckets and sBuckets are deprecated. Use `LatencyBuckets` and `sizeBuckets` instead.
 	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
 	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
 
-	// latencyBuckets is default histogram bucket for response time (in seconds).
+	// LatencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
-	latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
 
 	// sizeBuckets defines buckets for request/response body sizes (in bytes).
 	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
@@ -320,6 +331,7 @@ func init() {
 
 func InitConfig(cfg Config) {
 	metrics.Group = cfg.Group
+	metrics.LSMCriticalBucketsOnly = cfg.MonitorCriticalBucketsOnly
 }
 
 func GetMetrics() *PrometheusMetrics {
@@ -405,6 +417,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
 			Help: "Number of currently present segments per shard",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMObjectsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_objects_bucket_segment_count",
+			Help: "Number of segments per shard in the objects bucket",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
+		LSMCompressedVecsBucketSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_compressed_vecs_bucket_segment_count",
+			Help: "Number of segments per shard in the vectors_compressed bucket",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMBloomFilters: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "lsm_bloom_filters_duration_ms",

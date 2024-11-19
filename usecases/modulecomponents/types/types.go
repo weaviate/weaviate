@@ -9,10 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package types
 
-type VectorizationConfig struct {
-	Model      string
-	BaseURL    string
-	Dimensions *int64
+// Just a temporary interface, there should be defined one Vector interface
+// in models to define the Vector type
+type Vector interface {
+	[]float32 | [][]float32
 }

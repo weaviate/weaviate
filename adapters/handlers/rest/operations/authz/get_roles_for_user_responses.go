@@ -37,7 +37,7 @@ type GetRolesForUserOK struct {
 	/*
 	  In: Body
 	*/
-	Payload []string `json:"body,omitempty"`
+	Payload models.RolesListResponse `json:"body,omitempty"`
 }
 
 // NewGetRolesForUserOK creates GetRolesForUserOK with default headers values
@@ -47,13 +47,13 @@ func NewGetRolesForUserOK() *GetRolesForUserOK {
 }
 
 // WithPayload adds the payload to the get roles for user o k response
-func (o *GetRolesForUserOK) WithPayload(payload []string) *GetRolesForUserOK {
+func (o *GetRolesForUserOK) WithPayload(payload models.RolesListResponse) *GetRolesForUserOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get roles for user o k response
-func (o *GetRolesForUserOK) SetPayload(payload []string) {
+func (o *GetRolesForUserOK) SetPayload(payload models.RolesListResponse) {
 	o.Payload = payload
 }
 
@@ -64,7 +64,7 @@ func (o *GetRolesForUserOK) WriteResponse(rw http.ResponseWriter, producer runti
 	payload := o.Payload
 	if payload == nil {
 		// return empty array
-		payload = make([]string, 0, 50)
+		payload = models.RolesListResponse{}
 	}
 
 	if err := producer.Produce(rw, payload); err != nil {

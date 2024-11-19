@@ -13,7 +13,6 @@ package metadata
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -23,44 +22,33 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadata/proto/api"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // testServerSetup gives you a ready to use Server and Logger and tells you which port
 // number to use.
-func testServerSetup(t *testing.T, ctx context.Context) (*Server, *logrus.Logger, int) {
+func testServerSetup(t *testing.T, ctx context.Context) (*Server, *logrus.Logger, *bufconn.Listener) {
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
-	// TODO replace real port with bufconn? This causes a firewall alert to trigger
-	addr, err := net.ResolveTCPAddr("tcp", ":0")
-	require.Nil(t, err)
-	l, err := net.ListenTCP("tcp", addr)
-	require.Nil(t, err)
-	port := func() int {
-		defer l.Close() // TODO test context based close
-		return l.Addr().(*net.TCPAddr).Port
-	}()
+	l := bufconn.Listen(1024 * 1024)
 
 	querierManager := NewQuerierManager(log)
-	server := NewServer(fmt.Sprintf(":%d", port), 1024*1024*1024, false, querierManager, 100, log)
+	server := NewServer("", querierManager, 100, log)
 	enterrors.GoWrapper(func() {
 		// TODO test context for shutdown instead of close
-		err = server.Serve(ctx)
-		require.Nil(t, err)
+		server.Serve(ctx, l, []grpc.ServerOption{})
 	}, log)
-	return server, log, port
+	return server, log, l
 }
 
 // testClientSetup gives you a ready to use Server and Logger and tells you which port
 // number to use.
-func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataService_QuerierStreamClient {
+func testClientSetup(t *testing.T, listener *bufconn.Listener, ctx context.Context) api.MetadataService_QuerierStreamClient {
 	// TODO replace DialContex with NewClient
 	//nolint:staticcheck
-	leaderRpcConn, err := grpc.DialContext(
-		ctx,
-		fmt.Sprintf(":%d", port),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	leaderRpcConn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+		return listener.Dial()
+	}), grpc.WithInsecure())
 	require.Nil(t, err)
 	c := api.NewMetadataServiceClient(leaderRpcConn)
 	client, err := c.QuerierStream(ctx)
@@ -71,8 +59,9 @@ func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataSe
 // TestServerNotifyRecv tests that notifying the server.querierManager of a classTenantDataEvent
 // propagates that to the client
 func TestServerNotifyRecv(t *testing.T) {
-	server, log, port := testServerSetup(t, context.Background())
-	client := testClientSetup(t, port, context.Background())
+	server, log, listener := testServerSetup(t, context.Background())
+	defer listener.Close()
+	client := testClientSetup(t, listener, context.Background())
 
 	notifyCh := make(chan ClassTenant)
 	enterrors.GoWrapper(func() {

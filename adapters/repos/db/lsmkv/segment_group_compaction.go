@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -503,11 +505,38 @@ func (sg *SegmentGroup) monitorSegments() {
 		return
 	}
 
+	// Keeping metering to only the critical buckets helps
+	// cut down on noise when monitoring
+	if sg.metrics.criticalBucketsOnly {
+		bucket := path.Base(sg.dir)
+		if bucket != helpers.ObjectsBucketLSM &&
+			bucket != helpers.VectorsCompressedBucketLSM {
+			return
+		}
+		if bucket == helpers.ObjectsBucketLSM {
+			sg.metrics.ObjectsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		if bucket == helpers.VectorsCompressedBucketLSM {
+			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		sg.reportSegmentStats()
+		return
+	}
+
 	sg.metrics.ActiveSegments.With(prometheus.Labels{
 		"strategy": sg.strategy,
 		"path":     sg.dir,
 	}).Set(float64(sg.Len()))
+	sg.reportSegmentStats()
+}
 
+func (sg *SegmentGroup) reportSegmentStats() {
 	stats := sg.segmentLevelStats()
 	stats.fillMissingLevels()
 	stats.report(sg.metrics, sg.strategy, sg.dir)
