@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package test
 
 import (
@@ -218,13 +229,13 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("add the read objects in book class and non-existant tenant permission", func(t *testing.T) {
+	t.Run("add the read objects in book class and non-existent tenant permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsTenant),
 				Collection: String("books"),
-				Tenant:     String("non-existant-tenant"),
+				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -240,13 +251,13 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
 	})
 
-	t.Run("remove the read objects in book class and non-existant tenant permission", func(t *testing.T) {
+	t.Run("remove the read objects in book class and non-existent tenant permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsTenant),
 				Collection: String("books"),
-				Tenant:     String("non-existant-tenant"),
+				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
