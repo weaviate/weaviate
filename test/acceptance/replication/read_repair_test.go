@@ -149,14 +149,17 @@ func readRepair(t *testing.T) {
 		require.EqualValues(t, replaceObj.Vector, resp.Vector)
 	})
 
+	t.Run("stop node2", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 2)
+	})
+
 	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
 	})
 
-	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-		require.Nil(t, err)
+	t.Run("restart node2", func(t *testing.T) {
+		startNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("deleted article should be present in node2", func(t *testing.T) {
