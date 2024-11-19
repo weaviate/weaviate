@@ -242,12 +242,6 @@ func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, 
 			errs[i-start] = err
 			vec = vecFromDisk
 		}
-		// for _, e := range vec {
-
-		// 	println(e)
-		// }
-		// fmt.Printf("out type: %T, vec type: %T\n", out, vec)
-		// fmt.Printf("i: %d, start: %d, len(out): %d\n", i, start, len(out))
 		out[i-start] = vec
 	}
 

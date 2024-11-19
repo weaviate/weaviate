@@ -567,23 +567,25 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 			vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
 
 			for i, vec := range vecs {
-				currentId := start + uint64(i)
+				if i < (int(end) - int(start)) {
+					currentId := start + uint64(i)
 
-				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+					if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
 
-					err := errs[i]
-					if err != nil {
-						return err
-					}
-					if len(vec) == 0 {
-						continue
-					}
-					distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-					if err != nil {
-						return err
-					}
-					index.insertToHeap(heap, limit, currentId, distance)
+						err := errs[i]
+						if err != nil {
+							return err
+						}
+						if len(vec) == 0 {
+							continue
+						}
+						distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+						if err != nil {
+							return err
+						}
+						index.insertToHeap(heap, limit, currentId, distance)
 
+					}
 				}
 			}
 
