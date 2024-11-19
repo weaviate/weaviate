@@ -46,6 +46,7 @@ type Queue interface {
 	ID() string
 	Size() int64
 	DequeueBatch() (batch *Batch, err error)
+	Metrics() *Metrics
 }
 
 type BeforeScheduleHook interface {
@@ -63,6 +64,7 @@ type DiskQueue struct {
 	id               string
 	dir              string
 	onBatchProcessed func()
+	metrics          *Metrics
 
 	// m protects the disk operations
 	m            sync.RWMutex
@@ -71,6 +73,7 @@ type DiskQueue struct {
 	w            *chunkWriter
 	r            *chunkReader
 	recordCount  uint64
+	diskUsage    int64
 
 	rmLock sync.Mutex
 }
@@ -87,6 +90,7 @@ type DiskQueueOptions struct {
 	StaleTimeout     time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func()
+	Metrics          *Metrics
 }
 
 func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
@@ -102,11 +106,14 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.TaskDecoder == nil {
 		return nil, errors.New("task decoder is required")
 	}
-
 	if opt.Logger == nil {
 		opt.Logger = logrus.New()
 	}
 	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
+
+	if opt.Metrics == nil {
+		opt.Metrics = NewMetrics(opt.Logger, nil, nil)
+	}
 	if opt.StaleTimeout <= 0 {
 		opt.StaleTimeout = 5 * time.Second
 	}
@@ -139,13 +146,15 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		Logger:           opt.Logger,
 		staleTimeout:     opt.StaleTimeout,
 		taskDecoder:      opt.TaskDecoder,
+		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
 		r:                r,
 		w:                w,
 	}
 
 	// determine the number of records stored on disk
-	q.recordCount, err = q.calculateRecordCount()
+	// and the disk usage
+	err = q.analyzeDisk()
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +189,16 @@ func (q *DiskQueue) Close() error {
 		return errors.Wrap(err, "failed to close chunk writer")
 	}
 
+	err = q.r.Close()
+	if err != nil {
+		return errors.Wrap(err, "failed to close chunk reader")
+	}
+
 	return nil
+}
+
+func (q *DiskQueue) Metrics() *Metrics {
+	return q.metrics
 }
 
 func (q *DiskQueue) ID() string {
@@ -229,12 +247,13 @@ func (q *DiskQueue) Push(record []byte) error {
 
 	q.lastPushTime = time.Now()
 
-	_, err = q.w.Write(buf.Bytes())
+	n, err := q.w.Write(buf.Bytes())
 	if err != nil {
 		return errors.Wrap(err, "failed to write record")
 	}
 
 	q.recordCount++
+	q.diskUsage += int64(n)
 
 	return nil
 }
@@ -374,15 +393,19 @@ func (q *DiskQueue) Size() int64 {
 	q.m.RLock()
 	defer q.m.RUnlock()
 
+	q.metrics.Size(q.recordCount)
+	q.metrics.DiskUsage(q.diskUsage)
 	return int64(q.recordCount)
 }
 
 func (q *DiskQueue) Pause() {
 	q.scheduler.PauseQueue(q.id)
+	q.metrics.Paused(q.id)
 }
 
 func (q *DiskQueue) Resume() {
 	q.scheduler.ResumeQueue(q.id)
+	q.metrics.Resumed(q.id)
 }
 
 func (q *DiskQueue) Wait() {
@@ -421,22 +444,24 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 
 	q.m.Lock()
 	q.recordCount -= c.count
+	q.diskUsage -= int64(c.size)
+	q.metrics.DiskUsage(q.diskUsage)
+	q.metrics.Size(q.recordCount)
 	q.m.Unlock()
 }
 
-// calculateRecordCount is a slow method that determines the number of records
-// stored on disk and in the partial chunk, by reading the header of all the files in the directory.
+// analyzeDisk is a slow method that determines the number of records
+// stored on disk and in the partial chunk by reading the header of all the files in the directory.
+// It also calculates the disk usage.
 // It is used when the queue is first initialized.
-func (q *DiskQueue) calculateRecordCount() (uint64, error) {
+func (q *DiskQueue) analyzeDisk() error {
 	q.m.Lock()
 	defer q.m.Unlock()
 
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
-		return 0, errors.Wrap(err, "failed to read directory")
+		return errors.Wrap(err, "failed to read directory")
 	}
-
-	var size uint64
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -445,17 +470,30 @@ func (q *DiskQueue) calculateRecordCount() (uint64, error) {
 
 		// read the header of the chunk file
 		if chunkFilePattern.Match([]byte(entry.Name())) {
-			count, err := q.readChunkRecordCount(filepath.Join(q.dir, entry.Name()))
+			fi, err := entry.Info()
 			if err != nil {
-				return 0, err
+				return errors.Wrap(err, "failed to get file info")
 			}
 
-			size += count
+			if fi.Size() == 0 {
+				continue
+			}
+
+			q.diskUsage += fi.Size()
+
+			count, err := q.readChunkRecordCount(filepath.Join(q.dir, entry.Name()))
+			if err != nil {
+				return err
+			}
+
+			q.recordCount += count
 			continue
 		}
 	}
 
-	return size + q.w.recordCount, nil
+	q.recordCount += q.w.recordCount
+
+	return nil
 }
 
 func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
@@ -464,15 +502,6 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 		return 0, err
 	}
 	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		return 0, err
-	}
-
-	if stat.Size() == 0 {
-		return 0, nil
-	}
 
 	return readChunkHeader(f)
 }
@@ -488,6 +517,7 @@ type chunk struct {
 	r     *bufio.Reader
 	f     *os.File
 	count uint64
+	size  uint64
 }
 
 func openChunk(path string) (*chunk, error) {
@@ -524,6 +554,7 @@ func openChunk(path string) (*chunk, error) {
 
 	c.r = readerPool.Get().(*bufio.Reader)
 	c.r.Reset(c.f)
+	c.size = uint64(stat.Size())
 
 	// check the header
 	c.count, err = readChunkHeader(c.r)
@@ -554,6 +585,14 @@ func chunkFromFile(f *os.File) (*chunk, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// get the file size
+	info, err := c.f.Stat()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to stat chunk file")
+	}
+
+	c.size = uint64(info.Size())
 
 	return &c, nil
 }
@@ -932,6 +971,18 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 	}
 
 	return openChunk(path)
+}
+
+func (r *chunkReader) Close() error {
+	r.m.Lock()
+	defer r.m.Unlock()
+
+	for _, f := range r.chunks {
+		_ = f.Sync()
+		_ = f.Close()
+	}
+
+	return nil
 }
 
 func (r *chunkReader) PromoteChunk(f *os.File) error {
