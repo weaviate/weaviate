@@ -55,6 +55,7 @@ type VectorIndex interface {
 	Delete(id ...uint64) error
 	DeleteMulti(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultipleVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
@@ -258,6 +259,12 @@ func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k 
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.SearchByVector(ctx, vector, k, allow)
+}
+
+func (dynamic *dynamic) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByMultipleVector(ctx, vectors, k, allow)
 }
 
 func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {

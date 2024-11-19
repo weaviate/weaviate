@@ -380,7 +380,7 @@ func (h *hnsw) addOneMultiple(ctx context.Context, vector []float32, node *verte
 	if h.compressed.Load() {
 		h.compressor.Preload(node.id, vector)
 	} else {
-		//h.cache.Preload(node.id, vector)
+		// h.cache.Preload(node.id, vector)
 		h.cache.PreloadMultiple(docID, relativeID, vector)
 	}
 

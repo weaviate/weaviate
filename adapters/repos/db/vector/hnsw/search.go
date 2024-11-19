@@ -878,7 +878,6 @@ func (h *hnsw) knnSearchByMultipleVector(ctx context.Context, searchVecs [][]flo
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	//k_prime := k / 2
 	k_prime := k
 	candidateSet := make(map[uint64]bool, 0)
 	for _, searchVec := range searchVecs {
@@ -1016,7 +1015,6 @@ func dotProduct(a, b []float32) float32 {
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
-
 	docVecs, err := h.getVectorsFromID(docID)
 	if err != nil {
 		return 0.0, err

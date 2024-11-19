@@ -249,7 +249,6 @@ func New(cfg Config, uc ent.UserConfig,
 	if uc.Multivector {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultipleVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
-
 	} else {
 		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, cfg.Logger,
 			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)

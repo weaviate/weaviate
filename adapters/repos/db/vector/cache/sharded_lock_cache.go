@@ -393,7 +393,6 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.MultipleVectorForID
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
-
 	multipleVecForIDValue := func(ctx context.Context, docId uint64, vecId uint64) ([]float32, error) {
 		vec, err := multipleVecForID(ctx, docId, vecId)
 		if err != nil {

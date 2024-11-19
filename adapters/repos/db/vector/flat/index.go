@@ -391,6 +391,10 @@ func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, 
 	}
 }
 
+func (index *flat) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultipleVector is not supported for flat index")
+}
+
 func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	// TODO: pass context into inner methods, so it can be checked more granuarly
 	heap := index.pqResults.GetMax(k)

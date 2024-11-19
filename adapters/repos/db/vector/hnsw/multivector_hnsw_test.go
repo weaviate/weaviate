@@ -39,9 +39,9 @@ func TestMultiVector(t *testing.T) {
 	t.Run("load vectors", func(t *testing.T) {
 		// load vectors from hdf5 file
 		dataset = "lotte-recreation-reduced_-1_-1"
-		dataset_path = "/Users/roberto/Desktop/colbert/" + dataset + ".hdf5"
+		dataset_path = "path-to-dataset" + dataset + ".hdf5"
 
-		vectors = loadVectors(dataset)
+		vectors = loadVectors(dataset_path)
 
 		queries = loadHdf5Queries(dataset_path, "queries")
 		fmt.Printf("Queries shape: %d x %d x %d\n", len(queries), len(queries[0]), len(queries[0][0]))
@@ -111,10 +111,10 @@ func TestMultiVector(t *testing.T) {
 	})
 }
 
-func loadVectors(dataset string) [][][]float32 {
+func loadVectors(dataset_path string) [][][]float32 {
 
-	vectors := loadHdf5Float32("/Users/roberto/Desktop/colbert/"+dataset+".hdf5", "vectors")
-	ids := loadHdf5Int32("/Users/roberto/Desktop/colbert/"+dataset+".hdf5", "ids")
+	vectors := loadHdf5Float32(dataset_path, "vectors")
+	ids := loadHdf5Int32(dataset_path, "ids")
 
 	data := make([][][]float32, ids[len(ids)-1]+1)
 
