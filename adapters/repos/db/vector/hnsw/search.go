@@ -81,6 +81,18 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
 }
 
+func (h *hnsw) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
+	vectors = h.normalizeVecs(vectors)
+	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
+		return h.flatSearch(ctx, vectors[0], k, h.searchTimeEF(k), allowList) // TODO --> manage flat search
+	}
+	return h.knnSearchByMultipleVector(ctx, vectors, k, h.searchTimeEF(k), allowList)
+}
+
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
 // the search results contain all vector within the threshold specified by the
 // target distance.
@@ -430,7 +442,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				if h.compressed.Load() {
 					h.compressor.Prefetch(candidates.Top().ID)
 				} else {
-					h.cache.Prefetch(candidates.Top().ID)
+					if !h.multivector.Load() {
+						h.cache.Prefetch(candidates.Top().ID)
+					} else {
+						h.RLock()
+						docID := h.vectorDocIDMap[candidates.Top().ID]
+						relative := h.relativeIDMap[candidates.Top().ID]
+						h.RUnlock()
+						h.cache.PrefetchMultiple(docID, relative)
+					}
 				}
 
 				// +1 because we have added one node size calculating the len
@@ -561,7 +581,17 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64) (float32, error) {
-	candidateVec, err := h.vectorForID(context.Background(), nodeID)
+	var candidateVec []float32
+	var err error
+	if !h.multivector.Load() {
+		candidateVec, err = h.vectorForID(context.Background(), nodeID)
+	} else {
+		h.RLock()
+		docID := h.vectorDocIDMap[nodeID]
+		relative := h.relativeIDMap[nodeID]
+		h.RUnlock()
+		candidateVec, err = h.multipleVectorForID(context.Background(), docID, relative)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -822,6 +852,205 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 	return ids, dists, nil
+}
+
+func (h *hnsw) knnSearchByMultipleVector(ctx context.Context, searchVecs [][]float32, k int,
+	ef int, allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
+	if h.isEmpty() {
+		return nil, nil, nil
+	}
+
+	useAcorn, _ := h.acornParams(allowList)
+
+	if allowList != nil && useAcorn {
+		allowList = NewFastSet(allowList)
+	}
+
+	if k < 0 {
+		return nil, nil, fmt.Errorf("k must be greater than zero")
+	}
+
+	h.RLock()
+	entryPointID := h.entryPointID
+	maxLayer := h.currentMaximumLayer
+	h.RUnlock()
+
+	//k_prime := k / 2
+	k_prime := k
+	candidateSet := make(map[uint64]bool, 0)
+	for _, searchVec := range searchVecs {
+		var compressorDistancer compressionhelpers.CompressorDistancer
+		if h.compressed.Load() {
+			var returnFn compressionhelpers.ReturnDistancerFn
+			compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+			defer returnFn()
+		}
+		entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+		var e storobj.ErrNotFound
+		if err != nil && errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID, "knnSearchByVector")
+			return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		}
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
+		}
+
+		// stop at layer 1, not 0!
+		for level := maxLayer; level >= 1; level-- {
+			eps := priorityqueue.NewMin[any](10)
+			eps.Insert(entryPointID, entryPointDistance)
+
+			res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
+			}
+
+			// There might be situations where we did not find a better entrypoint at
+			// that particular level, so instead we're keeping whatever entrypoint we
+			// had before (i.e. either from a previous level or even the main
+			// entrypoint)
+			//
+			// If we do, however, have results, any candidate that's not nil (not
+			// deleted), and not under maintenance is a viable candidate
+			for res.Len() > 0 {
+				cand := res.Pop()
+				n := h.nodeByID(cand.ID)
+				if n == nil {
+					// we have found a node in results that is nil. This means it was
+					// deleted, but not cleaned up properly. Make sure to add a tombstone to
+					// this node, so it can be cleaned up in the next cycle.
+					if err := h.addTombstone(cand.ID); err != nil {
+						return nil, nil, err
+					}
+
+					// skip the nil node, as it does not make a valid entrypoint
+					continue
+				}
+
+				if !n.isUnderMaintenance() {
+					entryPointID = cand.ID
+					entryPointDistance = cand.Dist
+					break
+				}
+
+				// if we managed to go through the loop without finding a single
+				// suitable node, we simply stick with the original, i.e. the global
+				// entrypoint
+			}
+
+			h.pools.pqResults.Put(res)
+		}
+
+		eps := priorityqueue.NewMin[any](10)
+		eps.Insert(entryPointID, entryPointDistance)
+		if allowList != nil && useAcorn {
+			size := h.maximumConnectionsLayerZero
+			if size >= ef {
+				size = ef - 1
+			}
+			it := allowList.Iterator()
+			i := 0
+			seeds := make([]uint64, size)
+			for idx, ok := it.Next(); ok && i < size; idx, ok = it.Next() {
+				seeds[i] = idx
+				i++
+			}
+			for _, entryPoint := range seeds {
+				entryPointDistance, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
+				eps.Insert(entryPoint, entryPointDistance)
+			}
+		}
+		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		}
+		for res.Len() > k_prime {
+			res.Pop()
+		}
+
+		for res.Len() > 0 {
+			res := res.Pop()
+			docID := h.vectorDocIDMap[res.ID]
+			if _, ok := candidateSet[docID]; !ok {
+				candidateSet[docID] = true
+			}
+		}
+	}
+
+	resultsQueue := priorityqueue.NewMin[any](1)
+	for docID := range candidateSet {
+		sim, err := h.computeScore(searchVecs, docID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resultsQueue.Insert(docID, sim)
+		if resultsQueue.Len() > k {
+			resultsQueue.Pop()
+		}
+	}
+
+	distances := make([]float32, resultsQueue.Len())
+	ids := make([]uint64, resultsQueue.Len())
+
+	i := len(ids) - 1
+	for resultsQueue.Len() > 0 {
+		element := resultsQueue.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+		i--
+	}
+
+	return ids, distances, nil
+}
+
+func dotProduct(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum
+}
+
+func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
+
+	docVecs, err := h.getVectorsFromID(docID)
+	if err != nil {
+		return 0.0, err
+	}
+
+	similarity := float32(0.0)
+
+	for _, searchVec := range searchVecs {
+		maxSim := float32(-math.MaxFloat32)
+
+		for _, docVec := range docVecs {
+			sim := dotProduct(searchVec, docVec)
+			if sim > maxSim {
+				maxSim = sim
+			}
+		}
+
+		similarity += maxSim
+	}
+
+	return similarity, nil
+}
+
+func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
+	vecIDs := h.docIDVectorMap[docID]
+	vecs := make([][]float32, len(vecIDs))
+	h.RLock()
+	for i, vecID := range vecIDs {
+		vec, err := h.multipleVectorForID(context.Background(), docID, h.relativeIDMap[vecID]) // should we use multiple vectors for id??
+		if err != nil {
+			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
+		}
+		vecs[i] = vec
+	}
+	h.RUnlock()
+	return vecs, nil
 }
 
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

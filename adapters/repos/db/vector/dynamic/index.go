@@ -49,8 +49,11 @@ var dynamicBucket = []byte("dynamic")
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
+	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	Delete(id ...uint64) error
+	DeleteMulti(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
@@ -221,16 +224,34 @@ func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]
 	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 
+func (dynamic *dynamic) AddMultiBatch(ctx context.Context, ids []uint64, vectors [][][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.AddMultiBatch(ctx, ids, vectors)
+}
+
 func (dynamic *dynamic) Add(ctx context.Context, id uint64, vector []float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Add(ctx, id, vector)
 }
 
+func (dynamic *dynamic) AddMulti(ctx context.Context, docId uint64, vectors [][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.AddMulti(ctx, docId, vectors)
+}
+
 func (dynamic *dynamic) Delete(ids ...uint64) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Delete(ids...)
+}
+
+func (dynamic *dynamic) DeleteMulti(ids ...uint64) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.DeleteMulti(ids...)
 }
 
 func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {

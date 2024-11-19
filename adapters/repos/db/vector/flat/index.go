@@ -336,6 +336,14 @@ func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
 	return nil
 }
 
+func (index *flat) AddMulti(ctx context.Context, docID uint64, vectors [][]float32) error {
+	return errors.Errorf("AddMulti is not supported for flat index")
+}
+
+func (index *flat) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	return errors.Errorf("AddMultiBatch is not supported for flat index")
+}
+
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
 		if index.isBQCached() {
@@ -355,6 +363,10 @@ func (index *flat) Delete(ids ...uint64) error {
 		}
 	}
 	return nil
+}
+
+func (index *flat) DeleteMulti(ids ...uint64) error {
+	return errors.Errorf("DeleteMulti is not supported for flat index")
 }
 
 func (index *flat) searchTimeRescore(k int) int {

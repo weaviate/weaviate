@@ -77,8 +77,19 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 
 		}
 	} else {
-
-		vecs, errs := h.multiVectorForID(context.TODO(), ids)
+		var vecs [][]float32
+		var errs []error
+		if !h.multivector.Load() {
+			vecs, errs = h.multiVectorForID(context.TODO(), ids)
+		} else {
+			vecs = make([][]float32, len(ids))
+			errs = make([]error, len(ids))
+			h.RLock()
+			for i, id := range ids {
+				vecs[i], errs[i] = h.multipleVectorForID(context.TODO(), h.vectorDocIDMap[id], h.relativeIDMap[id])
+			}
+			h.RUnlock()
+		}
 
 		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
 

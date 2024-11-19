@@ -148,6 +148,22 @@ func (f *fakeCache) CountVectors() int64 {
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetMultiple(ctx context.Context, docID uint64, relativeID uint64) ([]float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) MultiGetMultiple(ctx context.Context, docIDs []uint64, relativeID []uint64) ([][]float32, []error) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PreloadMultiple(docID uint64, relativeID uint64, vec []float32) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PrefetchMultiple(docID uint64, relativeID uint64) {
+	panic("not implemented")
+}
+
 func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
 	for i := range out {

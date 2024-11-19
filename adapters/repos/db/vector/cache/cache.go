@@ -20,7 +20,10 @@ const DefaultDeletionInterval = 3 * time.Second
 
 type Cache[T any] interface {
 	Get(ctx context.Context, id uint64) ([]T, error)
+	GetMultiple(ctx context.Context, docID uint64, relativeID uint64) ([]T, error)
 	MultiGet(ctx context.Context, ids []uint64) ([][]T, []error)
+	MultiGetMultiple(ctx context.Context, docIDs []uint64, relativeID []uint64) ([][]float32, []error)
+	PreloadMultiple(docID uint64, relativeID uint64, vec []float32)
 	Len() int32
 	CountVectors() int64
 	Delete(ctx context.Context, id uint64)
@@ -28,6 +31,7 @@ type Cache[T any] interface {
 	PreloadNoLock(id uint64, vec []T)
 	SetSizeAndGrowNoLock(id uint64)
 	Prefetch(id uint64)
+	PrefetchMultiple(docID uint64, relativeID uint64)
 	Grow(size uint64)
 	Drop()
 	UpdateMaxSize(size int64)
