@@ -26,7 +26,10 @@ import (
 	"strings"
 	"time"
 
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/fgprof"
+	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
@@ -401,8 +404,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		querierManager := metadata.NewQuerierManager(appState.Logger)
 		metadataServer := metadata.NewServer(
 			appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
-			1024*1024*1024,
-			true,
 			querierManager,
 			appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
 			appState.Logger)
@@ -412,7 +413,34 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		enterrors.GoWrapper(func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if err := metadataServer.Serve(ctx); err != nil {
+			// NOTE this setup code hasn't been cleaned up because there's a good chance we'll
+			// remove the metadata server code entirely in the future, so didn't want to put
+			// time into making it nice and it's hidden behind the metadata server feature flag
+			// anyway
+			listenAddress := appState.ServerConfig.Config.MetadataServer.GrpcListenAddress
+			appState.Logger.WithField(
+				"address", listenAddress,
+			).Info("starting metadata rpc server ...")
+			if listenAddress == "" {
+				appState.Logger.Error("address of rpc server cannot be empty")
+				return
+			}
+
+			// use ListenConfig so we can pass a context to Listen
+			lc := &net.ListenConfig{}
+			listener, err := lc.Listen(ctx, "tcp", listenAddress)
+			if err != nil {
+				appState.Logger.WithError(err).Error("server tcp net.listen")
+				return
+			}
+			var options []grpc.ServerOption
+			options = append(options, grpc.MaxRecvMsgSize(1024*1024*1024))
+			options = append(options,
+				grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+					grpc_sentry.UnaryServerInterceptor(),
+				)))
+
+			if err := metadataServer.Serve(ctx, listener, options); err != nil {
 				appState.Logger.WithError(err).Error("metadata server did not start")
 			}
 		}, appState.Logger)
@@ -464,6 +492,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
 		NodeNameToPortMap:      server2port,
 		NodeToAddressResolver:  appState.Cluster,
+		NodeSelector:           appState.Cluster,
 		Logger:                 appState.Logger,
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
@@ -480,7 +509,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.ClusterService = rCluster.New(appState.Cluster, rConfig)
+	appState.ClusterService = rCluster.New(rConfig)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
 	executor := schema.NewExecutor(migrator,
