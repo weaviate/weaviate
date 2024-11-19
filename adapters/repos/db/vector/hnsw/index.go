@@ -92,7 +92,8 @@ type hnsw struct {
 	efFactor int64
 
 	// on filtered searches with less than n elements, perform flat search
-	flatSearchCutoff int64
+	flatSearchCutoff      int64
+	flatSearchConcurrency int
 
 	levelNormalizer float64
 
@@ -242,27 +243,28 @@ func New(cfg Config, uc ent.UserConfig,
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:     1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:      uc.EFConstruction,
-		flatSearchCutoff:    int64(uc.FlatSearchCutoff),
-		nodes:               make([]*vertex, cache.InitialSize),
-		cache:               vectorCache,
-		waitForCachePrefill: cfg.WaitForCachePrefill,
-		vectorForID:         vectorCache.Get,
-		multiVectorForID:    vectorCache.MultiGet,
-		id:                  cfg.ID,
-		rootPath:            cfg.RootPath,
-		tombstones:          map[uint64]struct{}{},
-		logger:              cfg.Logger,
-		distancerProvider:   cfg.DistanceProvider,
-		deleteLock:          &sync.Mutex{},
-		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.RWMutex{},
-		resetCtx:            resetCtx,
-		resetCtxCancel:      resetCtxCancel,
-		shutdownCtx:         shutdownCtx,
-		shutdownCtxCancel:   shutdownCtxCancel,
-		initialInsertOnce:   &sync.Once{},
+		levelNormalizer:       1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:        uc.EFConstruction,
+		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
+		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		nodes:                 make([]*vertex, cache.InitialSize),
+		cache:                 vectorCache,
+		waitForCachePrefill:   cfg.WaitForCachePrefill,
+		vectorForID:           vectorCache.Get,
+		multiVectorForID:      vectorCache.MultiGet,
+		id:                    cfg.ID,
+		rootPath:              cfg.RootPath,
+		tombstones:            map[uint64]struct{}{},
+		logger:                cfg.Logger,
+		distancerProvider:     cfg.DistanceProvider,
+		deleteLock:            &sync.Mutex{},
+		tombstoneLock:         &sync.RWMutex{},
+		resetLock:             &sync.RWMutex{},
+		resetCtx:              resetCtx,
+		resetCtxCancel:        resetCtxCancel,
+		shutdownCtx:           shutdownCtx,
+		shutdownCtxCancel:     shutdownCtxCancel,
+		initialInsertOnce:     &sync.Once{},
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -461,13 +463,6 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 	}
 
 	return entryPointID, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {

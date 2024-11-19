@@ -29,9 +29,10 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, belongsToNodes, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.NoError(t, err)
 		assert.Equal(t, status, "FROZEN")
+		assert.Equal(t, []string{"node-1, node-2"}, belongsToNodes)
 	})
 
 	t.Run("tenant with non-frozen state", func(t *testing.T) {
@@ -42,7 +43,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
 		require.Empty(t, status)
 	})
@@ -55,7 +56,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorContains(t, err, "some important error")
 		require.Empty(t, status)
 	})
@@ -68,7 +69,7 @@ func TestTenantInfo(t *testing.T) {
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		status, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
 		require.Empty(t, status)
 	})
@@ -82,30 +83,32 @@ type schema struct {
 }
 
 func (s *schema) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	res := []Response{}
+	res := Response{}
 
 	switch {
 	case s.returnError:
-		res = append(res, Response{
+		res = Response{
 			Error: []ErrorResponse{
 				{
 					Message: "some important error",
 				},
 			},
-		})
+		}
 	case s.returnActive:
-		res = append(res, Response{
-			Name:   "iron-man",
-			Status: "ACTIVE",
-		})
+		res = Response{
+			Name:           "iron-man",
+			Status:         "ACTIVE",
+			BelongsToNodes: []string{"node-1"},
+		}
 
 	case s.returnEmpty:
 		// do not append anything
 	default:
-		res = append(res, Response{
-			Name:   "captain-america",
-			Status: "FROZEN",
-		})
+		res = Response{
+			Name:           "captain-america",
+			Status:         "FROZEN",
+			BelongsToNodes: []string{"node-1, node-2"},
+		}
 
 	}
 
