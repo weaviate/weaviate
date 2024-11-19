@@ -767,7 +767,7 @@ func (w *chunkWriter) Open() error {
 	}
 
 	if len(entries) == 0 {
-		return w.Create()
+		return nil
 	}
 
 	lastChunk := entries[len(entries)-1].Name()
