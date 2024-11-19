@@ -18,15 +18,16 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config, modulesProvider *modules.Provider,
+	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Fields, error) {
-	getField, err := get.Build(dbSchema, logger, modulesProvider)
+	getField, err := get.Build(dbSchema, logger, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}

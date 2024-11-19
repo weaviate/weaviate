@@ -634,7 +634,7 @@ func newMockResolver() *mockResolver {
 func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider())
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -648,7 +648,7 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 
 func newMockResolverWithNoModules() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil)
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}

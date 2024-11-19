@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 
 	"github.com/tailor-inc/graphql"
@@ -204,7 +205,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum, authorizer authorization.Authorizer,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -234,7 +235,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
 		},
-		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
+		Resolve: newResolver(authorizer, modulesProvider).makeResolveGetClass(class.Class),
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
@@ -310,11 +311,12 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 }
 
 type resolver struct {
+	authorizer      authorization.Authorizer
 	modulesProvider ModulesProvider
 }
 
-func newResolver(modulesProvider ModulesProvider) *resolver {
-	return &resolver{modulesProvider}
+func newResolver(authorizer authorization.Authorizer, modulesProvider ModulesProvider) *resolver {
+	return &resolver{authorizer, modulesProvider}
 }
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
@@ -327,7 +329,30 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 	}
 }
 
+func (r *resolver) authorizeClause(clause *filters.Clause, principal *models.Principal) error {
+	if clause == nil {
+		return nil
+	}
+	if len(clause.Operands) == 0 {
+		innerMostPath := clause.On.GetInnerMost()
+		return r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(innerMostPath.Class.String())...)
+	} else {
+		for _, operand := range clause.Operands {
+			if err := r.authorizeClause(&operand, principal); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
+	principal := principalFromContext(p.Context)
+
+	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(className)...); err != nil {
+		return nil, err
+	}
+
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
@@ -369,6 +394,11 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %s", err)
+	}
+	if filters != nil {
+		if err = r.authorizeClause(filters.Root, principal); err != nil {
+			return nil, err
+		}
 	}
 
 	var targetVectorCombination *dto.TargetCombination
@@ -477,7 +507,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	setLimitBasedOnVectorSearchParams(&params)
 
 	return func() (interface{}, error) {
-		result, err := resolver.GetClass(p.Context, principalFromContext(p.Context), params)
+		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
 		}

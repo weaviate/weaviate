@@ -325,7 +325,7 @@ func getFakeModulesProvider() *fakeModulesProvider {
 
 func newMockResolver() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider())
+	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
