@@ -88,7 +88,7 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 
 	s.queues.m[q.ID()] = newQueueState(q)
 
-	s.Logger.WithField("id", q.ID()).Debug("queue registered")
+	q.Metrics().Registered(q.ID())
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -107,7 +107,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	delete(s.queues.m, id)
 	s.queues.Unlock()
 
-	s.Logger.WithField("id", id).Debug("queue unregistered")
+	q.q.Metrics().Unregistered(q.q.ID())
 }
 
 func (s *Scheduler) Start() {
@@ -366,6 +366,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 		// increment the queue's active tasks counter
 		q.activeTasks.Incr()
 
+		start := time.Now()
+
 		select {
 		case <-s.ctx.Done():
 			s.activeTasks.Decr()
@@ -377,6 +379,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			onDone: func() {
 				defer s.activeTasks.Decr()
 				defer q.activeTasks.Decr()
+				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
 
 				q.m.Lock()
 				counter--

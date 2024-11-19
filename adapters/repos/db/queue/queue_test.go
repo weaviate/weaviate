@@ -111,9 +111,6 @@ func TestQueueDecodeTask(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, entries, 2)
 
-		err = q.Close()
-		require.NoError(t, err)
-
 		f, err := os.Open(filepath.Join(q.dir, entries[0].Name()))
 		require.NoError(t, err)
 		defer f.Close()
@@ -136,6 +133,9 @@ func TestQueueDecodeTask(t *testing.T) {
 		batch, err = q.DequeueBatch()
 		require.NoError(t, err)
 		require.Nil(t, batch)
+
+		err = q.Close()
+		require.NoError(t, err)
 	})
 
 	t.Run("many tasks", func(t *testing.T) {

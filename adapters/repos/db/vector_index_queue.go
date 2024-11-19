@@ -38,7 +38,7 @@ type VectorIndexQueue struct {
 	asyncEnabled bool
 	shard        *Shard
 	scheduler    *queue.Scheduler
-	metrics      *IndexQueueMetrics
+	metrics      *VectorIndexQueueMetrics
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
 	// indicate if the index is being upgraded
@@ -65,6 +65,8 @@ func NewVectorIndexQueue(
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 
+	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
+
 	q, err := queue.NewDiskQueue(
 		queue.DiskQueueOptions{
 			ID:        fmt.Sprintf("vector_index_queue_%s_%s", shard.ID(), shard.vectorIndexID(targetVector)),
@@ -76,6 +78,7 @@ func NewVectorIndexQueue(
 			},
 			OnBatchProcessed: viq.OnBatchProcessed,
 			StaleTimeout:     staleTimeout,
+			Metrics:          viq.metrics.QueueMetrics(),
 		},
 	)
 	if err != nil {
@@ -83,7 +86,6 @@ func NewVectorIndexQueue(
 	}
 
 	viq.DiskQueue = q
-	viq.metrics = NewIndexQueueMetrics(q.Logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
 	shard.scheduler.RegisterQueue(&viq)
 
@@ -110,6 +112,9 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 
 		return iq.vectorIndex.AddBatch(ctx, ids, vecs)
 	}
+
+	start := time.Now()
+	defer iq.metrics.Insert(start, len(vectors))
 
 	// ensure the shard is in the right state
 	status, err := iq.shard.compareAndSwapStatusIndexingAndReady(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
@@ -165,6 +170,9 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	if !iq.asyncEnabled {
 		return iq.vectorIndex.Delete(ids...)
 	}
+
+	start := time.Now()
+	defer iq.metrics.Delete(start, len(ids))
 
 	var buf []byte
 
