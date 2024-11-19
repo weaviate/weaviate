@@ -658,7 +658,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-
+	enterrors.GoWrapper(
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			backupScheduler.CleanupUnfinishedBackups(ctx)
+		}, appState.Logger)
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
