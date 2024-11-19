@@ -36,6 +36,9 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+		return err
+	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
