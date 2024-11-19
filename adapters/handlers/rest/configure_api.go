@@ -319,9 +319,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMinActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		SegmentsCleanupIntervalSeconds: appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
+		SeparateObjectsCompactions:     appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                 appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		HNSWMaxLogSize:                 appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:        appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:      appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		VisitedListPoolMaxSize:         appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                       appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                     appState.ServerConfig.Config.QueryDefaults.Limit,
@@ -426,6 +428,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
 		NodeNameToPortMap:      server2port,
 		NodeToAddressResolver:  appState.Cluster,
+		NodeSelector:           appState.Cluster,
 		Logger:                 appState.Logger,
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
@@ -441,7 +444,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.ClusterService = rCluster.New(appState.Cluster, rConfig)
+	appState.ClusterService = rCluster.New(rConfig)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
 	executor := schema.NewExecutor(migrator,
@@ -847,6 +850,7 @@ func registerModules(appState *state.State) error {
 	// Default modules
 	defaultVectorizers := []string{
 		modtext2vecaws.Name,
+		modmulti2vecohere.Name,
 		modcohere.Name,
 		moddatabricks.Name,
 		modtext2vecgoogle.Name,

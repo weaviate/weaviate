@@ -211,6 +211,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SEPARATE_OBJECTS_COMPACTIONS")) {
+		config.Persistence.LSMSeparateObjectsCompactions = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -227,6 +231,14 @@ func FromEnv(config *Config) error {
 		DefaultHNSWVisitedListPoolSize,
 		func(size int) error { return nil },
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"HNSW_FLAT_SEARCH_CONCURRENCY",
+		func(val int) { config.HNSWFlatSearchConcurrency = val },
+		DefaultHNSWFlatSearchConcurrency,
 	); err != nil {
 		return err
 	}
