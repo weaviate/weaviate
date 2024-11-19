@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +38,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 	f := NewLSMFetcher(root, downloader, testLogger())
 
 	// used without cache, so every `Fetch()` should download tenant data from upstream
-	kv, gotFullpath, err := f.Fetch(ctx, "test-collection", "test-tenant", 0)
+	kv, gotFullpath, err := f.Fetch(ctx, "test-node", "test-collection", "test-tenant", 0)
 	expectedFullpath := path.Join(root, "test-collection", "test-tenant", "0", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
@@ -45,7 +46,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 	assert.Equal(t, 1, downloader.count)
 
 	// Any version number is irrelevant if cache is disabled and still should download from upstream
-	kv, gotFullpath, err = f.Fetch(ctx, "test-collection", "test-tenant", 111) // non-zero version number
+	kv, gotFullpath, err = f.Fetch(ctx, "test-node", "test-collection", "test-tenant", 111) // non-zero version number
 	expectedFullpath = path.Join(root, "test-collection", "test-tenant", "111", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
@@ -53,7 +54,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 	assert.Equal(t, 2, downloader.count)
 
 	// Fetching different tenant should also download from upstream
-	kv, gotFullpath, err = f.Fetch(ctx, "test-collection2", "test-tenant2", 111) // non-zero version number
+	kv, gotFullpath, err = f.Fetch(ctx, "test-node", "test-collection2", "test-tenant2", 111) // non-zero version number
 	expectedFullpath = path.Join(root, "test-collection2", "test-tenant2", "111", defaultLSMRoot)
 	require.NoError(t, err)
 	assert.NotNil(t, kv)
@@ -62,6 +63,7 @@ func TestLSMFetcher_withoutCache(t *testing.T) {
 }
 
 func TestLSMFetcher_withCache(t *testing.T) {
+	testNode := "test-node"
 	testCollection := "test-collection"
 	testTenant := "test-tenant"
 
@@ -121,7 +123,7 @@ func TestLSMFetcher_withCache(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			kv, gotFullpath, err := f.Fetch(ctx, testCollection, testTenant, tc.version)
+			kv, gotFullpath, err := f.Fetch(ctx, testNode, testCollection, testTenant, tc.version)
 			expectedFullpath := path.Join(root, testCollection, testTenant, versionStr, defaultLSMRoot)
 			require.NoError(t, err)
 			assert.NotNil(t, kv)
@@ -133,7 +135,7 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			// Fetcher should have populated the cache after it got from the upstream (except if version==0)
 			if tc.version != 0 {
 				previous := cache.cacheHitCount
-				kv, gotFullpath, err = f.Fetch(ctx, testCollection, testTenant, tc.version)
+				kv, gotFullpath, err = f.Fetch(ctx, testNode, testCollection, testTenant, tc.version)
 				expectedFullpath = path.Join(root, testCollection, testTenant, versionStr, defaultLSMRoot)
 				require.NoError(t, err)
 				assert.NotNil(t, kv)
@@ -143,6 +145,44 @@ func TestLSMFetcher_withCache(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLSMFetcher_concurrentInflights(t *testing.T) {
+	// when `n` concurrent requests done for `(collection,tenant, version)` that is not in the cache.
+	// It shouldn't span `n` upstream calls. Instead just `1` upstream calls
+
+	root := path.Join(os.TempDir(), t.Name())
+	ctx := context.Background()
+
+	upstream := newMockDownloader(t)
+	cache := newMockCache(t, root)
+	fetcher := NewLSMFetcherWithCache(root, upstream, cache, testLogger())
+
+	testNode := "test-node"
+	testCollection := "test-collection"
+	testTenant := "test-tenant"
+	testVersion := uint64(23)
+
+	var (
+		wg   sync.WaitGroup
+		wait = make(chan struct{})
+		n    = 100 // `n` concurrent clients calling `Fetch`
+	)
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			<-wait // wait till all groutines ready to fetch
+			_, _, err := fetcher.Fetch(ctx, testNode, testCollection, testTenant, testVersion)
+			require.NoError(t, err)
+		}()
+	}
+
+	close(wait) // trigger fetch from all go-routines at the same time
+	wg.Wait()   // wait till all goroutines done.
+
+	assert.Equal(t, 1, upstream.count) // Should hit the upstream only once.
 }
 
 type mockDownloader struct {
