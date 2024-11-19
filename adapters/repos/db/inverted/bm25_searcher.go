@@ -155,6 +155,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	averagePropLength := 0.
+	averagePropLengthCount := 0
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
 		propBoost := 1
@@ -169,7 +170,14 @@ func (b *BM25Searcher) wand(
 		if err != nil {
 			return nil, nil, err
 		}
-		averagePropLength += float64(propMean)
+		// A NaN here is the results of a corrupted prop length tracker.
+		// This is a workaround to try and avoid 0 or NaN scores.
+		// There is an extra check below in case all prop lengths are NaN or 0.
+		// Related issue https://github.com/weaviate/weaviate/issues/6247
+		if !math.IsNaN(float64(propMean)) {
+			averagePropLength += float64(propMean)
+			averagePropLengthCount++
+		}
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
@@ -188,7 +196,14 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
-	averagePropLength = averagePropLength / float64(len(params.Properties))
+	averagePropLength = averagePropLength / float64(averagePropLengthCount)
+
+	// If this value is zero or NaN, the prop length tracker is fully corrupted.
+	// This is a workaround to avoid 0 or NaN scores.
+	// Related issue https://github.com/weaviate/weaviate/issues/6247
+	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
+		averagePropLength = 40.0 // sane default, if all prop lengths are NaN or 0
+	}
 
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)

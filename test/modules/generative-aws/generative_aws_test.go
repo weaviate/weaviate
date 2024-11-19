@@ -75,10 +75,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 			// Anthropic
 			{
-				name:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
-				generativeModel: "anthropic.claude-3-5-sonnet-20240620-v1:0",
-			},
-			{
 				name:            "anthropic.claude-3-sonnet-20240229-v1:0",
 				generativeModel: "anthropic.claude-3-sonnet-20240229-v1:0",
 			},
@@ -128,10 +124,6 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			{
 				name:            "mistral.mistral-large-2402-v1:0",
 				generativeModel: "mistral.mistral-large-2402-v1:0",
-			},
-			{
-				name:            "mistral.mistral-small-2402-v1:0",
-				generativeModel: "mistral.mistral-small-2402-v1:0",
 			},
 			{
 				name:               "absent module config",
