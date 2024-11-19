@@ -40,9 +40,6 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	if err != nil {
-		return
-	}
 	AssertRequestOk(t, resp, err, nil)
 }
 
