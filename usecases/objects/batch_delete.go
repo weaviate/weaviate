@@ -13,9 +13,9 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -35,7 +35,8 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		class = match.Class
 	}
-	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenant)...)
+
+	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("validate: %v", err)
+		return nil, errors.Wrap(err, "validate")
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
@@ -128,19 +129,19 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// Validate schema given in body with the weaviate schema
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
 	if err != nil || vclasses[match.Class].Class == nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
+		return nil, 0, errors.Wrapf(err, "failed to get class: %s", match.Class)
 	}
 
 	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "failed to parse where filter")
 	}
 
 	err = filters.ValidateFilters(b.classGetterFunc(principal), filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "invalid where filter")
 	}
 
 	dryRunParam := false
