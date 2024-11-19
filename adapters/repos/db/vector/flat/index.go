@@ -556,12 +556,15 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	}
 	all := index.bqCache.Len()
 
+	out := make([][]uint64, 32)
+	errs := make([]error, 32)
+
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
 	for id < uint64(all) && (allow == nil || id <= allowMax) {
 		if allow == nil || allow.Contains(id) {
 
-			vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id)
+			vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
 
 			for i, vec := range vecs {
 				currentId := start + uint64(i)

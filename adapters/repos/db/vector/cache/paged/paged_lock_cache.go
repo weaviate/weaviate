@@ -222,15 +222,10 @@ func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, 
 	return out, errs
 }
 
-func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64) ([][]T, []error, uint64, uint64) {
+func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]T, errs []error) ([][]T, []error, uint64, uint64) {
 
-	resultLen := s.pagedLocks.Count
-
-	out := make([][]T, resultLen)
-	errs := make([]error, resultLen)
-
-	start := (id / s.pagedLocks.Count) * s.pagedLocks.Count
-	end := start + s.pagedLocks.Count
+	start := (id / s.pagedLocks.PageSize) * s.pagedLocks.PageSize
+	end := start + s.pagedLocks.PageSize
 
 	if end > uint64(len(s.cache)) {
 		end = uint64(len(s.cache))
@@ -263,7 +258,7 @@ func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64) 
 }
 
 func (s *PagedLockCache[T]) GetCorrespondingLock(id uint64) uint64 {
-	return (id / s.pagedLocks.Count) % s.pagedLocks.Count
+	return (id / s.pagedLocks.PageSize) % s.pagedLocks.Count
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {

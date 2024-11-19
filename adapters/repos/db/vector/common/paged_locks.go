@@ -14,12 +14,14 @@ package common
 import "sync"
 
 const DefaultPagedLocksCount = 512
+const DefaultPagedLocksPageSize = 32
 
 type PagedLocks struct {
 	// paged locks
 	shards []sync.Mutex
 	// number of locks
-	Count uint64
+	Count    uint64
+	PageSize uint64
 }
 
 func NewDefaultPagedLocks() *PagedLocks {
@@ -32,8 +34,21 @@ func NewPagedLocks(count uint64) *PagedLocks {
 	}
 
 	return &PagedLocks{
-		shards: make([]sync.Mutex, count),
-		Count:  count,
+		shards:   make([]sync.Mutex, count),
+		Count:    count,
+		PageSize: DefaultPagedLocksPageSize,
+	}
+}
+
+func NewPagedLocksWithPageSize(count uint64, pageSize uint64) *PagedLocks {
+	if count < 2 {
+		count = 2
+	}
+
+	return &PagedLocks{
+		shards:   make([]sync.Mutex, count),
+		Count:    count,
+		PageSize: pageSize,
 	}
 }
 
@@ -57,11 +72,11 @@ func (sl *PagedLocks) LockedAll(callback func()) {
 }
 
 func (sl *PagedLocks) Lock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].Lock()
+	sl.shards[(id/sl.PageSize)%sl.Count].Lock()
 }
 
 func (sl *PagedLocks) Unlock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].Unlock()
+	sl.shards[(id/sl.PageSize)%sl.Count].Unlock()
 }
 
 func (sl *PagedLocks) Locked(id uint64, callback func()) {
@@ -75,7 +90,8 @@ type PagedRWLocks struct {
 	// paged locks
 	shards []sync.RWMutex
 	// number of locks
-	Count uint64
+	Count    uint64
+	PageSize uint64
 }
 
 func NewDefaultPagedRWLocks() *PagedRWLocks {
@@ -88,8 +104,21 @@ func NewPagedRWLocks(count uint64) *PagedRWLocks {
 	}
 
 	return &PagedRWLocks{
-		shards: make([]sync.RWMutex, count),
-		Count:  count,
+		shards:   make([]sync.RWMutex, count),
+		Count:    count,
+		PageSize: DefaultPagedLocksPageSize,
+	}
+}
+
+func NewPagedRWLocksWithPageSize(count uint64, pageSize uint64) *PagedRWLocks {
+	if count < 2 {
+		count = 2
+	}
+
+	return &PagedRWLocks{
+		shards:   make([]sync.RWMutex, count),
+		Count:    count,
+		PageSize: pageSize,
 	}
 }
 
@@ -113,11 +142,11 @@ func (sl *PagedRWLocks) LockedAll(callback func()) {
 }
 
 func (sl *PagedRWLocks) Lock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].Lock()
+	sl.shards[(id/sl.PageSize)%sl.Count].Lock()
 }
 
 func (sl *PagedRWLocks) Unlock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].Unlock()
+	sl.shards[(id/sl.PageSize)%sl.Count].Unlock()
 }
 
 func (sl *PagedRWLocks) Locked(id uint64, callback func()) {
@@ -147,11 +176,11 @@ func (sl *PagedRWLocks) RLockedAll(callback func()) {
 }
 
 func (sl *PagedRWLocks) RLock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].RLock()
+	sl.shards[(id/sl.PageSize)%sl.Count].RLock()
 }
 
 func (sl *PagedRWLocks) RUnlock(id uint64) {
-	sl.shards[(id/sl.Count)%sl.Count].RUnlock()
+	sl.shards[(id/sl.PageSize)%sl.Count].RUnlock()
 }
 
 func (sl *PagedRWLocks) RLocked(id uint64, callback func()) {
