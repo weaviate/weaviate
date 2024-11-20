@@ -5,14 +5,15 @@ from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
+pytestmark = pytest.mark.xdist_group(name="rbac")
 
-def test_obj_insert(request: SubRequest):
+
+def test_obj_insert(request: SubRequest, cleanup_role):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        name = _sanitize_role_name(request.node.name)
+        name = cleanup_role
         client.collections.delete(name)
-        client.roles.delete(name)
         col = client.collections.create(name=name)
 
         with weaviate.connect_to_local(
@@ -77,13 +78,12 @@ def test_obj_insert(request: SubRequest):
             client.roles.delete(both_write.name)
 
 
-def test_obj_replace(request: SubRequest):
+def test_obj_replace(request: SubRequest, cleanup_role):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        name = _sanitize_role_name(request.node.name)
+        name = cleanup_role
         client.collections.delete(name)
-        client.roles.delete(name)
         col = client.collections.create(name=name)
 
         uuid_to_replace = col.data.insert({})
@@ -150,13 +150,12 @@ def test_obj_replace(request: SubRequest):
             client.roles.delete(both_write.name)
 
 
-def test_obj_update(request: SubRequest):
+def test_obj_update(request: SubRequest, cleanup_role):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        name = _sanitize_role_name(request.node.name)
+        name = cleanup_role
         client.collections.delete(name)
-        client.roles.delete(name)
         col = client.collections.create(name=name)
 
         uuid_to_replace = col.data.insert({})
@@ -223,13 +222,12 @@ def test_obj_update(request: SubRequest):
             client.roles.delete(both_write.name)
 
 
-def test_obj_delete(request: SubRequest):
+def test_obj_delete(request: SubRequest, cleanup_role):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        name = _sanitize_role_name(request.node.name)
+        name = cleanup_role
         client.collections.delete(name)
-        client.roles.delete(name)
         col = client.collections.create(name=name)
 
         with weaviate.connect_to_local(
@@ -302,13 +300,12 @@ def test_obj_delete(request: SubRequest):
             client.roles.delete(both_write.name)
 
 
-def test_obj_exists(request: SubRequest):
+def test_obj_exists(request: SubRequest, cleanup_role):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
-        name = _sanitize_role_name(request.node.name)
+        name = cleanup_role
         client.collections.delete(name)
-        client.roles.delete(name)
         col = client.collections.create(name=name)
 
         uuid_to_check = col.data.insert({})
