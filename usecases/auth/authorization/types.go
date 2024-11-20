@@ -221,6 +221,10 @@ func CollectionsMetadata(classes ...string) []string {
 }
 
 func CollectionsData(classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{Objects("*", "*", "*")}
+	}
+
 	var paths []string
 	for _, class := range classes {
 		paths = append(paths, Objects(class, "*", "*"))
