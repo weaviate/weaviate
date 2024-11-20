@@ -20,6 +20,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+func authorizePath(authorizer authorization.Authorizer, path *filters.Path, principal *models.Principal) error {
+	if path == nil {
+		return nil
+	}
+	if err := authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(path.Class.String())...); err != nil {
+		return err
+	}
+	if path.Child != nil {
+		return authorizePath(authorizer, path.Child, principal)
+	}
+	return nil
+}
+
 func AuthorizeFilters(authorizer authorization.Authorizer, clause *filters.Clause, principal *models.Principal) error {
 	if clause == nil {
 		return nil
@@ -29,7 +42,7 @@ func AuthorizeFilters(authorizer authorization.Authorizer, clause *filters.Claus
 		if path == nil {
 			return fmt.Errorf("no path found in clause: %v", clause)
 		}
-		return authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(path.Class.String())...)
+		return authorizePath(authorizer, path, principal)
 	} else {
 		for _, operand := range clause.Operands {
 			if err := AuthorizeFilters(authorizer, &operand, principal); err != nil {
