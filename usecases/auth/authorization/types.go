@@ -228,14 +228,6 @@ func CollectionsData(classes ...string) []string {
 	return paths
 }
 
-func ShardsData(class string, shards ...string) []string {
-	var paths []string
-	for _, shard := range shards {
-		paths = append(paths, Objects(class, shard, "*"))
-	}
-	return paths
-}
-
 func Collections(classes ...string) []string {
 	return append(CollectionsData(classes...), CollectionsMetadata(classes...)...)
 }
@@ -271,6 +263,14 @@ func ShardsMetadata(class string, shards ...string) []string {
 	}
 
 	return resources
+}
+
+func ShardsData(class string, shards ...string) []string {
+	var paths []string
+	for _, shard := range shards {
+		paths = append(paths, Objects(class, shard, "*"))
+	}
+	return paths
 }
 
 func Shards(class string, shards ...string) []string {
