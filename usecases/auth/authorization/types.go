@@ -37,8 +37,7 @@ const (
 	UsersDomain              = "users"
 	RolesDomain              = "roles"
 	ClusterDomain            = "cluster"
-	CollectionsDomain        = "meta_collections"
-	TenantsDomain            = "meta_tenants"
+	SchemaDomain             = "meta_schema"
 	ObjectsCollectionsDomain = "data_collection_objects"
 	ObjectsTenantsDomain     = "data_tenant_objects"
 )
@@ -58,15 +57,10 @@ const (
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
 
-	CreateCollections = "create_meta_collections"
-	ReadCollections   = "read_meta_collections"
-	UpdateCollections = "update_meta_collections"
-	DeleteCollections = "delete_meta_collections"
-
-	CreateTenants = "create_meta_tenants"
-	ReadTenants   = "read_meta_tenants"
-	UpdateTenants = "update_meta_tenants"
-	DeleteTenants = "delete_meta_tenants"
+	CreateSchema = "create_meta_schema"
+	ReadSchema   = "read_meta_schema"
+	UpdateSchema = "update_meta_schema"
+	DeleteSchema = "delete_meta_schema"
 
 	CreateObjectsCollection = "create_data_collection_objects"
 	ReadObjectsCollection   = "read_data_collection_objects"
@@ -95,19 +89,19 @@ var (
 	}
 
 	createAllCollections = &models.Permission{
-		Action:     String(CreateCollections),
+		Action:     String(CreateSchema),
 		Collection: All,
 	}
 	readAllCollections = &models.Permission{
-		Action:     String(ReadCollections),
+		Action:     String(ReadSchema),
 		Collection: All,
 	}
 	updateAllCollections = &models.Permission{
-		Action:     String(UpdateCollections),
+		Action:     String(UpdateSchema),
 		Collection: All,
 	}
 	deleteAllCollections = &models.Permission{
-		Action:     String(DeleteCollections),
+		Action:     String(DeleteSchema),
 		Collection: All,
 	}
 )
@@ -205,15 +199,15 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{"meta/collections/*/*"}
+		return []string{"meta/collections/*/shards/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = "meta/collections/*/*"
+			resources[idx] = "meta/collections/*/shards/*"
 		} else {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/*", classes[idx])
+			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*", classes[idx])
 		}
 	}
 
@@ -275,10 +269,6 @@ func ShardsData(class string, shards ...string) []string {
 		paths = append(paths, Objects(class, shard, "*"))
 	}
 	return paths
-}
-
-func Shards(class string, shards ...string) []string {
-	return append(ShardsData(class, shards...), ShardsMetadata(class, shards...)...)
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
