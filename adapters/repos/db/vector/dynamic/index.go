@@ -46,16 +46,20 @@ const composerUpgradedKey = "upgraded"
 
 var dynamicBucket = []byte("dynamic")
 
+type MultiVectorIndex interface {
+	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
+	DeleteMulti(id ...uint64) error
+	SearchByMultipleVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+}
+
 type VectorIndex interface {
+	MultiVectorIndex
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
-	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
-	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	Delete(id ...uint64) error
-	DeleteMulti(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
-	SearchByMultipleVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error

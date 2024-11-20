@@ -427,10 +427,6 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.MultipleVectorForID
 	return vc
 }
 
-func (s *shardedMultipleLockCache) AllMultiple() [][][]float32 {
-	return s.cache
-}
-
 func (s *shardedMultipleLockCache) All() [][]float32 {
 	panic("not implemented")
 }
@@ -536,10 +532,6 @@ func (s *shardedMultipleLockCache) PreloadMultiple(docID uint64, vecID uint64, v
 
 func (s *shardedMultipleLockCache) Preload(docID uint64, vec []float32) {
 	panic("not implemented")
-}
-
-func (s *shardedMultipleLockCache) PreloadNoLockMultiple(docID uint64, vecID uint64, vec []float32) {
-	s.cache[docID][vecID] = vec
 }
 
 func (s *shardedMultipleLockCache) PreloadNoLock(docID uint64, vec []float32) {

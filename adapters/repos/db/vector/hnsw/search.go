@@ -899,14 +899,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	return ids, dists, nil
 }
 
-func dotProduct(a, b []float32) float32 {
-	var sum float32
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-	return sum
-}
-
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
 	docVecs, err := h.getVectorsFromID(docID)
 	if err != nil {
@@ -919,9 +911,9 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		maxSim := float32(-math.MaxFloat32)
 
 		for _, docVec := range docVecs {
-			sim := dotProduct(searchVec, docVec)
-			if sim > maxSim {
-				maxSim = sim
+			dist := h.distancerProvider.Step(searchVec, docVec)
+			if dist > maxSim {
+				maxSim = dist
 			}
 		}
 
