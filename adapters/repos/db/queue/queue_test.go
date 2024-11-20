@@ -135,20 +135,55 @@ func TestQueuePush(t *testing.T) {
 	})
 
 	t.Run("persistence", func(t *testing.T) {
-		q := makeQueue(t, s, discardExecutor())
+		q := makeQueueSize(t, s, discardExecutor(), 1000)
 
 		// ensure the queue doesn't get processed
 		q.Pause()
 
-		pushMany(t, q, 1, 100, 200, 300)
+		for i := 0; i < 100; i++ {
+			pushMany(t, q, 1, 100, 200, 300)
+		}
+
+		err := q.Flush()
+		require.NoError(t, err)
 
 		entries, err := os.ReadDir(q.dir)
 		require.NoError(t, err)
-		require.Len(t, entries, 1)
+		require.Len(t, entries, 4)
 
-		stat, err := os.Stat(filepath.Join(q.dir, entries[0].Name()))
+		// first 3 are full
+		for i := 0; i < 3; i++ {
+			stat, err := os.Stat(filepath.Join(q.dir, entries[i].Name()))
+			require.NoError(t, err)
+			require.EqualValues(t, 1001, stat.Size())
+		}
+
+		// last one is partial
+		stat, err := os.Stat(filepath.Join(q.dir, entries[3].Name()))
 		require.NoError(t, err)
-		require.EqualValues(t, 52, stat.Size())
+		require.EqualValues(t, 949, stat.Size())
+
+		// ensure the last chunk is stale
+		time.Sleep(q.staleTimeout)
+
+		// dequeue all tasks
+		for i := 0; i < 4; i++ {
+			batch, err := q.DequeueBatch()
+			require.NoError(t, err)
+			require.NotNil(t, batch)
+
+			batch.Done()
+		}
+
+		// ensure all chunks are removed
+		entries, err = os.ReadDir(q.dir)
+		require.NoError(t, err)
+
+		require.Len(t, entries, 0)
+
+		// ensure the queue reports the correct size
+		require.EqualValues(t, 0, q.Size())
+		require.EqualValues(t, 0, q.diskUsage)
 	})
 }
 

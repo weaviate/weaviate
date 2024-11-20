@@ -667,11 +667,14 @@ func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, 
 }
 
 func (w *chunkWriter) Write(buf []byte) (int, error) {
+	var created bool
+
 	if w.f == nil {
 		err := w.Create()
 		if err != nil {
 			return 0, err
 		}
+		created = true
 	}
 
 	if w.IsFull() {
@@ -684,6 +687,7 @@ func (w *chunkWriter) Write(buf []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		created = true
 	}
 
 	n, err := w.w.Write(buf)
@@ -693,6 +697,10 @@ func (w *chunkWriter) Write(buf []byte) (int, error) {
 
 	w.size += uint64(n)
 	w.recordCount++
+
+	if created {
+		return int(w.size), nil
+	}
 
 	return n, nil
 }
