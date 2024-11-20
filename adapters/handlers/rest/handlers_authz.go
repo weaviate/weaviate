@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -24,17 +25,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type authZHandlers struct {
-	authorizer authorization.Authorizer
-	controller authorization.Controller
-	logger     logrus.FieldLogger
-	metrics    *monitoring.PrometheusMetrics
+	authorizer   authorization.Authorizer
+	controller   authorization.Controller
+	schemaReader schemaUC.SchemaGetter
+	logger       logrus.FieldLogger
+	metrics      *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Controller, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, logger: logger, metrics: metrics}
+func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -52,16 +55,8 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Co
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if *params.Body.Name == "" {
 		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
-	}
-
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
 	policies, err := conv.RolesToPolicies(params.Body)
@@ -71,6 +66,18 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
 		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
+	}
+
+	if len(params.Body.Permissions) == 0 {
+		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role has to have at least 1 permission")))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
+		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err := h.validatePermissions(params.Body.Permissions); err != nil {
+		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	roles, err := h.controller.GetRoles(*params.Body.Name)
@@ -97,16 +104,16 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 }
 
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if *params.Body.Name == "" {
 		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
+	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
+		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	}
+
 	if len(params.Body.Permissions) == 0 {
-		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role has to have at least 1 permission")))
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
@@ -117,8 +124,12 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if err := h.validatePermissions(params.Body.Permissions); err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
@@ -136,14 +147,13 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 }
 
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if *params.Body.Name == "" {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
+	// we don't validate permissions entity existence
+	// in case of the permissions gets removed after the entity got removed
+	// delete class ABC, then remove permissions on class ABC
 	if len(params.Body.Permissions) == 0 {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
@@ -155,6 +165,10 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	if err != nil {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+		return authz.NewRemovePermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	if err := h.controller.RemovePermissions(*params.Body.Name, permissions); err != nil {
@@ -203,12 +217,12 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
-		return authz.NewGetRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if params.ID == "" {
 		return authz.NewGetRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewGetRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	roles, err := h.controller.GetRoles(params.ID)
@@ -241,16 +255,16 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.ID)...); err != nil {
-		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if params.ID == "" {
 		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewDeleteRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	if err := h.controller.DeleteRoles(params.ID); err != nil {
@@ -267,13 +281,13 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 }
 
 func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
+	if params.ID == "" {
+		return authz.NewAssignRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
+	}
+
 	multiResources := slices.Concat(authorization.Roles(params.Body.Roles...), authorization.Users(params.ID))
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, multiResources...); err != nil {
 		return authz.NewAssignRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if params.ID == "" {
-		return authz.NewAssignRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -302,12 +316,12 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
-		return authz.NewGetRolesForUserForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if params.ID == "" {
 		return authz.NewGetRolesForUserBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role name is required")))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
+		return authz.NewGetRolesForUserForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	roles, err := h.controller.GetRolesForUser(params.ID)
@@ -338,12 +352,12 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
-		return authz.NewGetUsersForRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
 	if params.ID == "" {
 		return authz.NewGetUsersForRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user name is required")))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewGetUsersForRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	users, err := h.controller.GetUsersForRole(params.ID)
@@ -361,13 +375,13 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
+	if params.ID == "" {
+		return authz.NewRevokeRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
+	}
+
 	multiResources := slices.Concat(authorization.Roles(params.Body.Roles...), authorization.Users(params.ID))
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, multiResources...); err != nil {
 		return authz.NewRevokeRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if params.ID == "" {
-		return authz.NewRevokeRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -393,4 +407,54 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	}).Info("roles revoked")
 
 	return authz.NewRevokeRoleOK()
+}
+
+func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
+	for _, perm := range permissions {
+		if perm == nil {
+			continue
+		}
+
+		// collection filtration
+		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" {
+			if class := h.schemaReader.ReadOnlyClass(*perm.Collection); class == nil {
+				return fmt.Errorf("collection %s doesn't exists", *perm.Collection)
+			}
+		}
+
+		// tenants filtration specific collection, specific tenant
+		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
+			if err != nil {
+				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
+			}
+
+			if _, ok := shardsStatus[*perm.Tenant]; !ok {
+				return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+			}
+		}
+
+		// tenants filtration all collections, specific tenant
+		if (perm.Collection == nil || *perm.Collection == "" || *perm.Collection == "*") && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+			schema := h.schemaReader.GetSchemaSkipAuth()
+			for _, class := range schema.Objects.Classes {
+				state := h.schemaReader.CopyShardingState(class.Class)
+				if state == nil {
+					continue
+				}
+				if _, ok := state.Physical[*perm.Tenant]; ok {
+					// exists
+					return nil
+				}
+			}
+			return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+		}
+
+		// TODO validate mapping filter to weaviate permissions
+		// TODO users checking
+		// TODO roles checking
+		// TODO object checking
+	}
+
+	return nil
 }
