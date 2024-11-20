@@ -604,7 +604,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			}
 
 			node := nodes[rnd.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "", 0)
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, time.Now(), nil, "", 0)
 			require.Nil(t, err)
 		}
 	})
@@ -656,7 +656,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "", 0)
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), time.Now(), nil, "", 0)
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -735,7 +735,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 				require.Equal(t, res[0].ID, obj.ID)
 				require.Equal(t, res[0].Dist, float32(1))
 
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
 			})
 
 			t.Run("get some targets", func(t *testing.T) {
@@ -751,7 +751,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 				require.Equal(t, res[0].ID, obj.ID)
 				require.Equal(t, res[0].Dist, float32(1))
 
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
 			})
 
 			t.Run("get non-existing target", func(t *testing.T) {
