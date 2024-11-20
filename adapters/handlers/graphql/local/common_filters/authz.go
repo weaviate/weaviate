@@ -12,6 +12,8 @@
 package common_filters
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
@@ -23,8 +25,11 @@ func AuthorizeFilters(authorizer authorization.Authorizer, clause *filters.Claus
 		return nil
 	}
 	if len(clause.Operands) == 0 {
-		innerMostPath := clause.On.GetInnerMost()
-		return authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(innerMostPath.Class.String())...)
+		path := clause.On
+		if path == nil {
+			return fmt.Errorf("no path found in clause: %v", clause)
+		}
+		return authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(path.Class.String())...)
 	} else {
 		for _, operand := range clause.Operands {
 			if err := AuthorizeFilters(authorizer, &operand, principal); err != nil {
