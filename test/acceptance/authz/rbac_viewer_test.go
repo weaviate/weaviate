@@ -33,7 +33,7 @@ func TestViewerEndpoints(t *testing.T) {
 		arrayReq bool
 		body     map[string][]byte
 	}{
-		{endpoint: "authz/roles", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"name\": \"n\", \"permissions\":[]}")}},
+		{endpoint: "authz/roles", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"name\": \"n\", \"permissions\":[{\"action\": \"manage_cluster\"}]}")}},
 		{endpoint: "authz/roles/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "authz/roles/id/users", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "authz/users/id/roles", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
