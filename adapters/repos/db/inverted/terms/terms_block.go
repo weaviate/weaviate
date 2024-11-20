@@ -16,7 +16,9 @@ import (
 )
 
 var (
-	BLOCK_SIZE           = 128
+	BLOCK_SIZE = 128
+	// if we are only encoding few documents, we can encode the doc ids and tfs as full bytes.
+	// Limit for this is currently set to 1
 	ENCODE_AS_FULL_BYTES = 1
 )
 
