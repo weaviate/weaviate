@@ -371,6 +371,14 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
 		if err == nil {
 			currUpdateTime = localObj.LastUpdateTimeUnix()
+		} else if errors.Is(err, lsmkv.Deleted) && idx.Config.AsyncReplicationEnabled {
+			// TODO: A temporary limitation of async replication is that delete operations
+			// 		 are not propagated. Because of this, any deleted objects which are still
+			//		 found on any other node in the cluster will be written back to the nodes
+			//		 which successfully processed the delete. If we don't handle this limitation
+			// 		 in this manner, the node which is unaware of the delete will be an in
+			//		 infinite loop attempting to propagate the object.
+			err = nil
 		} else if errors.Is(err, lsmkv.Deleted) {
 			errDeleted, ok := err.(lsmkv.ErrDeleted)
 			if ok {
@@ -408,40 +416,13 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		// Just in case but this should not happen
-		data := incomingObj
-		if data == nil || data.ID == "" {
-			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
-			result = append(result, replica.RepairResponse{Err: msg})
-			continue
-		}
-		// valid update
-		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
-		if errors.Is(err, lsmkv.Deleted) && idx.Config.AsyncReplicationEnabled {
-			// TODO: A temporary limitation of async replication is that delete operations
-			// 		 are not propagated. Because of this, any deleted objects which are still
-			//		 found on any other node in the cluster will be written back to the nodes
-			//		 which successfully processed the delete. If we don't handle this limitation
-			// 		 in this manner, the node which is unaware of the delete will be an in
-			//		 infinite loop attempting to propagate the object.
-			err = nil
-		} else if err != nil && errors.Is(err, lsmkv.Deleted) {
-			continue
-		}
-		var curUpdateTime int64 // 0 means object doesn't exist on this node
-		if found != nil {
-			curUpdateTime = found.LastUpdateTimeUnix()
-		}
-		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
-		switch {
-		case err != nil:
-			r.Err = "not found: " + err.Error()
-		case curUpdateTime == u.StaleUpdateTime:
-			// the stored object is not the most recent version. in
-			// this case, we overwrite it with the more recent one.
-			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.Vectors))
-			if err != nil {
-				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors))
+		if err != nil {
+			r := replica.RepairResponse{
+				ID:  id.String(),
+				Err: fmt.Sprintf("overwrite stale object: %v", err),
 			}
 			result = append(result, r)
 			continue
