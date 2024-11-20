@@ -176,7 +176,7 @@ func (b *BM25Searcher) wandBlock(
 			}
 
 			eg.Go(func() (err error) {
-				topKHeap := b.doBlockMaxWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				topKHeap := terms.DoBlockMaxWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
 
 				allObjects[i][j] = objects

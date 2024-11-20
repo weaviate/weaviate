@@ -290,7 +290,7 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := b.doWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+	topKHeap := terms.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 
 	/*
 		metrics.QueryCount++
@@ -404,125 +404,8 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) doBlockMaxWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
-) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
-	// averagePropLength = 40
-	var docInfos []*terms.DocPointerWithScore
-	topKHeap := priorityqueue.NewMin[[]*terms.DocPointerWithScore](limit)
-	worstDist := float64(-10000) // tf score can be negative
-
-	results.SortFull()
-	for {
-		if results.CompletelyExhausted() {
-			return topKHeap
-		}
-
-		pivotID, pivotPoint, notFoundPivot := results.FindMinID(worstDist)
-		if notFoundPivot {
-			return topKHeap
-		}
-
-		upperBound := results.GetBlockUpperBound(pivotPoint, pivotID)
-
-		if topKHeap.ShouldEnqueue(upperBound, limit) {
-			if additionalExplanations {
-				docInfos = make([]*terms.DocPointerWithScore, results.Count)
-			}
-			if pivotID == results.T[0].IdPointer() {
-				score := float32(0.0)
-				for _, term := range results.T {
-					if term.IdPointer() != pivotID {
-						break
-					}
-					_, s, d := term.Score(averagePropLength, b.config, additionalExplanations)
-					score += float32(s)
-					upperBound -= term.CurrentBlockImpact() - float32(s)
-
-					if additionalExplanations {
-						docInfos[term.QueryTermIndex()] = d
-					}
-					//if !topKHeap.ShouldEnqueue(upperBound, limit) {
-					//	break
-					//}
-				}
-				for _, term := range results.T {
-					if term.IdPointer() != pivotID {
-						break
-					}
-					term.Advance()
-				}
-
-				topKHeap.InsertAndPop(pivotID, float64(score), limit, &worstDist, docInfos)
-
-				results.SortFull()
-			} else {
-				nextList := pivotPoint
-				for results.T[nextList].IdPointer() == pivotID {
-					nextList--
-				}
-				results.T[nextList].AdvanceAtLeast(pivotID)
-
-				results.SortPartial(nextList)
-
-			}
-		} else {
-			nextList := pivotPoint
-			maxWeight := results.T[nextList].CurrentBlockImpact()
-
-			for i := 0; i < pivotPoint; i++ {
-				if results.T[i].CurrentBlockImpact() > maxWeight {
-					nextList = i
-					maxWeight = results.T[i].CurrentBlockImpact()
-				}
-			}
-
-			next := uint64(999999999999999)
-
-			for i := 0; i < pivotPoint; i++ {
-				if results.T[i].CurrentBlockMaxId() < next {
-					next = results.T[i].CurrentBlockMaxId()
-				}
-			}
-
-			next += 1
-
-			if pivotPoint+1 < len(results.T) && results.T[pivotPoint+1].IdPointer() < next {
-				next = results.T[pivotPoint+1].IdPointer()
-			}
-
-			if next <= pivotID {
-				next = pivotID + 1
-			}
-			results.T[nextList].AdvanceAtLeast(next)
-
-			results.SortPartial(nextList)
-
-		}
-
-	}
-}
-
-func (b *BM25Searcher) doWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
-) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
-	topKHeap := priorityqueue.NewMin[[]*terms.DocPointerWithScore](limit)
-	worstDist := float64(-10000) // tf score can be negative
-	results.SortFull()
-	for {
-
-		if results.CompletelyExhausted() || results.PivotWand(worstDist) {
-			return topKHeap
-		}
-
-		id, score, additional := results.ScoreNext(averagePropLength, b.config, additionalExplanations)
-		results.SortFull()
-		if topKHeap.ShouldEnqueue(float32(score), limit) {
-			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)
-		}
-	}
-}
-
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
-	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0))
+	termResult := terms.NewTerm(query, queryTermIndex, float32(1.0), b.config)
 
 	var filteredDocIDs *sroar.Bitmap
 	var filteredDocIDsThread []*sroar.Bitmap

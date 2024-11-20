@@ -192,7 +192,7 @@ type TermInterface interface {
 	AdvanceAtLeast(minID uint64)
 	AdvanceAtLeastShallow(minID uint64)
 	Advance()
-	Score(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, *DocPointerWithScore)
+	Score(averagePropLength float64, additionalExplanations bool) (uint64, float64, *DocPointerWithScore)
 	CurrentBlockImpact() float32
 	CurrentBlockMaxId() uint64
 }
@@ -209,20 +209,22 @@ type Term struct {
 	queryTerm      string
 	queryTermIndex int
 	propertyBoost  float64
+	config         schema.BM25Config
 }
 
-func NewTerm(queryTerm string, queryTermIndex int, propertyBoost float32) *Term {
+func NewTerm(queryTerm string, queryTermIndex int, propertyBoost float32, config schema.BM25Config) *Term {
 	return &Term{
 		queryTerm:      queryTerm,
 		queryTermIndex: queryTermIndex,
 		propertyBoost:  float64(propertyBoost),
+		config:         config,
 	}
 }
 
-func (t *Term) Score(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, *DocPointerWithScore) {
+func (t *Term) Score(averagePropLength float64, additionalExplanations bool) (uint64, float64, *DocPointerWithScore) {
 	pair := t.Data[t.posPointer]
 	freq := float64(pair.Frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
+	tf := freq / (freq + t.config.K1*(1-t.config.B+t.config.B*float64(pair.PropLength)/averagePropLength))
 	if !additionalExplanations {
 		return t.idPointer, tf * t.idf * t.propertyBoost, nil
 	}
@@ -401,7 +403,7 @@ func (t *Terms) FindFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, []*DocPointerWithScore) {
+func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool) (uint64, float64, []*DocPointerWithScore) {
 	var docInfos []*DocPointerWithScore
 
 	pos, ok := t.FindFirstNonExhausted()
@@ -425,7 +427,7 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 			continue
 		}
 		term := t.T[i]
-		_, score, docInfo := term.Score(averagePropLength, config, additionalExplanations)
+		_, score, docInfo := term.Score(averagePropLength, additionalExplanations)
 		term.Advance()
 		if additionalExplanations {
 			docInfos[term.QueryTermIndex()] = docInfo
