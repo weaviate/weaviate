@@ -281,12 +281,9 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
 			controller := mocks.NewController(t)
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
-
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 
 			if tt.readCollection {
 				schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
@@ -314,7 +311,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 				})
 			}
 			h := &authZHandlers{
-				authorizer:   authorizer,
 				controller:   controller,
 				schemaReader: schemaReader,
 				logger:       logger,
