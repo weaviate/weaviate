@@ -47,7 +47,7 @@ func TestClient(t *testing.T) {
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		ctxWithClusterURL := context.WithValue(context.Background(), "X-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-URL", []string{server.URL})
 		res, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}})
 
 		assert.Nil(t, err)
@@ -67,7 +67,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		ctxWithClusterURL := context.WithValue(ctx, "X-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(ctx, "X-Weaviate-Cluster-URL", []string{server.URL})
 		defer cancel()
 
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
@@ -91,7 +91,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		ctxWithClusterURL := context.WithValue(context.Background(), "X-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-URL", []string{server.URL})
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
@@ -111,7 +111,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(), "X-Weaviate-Api-Key", []string{"some-key"})
-		ctxWithBothValues := context.WithValue(ctxWithValue, "X-Cluster-URL", []string{server.URL})
+		ctxWithBothValues := context.WithValue(ctxWithValue, "X-Weaviate-Cluster-URL", []string{server.URL})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -137,7 +137,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		ctxWithClusterURL := context.WithValue(ctx, "X-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(ctx, "X-Weaviate-Cluster-URL", []string{server.URL})
 		defer cancel()
 
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
@@ -216,7 +216,7 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})
 
-	t.Run("when X-Cluster-URL header is missing", func(t *testing.T) {
+	t.Run("when X-Weaviate-Cluster-URL header is missing", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{
@@ -232,7 +232,7 @@ func TestClient(t *testing.T) {
 		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Cluster-URL", err.Error())
+		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Weaviate-Cluster-URL", err.Error())
 	})
 }
 
