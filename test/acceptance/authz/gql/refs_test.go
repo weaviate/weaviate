@@ -13,6 +13,7 @@ package gql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthZGraphQLGetWithRefs(t *testing.T) {
+func TestAuthZGraphQLRefs(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -93,27 +94,43 @@ func TestAuthZGraphQLGetWithRefs(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 	})
 
-	t.Run("successfully query for just the articles", func(t *testing.T) {
+	t.Run("successfully query with Get for just the articles", func(t *testing.T) {
 		res := assertGQL(t, "{ Get { Article { title } } }", customKey)
 		data, ok := res.Data["Get"].(map[string]any)
 		require.True(t, ok)
 		require.Len(t, data["Article"], 2)
 	})
 
-	t.Run("fail to query for articles when filtering on paragraphs", func(t *testing.T) {
+	t.Run("successfully query with Aggregate for just the articles data", func(t *testing.T) {
+		res := assertGQL(t, "{ Aggregate { Article { meta { count } } } }", customKey)
+		data, ok := res.Data["Aggregate"].(map[string]any)
+		require.True(t, ok)
+		dataL, ok := data["Article"].([]any)
+		require.True(t, ok)
+		require.Equal(t, json.Number("2"), dataL[0].(map[string]any)["meta"].(map[string]any)["count"])
+	})
+
+	t.Run("fail to query with Get for articles when filtering on paragraphs", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { Article(where: {operator: Equal, path: ["hasParagraphs", "Paragraph", "_id"], valueText: "%s"}) { title } } }`, paragraph1UUID)
 		resp, err := queryGQL(t, query, customKey)
 		require.Nil(t, err)
-		require.Equal(t, len(resp.Payload.Errors), 1)
+		require.Equal(t, 1, len(resp.Payload.Errors))
+		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
+	})
+
+	t.Run("fail to query with Aggregate for articles when filtering on paragraphs", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { Article(where: {operator: Equal, path: ["hasParagraphs", "Paragraph", "_id"], valueText: "%s"}) { meta { count } } } }`, paragraph1UUID)
+		resp, err := queryGQL(t, query, customKey)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(resp.Payload.Errors))
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
 	})
 
 	t.Run("fail to query for articles returning paragraphs", func(t *testing.T) {
 		query := "{ Get { Article { title hasParagraphs { ... on Paragraph { _additional { id } } } } } }"
 		resp, err := queryGQL(t, query, customKey)
-		fmt.Printf("%+v\n", resp.Payload.Data)
 		require.Nil(t, err)
-		require.Equal(t, len(resp.Payload.Errors), 1)
+		require.Equal(t, 1, len(resp.Payload.Errors))
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
 	})
 
@@ -128,7 +145,7 @@ func TestAuthZGraphQLGetWithRefs(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("successfully query for articles when filtering on paragraphs returning paragraphs", func(t *testing.T) {
+	t.Run("successfully query for articles with Get when filtering on paragraphs returning paragraphs", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { Article(where: {operator: Equal, path: ["hasParagraphs", "Paragraph", "_id"], valueText: "%s"}) { title hasParagraphs { ... on Paragraph { _additional { id } } } } } }`, paragraph1UUID)
 		res := assertGQL(t, query, customKey)
 		data, ok := res.Data["Get"].(map[string]any)
@@ -137,5 +154,15 @@ func TestAuthZGraphQLGetWithRefs(t *testing.T) {
 		art, ok := data["Article"].([]any)[0].(map[string]any)
 		require.True(t, ok)
 		require.Len(t, art["hasParagraphs"], 2)
+	})
+
+	t.Run("successfully query for articles with Aggregate when filtering on paragraphs", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { Article(where: {operator: Equal, path: ["hasParagraphs", "Paragraph", "_id"], valueText: "%s"}) { meta { count } } } }`, paragraph1UUID)
+		res := assertGQL(t, query, customKey)
+		data, ok := res.Data["Aggregate"].(map[string]any)
+		require.True(t, ok)
+		dataL, ok := data["Article"].([]any)
+		require.True(t, ok)
+		require.Equal(t, json.Number("1"), dataL[0].(map[string]any)["meta"].(map[string]any)["count"])
 	})
 }

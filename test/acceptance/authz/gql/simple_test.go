@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthZGraphQLGetST(t *testing.T) {
+func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -83,10 +83,14 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 	})
 
 	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
-		query := "{ Get { Books { title } } }"
-		_, err := queryGQL(t, query, customKey)
+		_, err := queryGQL(t, "{ Get { Books { title } } }", customKey)
 		require.NotNil(t, err)
 		_, forbidden := err.(*gql.GraphqlPostForbidden)
+		require.True(t, forbidden)
+
+		_, err = queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
+		require.NotNil(t, err)
+		_, forbidden = err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
 	})
 
@@ -102,6 +106,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 	})
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
+		assertGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 		assertGQL(t, "{ Get { Books { title } } }", customKey)
 	})
 
@@ -117,8 +122,13 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 	})
 
 	t.Run("fail with 200 to query with GQL due to lack of read objects permission", func(t *testing.T) {
-		query := "{ Get { Books { title } } }"
-		resp, err := queryGQL(t, query, customKey)
+		resp, err := queryGQL(t, "{ Get { Books { title } } }", customKey)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload.Errors)
+		require.Len(t, resp.Payload.Errors, 1)
+		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
+
+		resp, err = queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
@@ -126,7 +136,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 	})
 }
 
-func TestAuthZGraphQLGetMT(t *testing.T) {
+func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -186,9 +196,17 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, *role.Name, customUser)
 	})
 
-	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
+	t.Run("fail with 403 to query with Get due to lack of read all collections permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		_, err := queryGQL(t, query, customKey)
+		require.NotNil(t, err)
+		_, forbidden := err.(*gql.GraphqlPostForbidden)
+		require.True(t, forbidden)
+	})
+
+	t.Run("fail with 403 to query with Aggregate due to lack of read all collections permission", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { %s(tenant:"%s") { meta { count } } } }`, class.Class, customUser)
+		_, err = queryGQL(t, query, customKey)
 		require.NotNil(t, err)
 		_, forbidden := err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
@@ -205,8 +223,13 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
+	t.Run("successfully query with Get and sufficient permissions", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
+		assertGQL(t, query, customKey)
+	})
+
+	t.Run("successfully query with Aggregate and sufficient permissions", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { %s(tenant:"%s") { meta { count } } } }`, class.Class, customUser)
 		assertGQL(t, query, customKey)
 	})
 
@@ -231,11 +254,22 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
+		parsed := err.(*authz.AddPermissionsBadRequest)
+		fmt.Println(parsed.Payload.Error[0].Message)
 		require.Nil(t, err)
 	})
 
-	t.Run("fail with 200 to query with GQL due to lack of read objects and customUser tenant permission", func(t *testing.T) {
+	t.Run("fail with 200 to query with Get due to lack of read objects and customUser tenant permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
+		resp, err := queryGQL(t, query, customKey)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload.Errors)
+		require.Len(t, resp.Payload.Errors, 1)
+		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
+	})
+
+	t.Run("fail with 200 to query with Aggregate due to lack of read objects and non-existent tenant permission", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { %s(tenant:"%s") { meta { count } } } }`, class.Class, customUser)
 		resp, err := queryGQL(t, query, customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
@@ -266,8 +300,13 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
+	t.Run("successfully query with Get and sufficient permissions", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
+		assertGQL(t, query, customKey)
+	})
+
+	t.Run("successfully query with Aggregate and sufficient permissions", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Aggregate { %s(tenant:"%s") { meta { count } } } }`, class.Class, customUser)
 		assertGQL(t, query, customKey)
 	})
 }

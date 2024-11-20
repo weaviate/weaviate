@@ -329,40 +329,6 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 	}
 }
 
-func (r *resolver) authorizeFilters(clause *filters.Clause, principal *models.Principal) error {
-	if clause == nil {
-		return nil
-	}
-	if len(clause.Operands) == 0 {
-		innerMostPath := clause.On.GetInnerMost()
-		return r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(innerMostPath.Class.String())...)
-	} else {
-		for _, operand := range clause.Operands {
-			if err := r.authorizeFilters(&operand, principal); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (r *resolver) authorizeProperty(property *search.SelectProperty, principal *models.Principal) error {
-	if property == nil {
-		return nil
-	}
-	for _, ref := range property.Refs {
-		if err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(ref.ClassName)...); err != nil {
-			return err
-		}
-		for _, prop := range ref.RefProperties {
-			if err := r.authorizeProperty(&prop, principal); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
 	principal := principalFromContext(p.Context)
 
@@ -408,7 +374,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		return nil, err
 	}
 	for _, property := range properties {
-		if err := r.authorizeProperty(&property, principal); err != nil {
+		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
 			return nil, err
 		}
 	}
@@ -423,7 +389,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		return nil, fmt.Errorf("could not extract filters: %s", err)
 	}
 	if filters != nil {
-		if err = r.authorizeFilters(filters.Root, principal); err != nil {
+		if err = common_filters.AuthorizeFilters(r.authorizer, filters.Root, principal); err != nil {
 			return nil, err
 		}
 	}

@@ -32,7 +32,7 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	aggregateField, err := aggregate.Build(dbSchema, config, modulesProvider)
+	aggregateField, err := aggregate.Build(dbSchema, config, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}
