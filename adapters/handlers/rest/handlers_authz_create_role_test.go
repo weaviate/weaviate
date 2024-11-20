@@ -308,17 +308,19 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			if tt.expectedError == "" {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
 			if tt.readCollection {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
 			}
 
 			if tt.readTenant {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				schemaReader.On("ReadOnlyClass",
 					*tt.params.Body.Permissions[0].Collection).
 					Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
@@ -329,6 +331,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			}
 
 			if tt.readTenantWithoutCollection {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
 					Objects: &models.Schema{
 						Classes: []*models.Class{{Class: "ABC"}},
