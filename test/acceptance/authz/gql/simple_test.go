@@ -82,15 +82,17 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, *role.Name, customUser)
 	})
 
-	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
+	t.Run("fail with 403 to query with Get due to lack of read all collections permission", func(t *testing.T) {
 		_, err := queryGQL(t, "{ Get { Books { title } } }", customKey)
 		require.NotNil(t, err)
 		_, forbidden := err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
+	})
 
-		_, err = queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
+	t.Run("fail with 403 to query with Aggregate due to lack of read all collections permission", func(t *testing.T) {
+		_, err := queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 		require.NotNil(t, err)
-		_, forbidden = err.(*gql.GraphqlPostForbidden)
+		_, forbidden := err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
 	})
 
@@ -105,9 +107,12 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
-		assertGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
+	t.Run("successfully query with Get and the sufficient permissions", func(t *testing.T) {
 		assertGQL(t, "{ Get { Books { title } } }", customKey)
+	})
+
+	t.Run("successfully query with Aggregate and the sufficient permissions", func(t *testing.T) {
+		assertGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 	})
 
 	t.Run("remove the read objects in book class permission", func(t *testing.T) {
@@ -121,14 +126,16 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("fail with 200 to query with GQL due to lack of read objects permission", func(t *testing.T) {
+	t.Run("fail with 200 to query with Get due to lack of read objects permission", func(t *testing.T) {
 		resp, err := queryGQL(t, "{ Get { Books { title } } }", customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
+	})
 
-		resp, err = queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
+	t.Run("fail with 200 to query with Aggregate due to lack of read objects permission", func(t *testing.T) {
+		resp, err := queryGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
