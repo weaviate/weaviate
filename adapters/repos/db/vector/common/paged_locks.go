@@ -15,8 +15,10 @@ import (
 	"sync"
 )
 
-const DefaultPagedLocksCount = 512
-const DefaultPagedLocksPageSize = 32
+const (
+	DefaultPagedLocksCount    = 512
+	DefaultPagedLocksPageSize = 32
+)
 
 type PagedLocks struct {
 	// paged locks
@@ -178,7 +180,6 @@ func (sl *PagedRWLocks) RLockedAll(callback func()) {
 }
 
 func (sl *PagedRWLocks) RLock(id uint64) {
-
 	sl.shards[(id/sl.PageSize)%sl.Count].RLock()
 }
 
