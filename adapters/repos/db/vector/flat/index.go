@@ -562,35 +562,33 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
 	for id < uint64(all) && (allow == nil || id <= allowMax) {
-		if allow == nil || allow.Contains(id) {
 
-			vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
+		vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
 
-			for i, vec := range vecs {
-				if i < (int(end) - int(start)) {
-					currentId := start + uint64(i)
+		for i, vec := range vecs {
+			if i < (int(end) - int(start)) {
+				currentId := start + uint64(i)
 
-					if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
 
-						err := errs[i]
-						if err != nil {
-							return err
-						}
-						if len(vec) == 0 {
-							continue
-						}
-						distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-						if err != nil {
-							return err
-						}
-						index.insertToHeap(heap, limit, currentId, distance)
-
+					err := errs[i]
+					if err != nil {
+						return err
 					}
+					if len(vec) == 0 {
+						continue
+					}
+					distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+					if err != nil {
+						return err
+					}
+					index.insertToHeap(heap, limit, currentId, distance)
+
 				}
 			}
-
-			id = end
 		}
+
+		id = end
 	}
 
 	return nil

@@ -138,7 +138,7 @@ func (s *PagedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 		return vec, nil
 	}
 
-	return s.handleCacheMiss(ctx, id)
+	return s.handleCacheMiss(ctx, id, true)
 }
 
 func (s *PagedLockCache[T]) Delete(ctx context.Context, id uint64) {
@@ -153,7 +153,7 @@ func (s *PagedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *PagedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
+func (s *PagedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64, lock bool) ([]T, error) {
 	if s.allocChecker != nil {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
@@ -180,9 +180,11 @@ func (s *PagedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.PagedLocks.Lock(id)
+	if lock {
+		s.PagedLocks.Lock(id)
+		defer s.PagedLocks.Unlock(id)
+	}
 	s.cache[id] = vec
-	s.PagedLocks.Unlock(id)
 
 	return vec, nil
 }
@@ -191,24 +193,13 @@ func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, 
 	out := make([][]T, len(ids))
 	errs := make([]error, len(ids))
 
-	currentLock := uint64(0)
-	currentLockSet := false
-	currentId := uint64(0)
-
 	for i, id := range ids {
-		newLock := s.GetCorrespondingLock(id)
-		if newLock != currentLock || !currentLockSet {
-			if currentLockSet {
-				s.PagedLocks.RUnlock(currentId)
-			}
-			currentLock = newLock
-			s.PagedLocks.RLock(id)
-		}
-
+		s.PagedLocks.RLock(id)
 		vec := s.cache[id]
+		s.PagedLocks.RUnlock(id)
 
 		if vec == nil {
-			vecFromDisk, err := s.handleCacheMiss(ctx, id)
+			vecFromDisk, err := s.handleCacheMiss(ctx, id, true)
 			errs[i] = err
 			vec = vecFromDisk
 		}
@@ -216,13 +207,10 @@ func (s *PagedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, 
 		out[i] = vec
 	}
 
-	s.PagedLocks.RUnlock(ids[len(ids)-1])
-
 	return out, errs
 }
 
 func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]T, errs []error) ([][]T, []error, uint64, uint64) {
-
 	start := (id / s.PagedLocks.PageSize) * s.PagedLocks.PageSize
 	end := start + s.PagedLocks.PageSize
 
@@ -230,28 +218,21 @@ func (s *PagedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, 
 		end = uint64(len(s.cache))
 	}
 
-	lockId := s.GetCorrespondingLock(start)
-
-	s.PagedLocks.RLock(lockId)
+	s.PagedLocks.RLock(start)
+	defer s.PagedLocks.RUnlock(start)
 
 	for i := start; i < end; i++ {
 		vec := s.cache[i]
 
 		if vec == nil {
-			vecFromDisk, err := s.handleCacheMiss(ctx, i)
+			vecFromDisk, err := s.handleCacheMiss(ctx, i, false)
 			errs[i-start] = err
 			vec = vecFromDisk
 		}
 		out[i-start] = vec
 	}
 
-	s.PagedLocks.RUnlock(lockId)
-
 	return out, errs, start, end
-}
-
-func (s *PagedLockCache[T]) GetCorrespondingLock(id uint64) uint64 {
-	return (id / s.PagedLocks.PageSize) % s.PagedLocks.Count
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {

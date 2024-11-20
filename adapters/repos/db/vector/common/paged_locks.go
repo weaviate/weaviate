@@ -11,7 +11,9 @@
 
 package common
 
-import "sync"
+import (
+	"sync"
+)
 
 const DefaultPagedLocksCount = 512
 const DefaultPagedLocksPageSize = 32
@@ -176,6 +178,7 @@ func (sl *PagedRWLocks) RLockedAll(callback func()) {
 }
 
 func (sl *PagedRWLocks) RLock(id uint64) {
+
 	sl.shards[(id/sl.PageSize)%sl.Count].RLock()
 }
 
