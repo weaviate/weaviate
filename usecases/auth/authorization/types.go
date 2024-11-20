@@ -205,13 +205,13 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{"meta/collections/*"}
+		return []string{"meta/collections/*/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = "meta/collections/*"
+			resources[idx] = "meta/collections/*/*"
 		} else {
 			resources[idx] = fmt.Sprintf("meta/collections/%s/*", classes[idx])
 		}
