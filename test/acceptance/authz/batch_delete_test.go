@@ -15,7 +15,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,17 +35,6 @@ const (
 )
 
 func TestAuthZBatchDelete(t *testing.T) {
-	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	//defer cancel()
-	//
-	//compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
-	//require.Nil(t, err)
-	//defer func() {
-	//	if err := compose.Terminate(ctx); err != nil {
-	//		t.Fatalf("failed to terminate test containers: %v", err)
-	//	}
-	//}()
-
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
@@ -115,7 +103,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			ID:    UUIDFrom,
 			Class: classNameSource,
 			Properties: map[string]interface{}{
-				"someProperty": "test",
+				"prop": "test",
 			},
 		})
 
@@ -133,13 +121,24 @@ func TestAuthZBatchDelete(t *testing.T) {
 	_, err = helper.Client(t).Batch.BatchReferencesCreate(paramsRef, adminAuth)
 	require.Nil(t, err)
 
-	t.Run("No delete rights for class", func(t *testing.T) {
+	allNonRefPermissions := []*models.Permission{
+		{
+			Action:     &deleteDataAction,
+			Collection: &classNameSource,
+		},
+		{
+			Action:     &readSchemaAction,
+			Collection: &classNameSource,
+		},
+		{
+			Action:     &readDataAction,
+			Collection: &classNameSource,
+		},
+	}
+	t.Run("all rights without reference", func(t *testing.T) {
 		deleteRole := &models.Role{
-			Name: &testRoleName,
-			Permissions: []*models.Permission{{
-				Action:     &readSchemaAction,
-				Collection: &classNameSource,
-			}},
+			Name:        &testRoleName,
+			Permissions: allNonRefPermissions,
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
@@ -149,11 +148,11 @@ func TestAuthZBatchDelete(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		params := getBatchDelete(classNameSource, []string{"someProperty"}, "something", true)
-		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
-		require.NotNil(t, err)
-		var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
-		require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
+		params := getBatchDelete(classNameSource, []string{"prop"}, "something", true)
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+		require.Nil(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, resp.Payload.Results.Matches, int64(1))
 
 		_, err = helper.Client(t).Authz.RevokeRole(
 			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
@@ -163,61 +162,61 @@ func TestAuthZBatchDelete(t *testing.T) {
 		helper.DeleteRole(t, adminKey, testRoleName)
 	})
 
-	t.Run("No delete rights for class ref class", func(t *testing.T) {
+	for _, permissions := range generateMissingLists(allNonRefPermissions) {
+		t.Run("Single class without permissions", func(t *testing.T) {
+			role := &models.Role{
+				Name:        &testRoleName,
+				Permissions: permissions,
+			}
+			helper.DeleteRole(t, adminKey, testRoleName)
+			helper.CreateRole(t, adminKey, role)
+			_, err = helper.Client(t).Authz.AssignRole(
+				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
+
+			params := getBatchDelete(classNameSource, []string{"someProperty"}, "something", true)
+			_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+			require.NotNil(t, err)
+			var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
+			require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
+
+			_, err = helper.Client(t).Authz.RevokeRole(
+				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
+			helper.DeleteRole(t, adminKey, testRoleName)
+		})
+	}
+
+	allRefPermissions := []*models.Permission{
+		{
+			Action:     &deleteDataAction,
+			Collection: &classNameSource,
+		},
+		{
+			Action:     &readSchemaAction,
+			Collection: &classNameSource,
+		},
+		{
+			Action:     &readDataAction,
+			Collection: &classNameSource,
+		},
+		{
+			Action:     &readSchemaAction,
+			Collection: &classNameTarget,
+		},
+		{
+			Action:     &readDataAction,
+			Collection: &classNameTarget,
+		},
+	}
+	t.Run("all rights with reference", func(t *testing.T) {
 		deleteRole := &models.Role{
-			Name: &testRoleName,
-			Permissions: []*models.Permission{{
-				Action:     &deleteDataAction,
-				Collection: &classNameSource,
-			}},
-		}
-		helper.DeleteRole(t, adminKey, *deleteRole.Name)
-		helper.CreateRole(t, adminKey, deleteRole)
-		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
-
-		params := getBatchDelete(classNameSource, []string{"ref", classNameTarget}, "something", true)
-		_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
-		require.NotNil(t, err)
-		var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
-		require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
-
-		_, err = helper.Client(t).Authz.RevokeRole(
-			authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
-			adminAuth,
-		)
-		require.Nil(t, err)
-		helper.DeleteRole(t, adminKey, testRoleName)
-	})
-
-	t.Run("all rights", func(t *testing.T) {
-		deleteRole := &models.Role{
-			Name: &testRoleName,
-			Permissions: []*models.Permission{
-				{
-					Action:     &deleteDataAction,
-					Collection: &classNameSource,
-				},
-				{
-					Action:     &readSchemaAction,
-					Collection: &classNameSource,
-				},
-				{
-					Action:     &readDataAction,
-					Collection: &classNameSource,
-				},
-				{
-					Action:     &readSchemaAction,
-					Collection: &classNameTarget,
-				},
-				{
-					Action:     &readDataAction,
-					Collection: &classNameTarget,
-				},
-			},
+			Name:        &testRoleName,
+			Permissions: allRefPermissions,
 		}
 		helper.DeleteRole(t, adminKey, *deleteRole.Name)
 		helper.CreateRole(t, adminKey, deleteRole)
@@ -240,6 +239,35 @@ func TestAuthZBatchDelete(t *testing.T) {
 		require.Nil(t, err)
 		helper.DeleteRole(t, adminKey, testRoleName)
 	})
+
+	for _, permissions := range generateMissingLists(allRefPermissions) {
+		t.Run("No delete rights for class ref class", func(t *testing.T) {
+			deleteRole := &models.Role{
+				Name:        &testRoleName,
+				Permissions: permissions,
+			}
+			helper.DeleteRole(t, adminKey, *deleteRole.Name)
+			helper.CreateRole(t, adminKey, deleteRole)
+			_, err = helper.Client(t).Authz.AssignRole(
+				authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
+
+			params := getBatchDelete(classNameSource, []string{"ref", classNameTarget}, "something", true)
+			_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
+			require.NotNil(t, err)
+			var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
+			require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
+
+			_, err = helper.Client(t).Authz.RevokeRole(
+				authz.NewRevokeRoleParams().WithID(customUser).WithBody(authz.RevokeRoleBody{Roles: []string{testRoleName}}),
+				adminAuth,
+			)
+			require.Nil(t, err)
+			helper.DeleteRole(t, adminKey, testRoleName)
+		})
+	}
 }
 
 func getBatchDelete(className string, path []string, valueText string, dryRun bool) *batch.BatchObjectsDeleteParams {
@@ -257,10 +285,4 @@ func getBatchDelete(className string, path []string, valueText string, dryRun bo
 		Output: &output,
 	})
 	return params
-}
-
-func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
-	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, auth)
-	helper.AssertRequestOk(t, delRes, err, nil)
 }
