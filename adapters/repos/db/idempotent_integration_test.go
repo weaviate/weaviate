@@ -25,8 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 func TestMigrator_UpdateIndex(t *testing.T) {

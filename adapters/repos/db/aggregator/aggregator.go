@@ -24,8 +24,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/modules"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/internal/modules"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
 )
 
 type vectorIndex interface {

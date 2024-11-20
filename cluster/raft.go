@@ -18,7 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/internal/cluster"
 )
 
 // Raft abstracts away the Raft store, providing clients with an interface that encompasses all query & write operations.

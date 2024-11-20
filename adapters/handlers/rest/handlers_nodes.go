@@ -24,10 +24,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	nodesUC "github.com/weaviate/weaviate/usecases/nodes"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	autherrs "github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	nodesUC "github.com/weaviate/weaviate/internal/nodes"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
 )
 
 type nodesHandlers struct {

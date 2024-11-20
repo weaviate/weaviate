@@ -54,14 +54,14 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/memwatch"
+	"github.com/weaviate/weaviate/internal/modules"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/replica"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 var (

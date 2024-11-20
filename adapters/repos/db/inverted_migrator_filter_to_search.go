@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/internal/schema"
 )
 
 type filterableToSearchableMigrator struct {

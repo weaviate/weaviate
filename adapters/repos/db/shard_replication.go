@@ -20,8 +20,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 type replicaTask func(context.Context) interface{}

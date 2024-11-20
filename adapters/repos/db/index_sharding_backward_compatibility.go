@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {

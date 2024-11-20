@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/cluster/mocks"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 func TestRaftEndpoints(t *testing.T) {

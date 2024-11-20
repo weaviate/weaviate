@@ -33,13 +33,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	ubak "github.com/weaviate/weaviate/internal/backup"
+	"github.com/weaviate/weaviate/internal/cluster"
+	"github.com/weaviate/weaviate/internal/cluster/mocks"
+	"github.com/weaviate/weaviate/internal/memwatch"
+	"github.com/weaviate/weaviate/internal/modules"
+	"github.com/weaviate/weaviate/internal/sharding"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type node struct {

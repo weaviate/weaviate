@@ -18,8 +18,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/classification"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,

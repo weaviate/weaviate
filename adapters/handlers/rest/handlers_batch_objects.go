@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects"
+	autherrs "github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 type batchObjectHandlers struct {

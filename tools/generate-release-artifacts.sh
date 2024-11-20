@@ -48,7 +48,7 @@ function build_binary() {
   arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
 
   echo_green "Building linux/${arch} binary..."
-  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'  -X github.com/weaviate/weaviate/usecases/config.ImageTag='${VERSION}'
+  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/internal/config.GitHash='${GIT_HASH}'  -X github.com/weaviate/weaviate/internal/config.ImageTag='${VERSION}'
   step_complete
 
   cd $arch_dir

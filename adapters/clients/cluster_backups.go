@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/internal/backup"
 )
 
 const (

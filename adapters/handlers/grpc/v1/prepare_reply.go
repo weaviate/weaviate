@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/internal/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	generative "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	generative "github.com/weaviate/weaviate/internal/modulecomponents/additional/generate"
+	additionalModels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"

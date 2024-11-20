@@ -21,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	additionalprovider "github.com/weaviate/weaviate/internal/modulecomponents/additional"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/modules/generative-mistral/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 const Name = "generative-mistral"

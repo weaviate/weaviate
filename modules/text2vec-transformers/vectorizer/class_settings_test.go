@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/internal/modules"
 )
 
 func TestClassSettings(t *testing.T) {

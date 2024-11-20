@@ -21,7 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {

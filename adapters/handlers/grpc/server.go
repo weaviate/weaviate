@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/auth/authentication/composer"
+	"github.com/weaviate/weaviate/internal/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor

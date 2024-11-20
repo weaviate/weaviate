@@ -26,9 +26,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/modules"
+	"github.com/weaviate/weaviate/internal/monitoring"
 )
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

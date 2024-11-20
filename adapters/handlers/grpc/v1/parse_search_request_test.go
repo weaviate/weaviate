@@ -15,8 +15,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/byteops"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/byteops"
+	"github.com/weaviate/weaviate/internal/config"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -32,15 +32,15 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImu"
+	nearText2 "github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearVideo"
 )
 
 func TestGRPCRequest(t *testing.T) {

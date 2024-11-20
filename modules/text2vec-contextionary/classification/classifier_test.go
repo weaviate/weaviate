@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	usecasesclassfication "github.com/weaviate/weaviate/internal/classification"
 	testhelper "github.com/weaviate/weaviate/test/helper"
-	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 )
 
 func TestContextualClassifier_ParseSettings(t *testing.T) {

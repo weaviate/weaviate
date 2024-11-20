@@ -19,7 +19,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/internal/schema"
 )
 
 // RaftHandler struct implements all the http endpoints for raft related requests

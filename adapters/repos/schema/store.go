@@ -24,9 +24,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
-	ucs "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/schema"
+	ucs "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/sharding"
 	bolt "go.etcd.io/bbolt"
 )
 

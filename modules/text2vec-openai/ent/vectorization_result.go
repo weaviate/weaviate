@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/internal/modulecomponents"
 )
 
 const dummyLimit = 10000000

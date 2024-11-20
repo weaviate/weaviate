@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/cohere"
+	"github.com/weaviate/weaviate/internal/modulecomponents/clients/cohere"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"

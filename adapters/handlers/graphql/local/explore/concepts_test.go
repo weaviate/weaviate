@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/internal/traverser"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type testCase struct {

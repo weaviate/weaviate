@@ -18,8 +18,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	libvectorizer "github.com/weaviate/weaviate/internal/vectorizer"
 	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {

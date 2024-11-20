@@ -26,9 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	usecasesclassfication "github.com/weaviate/weaviate/internal/classification"
+	"github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 type fakeSchemaGetter struct {

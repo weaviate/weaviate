@@ -28,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/internal/memwatch"
+	"github.com/weaviate/weaviate/internal/objects"
 )
 
 // Cannot filter for null state without enabling in the InvertedIndexConfig

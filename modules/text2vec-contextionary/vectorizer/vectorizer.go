@@ -23,8 +23,8 @@ import (
 	"github.com/fatih/camelcase"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	objectsvectorizer "github.com/weaviate/weaviate/internal/modulecomponents/vectorizer"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 // Vectorizer turns objects into vectors

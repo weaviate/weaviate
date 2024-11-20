@@ -18,8 +18,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/modules"
 )
 
 // Build the local queries from the database schema.

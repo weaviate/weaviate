@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/internal/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"

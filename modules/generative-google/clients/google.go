@@ -25,9 +25,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/internal/modulecomponents/apikey"
 	"github.com/weaviate/weaviate/modules/generative-google/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
 type harmCategory string

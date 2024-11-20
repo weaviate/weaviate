@@ -31,9 +31,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/internal/replica"
+	schemaUC "github.com/weaviate/weaviate/internal/schema"
+	"github.com/weaviate/weaviate/internal/sharding"
 )
 
 type Migrator struct {

@@ -33,8 +33,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional/generate"
+	addModels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )

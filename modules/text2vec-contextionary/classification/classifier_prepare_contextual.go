@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	libclassification "github.com/weaviate/weaviate/usecases/classification"
+	libclassification "github.com/weaviate/weaviate/internal/classification"
 )
 
 type tfidfScorer interface {

@@ -26,8 +26,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/weaviate/weaviate/internal/traverser"
+	"github.com/weaviate/weaviate/internal/traverser/hybrid"
 )
 
 type filteredAggregator struct {

@@ -19,7 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	generativemodels "github.com/weaviate/weaviate/internal/modulecomponents/additional/models"
 )
 
 type octoai struct {

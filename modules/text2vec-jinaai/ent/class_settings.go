@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	basesettings "github.com/weaviate/weaviate/internal/modulecomponents/settings"
 )
 
 const (

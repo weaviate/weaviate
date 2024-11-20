@@ -25,11 +25,11 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	uco "github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	autherrs "github.com/weaviate/weaviate/internal/auth/authorization/errors"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/monitoring"
+	uco "github.com/weaviate/weaviate/internal/objects"
+	"github.com/weaviate/weaviate/internal/replica"
 )
 
 type objectHandlers struct {

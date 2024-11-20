@@ -25,8 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/weaviate/weaviate/internal/classification"
+	"github.com/weaviate/weaviate/internal/vectorizer"
 )
 
 // TODO: why is this logic in the persistence package? This is business-logic,

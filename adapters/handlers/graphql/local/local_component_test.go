@@ -22,8 +22,8 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
-	usecaseModules "github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/internal/config"
+	usecaseModules "github.com/weaviate/weaviate/internal/modules"
 )
 
 // These tests are component tests for the local package including all its

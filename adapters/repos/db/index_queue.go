@@ -24,7 +24,7 @@ import (
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/internal/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

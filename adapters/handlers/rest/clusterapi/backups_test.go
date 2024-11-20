@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/internal/backup"
 )
 
 func TestInternalBackupsAPI(t *testing.T) {

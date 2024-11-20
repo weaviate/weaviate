@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/internal/modules"
 )
 
 func Test_classSettings_Validate(t *testing.T) {

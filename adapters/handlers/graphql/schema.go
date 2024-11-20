@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/modules"
 )
 
 type Traverser interface {

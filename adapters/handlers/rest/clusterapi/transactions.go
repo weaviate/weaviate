@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/internal/classification"
+	"github.com/weaviate/weaviate/internal/cluster"
 )
 
 // TODO-RAFT START

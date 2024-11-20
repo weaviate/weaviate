@@ -22,8 +22,8 @@ export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH \
-   -X github.com/weaviate/weaviate/usecases/config.IMAGE_TAG=localhost" \
+   go run -ldflags "-X github.com/weaviate/weaviate/internal/config.GitHash=$GIT_HASH \
+   -X github.com/weaviate/weaviate/internal/config.IMAGE_TAG=localhost" \
    "$@"
 }
 

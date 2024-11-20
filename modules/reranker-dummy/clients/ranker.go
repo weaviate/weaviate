@@ -16,7 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/weaviate/weaviate/internal/modulecomponents/ent"
 )
 
 type client struct {

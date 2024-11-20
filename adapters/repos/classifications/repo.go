@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/internal/classification"
 	bolt "go.etcd.io/bbolt"
 )
 

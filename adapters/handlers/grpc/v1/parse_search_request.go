@@ -14,7 +14,7 @@ package v1
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/internal/config"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -31,16 +31,16 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/byteops"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/internal/byteops"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/internal/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearImu"
+	nearText2 "github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/internal/modulecomponents/arguments/nearVideo"
 )
 
 func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.Class, config *config.Config) (dto.GetParams, error) {

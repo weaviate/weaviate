@@ -37,10 +37,10 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/weaviate/weaviate/internal/config"
+	"github.com/weaviate/weaviate/internal/modules"
+	"github.com/weaviate/weaviate/internal/traverser"
+	"github.com/weaviate/weaviate/internal/traverser/hybrid"
 )
 
 type TestDoc struct {
