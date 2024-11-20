@@ -3,7 +3,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name
+from .conftest import _sanitize_role_name, generate_missing_lists
 
 
 def test_rbac_refs(request: SubRequest):
@@ -20,24 +20,21 @@ def test_rbac_refs(request: SubRequest):
         )
         uuid_target1 = target.data.insert({})
         uuid_target2 = target.data.insert({})
-        uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
+        uuid_source = source.data.insert(properties={})
         role_name = _sanitize_role_name(request.node.name)
         client.roles.delete(role_name)
 
-        # read+update for both
+        needed_permissions = [
+            RBAC.permissions.collections.read(collection=target.name),
+            RBAC.permissions.collections.read(collection=source.name),
+            RBAC.permissions.collections.objects.update(collection=source.name),
+        ]
         with weaviate.connect_to_local(
             port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=role_name,
-                permissions=[
-                    RBAC.permissions.collections.update(collection=target.name),
-                    RBAC.permissions.collections.read(
-                        collection=target.name,
-                    ),
-                    RBAC.permissions.collections.update(collection=source.name),
-                    RBAC.permissions.collections.read(collection=source.name),
-                ],
+                permissions=needed_permissions,
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -65,21 +62,13 @@ def test_rbac_refs(request: SubRequest):
             client.roles.revoke(user="custom-user", roles=both_write.name)
             client.roles.delete(both_write.name)
 
-        # only read+update for one of them
-        for col in [source.name, target.name]:
+        for permissions in generate_missing_lists(needed_permissions):
             with weaviate.connect_to_local(
                 port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
             ) as client_no_rights:
                 role = client.roles.create(
                     name=role_name,
-                    permissions=[
-                        RBAC.permissions.collections.update(
-                            collection=col,
-                        ),
-                        RBAC.permissions.collections.read(
-                            collection=col,
-                        ),
-                    ],
+                    permissions=permissions,
                 )
                 client.roles.assign(user="custom-user", roles=role.name)
 
