@@ -37,7 +37,7 @@ const (
 	UsersDomain              = "users"
 	RolesDomain              = "roles"
 	ClusterDomain            = "cluster"
-	SchemaDomain             = "meta_schema"
+	SchemaDomain             = "schema"
 	ObjectsCollectionsDomain = "data_collection_objects"
 	ObjectsTenantsDomain     = "data_tenant_objects"
 )
@@ -57,10 +57,10 @@ const (
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
 
-	CreateSchema = "create_meta_schema"
-	ReadSchema   = "read_meta_schema"
-	UpdateSchema = "update_meta_schema"
-	DeleteSchema = "delete_meta_schema"
+	CreateSchema = "create_schema"
+	ReadSchema   = "read_schema"
+	UpdateSchema = "update_schema"
+	DeleteSchema = "delete_schema"
 
 	CreateObjectsCollection = "create_data_collection_objects"
 	ReadObjectsCollection   = "read_data_collection_objects"

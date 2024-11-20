@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_cluster create_meta_schema read_meta_schema update_meta_schema delete_meta_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
+	// Enum: [manage_users manage_roles read_roles manage_cluster create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
 	Action *string `json:"action"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
@@ -70,7 +70,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_meta_schema","read_meta_schema","update_meta_schema","delete_meta_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -92,17 +92,17 @@ const (
 	// PermissionActionManageCluster captures enum value "manage_cluster"
 	PermissionActionManageCluster string = "manage_cluster"
 
-	// PermissionActionCreateMetaSchema captures enum value "create_meta_schema"
-	PermissionActionCreateMetaSchema string = "create_meta_schema"
+	// PermissionActionCreateSchema captures enum value "create_schema"
+	PermissionActionCreateSchema string = "create_schema"
 
-	// PermissionActionReadMetaSchema captures enum value "read_meta_schema"
-	PermissionActionReadMetaSchema string = "read_meta_schema"
+	// PermissionActionReadSchema captures enum value "read_schema"
+	PermissionActionReadSchema string = "read_schema"
 
-	// PermissionActionUpdateMetaSchema captures enum value "update_meta_schema"
-	PermissionActionUpdateMetaSchema string = "update_meta_schema"
+	// PermissionActionUpdateSchema captures enum value "update_schema"
+	PermissionActionUpdateSchema string = "update_schema"
 
-	// PermissionActionDeleteMetaSchema captures enum value "delete_meta_schema"
-	PermissionActionDeleteMetaSchema string = "delete_meta_schema"
+	// PermissionActionDeleteSchema captures enum value "delete_schema"
+	PermissionActionDeleteSchema string = "delete_schema"
 
 	// PermissionActionCreateDataCollectionObjects captures enum value "create_data_collection_objects"
 	PermissionActionCreateDataCollectionObjects string = "create_data_collection_objects"
