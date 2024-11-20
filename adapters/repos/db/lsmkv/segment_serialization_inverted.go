@@ -87,8 +87,9 @@ func encodeBlock(nodes []MapPair) *terms.BlockData {
 	return packed
 }
 
-func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap) {
+func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
 	tombstones, values := extractTombstones(nodes)
+	propLengths := make(map[uint64]uint32)
 
 	blockCount := (len(values) + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
 
@@ -110,6 +111,8 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 		for j := start; j < end; j++ {
 			tf := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4]))
 			pl := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8]))
+			docId := binary.BigEndian.Uint64(values[j].Key)
+			propLengths[docId] = uint32(pl)
 			impact := tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*(pl/defaultAveragePropLength)))
 
 			if impact > maxImpact {
@@ -132,7 +135,7 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 		offset += uint32(blockDataEncoded[i].Size())
 	}
 
-	return blockMetadata, blockDataEncoded, tombstones
+	return blockMetadata, blockDataEncoded, tombstones, propLengths
 }
 
 func encodeBlocks(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, docCount uint64) []byte {
@@ -182,7 +185,7 @@ func createAndEncodeBlocksTest(nodes []MapPair, encodeSingleSeparate int) ([]byt
 	if len(nodes) <= encodeSingleSeparate {
 		return createAndEncodeSingleValue(nodes)
 	}
-	blockEntries, blockDatas, tombstones := createBlocks(nodes)
+	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes)
 	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
