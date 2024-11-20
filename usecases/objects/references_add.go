@@ -40,7 +40,10 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
