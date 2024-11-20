@@ -349,10 +349,6 @@ func (r *resolver) authorizeClause(clause *filters.Clause, principal *models.Pri
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
 	principal := principalFromContext(p.Context)
 
-	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(className)...); err != nil {
-		return nil, err
-	}
-
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
@@ -361,6 +357,15 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
 		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
+		return nil, err
 	}
 
 	pagination, err := filters.ExtractPaginationFromArgs(p.Args)
@@ -475,11 +480,6 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
 		p.Properties = groupByProperties
 		groupByParams = &p
-	}
-
-	var tenant string
-	if tk, ok := p.Args["tenant"]; ok {
-		tenant = tk.(string)
 	}
 
 	params := dto.GetParams{
