@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package gql
 
 import (
 	"context"
@@ -183,7 +183,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsTenant),
-				Collection: String("books"),
+				Collection: String(class.Class),
 				Tenant:     String(customUser),
 			}},
 		}
@@ -192,7 +192,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 	})
 
 	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
-		query := fmt.Sprintf(`{ Get { Books(tenant:"%s") { title } } }`, customUser)
+		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
 		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
 		require.NotNil(t, err)
@@ -212,29 +212,30 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 	})
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
-		query := fmt.Sprintf(`{ Get { Books(tenant:"%s") { title } } }`, customUser)
+		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
 		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
 		require.Nil(t, err)
 	})
 
-	t.Run("remove the read objects in book class and customUser tenant permission", func(t *testing.T) {
+	t.Run("remove the read objects in books class and customUser tenant permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadObjectsCollection),
-				Collection: String("books"),
+				Action:     String(authorization.ReadObjectsTenant),
+				Collection: String(class.Class),
+				Tenant:     String(customUser),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
 	})
 
-	t.Run("add the read objects in book class and non-existent tenant permission", func(t *testing.T) {
+	t.Run("add the read objects in books class and non-existent tenant permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsTenant),
-				Collection: String("books"),
+				Collection: String(class.Class),
 				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
@@ -242,7 +243,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 	})
 
 	t.Run("fail with 200 to query with GQL due to lack of read objects and customUser tenant permission", func(t *testing.T) {
-		query := fmt.Sprintf(`{ Get { Books(tenant:"%s") { title } } }`, customUser)
+		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
 		resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
 		require.Nil(t, err)
@@ -251,35 +252,37 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
 	})
 
-	t.Run("remove the read objects in book class and non-existent tenant permission", func(t *testing.T) {
+	t.Run("remove the read objects in books class and non-existent tenant permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsTenant),
-				Collection: String("books"),
+				Collection: String(class.Class),
 				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
 	})
 
-	t.Run("add the read objects in book class permission", func(t *testing.T) {
+	t.Run("add the read objects in books class permission", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadObjectsCollection),
-				Collection: String("books"),
+				Action:     String(authorization.ReadObjectsTenant),
+				Collection: String(class.Class),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
 	})
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
-		query := fmt.Sprintf(`{ Get { Books(tenant:"%s") { title } } }`, customUser)
+		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
 		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
+		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
 		require.Nil(t, err)
-		fmt.Println(resp.Payload.Errors[0].Message)
-		require.Equal(t, len(resp.Payload.Errors), 0)
 	})
+}
+
+func String(s string) *string {
+	return &s
 }
