@@ -238,7 +238,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				"",
 			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedResources: authorization.ShardsData("", ""),
 		},
 	}
 

@@ -95,7 +95,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						},
 					},
 				},
-				expectedError: "validate: failed to get class: SomeClass, with err=<nil>",
+				expectedError: "validate: failed to get class: SomeClass",
 			},
 			{
 				input: &models.BatchDelete{
