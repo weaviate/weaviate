@@ -323,9 +323,19 @@ func getFakeModulesProvider() *fakeModulesProvider {
 	return &fakeModulesProvider{}
 }
 
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func getFakeAuthorizer() *fakeAuthorizer {
+	return &fakeAuthorizer{}
+}
+
 func newMockResolver() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), nil)
+	field, err := get.Build(&test_helper.SimpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
