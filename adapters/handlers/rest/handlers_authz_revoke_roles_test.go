@@ -54,12 +54,12 @@ func TestRevokeRoleSuccess(t *testing.T) {
 
 func TestRevokeRoleBadRequest(t *testing.T) {
 	type testCase struct {
-		name            string
-		params          authz.RevokeRoleParams
-		principal       *models.Principal
-		expectedError   string
-		existedRoles    map[string][]authorization.Policy
-		noCallToGetRole bool
+		name           string
+		params         authz.RevokeRoleParams
+		principal      *models.Principal
+		expectedError  string
+		existedRoles   map[string][]authorization.Policy
+		callToGetRoles bool
 	}
 
 	tests := []testCase{
@@ -71,9 +71,8 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:       &models.Principal{Username: "user1"},
-			expectedError:   "user id can not be empty",
-			noCallToGetRole: true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "user id can not be empty",
 		},
 		{
 			name: "empty role",
@@ -83,9 +82,10 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 					Roles: []string{""},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "one or more of the roles you want to revoke doesn't exist",
-			existedRoles:  map[string][]authorization.Policy{},
+			principal:      &models.Principal{Username: "user1"},
+			expectedError:  "one or more of the roles you want to revoke doesn't exist",
+			existedRoles:   map[string][]authorization.Policy{},
+			callToGetRoles: true,
 		},
 	}
 
@@ -95,10 +95,11 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
-			if !tt.noCallToGetRole {
+			if tt.callToGetRoles {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			}
+
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
