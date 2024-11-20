@@ -20,6 +20,8 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -38,9 +40,9 @@ type replicator interface {
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
 		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
-		requestID string, uuid strfmt.UUID, schemaVersion uint64) replica.SimpleResponse
+		requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
-		requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
+		requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
 	CommitReplication(indexName, shardName, requestID string) interface{}
@@ -72,7 +74,7 @@ type replicatedIndices struct {
 
 var (
 	regxObject = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`)
+		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)(\/[0-9]{1,64})?`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
@@ -451,7 +453,7 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 func (i *replicatedIndices) deleteObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regxObject.FindStringSubmatch(r.URL.Path)
-		if len(args) != 4 {
+		if len(args) != 5 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
 		}
@@ -464,6 +466,16 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 
 		index, shard, id := args[1], args[2], args[3]
 
+		var deletionTime time.Time
+
+		if args[4] != "" {
+			deletionTimeUnixMilli, err := strconv.ParseInt(args[4][1:], 10, 64)
+			if err != nil {
+				http.Error(w, "invalid URI", http.StatusBadRequest)
+			}
+			deletionTime = time.UnixMilli(deletionTimeUnixMilli)
+		}
+
 		defer r.Body.Close()
 
 		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
@@ -471,7 +483,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), schemaVersion)
+		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), deletionTime, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -510,7 +522,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 		defer r.Body.Close()
 
-		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -522,7 +534,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun, schemaVersion)
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, deletionTimeUnix, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -603,7 +615,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 func (i *replicatedIndices) getObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regxObject.FindStringSubmatch(r.URL.Path)
-		if len(args) != 4 {
+		if len(args) != 5 || args[4] != "" {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
 		}

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -40,9 +41,9 @@ type Replicator interface {
 	ReplicateUpdate(ctx context.Context, shard, requestID string,
 		doc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
-		uuid strfmt.UUID) replica.SimpleResponse
+		uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -85,25 +86,25 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
-	shard, requestID string, uuid strfmt.UUID,
+	shard, requestID string, uuid strfmt.UUID, deletionTime time.Time,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletion(ctx, shard, requestID, uuid)
+	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime)
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
+	shard, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun, schemaVersion)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -193,7 +194,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 	return localShard.prepareMergeObject(ctx, requestID, doc)
 }
 
-func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
+func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
@@ -201,7 +202,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 
 	defer release()
 
-	return localShard.prepareDeleteObject(ctx, requestID, uuid)
+	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
@@ -215,7 +216,9 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
+) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
@@ -223,7 +226,7 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 
 	defer release()
 
-	return localShard.prepareDeleteObjects(ctx, requestID, uuids, dryRun)
+	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
@@ -338,18 +341,62 @@ func (s *Shard) filePutter(ctx context.Context,
 func (i *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	result := make([]replica.RepairResponse, 0, len(updates)/2)
-
 	s, release, err := i.getOrInitShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
-
 	defer release()
 
+	var result []replica.RepairResponse
+
 	for i, u := range updates {
-		if u.ID != "" && u.Deleted {
-			err := s.DeleteObject(ctx, u.ID)
+		incomingObj := u.LatestObject
+
+		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
+			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
+			result = append(result, replica.RepairResponse{Err: msg})
+			continue
+		}
+
+		var id strfmt.UUID
+		if u.Deleted {
+			id = u.ID
+		} else {
+			id = incomingObj.ID
+		}
+
+		var currUpdateTime int64 // 0 means object doesn't exist on this node
+
+		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
+		if err == nil {
+			currUpdateTime = localObj.LastUpdateTimeUnix()
+		} else if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
+			} // otherwise an unknown deletion time
+		} else if !errors.Is(err, lsmkv.NotFound) {
+			result = append(result, replica.RepairResponse{
+				ID:  id.String(),
+				Err: err.Error(),
+			})
+			continue
+		}
+
+		if currUpdateTime != u.StaleUpdateTime {
+			// object changed and its state differs from recent known state
+			r := replica.RepairResponse{
+				ID:         id.String(),
+				UpdateTime: currUpdateTime,
+				Err:        "conflict",
+			}
+
+			result = append(result, r)
+			continue
+		}
+
+		if u.Deleted {
+			err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))
 			if err != nil {
 				r := replica.RepairResponse{
 					ID:  u.ID.String(),
@@ -357,49 +404,22 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 				}
 				result = append(result, r)
 			}
-
 			continue
 		}
 
-		// Just in case but this should not happen
-		data := u.LatestObject
-		if data == nil || data.ID == "" {
-			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
-			result = append(result, replica.RepairResponse{Err: msg})
-			continue
-		}
-		// valid update
-		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
-		if err != nil && errors.Is(err, lsmkv.Deleted) {
-			continue
-		}
-		var curUpdateTime int64 // 0 means object doesn't exist on this node
-		if found != nil {
-			curUpdateTime = found.LastUpdateTimeUnix()
-		}
-		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
-		switch {
-		case err != nil:
-			r.Err = "not found: " + err.Error()
-		case curUpdateTime == u.StaleUpdateTime:
-			// the stored object is not the most recent version. in
-			// this case, we overwrite it with the more recent one.
-			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.Vectors))
-			if err != nil {
-				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors))
+		if err != nil {
+			r := replica.RepairResponse{
+				ID:  id.String(),
+				Err: fmt.Sprintf("overwrite stale object: %v", err),
 			}
-		case curUpdateTime != data.LastUpdateTimeUnix:
-			// object changed and its state differs from recent known state
-			r.Err = "conflict"
-		}
-
-		if r.Err != "" { // include only unsuccessful responses
 			result = append(result, r)
+			continue
 		}
 	}
-	if len(result) == 0 {
-		return nil, nil
-	}
+
 	return result, nil
 }
 
@@ -437,13 +457,20 @@ func (i *Index) DigestObjects(ctx context.Context,
 
 	for j := range objs {
 		if objs[j] == nil {
-			deleted, err := s.WasDeleted(ctx, ids[j])
+			deleted, deletionTime, err := s.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}
+
+			var updateTime int64
+			if deleted && !deletionTime.IsZero() {
+				updateTime = deletionTime.UnixMilli()
+			}
+
 			result[j] = replica.RepairResponse{
-				ID:      ids[j].String(),
-				Deleted: deleted,
+				ID:         ids[j].String(),
+				Deleted:    deleted,
+				UpdateTime: updateTime,
 				// TODO: use version when supported
 				Version: 0,
 			}
@@ -486,19 +513,27 @@ func (i *Index) FetchObject(ctx context.Context,
 	}
 
 	if obj == nil {
-		deleted, err := shard.WasDeleted(ctx, id)
+		deleted, deletionTime, err := shard.WasDeleted(ctx, id)
 		if err != nil {
 			return objects.Replica{}, err
 		}
+
+		var updateTime int64
+		if !deletionTime.IsZero() {
+			updateTime = deletionTime.UnixMilli()
+		}
+
 		return objects.Replica{
-			ID:      id,
-			Deleted: deleted,
+			ID:                      id,
+			Deleted:                 deleted,
+			LastUpdateTimeUnixMilli: updateTime,
 		}, nil
 	}
 
 	return objects.Replica{
-		Object: obj,
-		ID:     obj.ID(),
+		Object:                  obj,
+		ID:                      obj.ID(),
+		LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
 	}, nil
 }
 
@@ -525,18 +560,26 @@ func (i *Index) FetchObjects(ctx context.Context,
 
 	for j, obj := range objs {
 		if obj == nil {
-			deleted, err := shard.WasDeleted(ctx, ids[j])
+			deleted, deletionTime, err := shard.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}
+
+			var updateTime int64
+			if !deletionTime.IsZero() {
+				updateTime = deletionTime.UnixMilli()
+			}
+
 			resp[j] = objects.Replica{
-				ID:      ids[j],
-				Deleted: deleted,
+				ID:                      ids[j],
+				Deleted:                 deleted,
+				LastUpdateTimeUnixMilli: updateTime,
 			}
 		} else {
 			resp[j] = objects.Replica{
-				Object: obj,
-				ID:     obj.ID(),
+				Object:                  obj,
+				ID:                      obj.ID(),
+				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
 			}
 		}
 	}
