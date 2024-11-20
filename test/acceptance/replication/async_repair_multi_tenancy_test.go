@@ -116,10 +116,9 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 
 	t.Run("enable async replication", func(t *testing.T) {
 		host2 := compose.GetWeaviateNode(2).URI()
-		_ = host2
-		class := getClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
+		class := getClass(t, host2, paragraphClass.Class)
 		class.ReplicationConfig.AsyncEnabled = true
-		updateClass(t, compose.GetWeaviate().URI(), class)
+		updateClass(t, host2, class)
 	})
 
 	t.Run("validate async object propagation", func(t *testing.T) {
