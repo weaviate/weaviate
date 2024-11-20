@@ -42,6 +42,17 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
+	testClass := &models.Class{
+		Class:              "Foo",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+	}
+
+	clientAuth := helper.CreateAuth(existingKey)
+
+	t.Run("create test collection before permissions", func(t *testing.T) {
+		helper.CreateClassWithAuthz(t, testClass, clientAuth)
+	})
+
 	t.Run("create and get a role to create all collections", func(t *testing.T) {
 		name := "create-all-collections"
 		helper.CreateRole(t, existingKey, &models.Role{
@@ -63,7 +74,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateCollections), Collection: String("foo")},
+				{Action: String(authorization.CreateCollections), Collection: String(testClass.Class)},
 				{Action: String(authorization.CreateTenants), Collection: String("*")},
 			},
 		})
@@ -72,7 +83,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
 		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
-		require.Equal(t, "foo", *role.Permissions[0].Collection)
+		require.Equal(t, testClass.Class, *role.Permissions[0].Collection)
 		require.Equal(t, authorization.CreateTenants, *role.Permissions[1].Action)
 		require.Equal(t, "*", *role.Permissions[1].Collection)
 	})

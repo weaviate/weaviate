@@ -33,6 +33,9 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
+		return nil, err
+	}
 
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()

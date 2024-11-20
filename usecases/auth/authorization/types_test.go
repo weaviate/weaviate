@@ -68,8 +68,8 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{"meta/collections/*"}},
-		{"Single empty class", []string{""}, []string{"meta/collections/*"}},
+		{"No classes", []string{}, []string{"meta/collections/*/*"}},
+		{"Single empty class", []string{""}, []string{"meta/collections/*/*"}},
 		{"Single class", []string{"class1"}, []string{"meta/collections/class1/*"}},
 		{"Multiple classes", []string{"class1", "class2"}, []string{"meta/collections/class1/*", "meta/collections/class2/*"}},
 	}
