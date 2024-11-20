@@ -54,12 +54,12 @@ func TestAssignRoleSuccess(t *testing.T) {
 
 func TestAssignRoleBadRequest(t *testing.T) {
 	type testCase struct {
-		name            string
-		params          authz.AssignRoleParams
-		principal       *models.Principal
-		expectedError   string
-		existedRoles    map[string][]authorization.Policy
-		noCallToGetRole bool
+		name          string
+		params        authz.AssignRoleParams
+		principal     *models.Principal
+		expectedError string
+		existedRoles  map[string][]authorization.Policy
+		callToGetRole bool
 	}
 
 	tests := []testCase{
@@ -71,9 +71,8 @@ func TestAssignRoleBadRequest(t *testing.T) {
 					Roles: []string{"testRole"},
 				},
 			},
-			principal:       &models.Principal{Username: "user1"},
-			expectedError:   "user id can not be empty",
-			noCallToGetRole: true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "user id can not be empty",
 		},
 		{
 			name: "empty role",
@@ -86,6 +85,7 @@ func TestAssignRoleBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "one or more of the roles you want to assign doesn't exist",
 			existedRoles:  map[string][]authorization.Policy{},
+			callToGetRole: true,
 		},
 	}
 
@@ -95,8 +95,8 @@ func TestAssignRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
-			if !tt.noCallToGetRole {
+			if tt.callToGetRole {
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			}
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
@@ -52,9 +53,13 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	if err != nil {
-		return
-	}
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateClassWithAuthz(t *testing.T, class *models.Class, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsCreate(params, authInfo)
 	AssertRequestOk(t, resp, err, nil)
 }
 

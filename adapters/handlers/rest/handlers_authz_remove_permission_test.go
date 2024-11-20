@@ -128,14 +128,10 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
-
 			h := &authZHandlers{
-				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
