@@ -28,8 +28,6 @@ import (
 )
 
 func TestAuthZGraphQLGetWithRefs(t *testing.T) {
-	t.Parallel()
-
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"

@@ -28,8 +28,6 @@ import (
 )
 
 func TestAuthZGraphQLGetST(t *testing.T) {
-	t.Parallel()
-
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -129,8 +127,6 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 }
 
 func TestAuthZGraphQLGetMT(t *testing.T) {
-	t.Parallel()
-
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
