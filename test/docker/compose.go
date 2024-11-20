@@ -99,6 +99,7 @@ type Compose struct {
 	withSecondWeaviate         bool
 	withWeaviateCluster        bool
 	withWeaviateClusterSize    int
+	withQuerier                bool
 
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
@@ -416,6 +417,12 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithQuerier() *Compose {
+	// TODO enable or require offload too?
+	d.withQuerier = true
+	return d
+}
+
 func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
 	for _, name := range names {
 		d.removeEnvs[name] = struct{}{}
@@ -599,6 +606,13 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withQuerier {
+		container, err := startQuerier(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, "", "myquerier", true, "/v1/.well-known/ready")
+		if err != nil {
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", "myquerier")
 		}
 		containers = append(containers, container)
 	}

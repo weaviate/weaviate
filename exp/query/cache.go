@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,7 +103,7 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 		basePath:     d.basePath,
 	}
 
-	_, err := os.Stat(tc.AbsolutePath())
+	_, err := os.Stat(strings.ToLower(tc.AbsolutePath()))
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return errors.Join(ErrTenantDirectoryFound, err)
 	}
