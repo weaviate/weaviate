@@ -28,6 +28,8 @@ import (
 )
 
 func TestAuthZGraphQLGetST(t *testing.T) {
+	t.Parallel()
+
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -75,7 +77,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsCollection),
-				Collection: String("books"),
+				Collection: String(class.Class),
 			}},
 		}
 		helper.CreateRole(t, adminKey, role)
@@ -84,8 +86,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 
 	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
 		query := "{ Get { Books { title } } }"
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
+		_, err := queryGQL(t, query, customKey)
 		require.NotNil(t, err)
 		_, forbidden := err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
@@ -103,10 +104,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 	})
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
-		query := "{ Get { Books { title } } }"
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
-		require.Nil(t, err)
+		assertGQL(t, "{ Get { Books { title } } }", customKey)
 	})
 
 	t.Run("remove the read objects in book class permission", func(t *testing.T) {
@@ -114,7 +112,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action:     String(authorization.ReadObjectsCollection),
-				Collection: String("books"),
+				Collection: String(class.Class),
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -122,8 +120,7 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 
 	t.Run("fail with 200 to query with GQL due to lack of read objects permission", func(t *testing.T) {
 		query := "{ Get { Books { title } } }"
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
+		resp, err := queryGQL(t, query, customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
@@ -132,6 +129,8 @@ func TestAuthZGraphQLGetST(t *testing.T) {
 }
 
 func TestAuthZGraphQLGetMT(t *testing.T) {
+	t.Parallel()
+
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	adminRole := "admin"
@@ -193,8 +192,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 
 	t.Run("fail with 403 to query with GQL due to lack of read all collections permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
+		_, err := queryGQL(t, query, customKey)
 		require.NotNil(t, err)
 		_, forbidden := err.(*gql.GraphqlPostForbidden)
 		require.True(t, forbidden)
@@ -213,9 +211,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
-		require.Nil(t, err)
+		assertGQL(t, query, customKey)
 	})
 
 	t.Run("remove the read objects in books class and customUser tenant permission", func(t *testing.T) {
@@ -244,8 +240,7 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 
 	t.Run("fail with 200 to query with GQL due to lack of read objects and customUser tenant permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
+		resp, err := queryGQL(t, query, customKey)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
@@ -277,12 +272,6 @@ func TestAuthZGraphQLGetMT(t *testing.T) {
 
 	t.Run("successfully query with GQL with the sufficient permissions", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Get { %s(tenant:"%s") { title } } }`, class.Class, customUser)
-		params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
-		_, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(customKey))
-		require.Nil(t, err)
+		assertGQL(t, query, customKey)
 	})
-}
-
-func String(s string) *string {
-	return &s
 }
