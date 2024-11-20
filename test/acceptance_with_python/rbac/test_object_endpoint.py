@@ -20,12 +20,10 @@ def test_obj_insert(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.CREATE
-                )
-                + RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.objects.create(collection=col.name),
+                    RBAC.permissions.collections.read(collection=col.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -44,9 +42,7 @@ def test_obj_insert(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.CREATE
-                ),
+                permissions=RBAC.permissions.collections.objects.create(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -66,9 +62,7 @@ def test_obj_insert(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=RBAC.permissions.collections.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -99,12 +93,10 @@ def test_obj_replace(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.UPDATE
-                )
-                + RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.objects.update(collection=col.name),
+                    RBAC.permissions.collections.read(collection=col.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -123,9 +115,7 @@ def test_obj_replace(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.UPDATE
-                ),
+                permissions=RBAC.permissions.collections.objects.update(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -145,9 +135,7 @@ def test_obj_replace(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=RBAC.permissions.collections.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -178,12 +166,10 @@ def test_obj_update(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.UPDATE
-                )
-                + RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.objects.update(collection=col.name),
+                    RBAC.permissions.collections.read(collection=col.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -202,9 +188,7 @@ def test_obj_update(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.UPDATE
-                ),
+                permissions=RBAC.permissions.collections.objects.update(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -218,15 +202,13 @@ def test_obj_update(request: SubRequest):
             client.roles.revoke(user="custom-user", roles=both_write.name)
             client.roles.delete(both_write.name)
 
-        # no data create
+        # no data update
         with weaviate.connect_to_local(
             port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=RBAC.permissions.collections.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -257,12 +239,10 @@ def test_obj_delete(request: SubRequest):
 
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.DELETE
-                )
-                + RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.objects.delete(collection=col.name),
+                    RBAC.permissions.collections.read(collection=col.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -284,9 +264,7 @@ def test_obj_delete(request: SubRequest):
 
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.DELETE
-                ),
+                permissions=RBAC.permissions.collections.objects.delete(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -303,15 +281,13 @@ def test_obj_delete(request: SubRequest):
             client.roles.revoke(user="custom-user", roles=name)
             client.roles.delete(name)
 
-        # no data create
+        # no data delete
         with weaviate.connect_to_local(
             port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=RBAC.permissions.collections.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
@@ -342,12 +318,10 @@ def test_obj_exists(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.READ
-                )
-                + RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=[
+                    RBAC.permissions.collections.objects.read(collection=col.name),
+                    RBAC.permissions.collections.read(collection=col.name),
+                ],
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -365,9 +339,7 @@ def test_obj_exists(request: SubRequest):
         ) as client_no_rights:
             client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections_data(
-                    collection=col.name, actions=RBAC.actions.collection_data.READ
-                ),
+                permissions=RBAC.permissions.collections.objects.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=name)
 
@@ -388,9 +360,7 @@ def test_obj_exists(request: SubRequest):
         ) as client_no_rights:
             both_write = client.roles.create(
                 name=name,
-                permissions=RBAC.permissions.collections(
-                    collection=col.name, actions=RBAC.actions.collection.READ
-                ),
+                permissions=RBAC.permissions.collections.read(collection=col.name),
             )
             client.roles.assign(user="custom-user", roles=both_write.name)
 
