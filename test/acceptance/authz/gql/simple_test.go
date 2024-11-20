@@ -96,6 +96,14 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		require.True(t, forbidden)
 	})
 
+	t.Run("fail with 403 to query with Explore due to lack of read all collections permission", func(t *testing.T) {
+		query := fmt.Sprintf("{ Explore(nearObject:{id:%s}) { className }}", books.Objects()[0].ID)
+		_, err = queryGQL(t, query, customKey)
+		require.NotNil(t, err)
+		_, forbidden := err.(*gql.GraphqlPostForbidden)
+		require.True(t, forbidden)
+	})
+
 	t.Run("add the read all collections permission to the role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
@@ -113,6 +121,11 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 
 	t.Run("successfully query with Aggregate and the sufficient permissions", func(t *testing.T) {
 		assertGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
+	})
+
+	t.Run("successfully query with Explore and sufficient permissions", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Explore(nearObject:{id:"%s"}) { className }}`, books.Objects()[0].ID)
+		assertGQL(t, query, customKey)
 	})
 
 	t.Run("remove the read objects in book class permission", func(t *testing.T) {
