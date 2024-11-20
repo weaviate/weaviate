@@ -86,8 +86,11 @@ func CasbinShards(collection, shard string) string {
 		shard = "*"
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	shard = strings.ReplaceAll(shard, "*", ".*")
+	if shard == "*" {
+		return fmt.Sprintf("meta/collections/%s/*", collection)
+	}
 
+	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("meta/collections/%s/shards/%s/*", collection, shard)
 }
 
