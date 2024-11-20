@@ -21,18 +21,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-type schemaManager interface {
-	GetSchema(principal *models.Principal) (schema.Schema, error)
-	GetSchemaSkipAuth() schema.Schema
-}
-
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	schemaManager schemaManager, modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	authorizer authorization.Authorizer, modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newMiscRequestsTotal(metrics, logger)
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
@@ -40,6 +35,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			metaInfos = map[string]interface{}{}
 			err       error
 		)
+
+		if err := authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+			return meta.NewMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+		}
 
 		if modulesProvider != nil {
 			metaInfos, err = modulesProvider.GetMeta()
