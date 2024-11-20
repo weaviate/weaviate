@@ -32,3 +32,14 @@ func createClass(t *testing.T, class *models.Class, auth runtime.ClientAuthInfoW
 	_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, auth)
 	return err
 }
+
+func generateMissingLists(permissions []*models.Permission) [][]*models.Permission {
+	var result [][]*models.Permission
+
+	for i := range permissions {
+		missingList := append(permissions[:i], permissions[i+1:]...)
+		result = append(result, missingList)
+	}
+
+	return result
+}
