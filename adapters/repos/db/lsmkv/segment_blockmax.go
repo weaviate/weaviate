@@ -400,7 +400,7 @@ func (s *SegmentBlockMax) QueryTermIndex() int {
 	return s.queryTermIndex
 }
 
-func (s *SegmentBlockMax) Score(averagePropLength float64, config schema.BM25Config, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
+func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
 	}

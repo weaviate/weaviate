@@ -1470,8 +1470,8 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		key := []byte(queryTerm)
 		n := uint64(0)
 
-		flushing := terms.NewTerm(queryTerm, i, propertyBoost)
-		active := terms.NewTerm(queryTerm, i, propertyBoost)
+		flushing := terms.NewTerm(queryTerm, i, propertyBoost, config)
+		active := terms.NewTerm(queryTerm, i, propertyBoost, config)
 		if b.flushing != nil {
 			mapPairs, err := b.flushing.getMap(key)
 			if err != nil && !errors.Is(err, lsmkv.NotFound) {
