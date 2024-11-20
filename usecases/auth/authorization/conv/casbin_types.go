@@ -75,7 +75,7 @@ func CasbinCollections(collection string) string {
 		collection = "*"
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/*", collection)
+	return fmt.Sprintf("meta/collections/%s/shards/.*/*", collection)
 }
 
 func CasbinShards(collection, shard string) string {
@@ -141,13 +141,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case authorization.CollectionsDomain:
-		collection := "*"
-		if permission.Collection != nil {
-			collection = *permission.Collection
-		}
-		resource = CasbinCollections(collection)
-	case authorization.TenantsDomain:
+	case authorization.SchemaDomain:
 		collection := "*"
 		tenant := "*"
 		if permission.Collection != nil {
@@ -215,9 +209,7 @@ func permission(policy []string) (*models.Permission, error) {
 	}
 
 	switch mapped.Domain {
-	case authorization.CollectionsDomain:
-		permission.Collection = &splits[2]
-	case authorization.TenantsDomain:
+	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
