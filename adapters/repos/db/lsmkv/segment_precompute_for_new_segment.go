@@ -21,7 +21,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 	// Normal operations (user CRUD) are fine.
 
 	// We can't simply hold an RLock on the maintenanceLock without coordinating
-	// with potential Lock() callers. Otherwise if we hold teh RLock for minutes
+	// with potential Lock() callers. Otherwise if we hold the RLock for minutes
 	// and someone else calls Lock() we will deadlock.
 	//
 	// The only known caller of Lock() is the compaction routine, so we can
