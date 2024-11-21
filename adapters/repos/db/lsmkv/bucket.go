@@ -1356,7 +1356,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 			if err != nil {
 				return nil, err
 			}
-			propLengths, err := segment.GetPropertyLenghts()
+			propLengths, err := segment.GetPropertyLengths()
 			if err != nil {
 				return nil, err
 			}

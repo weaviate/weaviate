@@ -238,6 +238,11 @@ func (s *SegmentBlockMax) advanceToStart() {
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
+	s.propLengths, err = s.segment.GetPropertyLengths()
+	if err != nil {
+		return err
+	}
+
 	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err

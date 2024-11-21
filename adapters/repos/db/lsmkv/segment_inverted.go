@@ -117,7 +117,7 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 	return s.invertedData.tombstones, nil
 }
 
-func (s *segment) GetPropertyLenghts() (map[uint64]uint32, error) {
+func (s *segment) GetPropertyLengths() (map[uint64]uint32, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("property only supported for inverted strategy")
 	}
