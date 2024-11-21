@@ -4,7 +4,7 @@ import "github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 
 func DoWand(limit int, results *Terms, averagePropLength float64, additionalExplanations bool,
 ) *priorityqueue.Queue[[]*DocPointerWithScore] {
-	topKHeap := priorityqueue.NewMin[[]*DocPointerWithScore](limit)
+	topKHeap := priorityqueue.NewMinWithId[[]*DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	results.SortFull()
 	for {
@@ -25,7 +25,7 @@ func DoBlockMaxWand(limit int, results *Terms, averagePropLength float64, additi
 ) *priorityqueue.Queue[[]*DocPointerWithScore] {
 	// averagePropLength = 40
 	var docInfos []*DocPointerWithScore
-	topKHeap := priorityqueue.NewMin[[]*DocPointerWithScore](limit)
+	topKHeap := priorityqueue.NewMinWithId[[]*DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
 
 	results.SortFull()
@@ -95,7 +95,7 @@ func DoBlockMaxWand(limit int, results *Terms, averagePropLength float64, additi
 
 			next := uint64(999999999999999)
 
-			for i := 0; i < pivotPoint; i++ {
+			for i := 0; i <= pivotPoint; i++ {
 				if results.T[i].CurrentBlockMaxId() < next {
 					next = results.T[i].CurrentBlockMaxId()
 				}

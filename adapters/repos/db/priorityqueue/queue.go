@@ -39,6 +39,19 @@ func NewMin[T supportedValueType](capacity int) *Queue[T] {
 	}
 }
 
+// NewMin constructs a priority queue which prioritizes items with smaller distance and smaller ID
+func NewMinWithId[T supportedValueType](capacity int) *Queue[T] {
+	return &Queue[T]{
+		items: make([]Item[T], 0, capacity),
+		less: func(items []Item[T], i, j int) bool {
+			if items[i].Dist == items[j].Dist {
+				return items[i].ID > items[j].ID
+			}
+			return items[i].Dist < items[j].Dist
+		},
+	}
+}
+
 // NewMax constructs a priority queue which prioritizes items with greater distance
 func NewMax[T supportedValueType](capacity int) *Queue[T] {
 	return &Queue[T]{
