@@ -170,6 +170,80 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	})
 }
 
+
+func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
+	before := FromObjectMulti(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+		},
+		map[string][][]float32{
+			"vector3": {{7, 8, 9}, {10, 11, 12}},
+			"vector4": {{13, 14, 15}, {16, 17, 18}},
+			"vector5": {{19, 20, 21}, {22, 23, 24}},
+		},
+	)
+	before.DocID = 7
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	after:= &Object{}
+	after.UnmarshalBinary(asBinary)
+	require.Nil(t, err)
+
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("extract only doc id and compare", func(t *testing.T) {
+		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
+		require.Nil(t, err)
+		assert.Equal(t, uint64(7), id)
+		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
+	})
+
+	t.Run("extract single text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.NotEmpty(t, prop)
+		assert.Equal(t, "MyName", prop[0])
+	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
+}
+
 func TestFilteringNilProperty(t *testing.T) {
 	object := FromObject(
 		&models.Object{
