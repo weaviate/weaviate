@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -214,7 +215,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("delete first object", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "Test", firstID, nil, "", 0)
+		err := repo.DeleteObject(context.Background(), "Test", firstID, time.Now(), nil, "", 0)
 		require.Nil(t, err)
 	})
 

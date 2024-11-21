@@ -23,6 +23,8 @@ func TestReplication(t *testing.T) {
 		t.Run("replication enabled after class creation CRUD", eventualReplicaCRUD)
 		t.Run("replication factor increase", replicationFactorIncrease)
 		t.Run("read repair", readRepair)
+		t.Run("read repair - delete on conflict", readRepairDeleteOnConflict)
+		t.Run("read repair - timebased resolution", readRepairTimebasedResolution)
 		t.Run("graphql search", graphqlSearch)
 		t.Run("multi-tenancy enabled", multiTenancyEnabled)
 	}
