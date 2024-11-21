@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,6 +37,12 @@ type SegmentGroup struct {
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
+
+	// flushVsCompactLock is a simple synchronization mechanism between the
+	// compaction and flush cycle. In general, those are indpendent, however,
+	// there are parts of it that are not. See the comments of the routines
+	// interacting with this lock for more details.
+	flushVsCompactLock sync.Mutex
 
 	strategy string
 
@@ -67,7 +72,6 @@ type SegmentGroup struct {
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
-	isFlushing         *atomic.Bool
 	segmentCleaner     segmentCleaner
 	cleanupInterval    time.Duration
 	lastCleanupCall    time.Time
@@ -85,7 +89,6 @@ type sgConfig struct {
 	calcCountNetAdditions bool
 	forceCompaction       bool
 	maxSegmentSize        int64
-	isFlushing            *atomic.Bool
 	cleanupInterval       time.Duration
 }
 
@@ -115,7 +118,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:          cfg.maxSegmentSize,
 		cleanupInterval:         cfg.cleanupInterval,
 		allocChecker:            allocChecker,
-		isFlushing:              cfg.isFlushing,
 		lastCompactionCall:      now,
 		lastCleanupCall:         now,
 	}

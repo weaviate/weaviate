@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -125,11 +124,6 @@ type Bucket struct {
 	// sum to more than the specified value.
 	maxSegmentSize int64
 
-	// this serves as a hint for the compaction process that a flush is ongoing.
-	// This does synchronize anything, there are the proper locks in place to do
-	// so. However, the hint can help the compaction process to delay an action
-	// without blocking.
-	isFlushing atomic.Bool
 	// optional segments cleanup interval. If set, segments will be cleaned of
 	// redundant obsolete data, that was deleted or updated in newer segments
 	// (currently supported only in buckets of REPLACE strategy)
@@ -195,7 +189,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
-			isFlushing:            &b.isFlushing,
 			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
@@ -1124,11 +1117,6 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
-	if b.isFlushing.Swap(true) {
-		return fmt.Errorf("unexpected concurrent call to flush and switch")
-	}
-	defer b.isFlushing.Store(false)
-
 	before := time.Now()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").
