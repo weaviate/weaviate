@@ -99,7 +99,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 }
 
 func TestStorageObjectMarshallingMultiVector(t *testing.T) {
-	before := FromObject(
+	before := FromObjectMulti(
 		&models.Object{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
@@ -128,6 +128,11 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 		models.Vectors{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
+		},
+		map[string][][]float32{
+			"vector3": {{7, 8, 9}, {10, 11, 12}},
+			"vector4": {{13, 14, 15}, {16, 17, 18}},
+			"vector5": {{19, 20, 21}, {22, 23, 24}},
 		},
 	)
 	before.DocID = 7
