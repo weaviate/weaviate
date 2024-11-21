@@ -40,9 +40,9 @@ func TestAuthZBatchDelete(t *testing.T) {
 	customUser := "custom-user"
 	customAuth := helper.CreateAuth("custom-key")
 	testRoleName := "test-role"
-	deleteDataAction := authorization.DeleteObjectsCollection
+	deleteDataAction := authorization.DeleteData
 	readSchemaAction := authorization.ReadSchema
-	readDataAction := authorization.ReadObjectsCollection
+	readDataAction := authorization.ReadData
 
 	helper.SetupClient("127.0.0.1:8081")
 	defer helper.ResetClient()

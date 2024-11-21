@@ -89,7 +89,7 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 	t.Run("create and assign a role that can query for articles", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{Name: String(roleName), Permissions: []*models.Permission{
 			{Action: String(authorization.ReadSchema)},
-			{Action: String(authorization.ReadObjectsCollection), Collection: String(articlesCls.Class)},
+			{Action: String(authorization.ReadData), Collection: String(articlesCls.Class)},
 		}})
 		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 	})
@@ -138,7 +138,7 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(roleName),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadObjectsCollection),
+				Action:     String(authorization.ReadData),
 				Collection: String(paragraphsCls.Class),
 			}},
 		}), helper.CreateAuth(adminKey))
