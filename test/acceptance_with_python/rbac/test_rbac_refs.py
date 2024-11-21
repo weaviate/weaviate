@@ -1,6 +1,9 @@
+import uuid
+
 import pytest
 import weaviate
 import weaviate.classes as wvc
+from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name, generate_missing_lists
@@ -66,10 +69,7 @@ def test_rbac_refs(request: SubRequest):
             with weaviate.connect_to_local(
                 port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
             ) as client_no_rights:
-                role = client.roles.create(
-                    name=role_name,
-                    permissions=permissions,
-                )
+                role = client.roles.create(name=role_name, permissions=permissions)
                 client.roles.assign(user="custom-user", roles=role.name)
 
                 source_no_rights = client_no_rights.collections.get(
@@ -326,3 +326,207 @@ def test_search_with_filter_and_return(request: SubRequest) -> None:
                 client.roles.delete(role_name)
 
         client.collections.delete([target.name, source.name])
+
+
+def test_batch_ref(request: SubRequest):
+    with weaviate.connect_to_local(
+        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
+    ) as client:
+        col_name = _sanitize_role_name(request.node.name)
+        client.collections.delete([col_name + "target1", col_name + "target2", col_name + "source"])
+        # create two collections with some objects to test refs
+        target1 = client.collections.create(name=col_name + "target1")
+        target2 = client.collections.create(name=col_name + "target2")
+        source = client.collections.create(
+            name=col_name + "source",
+            references=[
+                wvc.config.ReferenceProperty(name="ref1", target_collection=target1.name),
+                wvc.config.ReferenceProperty(name="ref2", target_collection=target2.name),
+            ],
+        )
+        source.config.add_reference(
+            wvc.config.ReferenceProperty(name="self", target_collection=source.name)
+        )
+
+        uuid_target1 = target1.data.insert({})
+        uuid_target2 = target2.data.insert({})
+        uuid_source = source.data.insert(properties={})
+        role_name = _sanitize_role_name(request.node.name)
+        client.roles.delete(role_name)
+
+        # self reference
+        self_permissions = [
+            RBAC.permissions.collections.read(collection=source.name),
+            RBAC.permissions.collections.objects.update(collection=source.name),
+        ]
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(name=role_name, permissions=self_permissions)
+            client.roles.assign(user="custom-user", roles=role_name)
+
+            source_no_rights = client_no_rights.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            ret = source_no_rights.data.reference_add_many(
+                [DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source)]
+            )
+            assert len(ret.errors) == 0
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            for permissions in generate_missing_lists(self_permissions):
+                role = client.roles.create(name=role_name, permissions=permissions)
+                client.roles.assign(user="custom-user", roles=role.name)
+
+                source_no_rights = client_no_rights.collections.get(
+                    source.name
+                )  # no network call => no RBAC check
+                with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                    source_no_rights.data.reference_add_many(
+                        [
+                            DataReference(
+                                from_property="self", from_uuid=uuid_source, to_uuid=uuid_source
+                            )
+                        ]
+                    )
+                assert e.value.status_code == 403
+
+                client.roles.revoke(user="custom-user", roles=role_name)
+                client.roles.delete(role_name)
+
+        # ref to one target
+        ref1_permissions = [
+            RBAC.permissions.collections.read(collection=source.name),
+            RBAC.permissions.collections.objects.update(collection=source.name),
+            RBAC.permissions.collections.read(collection=target1.name),
+        ]
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(name=role_name, permissions=ref1_permissions)
+            client.roles.assign(user="custom-user", roles=role_name)
+
+            source_no_rights = client_no_rights.collections.get(source.name)
+            ret = source_no_rights.data.reference_add_many(
+                [
+                    DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                    DataReference(
+                        from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1
+                    ),
+                ]
+            )
+            assert len(ret.errors) == 0
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # without read permission for target that one reference fails
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            # no rights to read target class
+            role = client.roles.create(name=role_name, permissions=ref1_permissions[:-1])
+            client.roles.assign(user="custom-user", roles=role.name)
+
+            source_no_rights = client_no_rights.collections.get(source.name)
+            ret = source_no_rights.data.reference_add_many(
+                [
+                    DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                    DataReference(
+                        from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1
+                    ),
+                ]
+            )
+
+            assert len(ret.errors) == 1
+            assert "forbidden" in ret.errors[1].message
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # ref to two targets
+        ref2_permissions = [
+            RBAC.permissions.collections.read(collection=source.name),
+            RBAC.permissions.collections.objects.update(collection=source.name),
+            RBAC.permissions.collections.read(collection=target1.name),
+            RBAC.permissions.collections.read(collection=target2.name),
+        ]
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(name=role_name, permissions=ref2_permissions)
+            client.roles.assign(user="custom-user", roles=role_name)
+
+            source_no_rights = client_no_rights.collections.get(source.name)
+            ret = source_no_rights.data.reference_add_many(
+                [
+                    DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                    DataReference(
+                        from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1
+                    ),
+                    DataReference(
+                        from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2
+                    ),
+                ]
+            )
+            assert len(ret.errors) == 0
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # without read permission for target that one reference fails
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            # no rights to read target class
+            role = client.roles.create(name=role_name, permissions=ref2_permissions[:-1])
+            client.roles.assign(user="custom-user", roles=role.name)
+
+            source_no_rights = client_no_rights.collections.get(source.name)
+            ret = source_no_rights.data.reference_add_many(
+                [
+                    DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                    DataReference(
+                        from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1
+                    ),
+                    DataReference(
+                        from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2
+                    ),
+                ]
+            )
+
+            # only target where we miss permissions is failing
+            assert len(ret.errors) == 1
+            assert "forbidden" in ret.errors[2].message
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
+
+        # data permission is not needed as the target uuid is not checked for existence
+        with weaviate.connect_to_local(
+            port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+        ) as client_no_rights:
+            client.roles.create(name=role_name, permissions=ref2_permissions)
+            client.roles.assign(user="custom-user", roles=role_name)
+
+            source_no_rights = client_no_rights.collections.get(source.name)
+            ret = source_no_rights.data.reference_add_many(
+                [
+                    DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                    DataReference(
+                        from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1
+                    ),
+                    DataReference(  # silently fails => target collection is not accessed to check
+                        from_property="ref2", from_uuid=uuid_source, to_uuid=uuid.uuid4()
+                    ),
+                ]
+            )
+            assert len(ret.errors) == 0
+
+            client.roles.revoke(user="custom-user", roles=role_name)
+            client.roles.delete(role_name)
