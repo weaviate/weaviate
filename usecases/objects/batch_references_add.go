@@ -45,6 +45,9 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	var pathsData []string
 	var pathsMetadata []string
 	for idx := range batchReferences {
+		if batchReferences[idx].Err != nil {
+			continue
+		}
 		class := batchReferences[idx].From.Class.String()
 		pathsData = append(pathsData, authorization.ShardsData(class, batchReferences[idx].Tenant)...)
 		pathsMetadata = append(pathsMetadata, authorization.CollectionsMetadata(class)...)
@@ -195,7 +198,9 @@ func validateReference(ctx context.Context,
 	}
 
 	// target id must be lowercase
-	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	if target != nil {
+		target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	}
 
 	if len(validateErrors) == 0 {
 		err = nil
