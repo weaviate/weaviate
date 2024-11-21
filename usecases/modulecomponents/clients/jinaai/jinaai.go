@@ -47,8 +47,13 @@ const (
 	embeddingTypeUbinary embeddingType = "ubinary"
 )
 
-type embeddingsRequest struct {
-	Input         []string      `json:"input"`
+type MultiModalInput struct {
+	Text  string `json:"text,omitempty"`
+	Image string `json:"image,omitempty"`
+}
+
+type embeddingsRequest[T []string | []MultiModalInput] struct {
+	Input         T             `json:"input"`
 	Model         string        `json:"model,omitempty"`
 	EmbeddingType embeddingType `json:"embedding_type,omitempty"`
 	Normalized    bool          `json:"normalized,omitempty"`
@@ -78,6 +83,7 @@ type Settings struct {
 	Model      string
 	BaseURL    string
 	Dimensions *int64
+	Normalized bool
 }
 
 func buildUrl(settings Settings) (string, error) {
@@ -111,56 +117,10 @@ func New(jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int,
 func (c *Client) Vectorize(ctx context.Context, input []string,
 	settings Settings,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
-	res, usage, err := c.vectorize(ctx, input, settings)
-	return res, nil, usage, err
-}
-
-func (c *Client) vectorize(ctx context.Context,
-	input []string, settings Settings,
-) (*modulecomponents.VectorizationResult, int, error) {
-	model := settings.Model
-	task := settings.Task
-	dimensions := settings.Dimensions
-	body, err := json.Marshal(c.getEmbeddingsRequest(input, model, task, dimensions))
+	embeddingRequest := c.getTextEmbeddingsRequest(input, settings)
+	resBody, err := c.vectorize(ctx, embeddingRequest, settings)
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "marshal body")
-	}
-
-	endpoint, err := c.buildUrlFn(settings)
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "join jinaAI API host and path")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
-		bytes.NewReader(body))
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "create POST request")
-	}
-	apiKey, err := c.getApiKey(ctx)
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "API Key")
-	}
-	req.Header.Add(c.getApiKeyHeaderAndValue(apiKey))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "send POST request")
-	}
-	defer res.Body.Close()
-
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, 0, errors.Wrap(err, "read response body")
-	}
-
-	var resBody embedding
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
-	}
-
-	if res.StatusCode != 200 {
-		return nil, 0, c.getError(res.StatusCode, resBody.Detail)
+		return nil, nil, 0, err
 	}
 
 	texts := make([]string, len(resBody.Data))
@@ -171,11 +131,86 @@ func (c *Client) vectorize(ctx context.Context,
 		embeddings[index] = resBody.Data[i].Embedding
 	}
 
-	return &modulecomponents.VectorizationResult{
+	res := &modulecomponents.VectorizationResult{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
-	}, modulecomponents.GetTotalTokens(resBody.Usage), nil
+	}
+
+	return res, nil, modulecomponents.GetTotalTokens(resBody.Usage), nil
+}
+
+func (c *Client) VectorizeMultiModal(ctx context.Context, texts, images []string,
+	settings Settings,
+) (*modulecomponents.VectorizationCLIPResult, error) {
+	embeddingRequest := c.getMultiModalEmbeddingsRequest(texts, images, settings)
+	resBody, err := c.vectorize(ctx, embeddingRequest, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	var textVectors, imageVectors [][]float32
+	for i := range resBody.Data {
+		if i < len(texts) {
+			textVectors = append(textVectors, resBody.Data[i].Embedding)
+		} else {
+			imageVectors = append(imageVectors, resBody.Data[i].Embedding)
+		}
+	}
+
+	res := &modulecomponents.VectorizationCLIPResult{
+		TextVectors:  textVectors,
+		ImageVectors: imageVectors,
+	}
+	return res, nil
+}
+
+func (c *Client) vectorize(ctx context.Context,
+	embeddingRequest interface{}, settings Settings,
+) (*embedding, error) {
+	body, err := json.Marshal(embeddingRequest)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal body")
+	}
+
+	endpoint, err := c.buildUrlFn(settings)
+	if err != nil {
+		return nil, errors.Wrap(err, "join jinaAI API host and path")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, errors.Wrap(err, "create POST request")
+	}
+	apiKey, err := c.getApiKey(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "API Key")
+	}
+	req.Header.Add(c.getApiKeyHeaderAndValue(apiKey))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send POST request")
+	}
+	defer res.Body.Close()
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read response body")
+	}
+
+	var resBody embedding
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+	}
+
+	if res.StatusCode != 200 {
+		return nil, c.getError(res.StatusCode, resBody.Detail)
+	}
+
+	return &resBody, nil
 }
 
 func (c *Client) getError(statusCode int, errorMessage string) error {
@@ -186,14 +221,32 @@ func (c *Client) getError(statusCode int, errorMessage string) error {
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (c *Client) getEmbeddingsRequest(input []string, model string, task Task, dimensions *int64) embeddingsRequest {
-	req := embeddingsRequest{Input: input, Model: model, EmbeddingType: embeddingTypeFloat, Normalized: false}
-	if strings.Contains(model, "v3") {
+func (c *Client) getTextEmbeddingsRequest(input []string, settings Settings) embeddingsRequest[[]string] {
+	req := embeddingsRequest[[]string]{Input: input, Model: settings.Model, EmbeddingType: embeddingTypeFloat, Normalized: settings.Normalized}
+	if strings.Contains(settings.Model, "v3") || strings.Contains(settings.Model, "clip") {
 		// v3 models require taskType and dimensions params
-		req.Task = &task
-		req.Dimensions = dimensions
+		req.Task = &settings.Task
+		req.Dimensions = settings.Dimensions
 	}
 	return req
+}
+
+func (c *Client) getMultiModalEmbeddingsRequest(texts, images []string, settings Settings) embeddingsRequest[[]MultiModalInput] {
+	input := make([]MultiModalInput, len(texts)+len(images))
+	for i := range texts {
+		input[i] = MultiModalInput{Text: texts[i]}
+	}
+	offset := len(texts)
+	for i := range images {
+		input[offset+i] = MultiModalInput{Image: images[i]}
+	}
+	return embeddingsRequest[[]MultiModalInput]{
+		Input:         input,
+		Model:         settings.Model,
+		EmbeddingType: embeddingTypeFloat,
+		Normalized:    settings.Normalized,
+		Dimensions:    settings.Dimensions,
+	}
 }
 
 func (c *Client) getApiKeyHeaderAndValue(apiKey string) (string, string) {
