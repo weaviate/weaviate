@@ -389,7 +389,15 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := topMostSegment; i >= 0; i-- {
+		beforeSegment := time.Now()
 		v, err := sg.segments[i].get(key)
+		if time.Since(beforeSegment) > 100*time.Millisecond {
+			sg.logger.WithField("duration", time.Since(beforeSegment)).
+				WithField("action", "lsm_segment_group_get_individual_segment").
+				WithError(err).
+				WithField("segment_pos", i).
+				Debug("waited over 100ms to get result from individual segment")
+		}
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
