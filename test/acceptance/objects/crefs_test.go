@@ -508,7 +508,7 @@ func TestBatchRefWithErrors(t *testing.T) {
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
 	require.NotNil(t, postRefResponse.Payload[2].Result.Errors)
-	require.Contains(t, postRefResponse.Payload[2].Result.Errors.Error[0].Message, "class DoesNotExist does not exist")
+	require.Contains(t, postRefResponse.Payload[2].Result.Errors.Error[0].Message, "source class \"DoesNotExist\" not found in schema")
 
 	require.NotNil(t, postRefResponse.Payload[3].Result.Errors)
 	require.Contains(t, postRefResponse.Payload[3].Result.Errors.Error[0].Message, "property doesNotExist does not exist for class ReferenceFrom")

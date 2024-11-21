@@ -18,6 +18,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -208,6 +210,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		expectedResources []string
 	}
 
+	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
+
 	tests := []testCase{
 		{
 			methodName: "AddObjects",
@@ -222,11 +226,11 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		{
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
-				[]*models.BatchReference{{}},
+				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: ""}},
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedResources: authorization.ShardsData("Class", ""),
 		},
 		{
 			methodName: "DeleteObjects",
