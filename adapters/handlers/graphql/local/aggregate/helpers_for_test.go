@@ -30,8 +30,14 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
+type mockAuthorizer struct{}
+
+func (m *mockAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
 func newMockResolver(cfg config.Config) *mockResolver {
-	field, err := Build(&testhelper.CarSchema, cfg, nil)
+	field, err := Build(&testhelper.CarSchema, cfg, nil, &mockAuthorizer{})
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
