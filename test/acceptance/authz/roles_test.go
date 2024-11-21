@@ -57,7 +57,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String(authorization.CreateCollections),
+					Action:     String(authorization.CreateSchema),
 					Collection: String("*"),
 				}},
 			}),
@@ -85,7 +85,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String(authorization.CreateCollections),
+					Action:     String(authorization.CreateSchema),
 					Collection: String("*"),
 				}},
 			}),
@@ -102,7 +102,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:     String(authorization.CreateCollections),
+					Action:     String(authorization.CreateSchema),
 					Collection: String("*"),
 				}},
 			}),
@@ -121,8 +121,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	existingRole := "admin"
 
 	testRoleName := "test-role"
-	testAction1 := authorization.CreateCollections
-	testAction2 := authorization.DeleteCollections
+	testAction1 := authorization.CreateSchema
+	testAction2 := authorization.DeleteSchema
 	all := "*"
 
 	testRole1 := &models.Role{
@@ -297,8 +297,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	existingRole := "admin"
 
 	testRole := "test-role"
-	testAction1 := authorization.CreateCollections
-	testAction2 := authorization.DeleteCollections
+	testAction1 := authorization.CreateSchema
+	testAction2 := authorization.DeleteSchema
 	all := "*"
 
 	clientAuth := helper.CreateAuth(existingKey)

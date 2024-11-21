@@ -61,15 +61,10 @@
             "read_roles",
             "manage_cluster",
 
-            "create_meta_collections",
-            "read_meta_collections",
-            "update_meta_collections",
-            "delete_meta_collections",
-
-            "create_meta_tenants",
-            "read_meta_tenants",
-            "update_meta_tenants",
-            "delete_meta_tenants",
+            "create_schema",
+            "read_schema",
+            "update_schema",
+            "delete_schema",
 
             "create_data_collection_objects",
             "read_data_collection_objects",
