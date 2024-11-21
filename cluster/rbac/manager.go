@@ -24,27 +24,41 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	logger logrus.FieldLogger
+	authZ authorization.Controller
+	// controllerEnabled converts RAFT RBAC commands to no-op
+	controllerEnabled bool
+	logger            logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, logger: logger}
+func NewManager(enableController bool, authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
+	return &Manager{controllerEnabled: enableController, authZ: authZ, logger: logger}
 }
 
 func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
+	if !m.controllerEnabled {
+		return nil, nil
+	}
 	return m.authZ.GetRoles(names...)
 }
 
 func (m *Manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
+	if !m.controllerEnabled {
+		return nil, nil
+	}
 	return m.authZ.GetRolesForUser(user)
 }
 
 func (m *Manager) GetUsersForRole(role string) ([]string, error) {
+	if !m.controllerEnabled {
+		return nil, nil
+	}
 	return m.authZ.GetUsersForRole(role)
 }
 
 func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
+	if !m.controllerEnabled {
+		return nil
+	}
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -54,6 +68,9 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
+	if !m.controllerEnabled {
+		return nil
+	}
 	req := &cmd.DeleteRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -63,6 +80,9 @@ func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
+	if !m.controllerEnabled {
+		return nil
+	}
 	req := &cmd.AddRolesForUsersRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -72,6 +92,9 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
+	if !m.controllerEnabled {
+		return nil
+	}
 	req := &cmd.RemovePermissionsRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -81,6 +104,9 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
+	if !m.controllerEnabled {
+		return nil
+	}
 	req := &cmd.RevokeRolesForUserRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)

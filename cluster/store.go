@@ -148,7 +148,8 @@ type Config struct {
 	// channel will be nil if the metadata server is not enabled.
 	ClassTenantDataEvents chan metadata.ClassTenant
 
-	AuthzController authorization.Controller
+	EnableRBACEnforcer bool
+	AuthzController    authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -234,7 +235,7 @@ func NewFSM(cfg Config) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
+		authZManager:  rbac.NewManager(cfg.EnableRBACEnforcer, cfg.AuthzController, cfg.Logger),
 	}
 }
 
