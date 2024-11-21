@@ -150,9 +150,34 @@ jobs:
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Modules-On-Demand-Tests-Check:
+    name: modules-on-demand-tests-check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    outputs:
+      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: check
+        name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[api]"* || "$commit_message" == "prepare release"* || "$commit_message" == *"[test]"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
+            echo "run_pipeline=false" >> $GITHUB_OUTPUT
+          fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -186,7 +211,8 @@ jobs:
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
