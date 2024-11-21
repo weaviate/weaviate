@@ -31,16 +31,19 @@ func TestAutoTenantActivation(t *testing.T) {
 	existingKey := "existing-key"
 	existingRole := "admin"
 
-	testRoleName := "test-role"
-	testAction1 := authorization.CreateObjectsTenant
-	testAction2 := authorization.UpdateSchema
+	customUser := "custom-user"
+	customKey := "custom-key"
+	customRole := "custom"
 
-	clientAuth := helper.CreateAuth(existingKey)
+	testRoleName := "test-role"
+
+	adminAuth := helper.CreateAuth(existingKey)
+	customAuth := helper.CreateAuth(customKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).WithRbacUser(customUser, customKey, customRole).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -49,10 +52,16 @@ func TestAutoTenantActivation(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
+	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000001").WithTenant(tenant).Object()
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+		helper.DeleteRole(t, existingKey, testRoleName)
+		helper.ResetClient()
+	}()
 
 	t.Run("setup", func(*testing.T) {
 		cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -60,51 +69,51 @@ func TestAutoTenantActivation(t *testing.T) {
 			AutoTenantActivation: true,
 			AutoTenantCreation:   false,
 		}
-		helper.CreateClassWithAuthz(t, cls, clientAuth)
-		helper.CreateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: "INACTIVE"}}, clientAuth)
+		helper.CreateClassWithAuthz(t, cls, adminAuth)
+		helper.CreateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
 	})
 
-	t.Run("create role that can create objects in tenant of collection", func(t *testing.T) {
+	t.Run("create and assign role that can create objects in and read schema of tenant of collection", func(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(testRoleName),
-			Permissions: []*models.Permission{{
-				Action:     String(testAction1),
-				Collection: String(cls.Class),
-				Tenant:     String(tenant),
-			}},
+			Permissions: []*models.Permission{
+				{
+					Action:     String(authorization.CreateObjectsTenant),
+					Collection: String(cls.Class),
+					Tenant:     String(tenant),
+				},
+				{
+					Action:     String(authorization.ReadSchema),
+					Collection: String(cls.Class),
+				},
+			},
 		})
+		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customKey).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
+		require.Nil(t, err)
 	})
 
 	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking permissions for autoTenantActivation", func(t *testing.T) {
-		obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000001").WithTenant(tenant).Object()
-		err := helper.CreateObjectWithAuthz(t, obj, clientAuth)
+		err := helper.CreateObjectWithAuthz(t, obj, customAuth)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
 		require.True(t, forbidden)
-		require.Contains(t, parsed.Payload.Error, "forbidden")
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("add permission allowing to update schema of collection and tenant", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{{
-				Action:     String(testAction2),
+				Action:     String(authorization.UpdateSchema),
 				Collection: String(cls.Class),
 				Tenant:     String(tenant),
 			}},
-		}), clientAuth)
+		}), adminAuth)
 		require.Nil(t, err)
 	})
 
 	t.Run("successfully create object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
-		obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000001").WithTenant(tenant).Object()
-		err := helper.CreateObjectWithAuthz(t, obj, clientAuth)
+		err := helper.CreateObjectWithAuthz(t, obj, customAuth)
 		require.Nil(t, err)
-
-		// check if object was created
-		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(obj.ID), clientAuth)
-		require.Nil(t, err)
-		require.NotNil(t, res.Payload)
-		require.Equal(t, obj.ID, res.Payload.ID)
 	})
 }
