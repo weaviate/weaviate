@@ -108,6 +108,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -825,7 +826,17 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	if err = configureAuthorizer(appState); err != nil {
+	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
+	apiKeys := appState.ServerConfig.Config.Authentication.APIKey
+	controller, err := rbac.New(rbacStoragePath, apiKeys, appState.Logger)
+	if err != nil {
+		logger.WithField("action", "startup").WithField("error", err).Error("cannot init casbin")
+		logger.Exit(1)
+	}
+	// assign authController
+	appState.AuthzController = controller
+
+	if err = configureAuthorizer(appState, controller); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
 		logger.Exit(1)
 	}
