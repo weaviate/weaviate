@@ -39,7 +39,7 @@ type SegmentGroup struct {
 	dir             string
 
 	// flushVsCompactLock is a simple synchronization mechanism between the
-	// compaction and flush cycle. In general, those are indpendent, however,
+	// compaction and flush cycle. In general, those are independent, however,
 	// there are parts of it that are not. See the comments of the routines
 	// interacting with this lock for more details.
 	flushVsCompactLock sync.Mutex
