@@ -20,7 +20,6 @@ const DefaultDeletionInterval = 3 * time.Second
 
 type CacheMultiple[T any] interface {
 	GetMultiple(ctx context.Context, docID uint64, relativeID uint64) ([]T, error)
-	MultiGetMultiple(ctx context.Context, docIDs []uint64, relativeID []uint64) ([][]float32, []error)
 	PreloadMultiple(docID uint64, relativeID uint64, vec []float32)
 	PrefetchMultiple(docID uint64, relativeID uint64)
 }
