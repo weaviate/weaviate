@@ -18,7 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-jinaai/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
@@ -38,7 +38,10 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationCLIPResult, error)
+		texts, images []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationCLIPResult, error)
+	VectorizeQuery(ctx context.Context, texts []string,
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
 }
 
 type ClassSettings interface {
