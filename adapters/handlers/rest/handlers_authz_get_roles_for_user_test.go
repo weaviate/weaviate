@@ -39,7 +39,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		{
 			Resource: authorization.Collections("ABC")[0],
 			Verb:     authorization.READ,
-			Domain:   authorization.CollectionsDomain,
+			Domain:   authorization.SchemaDomain,
 		},
 	}
 

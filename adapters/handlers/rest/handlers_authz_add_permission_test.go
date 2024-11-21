@@ -48,7 +48,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					Name: String("test"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},
@@ -62,7 +62,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateCollections),
+							Action:     String(authorization.CreateSchema),
 							Collection: String("ABC"),
 						},
 					},
@@ -78,7 +78,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateCollections),
+							Action:     String(authorization.CreateSchema),
 							Collection: String("ABC"),
 							Tenant:     String("Tenant1"),
 						},
@@ -96,7 +96,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 							Tenant: String("Tenant1"),
 						},
 					},
@@ -179,7 +179,7 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 					Name: String(""),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},
@@ -220,7 +220,7 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 					Name: &authorization.BuiltInRoles[0],
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},
@@ -268,7 +268,7 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 							Tenant: String("Tenant1"),
 						},
 					},
@@ -348,7 +348,7 @@ func TestAddPermissionsForbidden(t *testing.T) {
 					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},
@@ -400,7 +400,7 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},

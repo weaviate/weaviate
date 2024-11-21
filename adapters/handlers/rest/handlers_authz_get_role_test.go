@@ -39,7 +39,7 @@ func TestGetRoleSuccess(t *testing.T) {
 		{
 			Resource: authorization.Collections("ABC")[0],
 			Verb:     authorization.READ,
-			Domain:   authorization.CollectionsDomain,
+			Domain:   authorization.SchemaDomain,
 		},
 	}
 
@@ -220,7 +220,7 @@ func TestGetRoleInternalServerError(t *testing.T) {
 				{
 					Resource: authorization.Collections("ABC")[0],
 					Verb:     authorization.READ,
-					Domain:   authorization.CollectionsDomain,
+					Domain:   authorization.SchemaDomain,
 				},
 			}
 
