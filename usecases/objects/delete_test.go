@@ -36,7 +36,7 @@ func Test_DeleteObjectsWithSameId(t *testing.T) {
 		ClassName: cls,
 	}, nil).Once()
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
-	vectorRepo.On("DeleteObject", cls, id).Return(nil).Once()
+	vectorRepo.On("DeleteObject", cls, id, mock.Anything).Return(nil).Once()
 
 	err := manager.DeleteObject(context.Background(), nil, "", id, nil, "")
 	assert.Nil(t, err)
@@ -52,13 +52,13 @@ func Test_DeleteObject(t *testing.T) {
 
 	manager, repo := newDeleteDependency()
 
-	repo.On("DeleteObject", cls, id).Return(nil).Once()
+	repo.On("DeleteObject", cls, id, mock.Anything).Return(nil).Once()
 	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
 	assert.Nil(t, err)
 	repo.AssertExpectations(t)
 
 	// return internal error if deleteObject() fails
-	repo.On("DeleteObject", cls, id).Return(errNotFound).Once()
+	repo.On("DeleteObject", cls, id, mock.Anything).Return(errNotFound).Once()
 	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
 	if _, ok := err.(ErrInternal); !ok {
 		t.Errorf("error type got: %T want: ErrInternal", err)

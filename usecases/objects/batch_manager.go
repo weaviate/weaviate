@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -30,6 +31,7 @@ type BatchManager struct {
 	logger            logrus.FieldLogger
 	authorizer        authorization.Authorizer
 	vectorRepo        BatchVectorRepo
+	timeSource        timeSource
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           *Metrics
@@ -43,7 +45,7 @@ type BatchVectorRepo interface {
 type batchRepoNew interface {
 	BatchPutObjects(ctx context.Context, objects BatchObjects,
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchObjects, error)
-	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
+	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) (BatchDeleteResult, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences,
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
@@ -61,6 +63,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		schemaManager:     schemaManager,
 		logger:            logger,
 		vectorRepo:        vectorRepo,
+		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
 		authorizer:        authorizer,
 		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),

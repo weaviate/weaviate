@@ -112,7 +112,7 @@ func immediateReplicaCRUD(t *testing.T) {
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
 			resp := gqlGet(t, compose.ContainerURI(2), "Paragraph", replica.One)
-			assert.Len(t, resp, len(paragraphIDs))
+			require.Len(t, resp, len(paragraphIDs))
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
@@ -138,12 +138,12 @@ func immediateReplicaCRUD(t *testing.T) {
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
 			resp := gqlGet(t, compose.ContainerURI(1), "Article", replica.One)
-			assert.Len(t, resp, len(articleIDs))
+			require.Len(t, resp, len(articleIDs))
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
 			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One)
-			assert.Len(t, resp, len(articleIDs))
+			require.Len(t, resp, len(articleIDs))
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
@@ -185,7 +185,7 @@ func immediateReplicaCRUD(t *testing.T) {
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
 			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One,
 				"_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
-			assert.Len(t, resp, len(articleIDs))
+			require.Len(t, resp, len(articleIDs))
 
 			for _, r := range resp {
 				b, err := json.Marshal(r)
@@ -200,7 +200,7 @@ func immediateReplicaCRUD(t *testing.T) {
 			for i := range articleIDs {
 				paragraphID, ok := refPairs[articleIDs[i]]
 				require.True(t, ok, "expected %q to be in refPairs: %+v", articleIDs[i], refPairs)
-				assert.Equal(t, paragraphIDs[i], paragraphID)
+				require.Equal(t, paragraphIDs[i], paragraphID)
 			}
 		})
 
@@ -234,7 +234,7 @@ func immediateReplicaCRUD(t *testing.T) {
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
 			require.True(t, ok)
-			assert.Equal(t, newTitle, newVal)
+			require.Equal(t, newTitle, newVal)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
@@ -253,11 +253,11 @@ func immediateReplicaCRUD(t *testing.T) {
 
 		t.Run("OnNode-1", func(t *testing.T) {
 			_, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
-			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
+			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 		t.Run("OnNode-2", func(t *testing.T) {
 			_, err := getObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "node2")
-			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
+			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
@@ -277,12 +277,12 @@ func immediateReplicaCRUD(t *testing.T) {
 
 		t.Run("OnNode-1", func(t *testing.T) {
 			resp := gqlGet(t, compose.ContainerURI(1), "Article", replica.One)
-			assert.Empty(t, resp)
+			require.Empty(t, resp)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
 			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One)
-			assert.Empty(t, resp)
+			require.Empty(t, resp)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
@@ -360,9 +360,9 @@ func eventualReplicaCRUD(t *testing.T) {
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
-			assert.Len(collect, resp, len(articleIDs))
+			require.Len(collect, resp, len(articleIDs))
 			resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
-			assert.Len(collect, resp, len(paragraphIDs))
+			require.Len(collect, resp, len(paragraphIDs))
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
@@ -399,7 +399,7 @@ func eventualReplicaCRUD(t *testing.T) {
 				require.Nil(t, err)
 
 				require.Contains(t, after.Properties.(map[string]interface{}), "title")
-				assert.Equal(t, newTitle, after.Properties.(map[string]interface{})["title"])
+				require.Equal(t, newTitle, after.Properties.(map[string]interface{})["title"])
 			})
 
 			t.Run("PatchedOnNode-2", func(t *testing.T) {
@@ -431,7 +431,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			t.Run("OnNode-1", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					_, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
-					assert.Equal(collect, &objects.ObjectsClassGetNotFound{}, err)
+					require.Equal(collect, &objects.ObjectsClassGetNotFound{}, err)
 				}, 5*time.Second, 100*time.Millisecond)
 			})
 		})
@@ -459,11 +459,11 @@ func eventualReplicaCRUD(t *testing.T) {
 			params := schema.NewSchemaObjectsUpdateParams().
 				WithObjectClass(ac).WithClassName(ac.Class)
 			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
-			assert.NotNil(t, err)
+			require.NotNil(t, err)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*schema.SchemaObjectsUpdateUnprocessableEntity)
-				assert.True(t, ok)
-				assert.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
+				require.True(t, ok)
+				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
 			})
 		})
 	})

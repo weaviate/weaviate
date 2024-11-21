@@ -59,7 +59,7 @@ func (t *binarySearchTree) getNode(key []byte) (*binarySearchNode, error) {
 	return t.root.getNode(key)
 }
 
-func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
+func (t *binarySearchTree) setTombstone(key, value []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is
 		// not present because we still need to propagate the delete into the disk
@@ -67,7 +67,7 @@ func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 		// segment and is thus unknown to this memtable
 		t.root = &binarySearchNode{
 			key:           key,
-			value:         nil,
+			value:         value,
 			tombstone:     true,
 			secondaryKeys: secondaryKeys,
 			colourIsRed:   false, // root node is always black
@@ -75,7 +75,7 @@ func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 		return
 	}
 
-	newRoot := t.root.setTombstone(key, secondaryKeys)
+	newRoot := t.root.setTombstone(key, value, secondaryKeys)
 	if newRoot != nil {
 		t.root = newRoot
 	}
@@ -293,7 +293,7 @@ func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 		if !n.tombstone {
 			return n, nil
 		} else {
-			return nil, lsmkv.Deleted
+			return nil, errorFromTombstonedValue(n.value)
 		}
 	}
 
@@ -312,9 +312,9 @@ func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 	}
 }
 
-func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *binarySearchNode {
+func (n *binarySearchNode) setTombstone(key, value []byte, secondaryKeys [][]byte) *binarySearchNode {
 	if bytes.Equal(n.key, key) {
-		n.value = nil
+		n.value = value
 		n.tombstone = true
 		n.secondaryKeys = secondaryKeys
 		return nil
@@ -324,7 +324,7 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *bin
 		if n.left == nil {
 			n.left = &binarySearchNode{
 				key:           key,
-				value:         nil,
+				value:         value,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
 				parent:        n,
@@ -333,12 +333,12 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *bin
 			return binarySearchNodeFromRB(rbtree.Rebalance(n.left))
 
 		}
-		return n.left.setTombstone(key, secondaryKeys)
+		return n.left.setTombstone(key, value, secondaryKeys)
 	} else {
 		if n.right == nil {
 			n.right = &binarySearchNode{
 				key:           key,
-				value:         nil,
+				value:         value,
 				tombstone:     true,
 				secondaryKeys: secondaryKeys,
 				parent:        n,
@@ -346,7 +346,7 @@ func (n *binarySearchNode) setTombstone(key []byte, secondaryKeys [][]byte) *bin
 			}
 			return binarySearchNodeFromRB(rbtree.Rebalance(n.right))
 		}
-		return n.right.setTombstone(key, secondaryKeys)
+		return n.right.setTombstone(key, value, secondaryKeys)
 	}
 }
 

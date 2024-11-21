@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -726,24 +727,26 @@ func (p findUUIDsResultsPayload) CheckContentTypeHeader(r *http.Response) (strin
 
 type batchDeleteParamsPayload struct{}
 
-func (p batchDeleteParamsPayload) Marshal(uuids []strfmt.UUID, dryRun bool) ([]byte, error) {
+func (p batchDeleteParamsPayload) Marshal(uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) ([]byte, error) {
 	type params struct {
-		UUIDs  []strfmt.UUID `json:"uuids"`
-		DryRun bool          `json:"dryRun"`
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
 	}
 
-	par := params{uuids, dryRun}
+	par := params{uuids, deletionTime.UnixMilli(), dryRun}
 	return json.Marshal(par)
 }
 
-func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]strfmt.UUID, bool, error) {
+func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]strfmt.UUID, time.Time, bool, error) {
 	type batchDeleteParametersPayload struct {
-		UUIDs  []strfmt.UUID `json:"uuids"`
-		DryRun bool          `json:"dryRun"`
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
 	}
 	var par batchDeleteParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.UUIDs, par.DryRun, err
+	return par.UUIDs, time.UnixMilli(par.DeletionTimeUnixMilli), par.DryRun, err
 }
 
 func (p batchDeleteParamsPayload) MIME() string {
