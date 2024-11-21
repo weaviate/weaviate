@@ -96,20 +96,14 @@ func (h *hnsw) Delete(ids ...uint64) error {
 }
 
 func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
-	h.compressActionLock.RLock()
-	defer h.compressActionLock.RUnlock()
-
-	h.deleteVsInsertLock.Lock()
-	defer h.deleteVsInsertLock.Unlock()
-
-	h.deleteLock.Lock()
-	defer h.deleteLock.Unlock()
 
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
 
 	for _, docID := range docIDs {
+		h.RLock()
 		vecIDs := h.docIDVectorMap[docID]
+		h.RUnlock()
 
 		for _, id := range vecIDs {
 
@@ -120,7 +114,6 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			h.Lock()
 			delete(h.relativeIDMap, id)
 			delete(h.vectorDocIDMap, id)
-			h.vecIDcounter = h.vecIDcounter - 1
 			h.Unlock()
 		}
 		h.Lock()

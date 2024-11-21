@@ -17,7 +17,6 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -28,56 +27,53 @@ import (
 )
 
 func TestMultiVectorHnsw(t *testing.T) {
-
 	var vectorIndex *hnsw
 	ctx := context.Background()
 	maxConnections := 32
 	efConstruction := 256
 	ef := 256
+	k := 10
 
-	// Define small 2D and 3D vectors
 	vectors := [][][]float32{
 		// Document ID: 0
 		{
-			{0.8, 0.0}, // Relative ID: 0
-			{0.0, 1.0}, // Relative ID: 1
-			{0.5, 0.5}, // Relative ID: 2
+			{0.3546, 0.3751, 0.8565}, // Relative ID: 0
+			{0.7441, 0.6594, 0.1069}, // Relative ID: 1
+			{0.3224, 0.9466, 0.0006}, // Relative ID: 2
 		},
 
 		// Document ID: 1
-		/*{
-			{7.8, 9.0}, // Relative ID: 0
-			{6.4, 8.2}, // Relative ID: 1
+		{
+			{0.9017, 0.3555, 0.2460}, // Relative ID: 0
+			{0.5278, 0.1360, 0.8384}, // Relative ID: 1
 		},
 
 		// Document ID: 2
 		{
-			{100, 47}, // Relative ID: 0
-			{1, 0},    // Relative ID: 1
-		},*/
+			{0.0817, 0.9565, 0.2802}, // Relative ID: 0
+		},
 	}
 
 	queries := [][][]float32{
 		// Query 0
 		{
-			{0.5, 0.5},
+			{0.9054, 0.4201, 0.0613},
 		},
 
 		// Query 1
-		/*{
-			{50.7, 49.2},
-			{20.9, 71.1},
-		},*/
+		{
+			{0.3491, 0.8591, 0.3742},
+			{0.0613, 0.4201, 0.9054},
+		},
 	}
 
 	// Expected results for each query
-	/*expectedResults := [][]uint64{
-		{0, 1, 2},
-		{2, 1, 0},
-	}*/
+	expectedResults := [][]uint64{
+		{1, 0, 2},
+		{0, 2, 1},
+	}
 
 	t.Run("importing into hnsw", func(t *testing.T) {
-
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
@@ -94,42 +90,84 @@ func TestMultiVectorHnsw(t *testing.T) {
 		}, cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index
-		fmt.Printf("hnsw created\n")
-		//workerCount := runtime.GOMAXPROCS(0)
-		workerCount := 1
-		jobsForWorker := make([][][][]float32, workerCount)
 
 		before := time.Now()
 		for i, vec := range vectors {
-			workerID := i % workerCount
-			jobsForWorker[workerID] = append(jobsForWorker[workerID], vec)
+			err := vectorIndex.AddMulti(ctx, uint64(i), vec)
+			require.Nil(t, err)
 		}
 
-		wg := &sync.WaitGroup{}
-		for workerID, jobs := range jobsForWorker {
-			wg.Add(1)
-			go func(workerID int, myJobs [][][]float32) {
-				defer wg.Done()
-				for i, vec := range myJobs {
-					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.AddMulti(ctx, uint64(originalIndex), vec)
-					require.Nil(t, err)
-				}
-			}(workerID, jobs)
-		}
-
-		wg.Wait()
 		fmt.Printf("importing took %s\n", time.Since(before))
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
-		k := 100
-
-		for _, query := range queries {
-			_, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
 			require.Nil(t, err)
-			//require.Equal(t, expectedResults[i], ids)
+			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("delete some nodes", func(t *testing.T) {
+
+		// Delete the first node and then add back
+		newExpectedResults := [][]uint64{
+			{1, 2},
+			{2, 1},
+		}
+		err := vectorIndex.DeleteMulti(0)
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, newExpectedResults[i], ids)
+		}
+		err = vectorIndex.AddMulti(ctx, 0, vectors[0])
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
 		}
 
+		// Delete the second node and then add back
+		newExpectedResults = [][]uint64{
+			{0, 2},
+			{0, 2},
+		}
+		err = vectorIndex.DeleteMulti(1)
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, newExpectedResults[i], ids)
+		}
+		err = vectorIndex.AddMulti(ctx, 1, vectors[1])
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+		}
+
+		// Delete the third node and then add back
+		newExpectedResults = [][]uint64{
+			{1, 0},
+			{0, 1},
+		}
+		err = vectorIndex.DeleteMulti(2)
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, newExpectedResults[i], ids)
+		}
+		err = vectorIndex.AddMulti(ctx, 2, vectors[2])
+		require.Nil(t, err)
+		for i, query := range queries {
+			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+		}
 	})
 }
