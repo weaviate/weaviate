@@ -284,8 +284,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
-	multiResources := slices.Concat(authorization.Roles(params.Body.Roles...), authorization.Users(params.ID))
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, multiResources...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewAssignRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
@@ -319,26 +318,34 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("role name is required")))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
-		return authz.NewGetRolesForUserForbidden().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	roles, err := h.controller.GetRolesForUser(params.ID)
+	existedRoles, err := h.controller.GetRolesForUser(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
 	response := []*models.Role{}
 
-	for roleName, policies := range roles {
+	var authErr error
+	for roleName, policies := range existedRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
+
+		// verify the user has access
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(roleName)...); err != nil {
+			authErr = err
+			continue
+		}
+
 		response = append(response, &models.Role{
 			Name:        &roleName,
 			Permissions: perms,
 		})
+	}
+
+	if len(existedRoles) != 0 && len(response) == 0 {
+		return authz.NewGetRolesForUserForbidden().WithPayload(errPayloadFromSingleErr(authErr))
 	}
 
 	h.logger.WithFields(logrus.Fields{
@@ -378,8 +385,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
-	multiResources := slices.Concat(authorization.Roles(params.Body.Roles...), authorization.Users(params.ID))
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, multiResources...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewRevokeRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
