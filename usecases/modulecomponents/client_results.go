@@ -93,3 +93,8 @@ func GetTotalTokens(usage *Usage) int {
 	}
 	return usage.TotalTokens
 }
+
+type VectorizationCLIPResult struct {
+	TextVectors  [][]float32
+	ImageVectors [][]float32
+}
