@@ -293,8 +293,6 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 				Tenant:     String("non-existent-tenant"),
 			}},
 		}), helper.CreateAuth(adminKey))
-		parsed := err.(*authz.AddPermissionsBadRequest)
-		fmt.Println(parsed.Payload.Error[0].Message)
 		require.Nil(t, err)
 	})
 
