@@ -213,11 +213,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
-		_, err = helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(existingUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}),
-			clientAuth,
-		)
-		require.Nil(t, err)
+		helper.AssignRoleToUser(t, existingKey, testRoleName, existingUser)
 	})
 
 	t.Run("get roles for user after assignment", func(t *testing.T) {

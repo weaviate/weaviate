@@ -45,3 +45,12 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 	require.NotNil(t, resp.Payload)
 	return resp.Payload
 }
+
+func AssignRoleToUser(t *testing.T, key, role, user string) {
+	resp, err := Client(t).Authz.AssignRole(
+		authz.NewAssignRoleParams().WithID(user).WithBody(authz.AssignRoleBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}

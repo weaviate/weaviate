@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -627,6 +628,16 @@ func getFakeModulesProvider() ModulesProvider {
 	return newFakeModulesProvider()
 }
 
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func getFakeAuthorizer() authorization.Authorizer {
+	return &fakeAuthorizer{}
+}
+
 func newMockResolver() *mockResolver {
 	return newMockResolverWithVectorizer(config.VectorizerModuleText2VecContextionary)
 }
@@ -634,7 +645,7 @@ func newMockResolver() *mockResolver {
 func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider())
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -648,7 +659,7 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 
 func newMockResolverWithNoModules() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil)
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
