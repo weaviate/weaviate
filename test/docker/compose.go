@@ -614,7 +614,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startQuerier(ctx, d.enableModules, d.defaultVectorizerModule, envSettings,
 			networkName, "", Querier, true, "/v1/.well-known/ready")
 		if err != nil {
-			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", "myquerier")
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", Querier)
 		}
 		containers = append(containers, container)
 	}
