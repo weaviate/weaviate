@@ -308,6 +308,7 @@ func getReferenceClasses(ctx context.Context,
 		err = fmt.Errorf("target class %q not found in schema", classFrom)
 		return
 	}
+	targetClass = targetVclasses[classTo].Class
 
 	return
 }
