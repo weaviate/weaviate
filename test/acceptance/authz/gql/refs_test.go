@@ -88,7 +88,7 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 
 	t.Run("create and assign a role that can query for articles", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{Name: String(roleName), Permissions: []*models.Permission{
-			{Action: String(authorization.ReadCollections)},
+			{Action: String(authorization.ReadSchema)},
 			{Action: String(authorization.ReadObjectsCollection), Collection: String(articlesCls.Class)},
 		}})
 		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
