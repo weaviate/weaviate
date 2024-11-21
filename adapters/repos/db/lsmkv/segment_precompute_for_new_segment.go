@@ -19,8 +19,23 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 	// the meta count init.
 	//
 	// Normal operations (user CRUD) are fine.
+
+	// We can't simply hold an RLock on the maintenanceLock without coordinating
+	// with potential Lock() callers. Otherwise if we hold teh RLock for minutes
+	// and someone else calls Lock() we will deadlock.
+	//
+	// The only known caller of Lock() is the compaction routine, so we can
+	// synchronize with it by holding the flushVsCompactLock.
+	sg.flushVsCompactLock.Lock()
+	defer sg.flushVsCompactLock.Unlock()
+
+	// It is now safe to hold the RLock on the maintenanceLock because we know
+	// that the compaction routine will not try to obtain the Lock() until we
+	// have released the flushVsCompactLock.
 	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
+	defer func() {
+		sg.maintenanceLock.RUnlock()
+	}()
 
 	newSegmentIndex := len(sg.segments)
 
