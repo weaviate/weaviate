@@ -157,7 +157,6 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed   atomic.Bool
-	doNotRescore bool
 	rescoreLimit int
 	acornSearch  atomic.Bool
 

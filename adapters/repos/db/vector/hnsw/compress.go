@@ -83,6 +83,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.pqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+			h.rescoreLimit = cfg.PQ.RescoreLimit
 		} else if cfg.SQ.Enabled {
 			var err error
 			h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
@@ -92,9 +93,11 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+			h.rescoreLimit = cfg.SQ.RescoreLimit
 		}
 		h.compressor.PersistCompression(h.commitLog)
-	} else {
+	}
+	if cfg.BQ.Enabled {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(
 			h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)

@@ -162,7 +162,7 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 }
 
 func (h *hnsw) shouldRescore() bool {
-	return h.compressed.Load() && !h.doNotRescore
+	return h.compressed.Load() && h.rescoreLimit > 0
 }
 
 func (h *hnsw) cacheSize() int64 {
@@ -850,8 +850,8 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 }
 
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
-	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
-		for res.Len() > h.sqConfig.RescoreLimit {
+	if h.rescoreLimit >= k {
+		for res.Len() > h.rescoreLimit {
 			res.Pop()
 		}
 	}

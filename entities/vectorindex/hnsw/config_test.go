@@ -584,6 +584,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Distance:               common.DefaultDistanceMetric,
+				FilterStrategy:         DefaultFilterStrategy,
 				PQ: PQConfig{
 					Enabled:       true,
 					Segments:      64,
@@ -594,6 +595,11 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 					RescoreLimit: 10,
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				BQ: BQConfig{
 					Enabled:      false,
@@ -640,10 +646,16 @@ func Test_UserConfig(t *testing.T) {
 					},
 					RescoreLimit: DefaultPQRescoreLimit,
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 				BQ: BQConfig{
 					Enabled:      true,
 					RescoreLimit: DefaultBQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 		{
@@ -733,11 +745,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       true,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 			},
@@ -793,11 +810,16 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      DefaultBQEnabled,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
 			},
