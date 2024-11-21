@@ -75,7 +75,7 @@ func CasbinCollections(collection string) string {
 		collection = "*"
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/shards/.*/*", collection)
+	return fmt.Sprintf("meta/collections/%s/*", collection)
 }
 
 func CasbinShards(collection, shard string) string {
