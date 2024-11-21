@@ -46,7 +46,7 @@ func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 		return localFields, nil
 	}
 
-	exploreField := explore.Build(dbSchema.Objects, modulesProvider)
+	exploreField := explore.Build(dbSchema.Objects, modulesProvider, authorizer)
 
 	localFields := graphql.Fields{
 		"Get":       getField,

@@ -348,7 +348,7 @@ func newMockResolver() *mockResolver {
 }
 
 func newExploreMockResolver() *mockResolver {
-	field := explore.Build(test_helper.SimpleSchema.Objects, getFakeModulesProvider())
+	field := explore.Build(test_helper.SimpleSchema.Objects, getFakeModulesProvider(), getFakeAuthorizer())
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Explore"
