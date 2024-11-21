@@ -181,17 +181,18 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				level: levels[j],
 			}
 
+			h.Lock()
+			h.vectorDocIDMap[nodeId] = docID
+			h.docIDVectorMap[docID] = append(h.docIDVectorMap[docIDs[i]], nodeId)
+			h.relativeIDMap[nodeId] = uint64(j)
+			h.Unlock()
+
 			err := h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}
 
 			h.insertMetrics.total(globalBefore)
-			h.Lock()
-			h.vectorDocIDMap[nodeId] = docID
-			h.docIDVectorMap[docID] = append(h.docIDVectorMap[docIDs[i]], nodeId)
-			h.relativeIDMap[nodeId] = uint64(j)
-			h.Unlock()
 		}
 
 	}

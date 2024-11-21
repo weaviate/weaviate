@@ -46,7 +46,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 
 const (
 	InitialSize             = 1000
-	RelativeInitialSize     = 1100
+	RelativeInitialSize     = 50
 	MinimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
 )
@@ -347,10 +347,6 @@ func (s *shardedLockCache[T]) GetMultiple(ctx context.Context, docID uint64, rel
 	return nil, errors.New("GetMultiple not implemented for shardedLockCache")
 }
 
-func (s *shardedLockCache[T]) MultiGetMultiple(ctx context.Context, docIDs []uint64, relativeID []uint64) ([][]float32, []error) {
-	return nil, []error{errors.New("MultiGetMultiple not implemented for shardedLockCache")}
-}
-
 func (s *shardedLockCache[T]) PreloadMultiple(docID uint64, relativeID uint64, vec []float32) {
 	panic("not implemented")
 }
@@ -480,27 +476,6 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 	s.shardedLocks.Unlock(docID)
 
 	return vec, nil
-}
-
-func (s *shardedMultipleLockCache) MultiGetMultiple(ctx context.Context, docIDs []uint64, vecIDs []uint64) ([][]float32, []error) {
-	out := make([][]float32, len(vecIDs))
-	errs := make([]error, len(vecIDs))
-
-	for i, id := range vecIDs {
-		s.shardedLocks.RLock(docIDs[i])
-		vec := s.cache[docIDs[i]][id]
-		s.shardedLocks.RUnlock(docIDs[i])
-
-		if vec == nil {
-			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, docIDs[i], id)
-			errs[i] = err
-			vec = vecFromDisk
-		}
-
-		out[i] = vec
-	}
-
-	return out, errs
 }
 
 func (s *shardedMultipleLockCache) LockAll() {
