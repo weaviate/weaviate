@@ -87,9 +87,9 @@ func encodeBlock(nodes []MapPair) *terms.BlockData {
 	return packed
 }
 
-func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
+func createBlocks(nodes []MapPair, propLengths map[uint64]uint32) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
 	tombstones, values := extractTombstones(nodes)
-	propLengths := make(map[uint64]uint32)
+	externalPropLengths := len(propLengths) != 0
 
 	blockCount := (len(values) + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
 
@@ -112,7 +112,12 @@ func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sr
 			tf := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4]))
 			pl := math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8]))
 			docId := binary.BigEndian.Uint64(values[j].Key)
-			propLengths[docId] = uint32(pl)
+			if externalPropLengths {
+				pl = float32(propLengths[docId])
+			} else {
+				propLengths[docId] = uint32(pl)
+			}
+
 			impact := tf / (tf + defaultBM25k1*(1-defaultBM25b+defaultBM25b*(pl/defaultAveragePropLength)))
 
 			if impact > maxImpact {
@@ -163,7 +168,7 @@ func encodeBlocks(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockDat
 	return out
 }
 
-func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
+func createAndEncodeSingleValue(mapPairs []MapPair, propLengths map[uint64]uint32) ([]byte, *sroar.Bitmap) {
 	tombstones := sroar.NewBitmap()
 	buffer := make([]byte, 8+12*len(mapPairs))
 	offset := 0
@@ -176,21 +181,27 @@ func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 		}
 		copy(buffer[offset:offset+8], mapPairs[i].Key)
 		copy(buffer[offset+8:offset+12], mapPairs[i].Value)
+
 		offset += 12
 	}
 	return buffer[:offset], tombstones
 }
 
-func createAndEncodeBlocksTest(nodes []MapPair, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
 	if len(nodes) <= encodeSingleSeparate {
-		return createAndEncodeSingleValue(nodes)
+		return createAndEncodeSingleValue(nodes, propLengths)
 	}
-	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes)
+	blockEntries, blockDatas, tombstones, _ := createBlocks(nodes, propLengths)
 	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
-func createAndEncodeBlocks(nodes []MapPair) ([]byte, *sroar.Bitmap) {
-	return createAndEncodeBlocksTest(nodes, terms.ENCODE_AS_FULL_BYTES)
+func createAndEncodeBlocksWithLengths(nodes []MapPair) ([]byte, *sroar.Bitmap) {
+	propLengths := make(map[uint64]uint32)
+	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES)
+}
+
+func createAndEncodeBlocks(nodes []MapPair, propLengths map[uint64]uint32) ([]byte, *sroar.Bitmap) {
+	return createAndEncodeBlocksTest(nodes, propLengths, terms.ENCODE_AS_FULL_BYTES)
 }
 
 func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
@@ -352,9 +363,10 @@ func convertFixedLengthFromMemory(data []byte, blockSize int) *terms.BlockDataDe
 
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {
-	values     []MapPair
-	primaryKey []byte
-	offset     int
+	values      []MapPair
+	primaryKey  []byte
+	offset      int
+	propLengths map[uint64]uint32
 }
 
 var invPayloadLen = 16
@@ -364,7 +376,7 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 	written := 0
 	buf := make([]byte, 8) // uint64 size
 
-	blocksEncoded, _ := createAndEncodeBlocks(s.values)
+	blocksEncoded, _ := createAndEncodeBlocks(s.values, s.propLengths)
 	n, err := w.Write(blocksEncoded)
 	if err != nil {
 		return out, errors.Wrapf(err, "write values for node")

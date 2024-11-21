@@ -19,14 +19,20 @@ import (
 )
 
 type segmentCursorInvertedReusable struct {
-	segment    *segment
-	nextOffset uint64
-	nodeBuf    *binarySearchNodeMap
+	segment     *segment
+	nextOffset  uint64
+	nodeBuf     *binarySearchNodeMap
+	propLengths map[uint64]uint32
 }
 
 func (s *segment) newInvertedCursorReusable() *segmentCursorInvertedReusable {
+	propLengths, err := s.GetPropertyLengths()
+	if err != nil {
+		return nil
+	}
 	return &segmentCursorInvertedReusable{
-		segment: s,
+		segment:     s,
+		propLengths: propLengths,
 	}
 }
 

@@ -117,7 +117,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocks(mapNode.values)
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
