@@ -50,8 +50,23 @@ func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 }
 
 func (t *SchemaInfo) Schema(ctx context.Context) (*schema.Schema, error) {
-	// TODO(kavi): implement based on schema endpoint
-	panic("not implemented")
+	// TODO(kavi): Make it cleaner
+	path := t.schemaPrefix
+	u := fmt.Sprintf("%s/%s", t.addr, path)
+
+	resp, err := t.client.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var respPayload models.Schema
+
+	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
+		return nil, err
+	}
+
+	return &schema.Schema{Objects: &respPayload}, nil
 }
 
 func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error) {

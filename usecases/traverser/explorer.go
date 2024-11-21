@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
@@ -49,11 +48,16 @@ type Explorer struct {
 	searcher          objectsSearcher
 	logger            logrus.FieldLogger
 	modulesProvider   ModulesProvider
-	schemaGetter      uc.SchemaGetter
+	schemaGetter      ExploreSchemaGetter
 	nearParamsVector  *nearParamsVector
 	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
 	config            *ExplorerConfig
+}
+
+type ExploreSchemaGetter interface {
+	GetSchemaSkipAuth() schema.Schema
+	ReadOnlyClass(string) *models.Class
 }
 
 type explorerMetrics interface {
@@ -116,7 +120,7 @@ type ExplorerConfig struct {
 	QueryMaxResults   int
 }
 
-func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
+func (e *Explorer) SetSchemaGetter(sg ExploreSchemaGetter) {
 	e.schemaGetter = sg
 }
 

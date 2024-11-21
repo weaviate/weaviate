@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -24,11 +25,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/exp/query"
 	"github.com/weaviate/weaviate/exp/queryschema"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -101,11 +106,33 @@ func main() {
 		}
 
 		searcher := db.NewSearcher(&db.SearchConfig{QueryMaximumResults: 1000, QueryLimit: 1000}, log, opts.Query.DataPath, lsm, schemaInfo)
+		provider := modules.NewProvider(log)
 
-		e := traverser.NewExplorer(searcher, log, modules.NewProvider(log), nil, &traverser.ExplorerConfig{
+		e := traverser.NewExplorer(searcher, log, provider, nil, &traverser.ExplorerConfig{
 			QueryMaxResults:   1000,
 			QueryDefaultLimit: 100,
 		})
+
+		getter := &SchemaGetter{s: schemaInfo}
+
+		e.SetSchemaGetter(getter)
+		provider.SetSchemaGetter(getter)
+
+		contex := modcontextionary.New()
+		provider.Register(contex)
+
+		storProv, err := modulestorage.NewRepo(opts.Query.DataPath, log)
+		if err != nil {
+			panic(err)
+		}
+
+		if err := contex.InitSane(context.Background(), storProv, log, opts.Query.VectorizerAddr); err != nil {
+			panic("contextionary failed")
+		}
+
+		if err := contex.InitExtension(nil); err != nil {
+			panic("contextionary init extention")
+		}
 
 		a := query.NewAPI(
 			schemaInfo,
@@ -175,4 +202,24 @@ func GrpcOptions(svrMetrics monitoring.ServerMetrics) []grpc.ServerOption {
 	grpcOptions = append(grpcOptions, grpcInterceptStream)
 
 	return grpcOptions
+}
+
+type SchemaGetter struct {
+	s *queryschema.SchemaInfo
+}
+
+func (s *SchemaGetter) GetSchemaSkipAuth() schema.Schema {
+	sch, err := s.s.Schema(context.Background())
+	if err != nil {
+		return schema.Schema{}
+	}
+	return *sch
+}
+
+func (s *SchemaGetter) ReadOnlyClass(name string) *models.Class {
+	class, err := s.s.Collection(context.Background(), name)
+	if err != nil {
+		return nil
+	}
+	return class
 }

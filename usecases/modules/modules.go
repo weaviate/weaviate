@@ -529,6 +529,8 @@ func (p *Provider) ValidateSearchParam(name string, value interface{}, className
 }
 
 func (p *Provider) validateSearchParam(name string, value interface{}, class *models.Class) error {
+	fmt.Println("debug!!! all registered modules.", p.GetAll())
+
 	for _, module := range p.GetAll() {
 		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type(), p.getModuleAltNames(module)) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {

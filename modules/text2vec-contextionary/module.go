@@ -13,6 +13,7 @@ package modcontextionary
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -89,18 +90,9 @@ func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Vec
 }
 
-func (m *ContextionaryModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams,
-) error {
-	m.storageProvider = params.GetStorageProvider()
-	appState, ok := params.GetAppState().(*state.State)
-	if !ok {
-		return errors.Errorf("appState is not a *state.State")
-	}
-
-	m.logger = appState.Logger
-
-	url := appState.ServerConfig.Config.Contextionary.URL
+func (m *ContextionaryModule) InitSane(ctx context.Context, storageProvider moduletools.StorageProvider, log logrus.FieldLogger, url string) error {
+	m.storageProvider = storageProvider
+	m.logger = log
 	remote, err := client.NewClient(url, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "init remote client")
@@ -133,6 +125,18 @@ func (m *ContextionaryModule) Init(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (m *ContextionaryModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
+	appState, ok := params.GetAppState().(*state.State)
+	if !ok {
+		return errors.Errorf("appState is not a *state.State")
+	}
+
+	url := appState.ServerConfig.Config.Contextionary.URL
+	return m.InitSane(ctx, params.GetStorageProvider(), appState.Logger, url)
 }
 
 func (m *ContextionaryModule) InitExtension(modules []modulecapabilities.Module) error {
@@ -183,6 +187,7 @@ func (m *ContextionaryModule) initVectorizer() error {
 
 func (m *ContextionaryModule) initGraphqlProvider() error {
 	m.graphqlProvider = text2vecneartext.New(m.nearTextTransformer)
+	fmt.Println("debug!! init graphql provider", m.graphqlProvider)
 	return nil
 }
 
@@ -247,6 +252,7 @@ func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
 }
 
 func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	fmt.Println("debug!!! graphqlprovider", m.graphqlProvider)
 	return m.graphqlProvider.Arguments()
 }
 

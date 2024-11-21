@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -13,6 +14,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -22,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
 // ReadIndex is read-only index that usually loaded from
@@ -82,11 +86,49 @@ func NewReadIndex(collection, basePath string, fetcher *LSMFetcher, schema Class
 // a tenant
 func (r *ReadIndex) initStore(ctx context.Context, tenant string) (*lsmkv.Store, error) {
 	// currently just fetch from upstream. no cache for now. Just to keep it simple
-	store, _, err := r.fetcher.Fetch(ctx, r.collection, tenant, 0)
+	store, localPath, err := r.fetcher.Fetch(ctx, r.collection, tenant, 0)
 	if err != nil {
 		return nil, err
 	}
 	r.stores[tenant] = store
+
+	// init index
+	bq := flatent.CompressionUserConfig{
+		Enabled: true,
+	}
+	index, err := flat.New(
+		flat.Config{
+			ID:               helpers.VectorsCompressedBucketLSM,
+			DistanceProvider: distancer.NewCosineDistanceProvider(),
+			RootPath:         localPath,
+			Logger:           r.log,
+		}, flatent.UserConfig{
+			BQ: bq,
+		}, store,
+	)
+	r.index = index
+
+	// init objects store
+	opts := []lsmkv.BucketOption{
+		lsmkv.WithSecondaryIndices(2),
+	}
+
+	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...); err != nil {
+		return nil, err
+	}
+
+	// // init properties
+	// class, err := r.schema.Collection(ctx, r.collection)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// for _, prop := range class.Properties {
+	// 	if err := store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name), opts...); err != nil {
+	// 		return nil, err
+	// 	}
+	// }
+
 	return store, nil
 }
 
@@ -109,6 +151,7 @@ func (r *ReadIndex) ID() string {
 }
 
 func (r *ReadIndex) MultiObjectByID(ctx context.Context, query []multi.Identifier, tenant string) ([]*storobj.Object, error) {
+	fmt.Println("I'm at multiobjectbyID")
 	objects := make([]*storobj.Object, len(query))
 
 	s, err := r.getStoreFor(ctx, tenant)
@@ -166,7 +209,7 @@ func (r *ReadIndex) ObjectVectorSearch(
 		dist []float32
 		err  error
 	)
-
+	fmt.Println("I'm at objectvector search")
 	s, err := r.getStoreFor(ctx, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -186,7 +229,10 @@ func (r *ReadIndex) ObjectVectorSearch(
 		return nil, nil, err
 	}
 
+	fmt.Println("Am i here??", "ids", ids)
+
 	bucket := s.Bucket(helpers.ObjectsBucketLSM)
+	fmt.Println("debug!! properties asked", properties)
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional, properties, r.log)
 	if err != nil {
 		return nil, nil, err
@@ -203,6 +249,7 @@ func (r *ReadIndex) ObjectByID(
 	replProps *additional.ReplicationProperties,
 	tenant string,
 ) (*storobj.Object, error) {
+	fmt.Println("I'm at objectByID")
 	s, err := r.getStoreFor(ctx, tenant)
 	if err != nil {
 		return nil, err
@@ -241,6 +288,7 @@ func (r *ReadIndex) ObjectSearch(
 	autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	fmt.Println("I'm in object search")
 	s, err := r.getStoreFor(ctx, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -299,6 +347,7 @@ func (r *ReadIndex) ObjectSearch(
 }
 
 func (r *ReadIndex) ObjectList(ctx context.Context, store *lsmkv.Store, getClass func(name string) *models.Class, limit int, sort []filters.Sort, cursor *filters.Cursor, addl additional.Properties, classname schema.ClassName) ([]*storobj.Object, error) {
+	fmt.Println("I'm in object list")
 	// assums len(sort) > 0
 	docIDs, err := r.sortedObjectList(ctx, limit, sort, store, getClass, classname)
 	if err != nil {
