@@ -162,7 +162,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 	var err error
 	objectName := a.makeObjectName(backupID, key)
 
-	//Get blocksize and concurrency from the environemnt
+	// Get blocksize and concurrency from the environemnt
 	blockSize := int64(10 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
@@ -246,7 +246,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.Read
 		written = int64(reader.count)
 	}()
 
-	//Get blocksize and concurrency from the environemnt
+	// Get blocksize and concurrency from the environemnt
 	blockSize := int64(10 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
