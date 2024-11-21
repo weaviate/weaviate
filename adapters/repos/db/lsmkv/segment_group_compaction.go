@@ -325,10 +325,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
 
-	// wait for flushing to complete before acquiring the maintenance lock, this
-	// can help avoid blocking user requests
-	// sg.waitForFlushingToComplete(10*time.Millisecond, 60*time.Second)
-
 	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
 	if err != nil {
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)

@@ -33,9 +33,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 	// that the compaction routine will not try to obtain the Lock() until we
 	// have released the flushVsCompactLock.
 	sg.maintenanceLock.RLock()
-	defer func() {
-		sg.maintenanceLock.RUnlock()
-	}()
+	defer sg.maintenanceLock.RUnlock()
 
 	newSegmentIndex := len(sg.segments)
 
