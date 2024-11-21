@@ -139,7 +139,7 @@ func Test_policy(t *testing.T) {
 			name:       "all collections",
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
-				Resource: CasbinCollections("*"),
+				Resource: CasbinSchema("*", ""),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: collectionsTests,
@@ -150,7 +150,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinCollections("foo"),
+				Resource: CasbinSchema("foo", ""),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: collectionsTests,
@@ -159,7 +159,7 @@ func Test_policy(t *testing.T) {
 			name:       "all tenants in all collections",
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
-				Resource: CasbinShards("*", "*"),
+				Resource: CasbinSchema("*", "*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -170,7 +170,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinShards("foo", "*"),
+				Resource: CasbinSchema("foo", "*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -181,7 +181,7 @@ func Test_policy(t *testing.T) {
 				Tenant: bar,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinShards("*", "bar"),
+				Resource: CasbinSchema("*", "bar"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -193,7 +193,7 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinShards("foo", "bar"),
+				Resource: CasbinSchema("foo", "bar"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -610,14 +610,14 @@ func Test_pCollections(t *testing.T) {
 		collection string
 		expected   string
 	}{
-		{collection: "", expected: "meta/collections/.*/shards/*"},
-		{collection: "*", expected: "meta/collections/.*/shards/*"},
-		{collection: "foo", expected: "meta/collections/foo/shards/*"},
+		{collection: "", expected: "meta/collections/.*/shards/.*"},
+		{collection: "*", expected: "meta/collections/.*/shards/.*"},
+		{collection: "foo", expected: "meta/collections/foo/shards/.*"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinCollections(tt.collection)
+			p := CasbinSchema(tt.collection, "")
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -629,18 +629,18 @@ func Test_CasbinShards(t *testing.T) {
 		shard      string
 		expected   string
 	}{
-		{collection: "", shard: "", expected: "meta/collections/.*/shards/.*/*"},
-		{collection: "*", shard: "*", expected: "meta/collections/.*/shards/.*/*"},
-		{collection: "foo", shard: "", expected: "meta/collections/foo/shards/.*/*"},
-		{collection: "foo", shard: "*", expected: "meta/collections/foo/shards/.*/*"},
-		{collection: "", shard: "bar", expected: "meta/collections/.*/shards/bar/*"},
-		{collection: "*", shard: "bar", expected: "meta/collections/.*/shards/bar/*"},
-		{collection: "foo", shard: "bar", expected: "meta/collections/foo/shards/bar/*"},
+		{collection: "", shard: "", expected: "meta/collections/.*/shards/.*"},
+		{collection: "*", shard: "*", expected: "meta/collections/.*/shards/.*"},
+		{collection: "foo", shard: "", expected: "meta/collections/foo/shards/.*"},
+		{collection: "foo", shard: "*", expected: "meta/collections/foo/shards/.*"},
+		{collection: "", shard: "bar", expected: "meta/collections/.*/shards/bar"},
+		{collection: "*", shard: "bar", expected: "meta/collections/.*/shards/bar"},
+		{collection: "foo", shard: "bar", expected: "meta/collections/foo/shards/bar"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinShards(tt.collection, tt.shard)
+			p := CasbinSchema(tt.collection, tt.shard)
 			require.Equal(t, tt.expected, p)
 		})
 	}

@@ -89,12 +89,12 @@ func TestShards(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no shards", "", []string{}, []string{"meta/collections/*/shards/*/*"}},
-		{"Class, no shards", "class1", []string{}, []string{"meta/collections/class1/shards/*/*"}},
-		{"No class, single shard", "", []string{"shard1"}, []string{"meta/collections/*/shards/shard1/*"}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{"meta/collections/class1/shards/shard1/*"}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"meta/collections/class1/shards/shard1/*", "meta/collections/class1/shards/shard2/*"}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"meta/collections/class1/shards/shard1/*", "meta/collections/class1/shards/*/*"}},
+		{"No class, no shards", "", []string{}, []string{"meta/collections/*/shards/*"}},
+		{"Class, no shards", "class1", []string{}, []string{"meta/collections/class1/shards/*"}},
+		{"No class, single shard", "", []string{"shard1"}, []string{"meta/collections/*/shards/shard1"}},
+		{"Class, single shard", "class1", []string{"shard1"}, []string{"meta/collections/class1/shards/shard1"}},
+		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/shard2"}},
+		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/*"}},
 	}
 
 	for _, tt := range tests {
