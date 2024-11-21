@@ -37,6 +37,7 @@ const (
 	UsersDomain              = "users"
 	RolesDomain              = "roles"
 	ClusterDomain            = "cluster"
+	BackupsDomain            = "backups"
 	SchemaDomain             = "schema"
 	ObjectsCollectionsDomain = "data_collection_objects"
 	ObjectsTenantsDomain     = "data_tenant_objects"
@@ -52,10 +53,14 @@ var Actions = map[string]string{
 }
 
 const (
-	ManageRoles   = "manage_roles"
-	ReadRoles     = "read_roles"
+	ManageRoles = "manage_roles"
+	ReadRoles   = "read_roles"
+
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
+
+	ManageBackups = "manage_backups"
+	ReadBackups   = "read_backups"
 
 	CreateSchema = "create_schema"
 	ReadSchema   = "read_schema"
@@ -88,6 +93,21 @@ var (
 		Action: String(ManageCluster),
 	}
 
+	manageAllBackups = &models.Permission{
+		Action: String(ManageBackups),
+		Backup: &models.PermissionBackup{
+			Backend: All,
+			ID:      All,
+		},
+	}
+	readAllBackups = &models.Permission{
+		Action: String(ReadBackups),
+		Backup: &models.PermissionBackup{
+			Backend: All,
+			ID:      All,
+		},
+	}
+
 	createAllCollections = &models.Permission{
 		Action:     String(CreateSchema),
 		Collection: All,
@@ -117,9 +137,9 @@ var (
 		admin:  CRUD,
 	}
 	BuiltInPermissions = map[string][]*models.Permission{
-		viewer: {readAllCollections},
-		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllUsers, manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		viewer: {readAllCollections, readAllBackups},
+		editor: {createAllCollections, readAllCollections, updateAllCollections, readAllBackups},
+		admin:  {manageAllUsers, manageAllBackups, manageAllRoles, manageAllCluster, createAllCollections, readAllBackups, readAllCollections, updateAllCollections, deleteAllCollections},
 	}
 )
 
@@ -297,6 +317,33 @@ func Objects(class, shard string, id strfmt.UUID) string {
 		id = "*"
 	}
 	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", class, shard, id)
+}
+
+// Backups generates a list of resource strings for the given backend and backup IDs.
+// If no IDs are provided, it returns a default resource string "meta/backups/{backend}/ids/*".
+
+// Parameters:
+// - backend: the backend name (string)
+// - ids: a variadic list of backup IDs (string)
+//
+// Returns:
+// - A slice of strings representing the resource paths for the given backend and backup IDs.
+
+// Example outputs:
+// - "meta/backups/*/ids/*" if no IDs are provided
+// - "meta/backups/{backend}/ids/{id}" for each provided ID
+func Backups(backend string, ids ...string) []string {
+	if backend == "" {
+		backend = "*"
+	}
+	if len(ids) == 0 || (len(ids) == 1 && (ids[0] == "" || ids[0] == "*")) {
+		return []string{fmt.Sprintf("meta/backups/%s/ids/*", backend)}
+	}
+	resources := make([]string, len(ids))
+	for idx := range ids {
+		resources[idx] = fmt.Sprintf("meta/backups/%s/ids/%s", backend, ids[idx])
+	}
+	return resources
 }
 
 func String(s string) *string {

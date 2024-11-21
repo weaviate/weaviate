@@ -5352,7 +5352,11 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "create_backups",
+            "delete_backups",
+            "read_backups",
+            "restore_backups",
+            "read_nodes",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -5366,6 +5370,22 @@ func init() {
             "update_data_tenant_objects",
             "delete_data_tenant_objects"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "backend": {
+              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "id": {
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
@@ -11916,7 +11936,11 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "create_backups",
+            "delete_backups",
+            "read_backups",
+            "restore_backups",
+            "read_nodes",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -11930,6 +11954,22 @@ func init() {
             "update_data_tenant_objects",
             "delete_data_tenant_objects"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "backend": {
+              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "id": {
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
@@ -11953,6 +11993,22 @@ func init() {
         },
         "user": {
           "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionBackup": {
+      "description": "resources applicable for backup actions",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "id": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

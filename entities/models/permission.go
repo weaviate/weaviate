@@ -33,8 +33,11 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_cluster create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
+	// Enum: [manage_users manage_roles read_roles create_backups delete_backups read_backups restore_backups read_nodes create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
 	Action *string `json:"action"`
+
+	// backup
+	Backup *PermissionBackup `json:"backup,omitempty"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
@@ -60,6 +63,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateBackup(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -70,7 +77,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","create_backups","delete_backups","read_backups","restore_backups","read_nodes","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -89,8 +96,20 @@ const (
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
 
-	// PermissionActionManageCluster captures enum value "manage_cluster"
-	PermissionActionManageCluster string = "manage_cluster"
+	// PermissionActionCreateBackups captures enum value "create_backups"
+	PermissionActionCreateBackups string = "create_backups"
+
+	// PermissionActionDeleteBackups captures enum value "delete_backups"
+	PermissionActionDeleteBackups string = "delete_backups"
+
+	// PermissionActionReadBackups captures enum value "read_backups"
+	PermissionActionReadBackups string = "read_backups"
+
+	// PermissionActionRestoreBackups captures enum value "restore_backups"
+	PermissionActionRestoreBackups string = "restore_backups"
+
+	// PermissionActionReadNodes captures enum value "read_nodes"
+	PermissionActionReadNodes string = "read_nodes"
 
 	// PermissionActionCreateSchema captures enum value "create_schema"
 	PermissionActionCreateSchema string = "create_schema"
@@ -151,8 +170,52 @@ func (m *Permission) validateAction(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this permission based on context it is used
+func (m *Permission) validateBackup(formats strfmt.Registry) error {
+	if swag.IsZero(m.Backup) { // not required
+		return nil
+	}
+
+	if m.Backup != nil {
+		if err := m.Backup.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("backup")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("backup")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this permission based on the context it is used
 func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateBackup(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Permission) contextValidateBackup(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Backup != nil {
+		if err := m.Backup.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("backup")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("backup")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -167,6 +230,46 @@ func (m *Permission) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *Permission) UnmarshalBinary(b []byte) error {
 	var res Permission
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionBackup resources applicable for backup actions
+//
+// swagger:model PermissionBackup
+type PermissionBackup struct {
+
+	// string or regex. if a specific backend name, if left empty it will be ALL or *
+	Backend *string `json:"backend,omitempty"`
+
+	// string or regex. if a specific object ID, if left empty it will be ALL or *
+	ID *string `json:"id,omitempty"`
+}
+
+// Validate validates this permission backup
+func (m *PermissionBackup) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this permission backup based on context it is used
+func (m *PermissionBackup) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionBackup) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionBackup) UnmarshalBinary(b []byte) error {
+	var res PermissionBackup
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

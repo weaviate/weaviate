@@ -27,6 +27,22 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
+        "backup": {
+          "type": "object",
+          "description": "resources applicable for backup actions",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *"
+            },
+            "id": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *"
+            }
+          }
+        },
         "object": {
           "type": "string",
           "default": "*",
@@ -57,9 +73,14 @@
           "description": "allowed actions in weaviate.",
           "enum": [
             "manage_users",
+
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            
+            "manage_backups",
+            "read_backups",
+
+            "read_nodes",
 
             "create_schema",
             "read_schema",
