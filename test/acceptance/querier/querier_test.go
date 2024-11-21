@@ -78,7 +78,7 @@ func Test_Querier(t *testing.T) {
 
 		tenantName := "Tenant1"
 		t.Run("create tenant", func(t *testing.T) {
-			helper.CreateTenants(t, className, []*models.Tenant{&models.Tenant{Name: tenantName}})
+			helper.CreateTenants(t, className, []*models.Tenant{{Name: tenantName}})
 		})
 
 		object := &models.Object{
@@ -167,6 +167,8 @@ func Test_Querier(t *testing.T) {
 			querierResultObject := resp.Results[0]
 			require.Equal(t, coreResultObject.Metadata.Id, querierResultObject.Metadata.Id)
 			// object property name is set to the tenant name
+			// GetStringValue is deprecated, but GetTextValues does not work here as of 2024-11-20
+			//nolint:staticcheck
 			require.Equal(t, coreResultObject.Properties.NonRefProps.Fields["name"].GetTextValue(), querierResultObject.Properties.NonRefProps.Fields["name"].GetStringValue())
 		})
 	})
