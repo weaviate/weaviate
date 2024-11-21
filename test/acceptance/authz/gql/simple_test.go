@@ -123,9 +123,13 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		assertGQL(t, "{ Aggregate { Books { meta { count } } } }", customKey)
 	})
 
-	t.Run("successfully query with Explore and sufficient permissions", func(t *testing.T) {
+	t.Run("fail with 200 to query with Explore due to lack of read all objects permission", func(t *testing.T) {
 		query := fmt.Sprintf(`{ Explore(nearObject:{id:"%s"}) { className }}`, books.Objects()[0].ID)
-		assertGQL(t, query, customKey)
+		resp, err := queryGQL(t, query, customKey)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload.Errors)
+		require.Len(t, resp.Payload.Errors, 1)
+		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
 	})
 
 	t.Run("remove the read objects in book class permission", func(t *testing.T) {
@@ -153,6 +157,21 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		require.NotNil(t, resp.Payload.Errors)
 		require.Len(t, resp.Payload.Errors, 1)
 		require.Contains(t, resp.Payload.Errors[0].Message, "forbidden")
+	})
+
+	t.Run("add the read all objects in all classes permission", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
+			Name: String(readBooksRole),
+			Permissions: []*models.Permission{{
+				Action: String(authorization.ReadObjectsCollection),
+			}},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+	})
+
+	t.Run("successfully query with Explore and the sufficient permissions", func(t *testing.T) {
+		query := fmt.Sprintf(`{ Explore(nearObject:{id:"%s"}) { className }}`, books.Objects()[0].ID)
+		assertGQL(t, query, customKey)
 	})
 }
 

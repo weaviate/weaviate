@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // Explore through unstructured search terms
@@ -25,6 +26,11 @@ func (t *Traverser) Explore(ctx context.Context,
 ) ([]search.Result, error) {
 	if params.Limit == 0 {
 		params.Limit = 20
+	}
+
+	err := t.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...)
+	if err != nil {
+		return nil, err
 	}
 
 	// to conduct a cross-class vector search, all classes must
