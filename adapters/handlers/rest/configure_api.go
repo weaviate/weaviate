@@ -703,7 +703,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.Metrics, appState.Logger)
-	setupMiscHandlers(api, appState.ServerConfig, appState.SchemaManager, appState.Modules,
+	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
@@ -724,7 +724,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-
+	enterrors.GoWrapper(
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			backupScheduler.CleanupUnfinishedBackups(ctx)
+		}, appState.Logger)
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

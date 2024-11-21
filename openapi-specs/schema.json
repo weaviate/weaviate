@@ -474,7 +474,8 @@
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         }
@@ -1850,6 +1851,12 @@
           "type": "string",
           "default": "minimal"
         },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -1881,6 +1888,12 @@
           "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
           "type": "string",
           "default": "minimal"
+        },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
         },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
