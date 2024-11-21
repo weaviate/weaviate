@@ -214,7 +214,10 @@ func permission(policy []string) (*models.Permission, error) {
 	switch mapped.Domain {
 	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
-		permission.Tenant = &splits[4]
+		// incoming permission can be without tenant/shard
+		if len(splits) > 4 {
+			permission.Tenant = &splits[4]
+		}
 	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
