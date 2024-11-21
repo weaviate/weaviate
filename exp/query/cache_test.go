@@ -79,6 +79,17 @@ func TestCache_Tenant(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTenantNotFound)
 }
 
+func TestTenantCache_Casing(t *testing.T) {
+	// Collection/Tenant should be converted to lowercase by the TenantCache for filepaths
+	tt := &TenantCache{
+		Collection: "Test-Collection",
+		TenantID:   "Test-Tenant",
+		Version:    1,
+		basePath:   "/foo",
+	}
+	require.Equal(t, path.Join("/foo", "test-collection", "test-tenant", "1"), tt.AbsolutePath())
+}
+
 func createTempFileWithSize(t *testing.T, dir, prefix string, size int64) *os.File {
 	t.Helper()
 
