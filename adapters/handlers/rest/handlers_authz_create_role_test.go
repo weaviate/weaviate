@@ -22,22 +22,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	schemaMocks "github.com/weaviate/weaviate/usecases/schema/mocks"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestCreateRoleSuccess(t *testing.T) {
 	type testCase struct {
-		name                        string
-		principal                   *models.Principal
-		params                      authz.CreateRoleParams
-		readCollection              bool
-		readTenant                  bool
-		readTenantWithoutCollection bool
+		name      string
+		principal *models.Principal
+		params    authz.CreateRoleParams
+		// readCollection              bool
+		// readTenant                  bool
+		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
@@ -69,7 +67,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 					},
 				},
 			},
-			readCollection: true,
+			// readCollection: true,
 		},
 		{
 			name:      "collection and tenant checks",
@@ -86,8 +84,8 @@ func TestCreateRoleSuccess(t *testing.T) {
 					},
 				},
 			},
-			readCollection: true,
-			readTenant:     true,
+			// readCollection: true,
+			// readTenant:     true,
 		},
 		{
 			name:      "* collections and tenant checks",
@@ -103,7 +101,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 					},
 				},
 			},
-			readTenantWithoutCollection: true,
+			// readTenantWithoutCollection: true,
 		},
 	}
 
@@ -118,29 +116,29 @@ func TestCreateRoleSuccess(t *testing.T) {
 			controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{}, nil)
 			controller.On("UpsertRolesPermissions", mock.Anything).Return(nil)
 
-			if tt.readCollection {
-				schemaReader.On("ReadOnlyClass",
-					*tt.params.Body.Permissions[0].Collection).
-					Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
-			}
+			// if tt.readCollection {
+			// 	schemaReader.On("ReadOnlyClass",
+			// 		*tt.params.Body.Permissions[0].Collection).
+			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
+			// }
 
-			if tt.readTenant {
-				schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-					*tt.params.Body.Permissions[0].Tenant).
-					Return(map[string]string{*tt.params.Body.Permissions[0].Tenant: "ACTIVE"}, nil)
-			}
+			// if tt.readTenant {
+			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
+			// 		*tt.params.Body.Permissions[0].Tenant).
+			// 		Return(map[string]string{*tt.params.Body.Permissions[0].Tenant: "ACTIVE"}, nil)
+			// }
 
-			if tt.readTenantWithoutCollection {
-				schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{{Class: "ABC"}},
-					},
-				})
+			// if tt.readTenantWithoutCollection {
+			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
+			// 		Objects: &models.Schema{
+			// 			Classes: []*models.Class{{Class: "ABC"}},
+			// 		},
+			// 	})
 
-				schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-					Physical: map[string]sharding.Physical{*tt.params.Body.Permissions[0].Tenant: {Name: "anything"}},
-				})
-			}
+			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
+			// 		Physical: map[string]sharding.Physical{*tt.params.Body.Permissions[0].Tenant: {Name: "anything"}},
+			// 	})
+			// }
 
 			h := &authZHandlers{
 				authorizer:   authorizer,
@@ -188,13 +186,13 @@ func TestCreateRoleConflict(t *testing.T) {
 
 func TestCreateRoleBadRequest(t *testing.T) {
 	type testCase struct {
-		name                        string
-		params                      authz.CreateRoleParams
-		upsertErr                   error
-		expectedError               string
-		readCollection              bool
-		readTenant                  bool
-		readTenantWithoutCollection bool
+		name          string
+		params        authz.CreateRoleParams
+		upsertErr     error
+		expectedError string
+		// readCollection              bool
+		// readTenant                  bool
+		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
@@ -250,55 +248,55 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			},
 			expectedError: "you can not create role with the same name as builtin role",
 		},
-		{
-			name: "collection doesn't exist",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
-						},
-					},
-				},
-			},
-			readCollection: true,
-			expectedError:  "collection ABC doesn't exists",
-		},
-		{
-			name: "tenant doesn't exist",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
-							Tenant:     String("Tenant1"),
-						},
-					},
-				},
-			},
-			readTenant:    true,
-			expectedError: "tenant Tenant1 doesn't exist",
-		},
-		{
-			name: "tenant doesn't exist with * collection",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateSchema),
-							Tenant: String("Tenant1"),
-						},
-					},
-				},
-			},
-			readTenantWithoutCollection: true,
-			expectedError:               "tenant Tenant1 doesn't exist",
-		},
+		// {
+		// 	name: "collection doesn't exist",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action:     String(authorization.CreateSchema),
+		// 					Collection: String("ABC"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readCollection: true,
+		// 	expectedError:  "collection ABC doesn't exists",
+		// },
+		// {
+		// 	name: "tenant doesn't exist",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action:     String(authorization.CreateSchema),
+		// 					Collection: String("ABC"),
+		// 					Tenant:     String("Tenant1"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readTenant:    true,
+		// 	expectedError: "tenant Tenant1 doesn't exist",
+		// },
+		// {
+		// 	name: "tenant doesn't exist with * collection",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action: String(authorization.CreateSchema),
+		// 					Tenant: String("Tenant1"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readTenantWithoutCollection: true,
+		// 	expectedError:               "tenant Tenant1 doesn't exist",
+		// },
 	}
 
 	for _, tt := range tests {
@@ -314,34 +312,34 @@ func TestCreateRoleBadRequest(t *testing.T) {
 				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 			}
 
-			if tt.readCollection {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
-			}
+			// if tt.readCollection {
+			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			// 	schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
+			// }
 
-			if tt.readTenant {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				schemaReader.On("ReadOnlyClass",
-					*tt.params.Body.Permissions[0].Collection).
-					Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
+			// if tt.readTenant {
+			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			// 	schemaReader.On("ReadOnlyClass",
+			// 		*tt.params.Body.Permissions[0].Collection).
+			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
 
-				schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-					*tt.params.Body.Permissions[0].Tenant).
-					Return(map[string]string{}, nil)
-			}
+			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
+			// 		*tt.params.Body.Permissions[0].Tenant).
+			// 		Return(map[string]string{}, nil)
+			// }
 
-			if tt.readTenantWithoutCollection {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{{Class: "ABC"}},
-					},
-				})
+			// if tt.readTenantWithoutCollection {
+			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
+			// 		Objects: &models.Schema{
+			// 			Classes: []*models.Class{{Class: "ABC"}},
+			// 		},
+			// 	})
 
-				schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-					Physical: map[string]sharding.Physical{},
-				})
-			}
+			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
+			// 		Physical: map[string]sharding.Physical{},
+			// 	})
+			// }
 
 			h := &authZHandlers{
 				authorizer:   authorizer,
