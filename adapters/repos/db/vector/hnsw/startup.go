@@ -16,6 +16,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -136,7 +137,7 @@ func (h *hnsw) restoreFromDisk() error {
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
 			h.dims = int32(data.Dimensions)
-			h.rescoreLimit = h.pqConfig.RescoreLimit
+			atomic.StoreInt32(&h.rescoreLimit, int32(h.pqConfig.RescoreLimit))
 
 			if len(data.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
@@ -161,7 +162,7 @@ func (h *hnsw) restoreFromDisk() error {
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
-			h.rescoreLimit = h.sqConfig.RescoreLimit
+			atomic.StoreInt32(&h.rescoreLimit, int32(h.sqConfig.RescoreLimit))
 			h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 				h.distancerProvider,
 				1e12,

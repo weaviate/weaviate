@@ -157,7 +157,7 @@ type hnsw struct {
 	deleteVsInsertLock sync.RWMutex
 
 	compressed   atomic.Bool
-	rescoreLimit int
+	rescoreLimit int32
 	acornSearch  atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
@@ -286,7 +286,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
-		rescoreLimit:           uc.PQ.RescoreLimit,
+		rescoreLimit:           int32(uc.RescoreLimit()),
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
@@ -302,7 +302,6 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
-		index.rescoreLimit = uc.BQ.RescoreLimit
 	}
 
 	if err := index.init(cfg); err != nil {

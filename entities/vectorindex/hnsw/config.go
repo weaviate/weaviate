@@ -107,6 +107,19 @@ func (u *UserConfig) SetDefaults() {
 	u.FilterStrategy = DefaultFilterStrategy
 }
 
+func (u *UserConfig) RescoreLimit() int {
+	switch {
+	case u.PQ.Enabled:
+		return u.PQ.RescoreLimit
+	case u.BQ.Enabled:
+		return u.BQ.RescoreLimit
+	case u.SQ.Enabled:
+		return u.SQ.RescoreLimit
+	default:
+		return 0
+	}
+}
+
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error) {
@@ -245,7 +258,7 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	if enabled > 1 {
-		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
+		return fmt.Errorf("invalid hnsw config: more than a single compression method enabled")
 	}
 
 	return nil

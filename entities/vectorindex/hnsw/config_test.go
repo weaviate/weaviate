@@ -773,7 +773,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
+			expectErrMsg: "invalid hnsw config: more than a single compression method enabled",
 		},
 		{
 			name: "with invalid filter strategy",
@@ -839,4 +839,34 @@ func Test_UserConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_UserConfig_RescoreLimit(t *testing.T) {
+	cfg := UserConfig{}
+	cfg.SetDefaults()
+
+	cfg.PQ.RescoreLimit = 10
+	cfg.BQ.RescoreLimit = 20
+	cfg.SQ.RescoreLimit = 30
+
+	assert.Equal(t, 0, cfg.RescoreLimit())
+	assert.NoError(t, cfg.validate())
+
+	cfg.PQ.Enabled = true
+	assert.Equal(t, 10, cfg.RescoreLimit())
+	assert.NoError(t, cfg.validate())
+
+	cfg.PQ.Enabled = false
+	cfg.BQ.Enabled = true
+	assert.Equal(t, 20, cfg.RescoreLimit())
+	assert.NoError(t, cfg.validate())
+
+	cfg.BQ.Enabled = false
+	cfg.SQ.Enabled = true
+	assert.Equal(t, 30, cfg.RescoreLimit())
+	assert.NoError(t, cfg.validate())
+
+	// Validate should fail if more than one quantizer is enabled
+	cfg.PQ.Enabled = true
+	assert.ErrorContains(t, cfg.validate(), "more than a single compression method enabled")
 }
