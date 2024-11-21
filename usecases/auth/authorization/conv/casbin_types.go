@@ -70,15 +70,7 @@ func CasbinRoles(role string) string {
 	return fmt.Sprintf("meta/roles/%s", role)
 }
 
-func CasbinCollections(collection string) string {
-	if collection == "" {
-		collection = "*"
-	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/*", collection)
-}
-
-func CasbinShards(collection, shard string) string {
+func CasbinSchema(collection, shard string) string {
 	if collection == "" {
 		collection = "*"
 	}
@@ -87,8 +79,7 @@ func CasbinShards(collection, shard string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-
-	return fmt.Sprintf("meta/collections/%s/shards/%s/*", collection, shard)
+	return fmt.Sprintf("meta/collections/%s/shards/%s", collection, shard)
 }
 
 func CasbinObjects(collection, shard, object string) string {
@@ -141,13 +132,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case authorization.CollectionsDomain:
-		collection := "*"
-		if permission.Collection != nil {
-			collection = *permission.Collection
-		}
-		resource = CasbinCollections(collection)
-	case authorization.TenantsDomain:
+	case authorization.SchemaDomain:
 		collection := "*"
 		tenant := "*"
 		if permission.Collection != nil {
@@ -156,7 +141,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Tenant != nil {
 			tenant = *permission.Tenant
 		}
-		resource = CasbinShards(collection, tenant)
+		resource = CasbinSchema(collection, tenant)
 	case authorization.ObjectsCollectionsDomain:
 		collection := "*"
 		object := "*"
@@ -215,9 +200,7 @@ func permission(policy []string) (*models.Permission, error) {
 	}
 
 	switch mapped.Domain {
-	case authorization.CollectionsDomain:
-		permission.Collection = &splits[2]
-	case authorization.TenantsDomain:
+	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
