@@ -76,9 +76,9 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.validatePermissions(params.Body.Permissions); err != nil {
-		return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(err))
-	}
+	// if err := h.validatePermissions(params.Body.Permissions); err != nil {
+	// 	return authz.NewCreateRoleBadRequest().WithPayload(errPayloadFromSingleErr(err))
+	// }
 
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
@@ -128,9 +128,9 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if err := h.validatePermissions(params.Body.Permissions); err != nil {
-		return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(err))
-	}
+	// if err := h.validatePermissions(params.Body.Permissions); err != nil {
+	// 	return authz.NewAddPermissionsBadRequest().WithPayload(errPayloadFromSingleErr(err))
+	// }
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(errPayloadFromSingleErr(err))

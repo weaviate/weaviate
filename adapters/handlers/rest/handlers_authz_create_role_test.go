@@ -250,55 +250,55 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			},
 			expectedError: "you can not create role with the same name as builtin role",
 		},
-		{
-			name: "collection doesn't exist",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action:     String(authorization.CreateCollections),
-							Collection: String("ABC"),
-						},
-					},
-				},
-			},
-			readCollection: true,
-			expectedError:  "collection ABC doesn't exists",
-		},
-		{
-			name: "tenant doesn't exist",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action:     String(authorization.CreateCollections),
-							Collection: String("ABC"),
-							Tenant:     String("Tenant1"),
-						},
-					},
-				},
-			},
-			readTenant:    true,
-			expectedError: "tenant Tenant1 doesn't exist",
-		},
-		{
-			name: "tenant doesn't exist with * collection",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-							Tenant: String("Tenant1"),
-						},
-					},
-				},
-			},
-			readTenantWithoutCollection: true,
-			expectedError:               "tenant Tenant1 doesn't exist",
-		},
+		// {
+		// 	name: "collection doesn't exist",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action:     String(authorization.CreateCollections),
+		// 					Collection: String("ABC"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readCollection: true,
+		// 	expectedError:  "collection ABC doesn't exists",
+		// },
+		// {
+		// 	name: "tenant doesn't exist",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action:     String(authorization.CreateCollections),
+		// 					Collection: String("ABC"),
+		// 					Tenant:     String("Tenant1"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readTenant:    true,
+		// 	expectedError: "tenant Tenant1 doesn't exist",
+		// },
+		// {
+		// 	name: "tenant doesn't exist with * collection",
+		// 	params: authz.CreateRoleParams{
+		// 		Body: &models.Role{
+		// 			Name: String("newRole"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action: String(authorization.CreateCollections),
+		// 					Tenant: String("Tenant1"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	readTenantWithoutCollection: true,
+		// 	expectedError:               "tenant Tenant1 doesn't exist",
+		// },
 	}
 
 	for _, tt := range tests {
