@@ -23,6 +23,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -37,15 +38,31 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	)
 	if object != nil {
 		class = object.Class
-		tenant = object.Tenant
+		if object.Tenant != "" {
+			tenant = object.Tenant
+		}
 	}
 
 	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
 		return nil, err
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return nil, err
+	}
+
+	if tenant != "*" && m.autoSchemaManager.schemaManager.AllowImplicitTenantActivation(object.Class) {
+		resources := authorization.ShardsMetadata(class, tenant)
+		err := m.authorizer.Authorize(principal, authorization.UPDATE, resources...)
+		if err != nil {
+			statuses, innerErr := m.autoSchemaManager.schemaManager.TenantsShardsDontActivate(ctx, object.Class, tenant)
+			if innerErr != nil {
+				return nil, errors.NewForbidden(principal, authorization.UPDATE, resources...)
+			}
+			if statuses[tenant] == models.TenantActivityStatusCOLD {
+				return nil, err
+			}
+		}
 	}
 
 	unlock, err := m.locks.LockSchema()
