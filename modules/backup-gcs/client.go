@@ -13,6 +13,7 @@ package modstggcs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,8 +25,10 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -85,6 +88,7 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 		}
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
+	defer reader.Close()
 	// Read file contents
 	content, err := io.ReadAll(reader)
 	if err != nil {
@@ -106,6 +110,41 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 		return "gs://" + path.Join(overrideBucket,
 			g.makeObjectName(overridePath, []string{backupID}))
 	}
+}
+
+func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	var meta []*backup.DistributedBackupDescriptor
+	bucket, err := g.findBucket(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("find bucket: %w", err)
+	}
+	if bucket == nil {
+		return nil, nil
+	}
+
+	iter := bucket.Objects(ctx, nil)
+	for {
+		next, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get next object: %w", err)
+		}
+		if strings.Contains(next.Name, ubak.GlobalBackupFile) {
+			contents, err := g.getObject(ctx, bucket, next.Name)
+			if err != nil {
+				return nil, fmt.Errorf("read object %q: %w", next.Name, err)
+			}
+			var desc backup.DistributedBackupDescriptor
+			if err := json.Unmarshal(contents, &desc); err != nil {
+				return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
+			}
+			meta = append(meta, &desc)
+		}
+	}
+
+	return meta, nil
 }
 
 func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {

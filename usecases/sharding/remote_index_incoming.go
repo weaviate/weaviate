@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -55,7 +56,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingExists(ctx context.Context, shardName string,
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
-		id strfmt.UUID, schemaVersion uint64) error
+		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -72,7 +73,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingFindUUIDs(ctx context.Context, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error
@@ -163,14 +164,14 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
-	shardName string, id strfmt.UUID, schemaVersion uint64,
+	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return err
 	}
 
-	return index.IncomingDeleteObject(ctx, shardName, id, schemaVersion)
+	return index.IncomingDeleteObject(ctx, shardName, id, deletionTime, schemaVersion)
 }
 
 func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
@@ -233,14 +234,14 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, dryRun, schemaVersion)
+	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
