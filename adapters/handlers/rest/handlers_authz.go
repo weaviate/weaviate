@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"context"
 	"fmt"
 	"slices"
 
@@ -409,52 +408,52 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	return authz.NewRevokeRoleOK()
 }
 
-func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
-	for _, perm := range permissions {
-		if perm == nil {
-			continue
-		}
+// func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
+// 	for _, perm := range permissions {
+// 		if perm == nil {
+// 			continue
+// 		}
 
-		// collection filtration
-		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" {
-			if class := h.schemaReader.ReadOnlyClass(*perm.Collection); class == nil {
-				return fmt.Errorf("collection %s doesn't exists", *perm.Collection)
-			}
-		}
+// 		// collection filtration
+// 		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" {
+// 			if class := h.schemaReader.ReadOnlyClass(*perm.Collection); class == nil {
+// 				return fmt.Errorf("collection %s doesn't exists", *perm.Collection)
+// 			}
+// 		}
 
-		// tenants filtration specific collection, specific tenant
-		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
-			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
-			if err != nil {
-				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
-			}
+// 		// tenants filtration specific collection, specific tenant
+// 		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+// 			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
+// 			if err != nil {
+// 				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
+// 			}
 
-			if _, ok := shardsStatus[*perm.Tenant]; !ok {
-				return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
-			}
-		}
+// 			if _, ok := shardsStatus[*perm.Tenant]; !ok {
+// 				return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+// 			}
+// 		}
 
-		// tenants filtration all collections, specific tenant
-		if (perm.Collection == nil || *perm.Collection == "" || *perm.Collection == "*") && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
-			schema := h.schemaReader.GetSchemaSkipAuth()
-			for _, class := range schema.Objects.Classes {
-				state := h.schemaReader.CopyShardingState(class.Class)
-				if state == nil {
-					continue
-				}
-				if _, ok := state.Physical[*perm.Tenant]; ok {
-					// exists
-					return nil
-				}
-			}
-			return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
-		}
+// 		// tenants filtration all collections, specific tenant
+// 		if (perm.Collection == nil || *perm.Collection == "" || *perm.Collection == "*") && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
+// 			schema := h.schemaReader.GetSchemaSkipAuth()
+// 			for _, class := range schema.Objects.Classes {
+// 				state := h.schemaReader.CopyShardingState(class.Class)
+// 				if state == nil {
+// 					continue
+// 				}
+// 				if _, ok := state.Physical[*perm.Tenant]; ok {
+// 					// exists
+// 					return nil
+// 				}
+// 			}
+// 			return fmt.Errorf("tenant %s doesn't exists", *perm.Tenant)
+// 		}
 
-		// TODO validate mapping filter to weaviate permissions
-		// TODO users checking
-		// TODO roles checking
-		// TODO object checking
-	}
+// 		// TODO validate mapping filter to weaviate permissions
+// 		// TODO users checking
+// 		// TODO roles checking
+// 		// TODO object checking
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
