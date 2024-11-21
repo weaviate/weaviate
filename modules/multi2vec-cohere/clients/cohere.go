@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/cohere"
 
 	"github.com/sirupsen/logrus"
@@ -36,19 +37,19 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationCLIPResult, error) {
 	return v.vectorize(ctx, texts, images, cfg)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context,
 	input []string, cfg moduletools.ClassConfig,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationCLIPResult, error) {
 	return v.vectorize(ctx, input, nil, cfg)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationCLIPResult, error) {
 	var textVectors [][]float32
 	var imageVectors [][]float32
 	settings := ent.NewClassSettings(cfg)
@@ -75,7 +76,7 @@ func (v *vectorizer) vectorize(ctx context.Context,
 		}
 		imageVectors = imageEmbeddings.Vector
 	}
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationCLIPResult{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
 	}, nil
