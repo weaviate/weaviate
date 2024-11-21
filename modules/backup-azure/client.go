@@ -28,7 +28,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 type azureClient struct {
@@ -163,14 +162,13 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 	var err error
 	objectName := a.makeObjectName(backupID, key)
 
-
 	//Get blocksize and concurrency from the environemnt
 	blockSize := int64(10 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
 		blockSize, err = strconv.ParseInt(blockSizeStr, 10, 64)
 		if err != nil {
-			return  fmt.Errorf("error parsing block size: %w", err)
+			return fmt.Errorf("error parsing block size: %w", err)
 		}
 	}
 
@@ -179,7 +177,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 	if concurrencyStr != "" {
 		concurrency, err = strconv.ParseInt(concurrencyStr, 10, 64)
 		if err != nil {
-			return  fmt.Errorf("error parsing concurrency: %w", err)
+			return fmt.Errorf("error parsing concurrency: %w", err)
 		}
 	}
 
