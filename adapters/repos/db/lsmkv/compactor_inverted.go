@@ -229,12 +229,12 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 		return nil, errors.Wrap(err, "get tombstones")
 	}
 
-	c.propertyLenghtsToWrite, err = c.c1.segment.GetPropertyLenghts()
+	c.propertyLenghtsToWrite, err = c.c1.segment.GetPropertyLengths()
 	if err != nil {
 		return nil, errors.Wrap(err, "get property lengths")
 	}
 
-	c.propertyLenghtsToClean, err = c.c2.segment.GetPropertyLenghts()
+	c.propertyLenghtsToClean, err = c.c2.segment.GetPropertyLengths()
 	if err != nil {
 		return nil, errors.Wrap(err, "get property lengths")
 	}
