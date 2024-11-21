@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/require"
@@ -26,6 +28,8 @@ import (
 const UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
 
 func TestViewerEndpoints(t *testing.T) {
+	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
+
 	endpoints := []struct {
 		endpoint string
 		methods  []string
@@ -43,7 +47,7 @@ func TestViewerEndpoints(t *testing.T) {
 		{endpoint: "backups/backend/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "backups/backend/id/restore", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "batch/objects", methods: []string{"POST", "DELETE"}, success: []bool{false, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"objects\": [{\"class\": \"c\"}]}")}},
-		{endpoint: "batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true},
+		{endpoint: "batch/references", methods: []string{"POST"}, success: []bool{false}, arrayReq: true, body: map[string][]byte{"POST": []byte(fmt.Sprintf("[{\"from\": %q, \"to\": %q}]", uri+"/ref", uri))}},
 		{endpoint: "classifications", methods: []string{"POST"}, success: []bool{false}, arrayReq: false},
 		{endpoint: "classifications/id", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "cluster/statistics", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
