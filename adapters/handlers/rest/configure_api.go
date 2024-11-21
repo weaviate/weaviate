@@ -68,8 +68,9 @@ import (
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
-	modmulti2vecohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
+	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
+	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
@@ -939,11 +940,19 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modmulti2vecohere.Name]; ok {
-		appState.Modules.Register(modmulti2vecohere.New())
+	if _, ok := enabledModules[modmulti2veccohere.Name]; ok {
+		appState.Modules.Register(modmulti2veccohere.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modmulti2vecohere.Name).
+			WithField("module", modmulti2veccohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecjinaai.Name]; ok {
+		appState.Modules.Register(modmulti2vecjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecjinaai.Name).
 			Debug("enabled module")
 	}
 
