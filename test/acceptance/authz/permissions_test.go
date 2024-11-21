@@ -80,7 +80,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		role := helper.GetRoleByName(t, existingKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
-		require.Len(t, role.Permissions, 2)
+		require.Len(t, role.Permissions, 1)
 		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
 		require.Equal(t, testClass.Class, *role.Permissions[0].Collection)
 		require.Equal(t, "*", *role.Permissions[0].Tenant)
