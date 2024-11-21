@@ -610,9 +610,9 @@ func Test_pCollections(t *testing.T) {
 		collection string
 		expected   string
 	}{
-		{collection: "", expected: "meta/collections/.*/shards/.*/*"},
-		{collection: "*", expected: "meta/collections/.*/shards/.*/*"},
-		{collection: "foo", expected: "meta/collections/foo/shards/.*/*"},
+		{collection: "", expected: "meta/collections/.*/shards/*"},
+		{collection: "*", expected: "meta/collections/.*/shards/*"},
+		{collection: "foo", expected: "meta/collections/foo/shards/*"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
@@ -629,10 +629,10 @@ func Test_CasbinShards(t *testing.T) {
 		shard      string
 		expected   string
 	}{
-		{collection: "", shard: "", expected: "meta/collections/.*/*"},
-		{collection: "*", shard: "*", expected: "meta/collections/.*/*"},
-		{collection: "foo", shard: "", expected: "meta/collections/foo/*"},
-		{collection: "foo", shard: "*", expected: "meta/collections/foo/*"},
+		{collection: "", shard: "", expected: "meta/collections/.*/shards/.*/*"},
+		{collection: "*", shard: "*", expected: "meta/collections/.*/shards/.*/*"},
+		{collection: "foo", shard: "", expected: "meta/collections/foo/shards/.*/*"},
+		{collection: "foo", shard: "*", expected: "meta/collections/foo/shards/.*/*"},
 		{collection: "", shard: "bar", expected: "meta/collections/.*/shards/bar/*"},
 		{collection: "*", shard: "bar", expected: "meta/collections/.*/shards/bar/*"},
 		{collection: "foo", shard: "bar", expected: "meta/collections/foo/shards/bar/*"},
