@@ -109,7 +109,6 @@ func TestMultiVectorHnsw(t *testing.T) {
 	})
 
 	t.Run("delete some nodes", func(t *testing.T) {
-
 		// Delete the first node and then add back
 		newExpectedResults := [][]uint64{
 			{1, 2},

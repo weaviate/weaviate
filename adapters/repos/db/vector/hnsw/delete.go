@@ -96,7 +96,6 @@ func (h *hnsw) Delete(ids ...uint64) error {
 }
 
 func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
-
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
 
