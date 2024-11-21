@@ -33,7 +33,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 	customUser := "custom-user"
 	customAuth := helper.CreateAuth("custom-key")
 
-	readDataAction := authorization.ReadObjectsCollection
+	readDataAction := authorization.ReadData
 	readSchemaAction := authorization.ReadSchema
 
 	helper.SetupClient("127.0.0.1:8081")
