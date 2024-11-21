@@ -104,14 +104,15 @@ func (s *segment) loadBlockDataReusable(offsetStart, offsetEnd uint64, buf []byt
 }
 
 type BlockMetrics struct {
-	BlockCountTotal    uint64
-	BlockCountExamined uint64
-	BlockCountAdded    uint64
-	DocCountTotal      uint64
-	DocCountExamined   uint64
-	DocCountAdded      uint64
-	QueryCount         uint64
-	LastAddedBlock     int
+	BlockCountTotal         uint64
+	BlockCountDecodedDocIds uint64
+	BlockCountDecodedFreqs  uint64
+	DocCountTotal           uint64
+	DocCountDecodedDocIds   uint64
+	DocCountDecodedFreqs    uint64
+	DocCountScored          uint64
+	QueryCount              uint64
+	LastAddedBlock          int
 }
 
 type SegmentBlockMax struct {
@@ -174,6 +175,9 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	if err != nil {
 		return nil
 	}
+	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
+	output.Metrics.DocCountTotal += output.docCount
+	output.Metrics.LastAddedBlock = -1
 
 	return output
 }
@@ -206,6 +210,10 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	output.decoded = true
 
 	output.advanceToStart()
+
+	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
+	output.Metrics.DocCountTotal += output.docCount
+	output.Metrics.LastAddedBlock = -1
 
 	return output
 }
@@ -249,9 +257,6 @@ func (s *SegmentBlockMax) reset() error {
 	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
 	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
 
-	s.Metrics.BlockCountTotal += uint64(len(s.blockEntries))
-	s.Metrics.DocCountTotal += s.docCount
-
 	s.decodeBlock()
 	s.decoded = true
 
@@ -276,8 +281,8 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 		s.blockDataSize = int(s.docCount)
 		s.freqDecoded = true
-		s.Metrics.BlockCountExamined++
-		s.Metrics.DocCountExamined += uint64(s.blockDataSize)
+		s.Metrics.BlockCountDecodedDocIds++
+		s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
 		return nil
 	}
 	if s.segment != nil {
@@ -301,8 +306,8 @@ func (s *SegmentBlockMax) decodeBlock() error {
 	}
 
 	s.docIdDecoder.DecodeReusable(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
-	s.Metrics.BlockCountExamined++
-	s.Metrics.DocCountExamined += uint64(s.blockDataSize)
+	s.Metrics.BlockCountDecodedDocIds++
+	s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
 	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	s.freqDecoded = false
 	s.currentBlockImpact = s.computeCurrentBlockImpact()
@@ -415,9 +420,10 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	freq := float32(s.blockDataDecoded.Tfs[s.blockDataIdx])
 	propLength := s.propLengths[s.blockDataDecoded.DocIds[s.blockDataIdx]]
 	tf := freq / (freq + s.k1*(1-s.b+s.b*(float32(propLength)/s.averagePropLength)))
-	s.Metrics.DocCountAdded++
+	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
-		s.Metrics.BlockCountAdded++
+		s.Metrics.BlockCountDecodedFreqs++
+		s.Metrics.DocCountDecodedFreqs += uint64(s.blockDataSize)
 		s.Metrics.LastAddedBlock = s.blockEntryIdx
 	}
 
