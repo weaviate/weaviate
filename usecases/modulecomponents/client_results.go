@@ -85,6 +85,11 @@ type VectorizationResult[T types.Vector] struct {
 	Errors     []error
 }
 
+type VectorizationCLIPResult[T types.Vector] struct {
+	TextVectors  []T
+	ImageVectors []T
+}
+
 type Usage struct {
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	PromptTokens     int `json:"prompt_tokens,omitempty"`

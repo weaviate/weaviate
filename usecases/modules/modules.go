@@ -1037,3 +1037,14 @@ func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadClo
 	}
 	return nil, false
 }
+
+func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	var backends []modulecapabilities.BackupBackend
+	for _, mod := range p.GetAll() {
+		if backend, ok := mod.(modulecapabilities.BackupBackend); ok &&
+			mod.Type() == modulecapabilities.Backup {
+			backends = append(backends, backend)
+		}
+	}
+	return backends
+}

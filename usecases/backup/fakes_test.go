@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -45,6 +46,10 @@ type fakeBackupBackendProvider struct {
 
 func (bsp *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
 	return bsp.backend, bsp.err
+}
+
+func (bsp *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	return []modulecapabilities.BackupBackend{bsp.backend}
 }
 
 type fakeSourcer struct {
@@ -100,6 +105,10 @@ func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath string) st
 	defer fb.RUnlock()
 	args := fb.Called(overrideBucket, overridePath, backupID)
 	return args.String(0)
+}
+
+func (fb *fakeBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath, overrideBucket, overridePath string) error {
