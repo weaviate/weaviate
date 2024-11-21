@@ -218,7 +218,6 @@ func FromBinaryOptional(data []byte,
 		if err != nil {
 			return nil, err
 		}
-
 		ko.Vectors = vectors
 
 		if vectors != nil {
