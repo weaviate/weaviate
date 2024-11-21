@@ -139,7 +139,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			returnedPolices := map[string][]authorization.Policy{
-				"testRole": []authorization.Policy{
+				"testRole": {
 					{
 						Resource: authorization.Collections("ABC")[0],
 						Verb:     authorization.READ,
