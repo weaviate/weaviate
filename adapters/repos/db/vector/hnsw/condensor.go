@@ -199,7 +199,7 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 
 // AddNode adds an empty node
 func (c *MemoryCondensor) AddNode(node *vertex) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, AddNode))
 	ec.Add(c.writeUint64(c.newLog, node.id))
 	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
@@ -216,7 +216,7 @@ func (c *MemoryCondensor) DeleteNode(id uint64) error {
 }
 
 func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
 	ec.Add(c.writeUint64(c.newLog, nodeid))
 	ec.Add(c.writeUint16(c.newLog, uint16(level)))
@@ -252,7 +252,7 @@ func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets [
 }
 
 func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, AddLinkAtLevel))
 	ec.Add(c.writeUint64(c.newLog, nodeid))
 	ec.Add(c.writeUint16(c.newLog, uint16(level)))
@@ -262,7 +262,7 @@ func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uin
 }
 
 func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
 	ec.Add(c.writeUint64(c.newLog, id))
 	ec.Add(c.writeUint16(c.newLog, uint16(level)))
@@ -271,7 +271,7 @@ func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error 
 }
 
 func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, AddTombstone))
 	ec.Add(c.writeUint64(c.newLog, nodeid))
 
@@ -279,7 +279,7 @@ func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 }
 
 func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	ec.Add(c.writeCommitType(c.newLog, RemoveTombstone))
 	ec.Add(c.writeUint64(c.newLog, nodeid))
 
