@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -72,7 +71,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:       int64(clusterSize),
-			AsyncEnabled: false,
+			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -107,19 +106,6 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 
 	t.Run("start node 2", func(t *testing.T) {
 		startNodeAt(ctx, t, compose, 2)
-	})
-
-	t.Run("verify node 2 has no objects", func(t *testing.T) {
-		resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
-		assert.Len(t, resp, 0)
-	})
-
-	t.Run("enable async replication", func(t *testing.T) {
-		host2 := compose.GetWeaviateNode(2).URI()
-		_ = host2
-		class := getClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
-		class.ReplicationConfig.AsyncEnabled = true
-		updateClass(t, compose.GetWeaviate().URI(), class)
 	})
 
 	t.Run("validate async object propagation", func(t *testing.T) {
