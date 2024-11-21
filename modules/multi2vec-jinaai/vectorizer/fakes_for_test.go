@@ -86,3 +86,12 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 	}
 	return result, nil
 }
+
+func (c *fakeClient) VectorizeQuery(ctx context.Context, texts []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	result := &modulecomponents.VectorizationResult{
+		Vector: [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
+	}
+	return result, nil
+}
