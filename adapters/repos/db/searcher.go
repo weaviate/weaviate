@@ -33,28 +33,36 @@ type Searcher struct {
 	basePath string
 
 	// map["collection"] -> Index
-	indices map[string]ReadIndex
+	indices map[string]ReadIndexer
+
+	fetcher *LSMFetcher
+
+	schema ClassGetter
 }
 
-func NewSearcher(conf *SearchConfig, log logrus.FieldLogger, basePath string) *Searcher {
+func NewSearcher(conf *SearchConfig, log logrus.FieldLogger, basePath string, fetcher *LSMFetcher, schema ClassGetter) *Searcher {
 	return &Searcher{
 		config:   conf,
 		log:      log,
 		basePath: basePath,
-		indices:  make(map[string]ReadIndex),
+		indices:  make(map[string]ReadIndexer),
+		fetcher:  fetcher,
+		schema:   schema,
 	}
 }
 
-func (s *Searcher) GetIndex(id string) (ReadIndex, error) {
+func (s *Searcher) GetIndex(id string) (ReadIndexer, error) {
 	id = strings.ToLower(id)
 	idx, ok := s.indices[id]
 	if !ok {
-		return nil, ErrIndexNotFound
+		v := NewReadIndex(id, s.basePath, s.fetcher, s.schema, s.log)
+		s.indices[id] = v
+		idx = v
 	}
 	return idx, nil
 }
 
-type ReadIndex interface {
+type ReadIndexer interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier, tenant string) ([]*storobj.Object, error)
 	ObjectVectorSearch(
 		ctx context.Context,

@@ -91,16 +91,16 @@ func main() {
 			}).Fatal("failed to create stopwords detector for querier")
 		}
 
-		var lsm *query.LSMFetcher
+		var lsm *db.LSMFetcher
 		if opts.Query.NoCache {
-			lsm = query.NewLSMFetcher(opts.Query.DataPath, s3module, log)
+			lsm = db.NewLSMFetcher(opts.Query.DataPath, s3module, log)
 		} else {
-			metrics := query.NewCacheMetrics(opts.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
-			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes, metrics)
-			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
+			metrics := db.NewCacheMetrics(opts.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
+			cache := db.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes, metrics)
+			lsm = db.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
 		}
 
-		searcher := db.NewSearcher(&db.SearchConfig{QueryMaximumResults: 1000, QueryLimit: 1000}, log, opts.Query.DataPath)
+		searcher := db.NewSearcher(&db.SearchConfig{QueryMaximumResults: 1000, QueryLimit: 1000}, log, opts.Query.DataPath, lsm, schemaInfo)
 
 		e := traverser.NewExplorer(searcher, log, modules.NewProvider(log), nil, &traverser.ExplorerConfig{
 			QueryMaxResults:   1000,
@@ -109,7 +109,6 @@ func main() {
 
 		a := query.NewAPI(
 			schemaInfo,
-			lsm,
 			vectorizer.New(vclient),
 			detectStopwords,
 			&opts.Query,
