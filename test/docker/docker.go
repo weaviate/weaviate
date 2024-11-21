@@ -198,7 +198,7 @@ func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
 }
 
 func (d *DockerCompose) GetQuerier() *DockerContainer {
-	return d.getContainerByName("myquerier")
+	return d.getContainerByName(Querier)
 }
 
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {

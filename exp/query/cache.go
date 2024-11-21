@@ -103,7 +103,7 @@ func (d *DiskCache) AddTenant(collection, tenantID string, version uint64) error
 		basePath:     d.basePath,
 	}
 
-	_, err := os.Stat(strings.ToLower(tc.AbsolutePath()))
+	_, err := os.Stat(tc.AbsolutePath())
 	if err != nil && errors.Is(err, os.ErrNotExist) {
 		return errors.Join(ErrTenantDirectoryFound, err)
 	}
@@ -187,7 +187,7 @@ type TenantCache struct {
 }
 
 func (tc *TenantCache) AbsolutePath() string {
-	return path.Join(tc.basePath, tc.Collection, tc.TenantID, fmt.Sprintf("%d", tc.Version))
+	return path.Join(tc.basePath, strings.ToLower(tc.Collection), strings.ToLower(tc.TenantID), fmt.Sprintf("%d", tc.Version))
 }
 
 // CacheMetrics exposes some insights about how cache operations.

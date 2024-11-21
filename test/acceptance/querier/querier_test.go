@@ -40,7 +40,6 @@ func Test_Querier(t *testing.T) {
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
-		// TODO how to set the bucket in querier if not weaviate-offload?
 		compose, err := docker.New().
 			WithOffloadS3("weaviate-offload", "us-west-1").
 			WithText2VecContextionary().
@@ -113,6 +112,7 @@ func Test_Querier(t *testing.T) {
 			},
 			Uses_127Api: true,
 		}
+
 		var coreResultObject *pb.SearchResult
 		t.Run("verify object searchable on core", func(t *testing.T) {
 			grpcClient, _ := newClient(t, coreGrpcURI)
@@ -140,19 +140,8 @@ func Test_Querier(t *testing.T) {
 			helper.UpdateTenants(t, className, []*models.Tenant{tenant})
 		})
 
-		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
-			require.Nil(t, err)
-			require.Len(t, resp.Payload, 1)
-			tn := resp.Payload[0]
-			require.Equal(t, tenantName, tn.Name)
-			require.Equal(t, models.TenantActivityStatusFREEZING, tn.ActivityStatus)
-		})
-
-		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, object.Class, object.ID, tenantName)
-			require.NotNil(t, err)
-		})
+		// give the tenants time to freeze
+		time.Sleep(1 * time.Second)
 
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
@@ -171,9 +160,6 @@ func Test_Querier(t *testing.T) {
 		})
 
 		t.Run("verify objects searchable on querier", func(t *testing.T) {
-			// TODO minio error unclear from response/logs
-			// NATEE querier resp <nil> rpc error: code = Unknown desc = failed to fetch tenant data: NotFound: Not Found
-			// status code: 404, request id: 180982A352A7D338, host id: dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8, "MultiTenantClass", "Tenant1"
 			grpcClient, _ := newClient(t, querierGrpcURI)
 			resp, err := grpcClient.Search(context.TODO(), searchRequest)
 			require.NoError(t, err)

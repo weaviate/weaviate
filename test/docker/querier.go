@@ -14,6 +14,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+const (
+	Querier = "querier"
+)
+
 func startQuerier(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
@@ -56,7 +60,7 @@ func startQuerier(ctx context.Context,
 			},
 		}
 	}
-	containerName := "myquerier"
+	containerName := Querier
 	if hostname != "" {
 		containerName = hostname
 	}
@@ -71,8 +75,6 @@ func startQuerier(ctx context.Context,
 		"OFFLOAD_S3_ENDPOINT":           "http://test-minio:9000",
 		"AWS_SECRET_KEY":                "aws_secret_key",
 		"AWS_ACCESS_KEY":                "aws_access_key",
-		"MINIO_ROOT_USER":               "aws_access_key",
-		"MINIO_ROOT_PASSWORD":           "aws_secret_key",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -83,13 +85,6 @@ func startQuerier(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
-	// TODO i think this is actually grpc port...
-	// httpPort := nat.Port("7071/tcp")
-	// exposedPorts := []string{"7071/tcp"}
-	// waitStrategies := []wait.Strategy{
-	// 	wait.ForListeningPort(httpPort),
-	// 	wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
-	// }
 	exposedPorts := []string{}
 	waitStrategies := []wait.Strategy{}
 	grpcPort := nat.Port("7071/tcp")
@@ -108,7 +103,6 @@ func startQuerier(ctx context.Context,
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,
-		// TODO addr hardcoded?
 		Cmd: []string{
 			"--target=querier",
 			"--query.schema.addr=http://weaviate:8080",
@@ -142,12 +136,7 @@ func startQuerier(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	// httpUri, err := c.PortEndpoint(ctx, httpPort, "")
-	// if err != nil {
-	// 	return nil, err
-	// }
 	endpoints := make(map[EndpointName]endpoint)
-	// endpoints[HTTP] = endpoint{httpPort, httpUri}
 	if exposeGRPCPort {
 		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
 		if err != nil {

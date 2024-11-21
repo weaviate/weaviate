@@ -417,8 +417,9 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// if you use WithQuerier, you'll generally also want to enable the offload module as well,
+// but it's not enforced in case you want to test without it
 func (d *Compose) WithQuerier() *Compose {
-	// TODO enable or require offload too?
 	d.withQuerier = true
 	return d
 }
@@ -610,7 +611,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withQuerier {
-		container, err := startQuerier(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, "", "myquerier", true, "/v1/.well-known/ready")
+		container, err := startQuerier(ctx, d.enableModules, d.defaultVectorizerModule, envSettings,
+			networkName, "", Querier, true, "/v1/.well-known/ready")
 		if err != nil {
 			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", "myquerier")
 		}
