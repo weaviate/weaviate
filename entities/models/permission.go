@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_cluster create_meta_collections read_meta_collections update_meta_collections delete_meta_collections create_meta_tenants read_meta_tenants update_meta_tenants delete_meta_tenants create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
+	// Enum: [manage_users manage_roles read_roles manage_cluster create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
 	Action *string `json:"action"`
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
@@ -70,7 +70,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_meta_collections","read_meta_collections","update_meta_collections","delete_meta_collections","create_meta_tenants","read_meta_tenants","update_meta_tenants","delete_meta_tenants","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -92,29 +92,17 @@ const (
 	// PermissionActionManageCluster captures enum value "manage_cluster"
 	PermissionActionManageCluster string = "manage_cluster"
 
-	// PermissionActionCreateMetaCollections captures enum value "create_meta_collections"
-	PermissionActionCreateMetaCollections string = "create_meta_collections"
+	// PermissionActionCreateSchema captures enum value "create_schema"
+	PermissionActionCreateSchema string = "create_schema"
 
-	// PermissionActionReadMetaCollections captures enum value "read_meta_collections"
-	PermissionActionReadMetaCollections string = "read_meta_collections"
+	// PermissionActionReadSchema captures enum value "read_schema"
+	PermissionActionReadSchema string = "read_schema"
 
-	// PermissionActionUpdateMetaCollections captures enum value "update_meta_collections"
-	PermissionActionUpdateMetaCollections string = "update_meta_collections"
+	// PermissionActionUpdateSchema captures enum value "update_schema"
+	PermissionActionUpdateSchema string = "update_schema"
 
-	// PermissionActionDeleteMetaCollections captures enum value "delete_meta_collections"
-	PermissionActionDeleteMetaCollections string = "delete_meta_collections"
-
-	// PermissionActionCreateMetaTenants captures enum value "create_meta_tenants"
-	PermissionActionCreateMetaTenants string = "create_meta_tenants"
-
-	// PermissionActionReadMetaTenants captures enum value "read_meta_tenants"
-	PermissionActionReadMetaTenants string = "read_meta_tenants"
-
-	// PermissionActionUpdateMetaTenants captures enum value "update_meta_tenants"
-	PermissionActionUpdateMetaTenants string = "update_meta_tenants"
-
-	// PermissionActionDeleteMetaTenants captures enum value "delete_meta_tenants"
-	PermissionActionDeleteMetaTenants string = "delete_meta_tenants"
+	// PermissionActionDeleteSchema captures enum value "delete_schema"
+	PermissionActionDeleteSchema string = "delete_schema"
 
 	// PermissionActionCreateDataCollectionObjects captures enum value "create_data_collection_objects"
 	PermissionActionCreateDataCollectionObjects string = "create_data_collection_objects"
