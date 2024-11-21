@@ -435,7 +435,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMos
 		return v, nil
 	}
 
-	return nil, nil
+	return nil, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {

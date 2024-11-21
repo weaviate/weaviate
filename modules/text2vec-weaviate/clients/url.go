@@ -20,7 +20,7 @@ type weaviateEmbedUrlBuilder struct {
 
 func newWeaviateEmbedUrlBuilder() *weaviateEmbedUrlBuilder {
 	return &weaviateEmbedUrlBuilder{
-		origin:   "https://embedding.labs.weaviate.io",
+		origin:   "https://api.embedding.weaviate.io",
 		pathMask: "/v1/embeddings/embed",
 	}
 }
