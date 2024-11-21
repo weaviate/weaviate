@@ -170,7 +170,6 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 	})
 }
 
-
 func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 	before := FromObjectMulti(
 		&models.Object{
@@ -213,7 +212,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after:= &Object{}
+	after := &Object{}
 	after.UnmarshalBinary(asBinary)
 	require.Nil(t, err)
 
