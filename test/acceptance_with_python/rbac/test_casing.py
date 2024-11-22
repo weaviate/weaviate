@@ -3,7 +3,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 
-from .conftest import _sanitize_role_name, admin_client
+from .conftest import _sanitize_role_name
 from _pytest.fixtures import SubRequest
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
@@ -24,8 +24,8 @@ def test_rbac_refs(request: SubRequest, admin_client, to_upper: bool):
         admin_client.roles.create(
             name=name,
             permissions=[
-                RBAC.permissions.collections.read(collection=name),
-                RBAC.permissions.collections.objects.read(collection=name),
+                RBAC.permissions.config.read(collection=name),
+                RBAC.permissions.data.read(collection=name),
             ],
         )
         admin_client.roles.assign(user="custom-user", roles=name)
