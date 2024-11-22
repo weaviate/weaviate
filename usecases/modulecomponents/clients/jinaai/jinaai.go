@@ -189,6 +189,7 @@ func (c *Client) vectorize(ctx context.Context,
 	}
 	req.Header.Add(c.getApiKeyHeaderAndValue(apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("x-header-vectordb-source", "Weaviate")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
