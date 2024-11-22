@@ -28,20 +28,20 @@ const (
 )
 
 var resourcePatterns = []string{
-	`^meta/users/.*$`,
-	`^meta/users/[^/]+$`,
-	`^meta/roles/.*$`,
-	`^meta/roles/[^/]+$`,
-	`^meta/cluster/.*$`,
-	`^meta/backups/.*/collections/.*$`,
-	`^meta/backups/[^/]+/collections/.*$`,
-	`^meta/backups/.*/collections/[^/]+$`,
-	`^meta/backups/[^/]+/collections/[^/]+$`,
-	`^meta/collections/.*$`,
-	`^meta/collections/[^/]+$`,
-	`^meta/collections/[^/]+/shards/.*$`,
-	`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
-	`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
+	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s/.*/collections/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/[^/]+/collections/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/.*/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/[^/]+/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -57,7 +57,7 @@ func fromCasbinResource(resource string) string {
 }
 
 func CasbinClusters() string {
-	return "meta/cluster/.*"
+	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
 }
 
 func CasbinBackups(backend, collection string) string {
@@ -77,7 +77,7 @@ func CasbinUsers(user string) string {
 		user = "*"
 	}
 	user = strings.ReplaceAll(user, "*", ".*")
-	return fmt.Sprintf("meta/users/%s", user)
+	return fmt.Sprintf("%s/%s", authorization.UsersDomain, user)
 }
 
 func CasbinRoles(role string) string {
@@ -85,7 +85,7 @@ func CasbinRoles(role string) string {
 		role = "*"
 	}
 	role = strings.ReplaceAll(role, "*", ".*")
-	return fmt.Sprintf("meta/roles/%s", role)
+	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
 func CasbinSchema(collection, shard string) string {
@@ -97,7 +97,7 @@ func CasbinSchema(collection, shard string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/shards/%s", collection, shard)
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -113,7 +113,7 @@ func CasbinData(collection, shard, object string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
 func policy(permission *models.Permission) (*authorization.Policy, error) {
@@ -232,9 +232,9 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
 	case authorization.RolesDomain:
-		permission.Role = &splits[2]
+		permission.Role = &splits[1]
 	case authorization.UsersDomain:
-		permission.User = &splits[2]
+		permission.User = &splits[1]
 	case authorization.ClusterDomain:
 		// do nothing
 	case authorization.BackupsDomain:

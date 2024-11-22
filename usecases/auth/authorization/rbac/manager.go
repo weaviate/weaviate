@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type manager struct {
@@ -27,8 +28,13 @@ type manager struct {
 	logger logrus.FieldLogger
 }
 
-func New(casbin *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *manager {
-	return &manager{casbin, logger}
+func New(rbacStoragePath string, apiKeys config.APIKey, logger logrus.FieldLogger) (*manager, error) {
+	casbin, err := Init(apiKeys, rbacStoragePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &manager{casbin, logger}, nil
 }
 
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
