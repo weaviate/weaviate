@@ -300,6 +300,7 @@ func String(s string) *string {
 	return &s
 }
 
+// viewer : can view everything , roles, users, schema, data
 func viewerPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
@@ -319,6 +320,7 @@ func viewerPermissions() []*models.Permission {
 	return perms
 }
 
+// editor : can create/read/update everything , roles, users, schema, data
 func editorPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
@@ -337,6 +339,8 @@ func editorPermissions() []*models.Permission {
 
 	return perms
 }
+
+// admin : aka basically super admin or root
 func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
