@@ -76,9 +76,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(req.Backend, req.ID)...); err != nil {
-		return nil, err
-	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -90,7 +87,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Collections(classes...)...); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(req.Backend, classes...)...); err != nil {
 		return nil, err
 	}
 
@@ -130,9 +127,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
-	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(req.Backend, req.ID)...); err != nil {
-		return nil, err
-	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -140,13 +135,18 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 	meta, err := s.validateRestoreRequest(ctx, store, req)
 	if err != nil {
+		// check whether Principal has permissions to even perform this erroring action
+		// if they are forbidden, don't leak information
+		if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(req.Backend)...); err != nil {
+			return nil, err
+		}
 		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Collections(meta.Classes()...)...); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(req.Backend, meta.Classes()...)...); err != nil {
 		return nil, err
 	}
 

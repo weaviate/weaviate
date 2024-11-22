@@ -90,15 +90,15 @@ var (
 	manageAllBackups = &models.Permission{
 		Action: String(ManageBackups),
 		Backup: &models.PermissionBackup{
-			Backend: All,
-			ID:      All,
+			Backend:    All,
+			Collection: All,
 		},
 	}
 	readAllBackups = &models.Permission{
 		Action: String(ReadBackups),
 		Backup: &models.PermissionBackup{
-			Backend: All,
-			ID:      All,
+			Backend:    All,
+			Collection: All,
 		},
 	}
 
@@ -313,29 +313,29 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", class, shard, id)
 }
 
-// Backups generates a list of resource strings for the given backend and backup IDs.
-// If no IDs are provided, it returns a default resource string "meta/backups/{backend}/ids/*".
+// Backups generates a list of resource strings for the given backend and classes.
+// If no IDs are provided, it returns a default resource string "meta/backups/{backend}/collections/*".
 
 // Parameters:
 // - backend: the backend name (string)
-// - ids: a variadic list of backup IDs (string)
+// - collections: a variadic list of class names (string)
 //
 // Returns:
 // - A slice of strings representing the resource paths for the given backend and backup IDs.
 
 // Example outputs:
-// - "meta/backups/*/ids/*" if no IDs are provided
-// - "meta/backups/{backend}/ids/{id}" for each provided ID
-func Backups(backend string, ids ...string) []string {
+// - "meta/backups/*/collections/*" if no IDs are provided
+// - "meta/backups/{backend}/collections/{id}" for each provided ID
+func Backups(backend string, classes ...string) []string {
 	if backend == "" {
 		backend = "*"
 	}
-	if len(ids) == 0 || (len(ids) == 1 && (ids[0] == "" || ids[0] == "*")) {
-		return []string{fmt.Sprintf("meta/backups/%s/ids/*", backend)}
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{fmt.Sprintf("meta/backups/%s/collections/*", backend)}
 	}
-	resources := make([]string, len(ids))
-	for idx := range ids {
-		resources[idx] = fmt.Sprintf("meta/backups/%s/ids/%s", backend, ids[idx])
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		resources[idx] = fmt.Sprintf("meta/backups/%s/collections/%s", backend, classes[idx])
 	}
 	return resources
 }

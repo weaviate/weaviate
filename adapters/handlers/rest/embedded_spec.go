@@ -5374,8 +5374,8 @@ func init() {
               "type": "string",
               "default": "*"
             },
-            "id": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -11952,8 +11952,8 @@ func init() {
               "type": "string",
               "default": "*"
             },
-            "id": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -11995,8 +11995,8 @@ func init() {
           "type": "string",
           "default": "*"
         },
-        "id": {
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

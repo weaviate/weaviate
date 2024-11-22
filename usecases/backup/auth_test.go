@@ -42,38 +42,38 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("s3", "123")[0],
 		},
 		{
 			methodName:       "BackupStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3", "123")[0],
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("s3", "123")[0],
 		},
 		{
 			methodName:       "RestorationStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3", "123")[0],
 		},
 		{
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.DELETE,
-			expectedResource: authorization.Cluster(),
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("s3", "123")[0],
 		},
 		{
 			methodName:       "List",
 			additionalArgs:   []interface{}{"s3"},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3", "*")[0],
 		},
 	}
 

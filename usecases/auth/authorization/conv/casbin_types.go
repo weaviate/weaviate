@@ -33,10 +33,10 @@ var resourcePatterns = []string{
 	`^meta/roles/.*$`,
 	`^meta/roles/[^/]+$`,
 	`^meta/cluster/.*$`,
-	`^meta/backups/.*/ids/.*$`,
-	`^meta/backups/[^/]+/ids/.*$`,
-	`^meta/backups/.*/ids/[^/]+$`,
-	`^meta/backups/[^/]+/ids/[^/]+$`,
+	`^meta/backups/.*/collections/.*$`,
+	`^meta/backups/[^/]+/collections/.*$`,
+	`^meta/backups/.*/collections/[^/]+$`,
+	`^meta/backups/[^/]+/collections/[^/]+$`,
 	`^meta/collections/.*$`,
 	`^meta/collections/[^/]+$`,
 	`^meta/collections/[^/]+/shards/.*$`,
@@ -60,16 +60,16 @@ func CasbinClusters() string {
 	return "meta/cluster/.*"
 }
 
-func CasbinBackups(backend, id string) string {
+func CasbinBackups(backend, collection string) string {
 	if backend == "" {
 		backend = "*"
 	}
-	if id == "" {
-		id = "*"
+	if collection == "" {
+		collection = "*"
 	}
 	backend = strings.ReplaceAll(backend, "*", ".*")
-	id = strings.ReplaceAll(id, "*", ".*")
-	return fmt.Sprintf("meta/backups/%s/ids/%s", backend, id)
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	return fmt.Sprintf("meta/backups/%s/collections/%s", backend, collection)
 }
 
 func CasbinUsers(user string) string {
@@ -180,16 +180,16 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinData(collection, tenant, object)
 	case authorization.BackupsDomain:
 		backend := "*"
-		id := "*"
+		collection := "*"
 		if permission.Backup != nil {
 			if permission.Backup.Backend != nil {
 				backend = *permission.Backup.Backend
 			}
-			if permission.Backup.ID != nil {
-				id = *permission.Backup.ID
+			if permission.Backup.Collection != nil {
+				collection = *permission.Backup.Collection
 			}
 		}
-		resource = CasbinBackups(backend, id)
+		resource = CasbinBackups(backend, collection)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -239,13 +239,13 @@ func permission(policy []string) (*models.Permission, error) {
 		// do nothing
 	case authorization.BackupsDomain:
 		permission.Backup = &models.PermissionBackup{
-			Backend: &splits[2],
-			ID:      &splits[4],
+			Backend:    &splits[2],
+			Collection: &splits[4],
 		}
 	case *authorization.All:
 		permission.Backup = &models.PermissionBackup{
-			Backend: authorization.All,
-			ID:      authorization.All,
+			Backend:    authorization.All,
+			Collection: authorization.All,
 		}
 		permission.Collection = authorization.All
 		permission.Tenant = authorization.All

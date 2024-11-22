@@ -69,11 +69,11 @@ func TestBackups(t *testing.T) {
 		ids      []string
 		expected []string
 	}{
-		{"No backend, no ids", "", []string{}, []string{"meta/backups/*/ids/*"}},
-		{"Backend, no ids", "backend1", []string{}, []string{"meta/backups/backend1/ids/*"}},
-		{"No backend, single id", "", []string{"id1"}, []string{"meta/backups/*/ids/id1"}},
-		{"Backend, single id", "backend1", []string{"id1"}, []string{"meta/backups/backend1/ids/id1"}},
-		{"Backend, multiple ids", "backend1", []string{"id1", "id2"}, []string{"meta/backups/backend1/ids/id1", "meta/backups/backend1/ids/id2"}},
+		{"No backend, no ids", "", []string{}, []string{"meta/backups/*/collections/*"}},
+		{"Backend, no ids", "backend1", []string{}, []string{"meta/backups/backend1/collections/*"}},
+		{"No backend, single id", "", []string{"id1"}, []string{"meta/backups/*/collections/id1"}},
+		{"Backend, single id", "backend1", []string{"id1"}, []string{"meta/backups/backend1/collections/id1"}},
+		{"Backend, multiple ids", "backend1", []string{"id1", "id2"}, []string{"meta/backups/backend1/collections/id1", "meta/backups/backend1/collections/id2"}},
 	}
 
 	for _, tt := range tests {
