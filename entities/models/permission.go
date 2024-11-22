@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles create_backups delete_backups read_backups restore_backups read_nodes create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
+	// Enum: [manage_users manage_roles read_roles manage_backups read_backups read_nodes create_schema read_schema update_schema delete_schema create_data_collection_objects read_data_collection_objects update_data_collection_objects delete_data_collection_objects create_data_tenant_objects read_data_tenant_objects update_data_tenant_objects delete_data_tenant_objects]
 	Action *string `json:"action"`
 
 	// backup
@@ -77,7 +77,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","create_backups","delete_backups","read_backups","restore_backups","read_nodes","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_backups","read_backups","read_nodes","create_schema","read_schema","update_schema","delete_schema","create_data_collection_objects","read_data_collection_objects","update_data_collection_objects","delete_data_collection_objects","create_data_tenant_objects","read_data_tenant_objects","update_data_tenant_objects","delete_data_tenant_objects"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -96,17 +96,11 @@ const (
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
 
-	// PermissionActionCreateBackups captures enum value "create_backups"
-	PermissionActionCreateBackups string = "create_backups"
-
-	// PermissionActionDeleteBackups captures enum value "delete_backups"
-	PermissionActionDeleteBackups string = "delete_backups"
+	// PermissionActionManageBackups captures enum value "manage_backups"
+	PermissionActionManageBackups string = "manage_backups"
 
 	// PermissionActionReadBackups captures enum value "read_backups"
 	PermissionActionReadBackups string = "read_backups"
-
-	// PermissionActionRestoreBackups captures enum value "restore_backups"
-	PermissionActionRestoreBackups string = "restore_backups"
 
 	// PermissionActionReadNodes captures enum value "read_nodes"
 	PermissionActionReadNodes string = "read_nodes"

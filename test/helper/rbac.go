@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func CreateRole(t *testing.T, key string, role *models.Role) {
@@ -53,4 +54,48 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 	)
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
+}
+
+func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
+	resp, err := Client(t).Authz.AddPermissions(
+		authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
+			Name:        authorization.String(role),
+			Permissions: permissions,
+		}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+type BackupPermission models.Permission
+
+func NewBackupPermission() *BackupPermission {
+	return &BackupPermission{}
+}
+
+func (p *BackupPermission) WithAction(action string) *BackupPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *BackupPermission) WithBackend(backend string) *BackupPermission {
+	if p.Backup == nil {
+		p.Backup = &models.PermissionBackup{}
+	}
+	p.Backup.Backend = authorization.String(backend)
+	return p
+}
+
+func (p *BackupPermission) WithBackupID(id string) *BackupPermission {
+	if p.Backup == nil {
+		p.Backup = &models.PermissionBackup{}
+	}
+	p.Backup.ID = authorization.String(id)
+	return p
+}
+
+func (p *BackupPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
 }

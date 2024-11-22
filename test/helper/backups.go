@@ -14,6 +14,7 @@ package helper
 import (
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -45,6 +46,18 @@ func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, ba
 	return Client(t).Backups.BackupsCreate(params, nil)
 }
 
+func CreateBackupWithAuthz(t *testing.T, cfg *models.BackupConfig, className, backend, backupID string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsCreateOK, error) {
+	params := backups.NewBackupsCreateParams().
+		WithBackend(backend).
+		WithBody(&models.BackupCreateRequest{
+			ID:      backupID,
+			Include: []string{className},
+			Config:  cfg,
+		})
+	t.Logf("Creating backup with ID: %s, backend: %s, className: %s, config: %+v\n", backupID, backend, className, cfg)
+	return Client(t).Backups.BackupsCreate(params, authInfo)
+}
+
 func ListBackup(t *testing.T, className, backend string) (*backups.BackupsListOK, error) {
 	params := backups.NewBackupsListParams().
 		WithBackend(backend)
@@ -68,6 +81,15 @@ func CreateBackupStatus(t *testing.T, backend, backupID, overrideBucket, overrid
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
+func CreateBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucket, overridePath string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsCreateStatusOK, error) {
+	params := backups.NewBackupsCreateStatusParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBucket(&overrideBucket).
+		WithPath(&overridePath)
+	return Client(t).Backups.BackupsCreateStatus(params, authInfo)
+}
+
 func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
@@ -78,6 +100,18 @@ func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, 
 			Config:      cfg,
 		})
 	return Client(t).Backups.BackupsRestore(params, nil)
+}
+
+func RestoreBackupWithAuthz(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsRestoreOK, error) {
+	params := backups.NewBackupsRestoreParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBody(&models.BackupRestoreRequest{
+			Include:     []string{className},
+			NodeMapping: nodeMapping,
+			Config:      cfg,
+		})
+	return Client(t).Backups.BackupsRestore(params, authInfo)
 }
 
 func RestoreBackupStatus(t *testing.T, backend, backupID, overrideBucket, overridePath string) (*backups.BackupsRestoreStatusOK, error) {
