@@ -70,6 +70,8 @@ const (
 var (
 	All = String("*")
 
+	ComponentName = "RBAC"
+
 	manageAllUsers = &models.Permission{
 		Action: String(ManageUsers),
 		Role:   All,
