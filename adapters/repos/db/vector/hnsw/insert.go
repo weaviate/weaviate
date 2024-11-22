@@ -177,14 +177,14 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			counter++
 
 			node := &vertex{
-				id:    uint64(nodeId),
-				level: levels[j],
+				id:         uint64(nodeId),
+				level:      levels[j],
+				docID:      docID,
+				relativeID: uint64(j),
 			}
 
 			h.Lock()
-			h.vectorDocIDMap[nodeId] = docID
 			h.docIDVectorMap[docID] = append(h.docIDVectorMap[docIDs[i]], nodeId)
-			h.relativeIDMap[nodeId] = uint64(j)
 			h.Unlock()
 
 			err := h.addOne(ctx, vector, node)
@@ -266,11 +266,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 		if !h.multivector.Load() {
 			h.cache.Preload(node.id, vector)
 		} else {
-			h.RLock()
-			docId := h.vectorDocIDMap[node.id]
-			relativeId := h.relativeIDMap[node.id]
-			h.RUnlock()
-			h.cache.PreloadMultiple(docId, relativeId, vector)
+			h.cache.PreloadMultiple(node.id, node.docID, node.relativeID, vector)
 		}
 	}
 
@@ -367,9 +363,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		if !h.multivector.Load() {
 			h.cache.Preload(node.id, nodeVec)
 		} else {
-			docId := h.vectorDocIDMap[node.id]
-			relativeId := h.relativeIDMap[node.id]
-			h.cache.PreloadMultiple(docId, relativeId, nodeVec)
+			h.cache.PreloadMultiple(node.id, node.docID, node.relativeID, nodeVec)
 		}
 	}
 

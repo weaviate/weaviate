@@ -106,7 +106,7 @@ func (h *hnsw) SearchByMultipleVector(ctx context.Context, vectors [][]float32, 
 		}
 		h.RLock()
 		for _, id := range ids {
-			docId := h.vectorDocIDMap[id]
+			docId, _ := h.cache.GetKeys(id)
 			candidateSet[docId] = true
 		}
 		h.RUnlock()
@@ -490,11 +490,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 					if !h.multivector.Load() {
 						h.cache.Prefetch(candidates.Top().ID)
 					} else {
-						h.RLock()
-						docID := h.vectorDocIDMap[candidates.Top().ID]
-						relative := h.relativeIDMap[candidates.Top().ID]
-						h.RUnlock()
-						h.cache.PrefetchMultiple(docID, relative)
+						h.cache.PrefetchMultiple(candidates.Top().ID)
 					}
 				}
 
@@ -631,11 +627,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 	if !h.multivector.Load() {
 		candidateVec, err = h.vectorForID(context.Background(), nodeID)
 	} else {
-		h.RLock()
-		docID := h.vectorDocIDMap[nodeID]
-		relative := h.relativeIDMap[nodeID]
-		h.RUnlock()
-		candidateVec, err = h.multipleVectorForID(context.Background(), docID, relative)
+		candidateVec, err = h.multipleVectorForID(context.Background(), nodeID)
 	}
 	if err != nil {
 		return 0, err
@@ -928,7 +920,7 @@ func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
 	vecs := make([][]float32, len(vecIDs))
 	h.RLock()
 	for i, vecID := range vecIDs {
-		vec, err := h.multipleVectorForID(context.Background(), docID, h.relativeIDMap[vecID]) // should we use multiple vectors for id??
+		vec, err := h.multipleVectorForID(context.Background(), vecID) // should we use multiple vectors for id??
 		if err != nil {
 			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
 		}

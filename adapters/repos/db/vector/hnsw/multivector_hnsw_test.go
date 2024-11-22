@@ -79,8 +79,9 @@ func TestMultiVectorHnsw(t *testing.T) {
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
-			MultipleVectorForIDThunk: func(ctx context.Context, docID uint64, relativeVecID uint64) ([]float32, error) {
-				return vectors[docID][relativeVecID], nil
+			MultipleVectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				docID, relativeID := vectorIndex.cache.GetKeys(id)
+				return vectors[docID][relativeID], nil
 			},
 		}, ent.UserConfig{
 			MaxConnections: maxConnections,

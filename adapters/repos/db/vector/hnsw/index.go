@@ -185,10 +185,8 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	multivector    atomic.Bool
-	vectorDocIDMap map[uint64]uint64
 	docIDVectorMap map[uint64][]uint64
 	vecIDcounter   uint64
-	relativeIDMap  map[uint64]uint64
 }
 
 type CommitLogger interface {
@@ -312,9 +310,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 		multivector:    atomic.Bool{},
 		vecIDcounter:   0,
-		vectorDocIDMap: make(map[uint64]uint64),
 		docIDVectorMap: make(map[uint64][]uint64),
-		relativeIDMap:  make(map[uint64]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -513,14 +509,8 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		vecA, errA = h.vectorForID(context.Background(), a)
 		vecB, errB = h.vectorForID(context.Background(), b)
 	} else {
-		h.RLock()
-		docIDA := h.vectorDocIDMap[a]
-		relativeA := h.relativeIDMap[a]
-		docIDB := h.vectorDocIDMap[b]
-		relativeB := h.relativeIDMap[b]
-		h.RUnlock()
-		vecA, errA = h.multipleVectorForID(context.Background(), docIDA, relativeA)
-		vecB, errB = h.multipleVectorForID(context.Background(), docIDB, relativeB)
+		vecA, errA = h.multipleVectorForID(context.Background(), a)
+		vecB, errB = h.multipleVectorForID(context.Background(), b)
 	}
 	if errA != nil {
 		var e storobj.ErrNotFound
@@ -572,11 +562,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if !h.multivector.Load() {
 		vecA, err = h.vectorForID(context.Background(), node)
 	} else {
-		h.RLock()
-		docID := h.vectorDocIDMap[node]
-		relative := h.relativeIDMap[node]
-		h.RUnlock()
-		vecA, err = h.multipleVectorForID(context.Background(), docID, relative)
+		vecA, err = h.multipleVectorForID(context.Background(), node)
 
 	}
 

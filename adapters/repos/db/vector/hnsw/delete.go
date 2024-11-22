@@ -110,10 +110,6 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 				return err
 			}
 
-			h.Lock()
-			delete(h.relativeIDMap, id)
-			delete(h.vectorDocIDMap, id)
-			h.Unlock()
 		}
 		h.Lock()
 		delete(h.docIDVectorMap, docID)

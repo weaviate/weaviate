@@ -21,6 +21,8 @@ type vertex struct {
 	level       int
 	connections [][]uint64
 	maintenance bool
+	docID       uint64
+	relativeID  uint64
 }
 
 func (v *vertex) markAsMaintenance() {
