@@ -44,6 +44,8 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
 		return nil, err
 	}
+	name = schema.UppercaseClassName(name)
+
 	cl := h.schemaReader.ReadOnlyClass(name)
 	return cl, nil
 }
@@ -54,6 +56,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
 		return nil, 0, err
 	}
+	name = schema.UppercaseClassName(name)
 	if consistency {
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
@@ -201,6 +204,8 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 	if err != nil {
 		return err
 	}
+
+	class = schema.UppercaseClassName(class)
 
 	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
