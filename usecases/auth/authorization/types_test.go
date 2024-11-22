@@ -12,6 +12,7 @@
 package authorization
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -24,9 +25,9 @@ func TestUsers(t *testing.T) {
 		users    []string
 		expected []string
 	}{
-		{"No users", []string{}, []string{"meta/users/*"}},
-		{"Single user", []string{"user1"}, []string{"meta/users/user1"}},
-		{"Multiple users", []string{"user1", "user2"}, []string{"meta/users/user1", "meta/users/user2"}},
+		{"No users", []string{}, []string{fmt.Sprintf("%s/*", UsersDomain)}},
+		{"Single user", []string{"user1"}, []string{fmt.Sprintf("%s/user1", UsersDomain)}},
+		{"Multiple users", []string{"user1", "user2"}, []string{fmt.Sprintf("%s/user1", UsersDomain), fmt.Sprintf("%s/user2", UsersDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -43,9 +44,9 @@ func TestRoles(t *testing.T) {
 		roles    []string
 		expected []string
 	}{
-		{"No roles", []string{}, []string{"meta/roles/*"}},
-		{"Single role", []string{"admin"}, []string{"meta/roles/admin"}},
-		{"Multiple roles", []string{"admin", "user"}, []string{"meta/roles/admin", "meta/roles/user"}},
+		{"No roles", []string{}, []string{fmt.Sprintf("%s/*", RolesDomain)}},
+		{"Single role", []string{"admin"}, []string{fmt.Sprintf("%s/admin", RolesDomain)}},
+		{"Multiple roles", []string{"admin", "user"}, []string{fmt.Sprintf("%s/admin", RolesDomain), fmt.Sprintf("%s/user", RolesDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -57,7 +58,7 @@ func TestRoles(t *testing.T) {
 }
 
 func TestCluster(t *testing.T) {
-	expected := "meta/cluster/*"
+	expected := "cluster/*"
 	result := Cluster()
 	assert.Equal(t, expected, result)
 }
@@ -68,10 +69,10 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{"meta/collections/*/shards/*"}},
-		{"Single empty class", []string{""}, []string{"meta/collections/*/shards/*"}},
-		{"Single class", []string{"class1"}, []string{"meta/collections/class1/shards/*"}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{"meta/collections/class1/shards/*", "meta/collections/class2/shards/*"}},
+		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/class1/shards/*", SchemaDomain)}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/class1/shards/*", SchemaDomain), fmt.Sprintf("%s/collections/class2/shards/*", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -89,12 +90,12 @@ func TestShards(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no shards", "", []string{}, []string{"meta/collections/*/shards/*"}},
-		{"Class, no shards", "class1", []string{}, []string{"meta/collections/class1/shards/*"}},
-		{"No class, single shard", "", []string{"shard1"}, []string{"meta/collections/*/shards/shard1"}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{"meta/collections/class1/shards/shard1"}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/shard2"}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/*"}},
+		{"No class, no shards", "", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Class, no shards", "class1", []string{}, []string{fmt.Sprintf("%s/collections/class1/shards/*", SchemaDomain)}},
+		{"No class, single shard", "", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/*/shards/shard1", SchemaDomain)}},
+		{"Class, single shard", "class1", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/class1/shards/shard1", SchemaDomain)}},
+		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{fmt.Sprintf("%s/collections/class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/class1/shards/shard2", SchemaDomain)}},
+		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{fmt.Sprintf("%s/collections/class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/class1/shards/*", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -113,14 +114,14 @@ func TestObjects(t *testing.T) {
 		id       strfmt.UUID
 		expected string
 	}{
-		{"No class, no shard, no id", "", "", "", "data/collections/*/shards/*/objects/*"},
-		{"Class, no shard, no id", "class1", "", "", "data/collections/class1/shards/*/objects/*"},
-		{"No class, shard, no id", "", "shard1", "", "data/collections/*/shards/shard1/objects/*"},
-		{"No class, no shard, id", "", "", "id1", "data/collections/*/shards/*/objects/id1"},
-		{"Class, shard, no id", "class1", "shard1", "", "data/collections/class1/shards/shard1/objects/*"},
-		{"Class, no shard, id", "class1", "", "id1", "data/collections/class1/shards/*/objects/id1"},
-		{"No class, shard, id", "", "shard1", "id1", "data/collections/*/shards/shard1/objects/id1"},
-		{"Class, shard, id", "class1", "shard1", "id1", "data/collections/class1/shards/shard1/objects/id1"},
+		{"No class, no shard, no id", "", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
+		{"Class, no shard, no id", "class1", "", "", fmt.Sprintf("%s/collections/class1/shards/*/objects/*", DataDomain)},
+		{"No class, shard, no id", "", "shard1", "", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
+		{"No class, no shard, id", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/id1", DataDomain)},
+		{"Class, shard, no id", "class1", "shard1", "", fmt.Sprintf("%s/collections/class1/shards/shard1/objects/*", DataDomain)},
+		{"Class, no shard, id", "class1", "", "id1", fmt.Sprintf("%s/collections/class1/shards/*/objects/id1", DataDomain)},
+		{"No class, shard, id", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/id1", DataDomain)},
+		{"Class, shard, id", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/class1/shards/shard1/objects/id1", DataDomain)},
 	}
 
 	for _, tt := range tests {
