@@ -79,8 +79,8 @@ func TestAuthZBackups(t *testing.T) {
 			Permissions: []*models.Permission{
 				{Action: String(authorization.ReadSchema), Collection: String(clsA.Class)},
 				{Action: String(authorization.CreateSchema), Collection: String(clsA.Class)},
-				{Action: String(authorization.ReadObjectsCollection), Collection: String(clsA.Class)},
-				{Action: String(authorization.CreateObjectsCollection), Collection: String(clsA.Class)},
+				{Action: String(authorization.ReadData), Collection: String(clsA.Class)},
+				{Action: String(authorization.CreateData), Collection: String(clsA.Class)},
 			},
 		})
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
