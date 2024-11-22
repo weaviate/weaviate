@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/journey"
@@ -103,6 +104,11 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode+overrideBucket, nil, override, overrideBucket, overridePath)
+		})
+
+		t.Run("cancel after restart", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviate().URI())
+			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstggcs.Name)
 		})
 	})
 
