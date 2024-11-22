@@ -58,17 +58,31 @@ func CreateBackupWithAuthz(t *testing.T, cfg *models.BackupConfig, className, ba
 	return Client(t).Backups.BackupsCreate(params, authInfo)
 }
 
-func ListBackup(t *testing.T, className, backend string) (*backups.BackupsListOK, error) {
+func ListBackup(t *testing.T, backend string) (*backups.BackupsListOK, error) {
 	params := backups.NewBackupsListParams().
 		WithBackend(backend)
 	return Client(t).Backups.BackupsList(params, nil)
 }
 
-func CancelBackup(t *testing.T, className, backend, backupID string) error {
+func ListBackupsWithAuthz(t *testing.T, backend string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsListOK, error) {
+	params := backups.NewBackupsListParams().
+		WithBackend(backend)
+	return Client(t).Backups.BackupsList(params, authInfo)
+}
+
+func CancelBackup(t *testing.T, backend, backupID string) error {
 	params := backups.NewBackupsCancelParams().
 		WithBackend(backend).
 		WithID(backupID)
 	_, err := Client(t).Backups.BackupsCancel(params, nil)
+	return err
+}
+
+func CancelBackupWithAuthz(t *testing.T, backend, backupID string, authInfo runtime.ClientAuthInfoWriter) error {
+	params := backups.NewBackupsCancelParams().
+		WithBackend(backend).
+		WithID(backupID)
+	_, err := Client(t).Backups.BackupsCancel(params, authInfo)
 	return err
 }
 

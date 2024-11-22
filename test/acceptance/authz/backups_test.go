@@ -102,8 +102,24 @@ func TestAuthZBackups(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
+	t.Run("fail to list backups due to missing read_backups action", func(t *testing.T) {
+		_, err := helper.ListBackupsWithAuthz(t, backend, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsListForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("fail to cancel a backup due to missing manage_backups action", func(t *testing.T) {
+		err := helper.CancelBackupWithAuthz(t, backend, backupID, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsCancelForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
 	t.Run("add manage all backups permission to role", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithBackend(backend).WithBackupID(backupID).Permission())
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithBackend(backend).WithBackupID("*").Permission())
 	})
 
 	t.Run("successfully create a backup with sufficient permissions", func(t *testing.T) {
@@ -112,9 +128,7 @@ func TestAuthZBackups(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "STARTED", *resp.Payload.Status)
 		require.Equal(t, "", resp.Payload.Error)
-	})
 
-	t.Run("wait for backup create to finish", func(t *testing.T) {
 		for {
 			resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
 			require.Nil(t, err)
@@ -139,14 +153,36 @@ func TestAuthZBackups(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "STARTED", *resp.Payload.Status)
 		require.Equal(t, "", resp.Payload.Error)
-	})
 
-	t.Run("wait for backup restore to finish", func(t *testing.T) {
 		for {
 			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
 			require.Nil(t, err)
 			require.NotNil(t, resp.Payload)
 			if *resp.Payload.Status == "SUCCESS" {
+				break
+			}
+			if *resp.Payload.Status == "FAILED" {
+				t.Fatalf("backup failed: %s", resp.Payload.Error)
+			}
+			time.Sleep(time.Second / 10)
+		}
+	})
+
+	t.Run("successfully cancel an in-progress backup", func(t *testing.T) {
+		backupID = "backup-2"
+		resp, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.Equal(t, "STARTED", *resp.Payload.Status)
+
+		err = helper.CancelBackupWithAuthz(t, backend, backupID, helper.CreateAuth(customKey))
+		require.Nil(t, err)
+
+		for {
+			resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
+			require.Nil(t, err)
+			require.NotNil(t, resp.Payload)
+			if *resp.Payload.Status == "CANCELED" {
 				break
 			}
 			if *resp.Payload.Status == "FAILED" {
