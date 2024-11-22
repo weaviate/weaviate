@@ -195,10 +195,12 @@ func (s *Searcher) VectorSearch(ctx context.Context, params dto.GetParams, targe
 		params.Pagination.Limit = len(res)
 	}
 
-	return s.ResolveReferences(ctx,
-		storobj.SearchResultsWithDists(s.getStoreObjects(res, params.Pagination),
-			params.AdditionalProperties, s.getDists(dists, params.Pagination)),
-		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+	return storobj.SearchResultsWithDistsAndTenant(res, params.AdditionalProperties, s.getDists(dists, params.Pagination), params.Tenant), nil
+
+	// return s.ResolveReferences(ctx,
+	// 	storobj.SearchResultsWithDists(s.getStoreObjects(res, params.Pagination),
+	// 		params.AdditionalProperties, s.getDists(dists, params.Pagination)),
+	// 	params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
 func (s *Searcher) CrossClassVectorSearch(

@@ -111,11 +111,15 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 	path := path.Join(t.schemaPrefix, collection)
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
+	fmt.Println("making request to", u)
+
 	resp, err := t.client.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	fmt.Println("return status code", resp.StatusCode)
 
 	if resp.StatusCode/100 != 2 {
 		var (

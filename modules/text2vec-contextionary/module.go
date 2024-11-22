@@ -13,7 +13,6 @@ package modcontextionary
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -187,7 +186,6 @@ func (m *ContextionaryModule) initVectorizer() error {
 
 func (m *ContextionaryModule) initGraphqlProvider() error {
 	m.graphqlProvider = text2vecneartext.New(m.nearTextTransformer)
-	fmt.Println("debug!! init graphql provider", m.graphqlProvider)
 	return nil
 }
 
@@ -252,7 +250,6 @@ func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
 }
 
 func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	fmt.Println("debug!!! graphqlprovider", m.graphqlProvider)
 	return m.graphqlProvider.Arguments()
 }
 

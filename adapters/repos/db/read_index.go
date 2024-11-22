@@ -1,9 +1,12 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -90,7 +93,6 @@ func (r *ReadIndex) initStore(ctx context.Context, tenant string) (*lsmkv.Store,
 	if err != nil {
 		return nil, err
 	}
-	r.stores[tenant] = store
 
 	// init index
 	bq := flatent.CompressionUserConfig{
@@ -117,17 +119,27 @@ func (r *ReadIndex) initStore(ctx context.Context, tenant string) (*lsmkv.Store,
 		return nil, err
 	}
 
-	// // init properties
-	// class, err := r.schema.Collection(ctx, r.collection)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	// init properties
+	rs := []rune(r.collection)
+	rs[0] = unicode.ToUpper(rs[0])
+	cs := string(rs)
 
-	// for _, prop := range class.Properties {
-	// 	if err := store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name), opts...); err != nil {
-	// 		return nil, err
-	// 	}
-	// }
+	class, err := r.schema.Collection(ctx, cs)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get collection during init store")
+	}
+
+	opts = []lsmkv.BucketOption{
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+	}
+
+	for _, prop := range class.Properties {
+		if err := store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name), opts...); err != nil {
+			return nil, errors.Wrap(err, "failed to load bucket for properties")
+		}
+	}
+
+	r.stores[tenant] = store
 
 	return store, nil
 }
@@ -220,8 +232,10 @@ func (r *ReadIndex) ObjectVectorSearch(
 	}
 
 	if limit < 0 {
+		fmt.Println("vector search distance")
 		ids, dist, err = r.index.SearchByVectorDistance(ctx, search[0], distance, 1000, nil)
 	} else {
+		fmt.Println("vector search")
 		ids, dist, err = r.index.SearchByVector(ctx, search[0], limit, nil)
 	}
 
@@ -232,10 +246,31 @@ func (r *ReadIndex) ObjectVectorSearch(
 	fmt.Println("Am i here??", "ids", ids)
 
 	bucket := s.Bucket(helpers.ObjectsBucketLSM)
-	fmt.Println("debug!! properties asked", properties)
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional, properties, r.log)
-	if err != nil {
-		return nil, nil, err
+	fmt.Println("debug!! properties asked", properties, "bkt.dir", bucket.GetDir(), "bkt.RootDir", bucket.GetRootDir())
+
+	// NOTE(kavi): Using `ObjectsByDocID` somehow not fetching the properties.
+	// objs, err := storobj.ObjectsByDocID(bucket, ids, additional, properties, r.log)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+
+	objs := make([]*storobj.Object, 0)
+
+	for _, id := range ids {
+		key, err := indexDocIDToLSMKey(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		objB, err := bucket.GetBySecondary(0, key)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get object from store: %w", err)
+		}
+		obj, err := storobj.FromBinary(objB)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		objs = append(objs, obj)
 	}
 
 	return objs, dist, nil
@@ -367,4 +402,15 @@ func (r *ReadIndex) sortedObjectList(ctx context.Context, limit int, sort []filt
 		return nil, errors.Wrap(err, "sort object list")
 	}
 	return docIDs, nil
+}
+
+func indexDocIDToLSMKey(x uint64) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+
+	err := binary.Write(buf, binary.LittleEndian, x)
+	if err != nil {
+		return nil, fmt.Errorf("serialize int value as big endian: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
