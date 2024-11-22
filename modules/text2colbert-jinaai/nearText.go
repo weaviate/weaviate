@@ -17,7 +17,8 @@ import (
 )
 
 func (m *JinaAIModule) initNearText() error {
-	m.searcher = nearText.NewSearcher(m.vectorizer)
+	// TODO: add support for generic searcher
+	// m.searcher = nearText.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }

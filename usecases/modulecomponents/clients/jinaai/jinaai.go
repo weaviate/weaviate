@@ -25,8 +25,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -66,14 +66,14 @@ type jinaErrorDetail struct {
 	Detail string `json:"detail,omitempty"` // in case of error detail holds the error message
 }
 
-type embedding[T types.Vector] struct {
+type embedding[T types.Embedding] struct {
 	jinaErrorDetail
 	Object string                  `json:"object"`
 	Data   []embeddingData[T]      `json:"data,omitempty"`
 	Usage  *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
-type embeddingData[T types.Vector] struct {
+type embeddingData[T types.Embedding] struct {
 	Object    string `json:"object"`
 	Index     int    `json:"index"`
 	Embedding T      `json:"embedding"`
@@ -93,7 +93,7 @@ func buildUrl(settings Settings) (string, error) {
 	return url.JoinPath(host, path)
 }
 
-type Client[T types.Vector] struct {
+type Client[T types.Embedding] struct {
 	jinaAIApiKey string
 	httpClient   *http.Client
 	buildUrlFn   func(settings Settings) (string, error)
@@ -102,7 +102,7 @@ type Client[T types.Vector] struct {
 	logger       logrus.FieldLogger
 }
 
-func New[T types.Vector](jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client[T] {
+func New[T types.Embedding](jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client[T] {
 	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
