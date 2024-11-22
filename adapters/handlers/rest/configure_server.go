@@ -15,7 +15,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -110,17 +108,10 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State) error {
+func configureAuthorizer(appState *state.State, authorizer authorization.Authorizer) error {
+	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 	if appState.ServerConfig.Config.EnableRBACEnforcer {
-		rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
-		casbin, err := rbac.Init(appState.ServerConfig.Config.Authentication.APIKey, rbacStoragePath)
-		if err != nil {
-			return err
-		}
-
-		rbacController := rbac.New(casbin, appState.Logger)
-		appState.Authorizer = rbacController
-		appState.AuthzController = rbacController
+		appState.Authorizer = authorizer
 		return nil
 	}
 
