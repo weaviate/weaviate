@@ -340,7 +340,7 @@ func Test_permission(t *testing.T) {
 	}{
 		{
 			name:   "all users",
-			policy: []string{"p", "meta/users/*", "", "users"},
+			policy: []string{"p", "users/*", "", "users"},
 			permission: &models.Permission{
 				User: authorization.All,
 			},
@@ -348,7 +348,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "meta/users/user1", "", "users"},
+			policy: []string{"p", "users/user1", "", "users"},
 			permission: &models.Permission{
 				User: authorization.String("user1"),
 			},
@@ -356,7 +356,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all roles",
-			policy: []string{"p", "meta/roles/*", "", "roles"},
+			policy: []string{"p", "roles/*", "", "roles"},
 			permission: &models.Permission{
 				Role: authorization.All,
 			},
@@ -364,7 +364,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a role",
-			policy: []string{"p", "meta/roles/admin", "", "roles"},
+			policy: []string{"p", "roles/admin", "", "roles"},
 			permission: &models.Permission{
 				Role: authorization.String("admin"),
 			},
@@ -372,13 +372,13 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:       "cluster",
-			policy:     []string{"p", "meta/cluster/*", "", "cluster"},
+			policy:     []string{"p", "cluster/*", "", "cluster"},
 			permission: &models.Permission{},
 			tests:      clusterTests,
 		},
 		{
 			name:   "all collections",
-			policy: []string{"p", "meta/collections/*/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/*/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: authorization.All,
 				Tenant:     authorization.All,
@@ -387,7 +387,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a collection",
-			policy: []string{"p", "meta/collections/Foo/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/Foo/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -396,7 +396,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all tenants in all collections",
-			policy: []string{"p", "meta/collections/*/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/*/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: authorization.All,
 				Tenant:     authorization.All,
@@ -405,7 +405,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all tenants in a collection",
-			policy: []string{"p", "meta/collections/Foo/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/Foo/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -414,7 +414,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a tenant in all collections",
-			policy: []string{"p", "meta/collections/*/shards/bar", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/*/shards/bar", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: authorization.All,
 				Tenant:     bar,
@@ -423,7 +423,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a tenant in a collection",
-			policy: []string{"p", "meta/collections/Foo/shards/bar", "", authorization.SchemaDomain},
+			policy: []string{"p", "schema/collections/Foo/shards/bar", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     bar,
@@ -568,9 +568,9 @@ func Test_pUsers(t *testing.T) {
 		user     string
 		expected string
 	}{
-		{user: "", expected: "meta/users/.*"},
-		{user: "*", expected: "meta/users/.*"},
-		{user: "foo", expected: "meta/users/foo"},
+		{user: "", expected: "users/.*"},
+		{user: "*", expected: "users/.*"},
+		{user: "foo", expected: "users/foo"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("user: %s", tt.user)
@@ -586,9 +586,9 @@ func Test_pRoles(t *testing.T) {
 		role     string
 		expected string
 	}{
-		{role: "", expected: "meta/roles/.*"},
-		{role: "*", expected: "meta/roles/.*"},
-		{role: "foo", expected: "meta/roles/foo"},
+		{role: "", expected: "roles/.*"},
+		{role: "*", expected: "roles/.*"},
+		{role: "foo", expected: "roles/foo"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("role: %s", tt.role)
@@ -604,9 +604,9 @@ func Test_pCollections(t *testing.T) {
 		collection string
 		expected   string
 	}{
-		{collection: "", expected: "meta/collections/.*/shards/.*"},
-		{collection: "*", expected: "meta/collections/.*/shards/.*"},
-		{collection: "foo", expected: "meta/collections/foo/shards/.*"},
+		{collection: "", expected: "schema/collections/.*/shards/.*"},
+		{collection: "*", expected: "schema/collections/.*/shards/.*"},
+		{collection: "foo", expected: "schema/collections/foo/shards/.*"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
@@ -623,13 +623,13 @@ func Test_CasbinShards(t *testing.T) {
 		shard      string
 		expected   string
 	}{
-		{collection: "", shard: "", expected: "meta/collections/.*/shards/.*"},
-		{collection: "*", shard: "*", expected: "meta/collections/.*/shards/.*"},
-		{collection: "foo", shard: "", expected: "meta/collections/foo/shards/.*"},
-		{collection: "foo", shard: "*", expected: "meta/collections/foo/shards/.*"},
-		{collection: "", shard: "bar", expected: "meta/collections/.*/shards/bar"},
-		{collection: "*", shard: "bar", expected: "meta/collections/.*/shards/bar"},
-		{collection: "foo", shard: "bar", expected: "meta/collections/foo/shards/bar"},
+		{collection: "", shard: "", expected: "schema/collections/.*/shards/.*"},
+		{collection: "*", shard: "*", expected: "schema/collections/.*/shards/.*"},
+		{collection: "foo", shard: "", expected: "schema/collections/foo/shards/.*"},
+		{collection: "foo", shard: "*", expected: "schema/collections/foo/shards/.*"},
+		{collection: "", shard: "bar", expected: "schema/collections/.*/shards/bar"},
+		{collection: "*", shard: "bar", expected: "schema/collections/.*/shards/bar"},
+		{collection: "foo", shard: "bar", expected: "schema/collections/foo/shards/bar"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
@@ -696,17 +696,17 @@ func TestValidResource(t *testing.T) {
 	}{
 		{
 			name:     "valid resource - users",
-			input:    "meta/users/testUser",
+			input:    "users/testUser",
 			expected: true,
 		},
 		{
 			name:     "valid resource - roles",
-			input:    "meta/roles/testRole",
+			input:    "roles/testRole",
 			expected: true,
 		},
 		{
 			name:     "valid resource - collections",
-			input:    "meta/collections/testCollection",
+			input:    "schema/collections/testCollection",
 			expected: true,
 		},
 		{
