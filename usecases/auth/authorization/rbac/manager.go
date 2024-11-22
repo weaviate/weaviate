@@ -165,6 +165,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 			m.logger.WithFields(logrus.Fields{
 				"action":         "authorize",
 				"user":           principal.Username,
+				"component":      authorization.ComponentName,
 				"resource":       resource,
 				"request_action": verb,
 			}).WithError(err).Error("failed to enforce policy")
@@ -178,6 +179,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 
 		m.logger.WithFields(logrus.Fields{
 			"action":         "authorize",
+			"component":      authorization.ComponentName,
 			"user":           principal.Username,
 			"resources":      prettyPermissionsResources(perm),
 			"request_action": prettyPermissionsActions(perm),
