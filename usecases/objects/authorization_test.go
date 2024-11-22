@@ -220,7 +220,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:      authorization.UPDATE,
+			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
@@ -253,7 +253,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		}
 
 		// exception is public method for GRPC which has its own authorization check
-		for _, method := range allExportedMethods(&BatchManager{}, "DeleteObjectsFromGRPCAfterAuth") {
+		for _, method := range allExportedMethods(&BatchManager{}, "DeleteObjectsFromGRPCAfterAuth", "AddObjectsGRPCAfterAuth") {
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -298,12 +298,18 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 	return
 }
 
-func allExportedMethods(subject interface{}, exception string) []string {
+func allExportedMethods(subject interface{}, exceptions ...string) []string {
 	var methods []string
 	subjectType := reflect.TypeOf(subject)
+methodLoop:
 	for i := 0; i < subjectType.NumMethod(); i++ {
 		name := subjectType.Method(i).Name
-		if name[0] >= 'A' && name[0] <= 'Z' && name != exception {
+		for j := range exceptions {
+			if name == exceptions[j] {
+				continue methodLoop
+			}
+		}
+		if name[0] >= 'A' && name[0] <= 'Z' {
 			methods = append(methods, name)
 		}
 	}
