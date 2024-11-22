@@ -12,7 +12,9 @@
 package conv
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -46,6 +48,20 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 	}
 
 	return policies, nil
+}
+
+func PathToPermission(verb, path string) (*models.Permission, error) {
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid path")
+	}
+
+	domain := parts[0]
+	if domain == "meta" {
+		domain = parts[1]
+	}
+
+	return permission([]string{"", path, verb, domain})
 }
 
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
