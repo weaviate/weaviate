@@ -13,6 +13,7 @@ package conv
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ type innerTest struct {
 }
 
 var (
-	foo = authorization.String("foo") // can be lowercase, will be automatically converted to uppercase in path
+	foo = authorization.String("Foo")
 	bar = authorization.String("bar")
 	baz = authorization.String("baz")
 
@@ -323,6 +324,12 @@ func Test_policy(t *testing.T) {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = authorization.String(ttt.permissionAction)
 				tt.policy.Verb = ttt.policyVerb
+
+				if tt.permission != nil && tt.permission.Collection != nil {
+					// lower it to make sure it's normalized by calling policy func
+					lowerCollectionName := strings.ToLower(*tt.permission.Collection)
+					tt.permission.Collection = &lowerCollectionName
+				}
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
 				require.Equal(t, tt.policy, policy)
@@ -551,14 +558,14 @@ func Test_permission(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt.policy[1] = fmt.Sprintf("%s%s", tt.policy[3], tt.policy[1])
 		for _, ttt := range tt.tests {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = authorization.String(ttt.permissionAction)
-				tt.policy[1] = fmt.Sprintf("%s%s", tt.policy[3], tt.policy[1])
 				tt.policy[2] = ttt.policyVerb
 				permission, err := permission(tt.policy)
-				require.Equal(t, tt.permission, permission)
 				require.Nil(t, err)
+				require.Equal(t, tt.permission, permission)
 			})
 		}
 	}
@@ -648,21 +655,21 @@ func Test_pObjects(t *testing.T) {
 		object     string
 		expected   string
 	}{
-		{collection: "", shard: "", object: "", expected: "data/collections/.*/shards/.*/objects/.*"},
-		{collection: "*", shard: "*", object: "*", expected: "data/collections/.*/shards/.*/objects/.*"},
-		{collection: "foo", shard: "", object: "", expected: "data/collections/foo/shards/.*/objects/.*"},
-		{collection: "foo", shard: "*", object: "*", expected: "data/collections/foo/shards/.*/objects/.*"},
-		{collection: "", shard: "bar", object: "", expected: "data/collections/.*/shards/bar/objects/.*"},
-		{collection: "*", shard: "bar", object: "*", expected: "data/collections/.*/shards/bar/objects/.*"},
-		{collection: "", shard: "", object: "baz", expected: "data/collections/.*/shards/.*/objects/baz"},
-		{collection: "*", shard: "*", object: "baz", expected: "data/collections/.*/shards/.*/objects/baz"},
-		{collection: "foo", shard: "bar", object: "", expected: "data/collections/foo/shards/bar/objects/.*"},
-		{collection: "foo", shard: "bar", object: "*", expected: "data/collections/foo/shards/bar/objects/.*"},
-		{collection: "foo", shard: "", object: "baz", expected: "data/collections/foo/shards/.*/objects/baz"},
-		{collection: "foo", shard: "*", object: "baz", expected: "data/collections/foo/shards/.*/objects/baz"},
-		{collection: "", shard: "bar", object: "baz", expected: "data/collections/.*/shards/bar/objects/baz"},
-		{collection: "*", shard: "bar", object: "baz", expected: "data/collections/.*/shards/bar/objects/baz"},
-		{collection: "foo", shard: "bar", object: "baz", expected: "data/collections/foo/shards/bar/objects/baz"},
+		{collection: "", shard: "", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "*", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "", object: "", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "*", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "*", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
+		{collection: "*", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/baz", authorization.DataDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
@@ -697,22 +704,22 @@ func TestValidResource(t *testing.T) {
 	}{
 		{
 			name:     "valid resource - users",
-			input:    "users/testUser",
+			input:    fmt.Sprintf("%s/testUser", authorization.UsersDomain),
 			expected: true,
 		},
 		{
 			name:     "valid resource - roles",
-			input:    "roles/testRole",
+			input:    fmt.Sprintf("%s/testRole", authorization.RolesDomain),
 			expected: true,
 		},
 		{
 			name:     "valid resource - collections",
-			input:    "schema/collections/testCollection",
+			input:    fmt.Sprintf("%s/collections/testCollection", authorization.SchemaDomain),
 			expected: true,
 		},
 		{
 			name:     "valid resource - objects",
-			input:    "data/collections/testCollection/shards/testShard/objects/testObject",
+			input:    fmt.Sprintf("%s/collections/testCollection/shards/testShard/objects/testObject", authorization.DataDomain),
 			expected: true,
 		},
 		{
