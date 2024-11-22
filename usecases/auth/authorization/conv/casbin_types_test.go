@@ -27,7 +27,7 @@ type innerTest struct {
 }
 
 var (
-	foo = authorization.String("foo")
+	foo = authorization.String("foo") // can be lowercase, will be automatically converted to uppercase in path
 	bar = authorization.String("bar")
 	baz = authorization.String("baz")
 
@@ -144,7 +144,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("foo", ""),
+				Resource: CasbinSchema("Foo", ""),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: collectionsTests,
@@ -164,7 +164,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("foo", "*"),
+				Resource: CasbinSchema("Foo", "*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -187,7 +187,7 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("foo", "bar"),
+				Resource: CasbinSchema("Foo", "bar"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -207,7 +207,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "*", "*"),
+				Resource: CasbinData("Foo", "*", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -230,7 +230,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "*", "baz"),
+				Resource: CasbinData("Foo", "*", "baz"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -241,7 +241,7 @@ func Test_policy(t *testing.T) {
 				Collection: foo,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "*", "*"),
+				Resource: CasbinData("Foo", "*", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -264,7 +264,7 @@ func Test_policy(t *testing.T) {
 				Tenant:     bar,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "bar", "*"),
+				Resource: CasbinData("Foo", "bar", "*"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -287,7 +287,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "*", "baz"),
+				Resource: CasbinData("Foo", "*", "baz"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -312,7 +312,7 @@ func Test_policy(t *testing.T) {
 				Object:     baz,
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinData("foo", "bar", "baz"),
+				Resource: CasbinData("Foo", "bar", "baz"),
 				Domain:   authorization.DataDomain,
 			},
 			tests: objectsDataTests,
@@ -387,7 +387,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a collection",
-			policy: []string{"p", "meta/collections/foo/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "meta/collections/Foo/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -405,7 +405,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all tenants in a collection",
-			policy: []string{"p", "meta/collections/foo/shards/*", "", authorization.SchemaDomain},
+			policy: []string{"p", "meta/collections/Foo/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -423,7 +423,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a tenant in a collection",
-			policy: []string{"p", "meta/collections/foo/shards/bar", "", authorization.SchemaDomain},
+			policy: []string{"p", "meta/collections/Foo/shards/bar", "", authorization.SchemaDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     bar,
@@ -442,7 +442,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all objects in a collection ST",
-			policy: []string{"p", "data/collections/foo/shards/*/objects/*", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/*/objects/*", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -462,7 +462,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "an object in a collection ST",
-			policy: []string{"p", "data/collections/foo/shards/*/objects/baz", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -482,7 +482,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all objects in all tenants in a collection MT",
-			policy: []string{"p", "data/collections/foo/shards/*/objects/*", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/*/objects/*", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -502,7 +502,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "all objects in a tenant in a collection MT",
-			policy: []string{"p", "data/collections/foo/shards/bar/objects/*", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/bar/objects/*", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     bar,
@@ -522,7 +522,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "an object in all tenants in a collection MT",
-			policy: []string{"p", "data/collections/foo/shards/*/objects/baz", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/*/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     authorization.All,
@@ -541,7 +541,7 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "an object in a tenant in a collection MT",
-			policy: []string{"p", "data/collections/foo/shards/bar/objects/baz", "", authorization.DataDomain},
+			policy: []string{"p", "data/collections/Foo/shards/bar/objects/baz", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Collection: foo,
 				Tenant:     bar,
