@@ -6,6 +6,8 @@ from weaviate.rbac.models import RBAC
 from .conftest import _sanitize_role_name
 from _pytest.fixtures import SubRequest
 
+pytestmark = pytest.mark.xdist_group(name="rbac")
+
 
 @pytest.mark.parametrize("to_upper", [True, False])
 def test_rbac_refs(request: SubRequest, to_upper: bool):
