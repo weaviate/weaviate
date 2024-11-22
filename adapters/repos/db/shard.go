@@ -88,8 +88,8 @@ type ShardLike interface {
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateAsyncReplication(ctx context.Context, enabled bool) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
-	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
-	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
+	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
+	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
@@ -113,9 +113,9 @@ type ShardLike interface {
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
-	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) // Check if an object was deleted
-	VectorIndex() VectorIndex                                     // Get the vector index
-	VectorIndexes() map[string]VectorIndex                        // Get the vector indexes
+	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
+	VectorIndex() VectorIndex                                                // Get the vector index
+	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
 	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
@@ -125,8 +125,8 @@ type ShardLike interface {
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
 	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
-	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
-	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
+	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
 	commitReplication(context.Context, string, *shardTransfer) interface{}
@@ -151,7 +151,7 @@ type ShardLike interface {
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
-	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
+	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)

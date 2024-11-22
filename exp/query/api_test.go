@@ -231,7 +231,7 @@ var testSchemaInfo = &mockSchemaInfo{
 	},
 }
 
-func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, []string, uint64, error) {
+func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, []string, int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

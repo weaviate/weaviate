@@ -117,5 +117,5 @@ func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 )
