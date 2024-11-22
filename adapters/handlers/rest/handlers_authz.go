@@ -94,6 +94,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	h.logger.WithFields(logrus.Fields{
 		"action":      "create_role",
+		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    params.Body.Name,
 		"permissions": params.Body.Permissions,
@@ -137,6 +138,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	h.logger.WithFields(logrus.Fields{
 		"action":      "add_permissions",
+		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    params.Body.Name,
 		"permissions": params.Body.Permissions,
@@ -176,6 +178,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 
 	h.logger.WithFields(logrus.Fields{
 		"action":      "remove_permissions",
+		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    params.Body.Name,
 		"permissions": params.Body.Permissions,
@@ -208,8 +211,9 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action": "read_all_roles",
-		"user":   principal.Username,
+		"action":    "read_all_roles",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
 	}).Info("roles requested")
 
 	return authz.NewGetRolesOK().WithPayload(response)
@@ -242,9 +246,10 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":  "read_role",
-		"user":    principal.Username,
-		"role_id": params.ID,
+		"action":    "read_role",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
+		"role_id":   params.ID,
 	}).Info("role requested")
 
 	return authz.NewGetRoleOK().WithPayload(&models.Role{
@@ -271,9 +276,10 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":   "delete_role",
-		"user":     principal.Username,
-		"roleName": params.ID,
+		"action":    "delete_role",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
+		"roleName":  params.ID,
 	}).Info("role deleted")
 
 	return authz.NewDeleteRoleNoContent()
@@ -305,6 +311,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                  "assign_roles",
+		"component":               authorization.ComponentName,
 		"user":                    principal.Username,
 		"user_to_assign_roles_to": params.ID,
 		"roles":                   params.Body.Roles,
@@ -350,6 +357,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
+		"component":             authorization.ComponentName,
 		"user":                  principal.Username,
 		"user_to_get_roles_for": params.ID,
 	}).Info("roles requested")
@@ -373,6 +381,7 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_users_for_role",
+		"component":             authorization.ComponentName,
 		"user":                  principal.Username,
 		"role_to_get_users_for": params.ID,
 	}).Info("users requested")
@@ -406,6 +415,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                  "revoke_roles",
+		"component":               authorization.ComponentName,
 		"user":                    principal.Username,
 		"user_to_assign_roles_to": params.ID,
 		"roles":                   params.Body.Roles,
