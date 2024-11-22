@@ -118,6 +118,22 @@ func TestAuthZBackups(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
+	t.Run("fail to get create backup status due to missing read_backups action", func(t *testing.T) {
+		_, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsCreateStatusForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("fail to get restore backup status due to missing read_backups action", func(t *testing.T) {
+		_, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsRestoreStatusForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
 	t.Run("add manage all backups permission to role", func(t *testing.T) {
 		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithBackend(backend).WithBackupID("*").Permission())
 	})
