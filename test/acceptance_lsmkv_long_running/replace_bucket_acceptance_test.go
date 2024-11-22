@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build manual
+// +build manual
+
 package main
 
 import (
