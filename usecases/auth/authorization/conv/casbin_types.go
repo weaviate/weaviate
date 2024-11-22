@@ -239,8 +239,8 @@ func permission(policy []string) (*models.Permission, error) {
 		// do nothing
 	case authorization.BackupsDomain:
 		permission.Backup = &models.PermissionBackup{
-			Backend:    &splits[2],
-			Collection: &splits[4],
+			Backend:    &splits[1],
+			Collection: &splits[3],
 		}
 	case *authorization.All:
 		permission.Backup = &models.PermissionBackup{
