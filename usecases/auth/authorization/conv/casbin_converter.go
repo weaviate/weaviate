@@ -52,16 +52,11 @@ func PermissionToPolicies(permissions ...*models.Permission) ([]*authorization.P
 
 func PathToPermission(verb, path string) (*models.Permission, error) {
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
+	if len(parts) < 1 {
 		return nil, fmt.Errorf("invalid path")
 	}
 
-	domain := parts[0]
-	if domain == "meta" {
-		domain = parts[1]
-	}
-
-	return permission([]string{"", path, verb, domain})
+	return permission([]string{"", path, verb, parts[0]})
 }
 
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
