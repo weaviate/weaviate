@@ -9,16 +9,18 @@ from weaviate.rbac.models import (
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
+pytestmark = pytest.mark.xdist_group(name="rbac")
 
-def test_rbac_search(request: SubRequest):
+
+def test_rbac_search(request: SubRequest, cleanup_role):
+
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
         name_collection1 = _sanitize_role_name(request.node.name) + "col1"
         name_collection2 = _sanitize_role_name(request.node.name) + "col2"
         client.collections.delete([name_collection1, name_collection2])
-        name_role = _sanitize_role_name(request.node.name) + "role"
-        client.roles.delete(name_role)
+        name_role = cleanup_role  # This role will be cleaned up even if test fails
 
         col1 = client.collections.create(name=name_collection1)
         col1.data.insert({})
