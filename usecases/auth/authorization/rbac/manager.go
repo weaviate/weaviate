@@ -29,7 +29,6 @@ type manager struct {
 }
 
 func New(rbacStoragePath string, apiKeys config.APIKey, logger logrus.FieldLogger) (*manager, error) {
-
 	casbin, err := Init(apiKeys, rbacStoragePath)
 	if err != nil {
 		return nil, err
