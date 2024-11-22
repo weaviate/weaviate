@@ -9,6 +9,8 @@ from weaviate.rbac.models import (
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name
 
+pytestmark = pytest.mark.xdist_group(name="rbac")
+
 
 def test_rbac_search(request: SubRequest):
     with weaviate.connect_to_local(
