@@ -99,3 +99,24 @@ func (p *BackupPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
+
+type CollectionPermission models.Permission
+
+func NewCollectionPermission() *CollectionPermission {
+	return &CollectionPermission{}
+}
+
+func (p *CollectionPermission) WithAction(action string) *CollectionPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *CollectionPermission) WithCollection(collection string) *CollectionPermission {
+	p.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *CollectionPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
