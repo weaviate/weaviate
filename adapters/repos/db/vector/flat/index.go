@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	cache_paged "github.com/weaviate/weaviate/adapters/repos/db/vector/cache/paged"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -67,7 +67,7 @@ type flat struct {
 	pool      *pools
 
 	compression          string
-	bqCache              *cache_paged.PagedLockCache[uint64]
+	bqCache              cache.Cache[uint64]
 	count                uint64
 	concurrentCacheReads int
 }
@@ -104,8 +104,8 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
-		index.bqCache = cache_paged.NewPagedUInt64LockCache(
-			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+		index.bqCache = cache.NewShardedUInt64LockCache(
+			index.getBQVector, uc.VectorCacheMaxObjects, 32, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
 	if err := index.initMetadata(); err != nil {
@@ -556,8 +556,8 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	}
 	all := index.bqCache.Len()
 
-	out := make([][]uint64, index.bqCache.PagedLocks.PageSize)
-	errs := make([]error, index.bqCache.PagedLocks.PageSize)
+	out := make([][]uint64, index.bqCache.PageSize())
+	errs := make([]error, index.bqCache.PageSize())
 
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped

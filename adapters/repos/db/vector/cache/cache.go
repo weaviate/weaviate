@@ -21,6 +21,8 @@ const DefaultDeletionInterval = 3 * time.Second
 type Cache[T any] interface {
 	Get(ctx context.Context, id uint64) ([]T, error)
 	MultiGet(ctx context.Context, ids []uint64) ([][]T, []error)
+	GetAllInCurrentLock(ctx context.Context, id uint64, out [][]T, errs []error) ([][]T, []error, uint64, uint64)
+	PageSize() uint64
 	Len() int32
 	CountVectors() int64
 	Delete(ctx context.Context, id uint64)
