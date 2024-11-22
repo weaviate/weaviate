@@ -114,7 +114,7 @@ func TestAuthZBackups(t *testing.T) {
 		require.Equal(t, "", resp.Payload.Error)
 	})
 
-	t.Run("wait for backup to finish", func(t *testing.T) {
+	t.Run("wait for backup create to finish", func(t *testing.T) {
 		for {
 			resp, err := helper.CreateBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
 			require.Nil(t, err)
@@ -139,5 +139,20 @@ func TestAuthZBackups(t *testing.T) {
 		require.NotNil(t, resp.Payload)
 		require.Equal(t, "STARTED", *resp.Payload.Status)
 		require.Equal(t, "", resp.Payload.Error)
+	})
+
+	t.Run("wait for backup restore to finish", func(t *testing.T) {
+		for {
+			resp, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
+			require.Nil(t, err)
+			require.NotNil(t, resp.Payload)
+			if *resp.Payload.Status == "SUCCESS" {
+				break
+			}
+			if *resp.Payload.Status == "FAILED" {
+				t.Fatalf("backup failed: %s", resp.Payload.Error)
+			}
+			time.Sleep(time.Second / 10)
+		}
 	})
 }

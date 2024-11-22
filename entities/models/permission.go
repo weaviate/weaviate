@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_cluster create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
+	// Enum: [manage_users manage_roles read_roles manage_backups read_backups read_nodes create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
 	Action *string `json:"action"`
 
 	// backup
@@ -77,7 +77,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_backups","read_backups","read_nodes","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

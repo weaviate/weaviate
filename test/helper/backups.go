@@ -122,3 +122,12 @@ func RestoreBackupStatus(t *testing.T, backend, backupID, overrideBucket, overri
 		WithPath(&overridePath)
 	return Client(t).Backups.BackupsRestoreStatus(params, nil)
 }
+
+func RestoreBackupStatusWithAuthz(t *testing.T, backend, backupID, overrideBucket, overridePath string, authInfo runtime.ClientAuthInfoWriter) (*backups.BackupsRestoreStatusOK, error) {
+	params := backups.NewBackupsRestoreStatusParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBucket(&overrideBucket).
+		WithPath(&overridePath)
+	return Client(t).Backups.BackupsRestoreStatus(params, authInfo)
+}
