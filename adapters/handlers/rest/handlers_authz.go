@@ -94,6 +94,7 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 
 	h.logger.WithFields(logrus.Fields{
 		"action":      "create_role",
+		"component":   authorization.ComponentName,
 		"user":        principal.Username,
 		"roleName":    params.Body.Name,
 		"permissions": params.Body.Permissions,
