@@ -33,7 +33,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -53,7 +53,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string, string) (
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
 				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
-			class, err := getClass(obj.Collection, obj.Tenant)
+			class, err := authorizedGetClass(obj.Collection, obj.Tenant)
 			if err != nil {
 				objectErrors[insertCounter] = err
 				continue
