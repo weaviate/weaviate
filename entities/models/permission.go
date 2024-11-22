@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_backups read_backups read_nodes create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
+	// Enum: [manage_users manage_roles read_roles manage_cluster manage_backups read_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
 	Action *string `json:"action"`
 
 	// backup
@@ -77,7 +77,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_backups","read_backups","read_nodes","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","manage_backups","read_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -96,14 +96,14 @@ const (
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
 
+	// PermissionActionManageCluster captures enum value "manage_cluster"
+	PermissionActionManageCluster string = "manage_cluster"
+
 	// PermissionActionManageBackups captures enum value "manage_backups"
 	PermissionActionManageBackups string = "manage_backups"
 
 	// PermissionActionReadBackups captures enum value "read_backups"
 	PermissionActionReadBackups string = "read_backups"
-
-	// PermissionActionReadNodes captures enum value "read_nodes"
-	PermissionActionReadNodes string = "read_nodes"
 
 	// PermissionActionCreateSchema captures enum value "create_schema"
 	PermissionActionCreateSchema string = "create_schema"

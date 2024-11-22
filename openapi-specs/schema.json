@@ -77,10 +77,10 @@
             "manage_roles",
             "read_roles",
             
+            "manage_cluster",
+            
             "manage_backups",
             "read_backups",
-
-            "read_nodes",
 
             "create_schema",
             "read_schema",
