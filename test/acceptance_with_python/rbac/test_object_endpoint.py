@@ -3,7 +3,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, admin_client
+from .conftest import _sanitize_role_name
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
