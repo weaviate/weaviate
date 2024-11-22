@@ -331,11 +331,11 @@ func Backups(backend string, classes ...string) []string {
 		backend = "*"
 	}
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("meta/backups/%s/collections/*", backend)}
+		return []string{fmt.Sprintf("%s/%s/collections/*", BackupsDomain, backend)}
 	}
 	resources := make([]string, len(classes))
 	for idx := range classes {
-		resources[idx] = fmt.Sprintf("meta/backups/%s/collections/%s", backend, classes[idx])
+		resources[idx] = fmt.Sprintf("%s/%s/collections/%s", BackupsDomain, backend, classes[idx])
 	}
 	return resources
 }

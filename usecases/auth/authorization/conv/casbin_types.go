@@ -69,7 +69,7 @@ func CasbinBackups(backend, collection string) string {
 	}
 	backend = strings.ReplaceAll(backend, "*", ".*")
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("meta/backups/%s/collections/%s", backend, collection)
+	return fmt.Sprintf("%s/%s/collections/%s", authorization.BackupsDomain, backend, collection)
 }
 
 func CasbinUsers(user string) string {
