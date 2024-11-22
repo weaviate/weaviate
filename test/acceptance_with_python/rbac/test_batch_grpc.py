@@ -17,12 +17,12 @@ def test_batch_grpc(request: SubRequest, admin_client):
     admin_client.roles.delete(name)
 
     batch_permissions = [
-        RBAC.permissions.collections.objects.create(collection=col1.name),
-        RBAC.permissions.collections.objects.update(collection=col1.name),
-        RBAC.permissions.collections.read(collection=col1.name),
-        RBAC.permissions.collections.objects.create(collection=col2.name),
-        RBAC.permissions.collections.objects.update(collection=col2.name),
-        RBAC.permissions.collections.read(collection=col2.name),
+        RBAC.permissions.data.create(collection=col1.name),
+        RBAC.permissions.data.update(collection=col1.name),
+        RBAC.permissions.config.read(collection=col1.name),
+        RBAC.permissions.data.create(collection=col2.name),
+        RBAC.permissions.data.update(collection=col2.name),
+        RBAC.permissions.config.read(collection=col2.name),
     ]
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
