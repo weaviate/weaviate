@@ -49,9 +49,21 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, shards...)...); err != nil {
 			return nil, err
 		}
-
 	}
 
+	return b.addObjects(ctx, principal, objects, fields, repl)
+}
+
+// AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
+func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+) (BatchObjects, error) {
+	return b.addObjects(ctx, principal, objects, fields, repl)
+}
+
+func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := b.locks.LockConnector()
