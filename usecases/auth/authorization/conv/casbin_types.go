@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -114,6 +116,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 
 	if !validVerb(verb) {
 		return nil, fmt.Errorf("invalid verb: %s", verb)
+	}
+
+	if permission.Collection != nil {
+		*permission.Collection = schema.UppercaseClassName(*permission.Collection)
 	}
 
 	var resource string
