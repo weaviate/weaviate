@@ -24,9 +24,9 @@ func TestUsers(t *testing.T) {
 		users    []string
 		expected []string
 	}{
-		{"No users", []string{}, []string{"meta/users/*"}},
-		{"Single user", []string{"user1"}, []string{"meta/users/user1"}},
-		{"Multiple users", []string{"user1", "user2"}, []string{"meta/users/user1", "meta/users/user2"}},
+		{"No users", []string{}, []string{"users/*"}},
+		{"Single user", []string{"user1"}, []string{"users/user1"}},
+		{"Multiple users", []string{"user1", "user2"}, []string{"users/user1", "users/user2"}},
 	}
 
 	for _, tt := range tests {
@@ -43,9 +43,9 @@ func TestRoles(t *testing.T) {
 		roles    []string
 		expected []string
 	}{
-		{"No roles", []string{}, []string{"meta/roles/*"}},
-		{"Single role", []string{"admin"}, []string{"meta/roles/admin"}},
-		{"Multiple roles", []string{"admin", "user"}, []string{"meta/roles/admin", "meta/roles/user"}},
+		{"No roles", []string{}, []string{"roles/*"}},
+		{"Single role", []string{"admin"}, []string{"roles/admin"}},
+		{"Multiple roles", []string{"admin", "user"}, []string{"roles/admin", "roles/user"}},
 	}
 
 	for _, tt := range tests {
@@ -57,7 +57,7 @@ func TestRoles(t *testing.T) {
 }
 
 func TestCluster(t *testing.T) {
-	expected := "meta/cluster/*"
+	expected := "cluster/*"
 	result := Cluster()
 	assert.Equal(t, expected, result)
 }
@@ -68,10 +68,10 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{"meta/collections/*/shards/*"}},
-		{"Single empty class", []string{""}, []string{"meta/collections/*/shards/*"}},
-		{"Single class", []string{"class1"}, []string{"meta/collections/class1/shards/*"}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{"meta/collections/class1/shards/*", "meta/collections/class2/shards/*"}},
+		{"No classes", []string{}, []string{"schema/collections/*/shards/*"}},
+		{"Single empty class", []string{""}, []string{"schema/collections/*/shards/*"}},
+		{"Single class", []string{"class1"}, []string{"schema/collections/class1/shards/*"}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{"schema/collections/class1/shards/*", "schema/collections/class2/shards/*"}},
 	}
 
 	for _, tt := range tests {
@@ -89,12 +89,12 @@ func TestShards(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no shards", "", []string{}, []string{"meta/collections/*/shards/*"}},
-		{"Class, no shards", "class1", []string{}, []string{"meta/collections/class1/shards/*"}},
-		{"No class, single shard", "", []string{"shard1"}, []string{"meta/collections/*/shards/shard1"}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{"meta/collections/class1/shards/shard1"}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/shard2"}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"meta/collections/class1/shards/shard1", "meta/collections/class1/shards/*"}},
+		{"No class, no shards", "", []string{}, []string{"schema/collections/*/shards/*"}},
+		{"Class, no shards", "class1", []string{}, []string{"schema/collections/class1/shards/*"}},
+		{"No class, single shard", "", []string{"shard1"}, []string{"schema/collections/*/shards/shard1"}},
+		{"Class, single shard", "class1", []string{"shard1"}, []string{"schema/collections/class1/shards/shard1"}},
+		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"schema/collections/class1/shards/shard1", "schema/collections/class1/shards/shard2"}},
+		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"schema/collections/class1/shards/shard1", "schema/collections/class1/shards/*"}},
 	}
 
 	for _, tt := range tests {

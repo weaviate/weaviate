@@ -28,14 +28,14 @@ const (
 )
 
 var resourcePatterns = []string{
-	`^meta/users/.*$`,
-	`^meta/users/[^/]+$`,
-	`^meta/roles/.*$`,
-	`^meta/roles/[^/]+$`,
-	`^meta/cluster/.*$`,
-	`^meta/collections/.*$`,
-	`^meta/collections/[^/]+$`,
-	`^meta/collections/[^/]+/shards/.*$`,
+	`^users/.*$`,
+	`^users/[^/]+$`,
+	`^roles/.*$`,
+	`^roles/[^/]+$`,
+	`^cluster/.*$`,
+	`^schema/collections/.*$`,
+	`^schema/collections/[^/]+$`,
+	`^schema/collections/[^/]+/shards/.*$`,
 	`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
 	`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
 }
@@ -53,7 +53,7 @@ func fromCasbinResource(resource string) string {
 }
 
 func CasbinClusters() string {
-	return "meta/cluster/.*"
+	return "cluster/.*"
 }
 
 func CasbinUsers(user string) string {
@@ -61,7 +61,7 @@ func CasbinUsers(user string) string {
 		user = "*"
 	}
 	user = strings.ReplaceAll(user, "*", ".*")
-	return fmt.Sprintf("meta/users/%s", user)
+	return fmt.Sprintf("users/%s", user)
 }
 
 func CasbinRoles(role string) string {
@@ -69,7 +69,7 @@ func CasbinRoles(role string) string {
 		role = "*"
 	}
 	role = strings.ReplaceAll(role, "*", ".*")
-	return fmt.Sprintf("meta/roles/%s", role)
+	return fmt.Sprintf("roles/%s", role)
 }
 
 func CasbinSchema(collection, shard string) string {
@@ -81,7 +81,7 @@ func CasbinSchema(collection, shard string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/shards/%s", collection, shard)
+	return fmt.Sprintf("schema/collections/%s/shards/%s", collection, shard)
 }
 
 func CasbinData(collection, shard, object string) string {

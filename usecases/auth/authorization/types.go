@@ -127,7 +127,7 @@ type Policy struct {
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
-	return "meta/cluster/*"
+	return "cluster/*"
 }
 
 // Users generates a list of user resource strings based on the provided user names.
@@ -143,13 +143,13 @@ func Cluster() string {
 func Users(users ...string) []string {
 	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
 		return []string{
-			"meta/users/*",
+			"users/*",
 		}
 	}
 
 	resources := make([]string, len(users))
 	for idx := range users {
-		resources[idx] = fmt.Sprintf("meta/users/%s", users[idx])
+		resources[idx] = fmt.Sprintf("users/%s", users[idx])
 	}
 
 	return resources
@@ -168,13 +168,13 @@ func Users(users ...string) []string {
 func Roles(roles ...string) []string {
 	if len(roles) == 0 || (len(roles) == 1 && (roles[0] == "" || roles[0] == "*")) {
 		return []string{
-			"meta/roles/*",
+			"roles/*",
 		}
 	}
 
 	resources := make([]string, len(roles))
 	for idx := range roles {
-		resources[idx] = fmt.Sprintf("meta/roles/%s", roles[idx])
+		resources[idx] = fmt.Sprintf("roles/%s", roles[idx])
 	}
 
 	return resources
@@ -193,15 +193,15 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{"meta/collections/*/shards/*"}
+		return []string{"schema/collections/*/shards/*"}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = "meta/collections/*/shards/*"
+			resources[idx] = "schema/collections/*/shards/*"
 		} else {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*", classes[idx])
+			resources[idx] = fmt.Sprintf("schema/collections/%s/shards/*", classes[idx])
 		}
 	}
 
@@ -242,15 +242,15 @@ func ShardsMetadata(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("meta/collections/%s/shards/*", class)}
+		return []string{fmt.Sprintf("schema/collections/%s/shards/*", class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*", class)
+			resources[idx] = fmt.Sprintf("schema/collections/%s/shards/*", class)
 		} else {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/%s", class, shards[idx])
+			resources[idx] = fmt.Sprintf("schema/collections/%s/shards/%s", class, shards[idx])
 		}
 	}
 
