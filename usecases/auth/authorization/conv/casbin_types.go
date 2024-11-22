@@ -53,7 +53,7 @@ func fromCasbinResource(resource string) string {
 }
 
 func CasbinClusters() string {
-	return "cluster/.*"
+	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
 }
 
 func CasbinUsers(user string) string {
