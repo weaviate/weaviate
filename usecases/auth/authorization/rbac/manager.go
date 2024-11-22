@@ -163,9 +163,10 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
-				"user":     principal.Username,
-				"resource": resource,
-				"action":   verb,
+				"action":         "authorize",
+				"user":           principal.Username,
+				"resource":       resource,
+				"request_action": verb,
 			}).WithError(err).Error("failed to enforce policy")
 			return err
 		}
