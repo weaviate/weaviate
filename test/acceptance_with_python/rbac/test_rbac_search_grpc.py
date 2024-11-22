@@ -32,8 +32,8 @@ def test_rbac_search(request: SubRequest, admin_client):
         admin_client.roles.create(
             name=name_role,
             permissions=[
-                RBAC.permissions.collections.read(collection=col1.name),
-                RBAC.permissions.collections.objects.read(collection=col1.name),
+                RBAC.permissions.config.read(collection=col1.name),
+                RBAC.permissions.data.read(collection=col1.name),
             ],
         )
         admin_client.roles.assign(user="custom-user", roles=name_role)
@@ -73,7 +73,7 @@ def test_rbac_search(request: SubRequest, admin_client):
     ) as client_no_rights:
         admin_client.roles.create(
             name=name_role,
-            permissions=RBAC.permissions.collections.read(
+            permissions=RBAC.permissions.config.read(
                 collection=col2.name,
             ),
         )
@@ -95,7 +95,7 @@ def test_rbac_search(request: SubRequest, admin_client):
     ) as client_no_rights:
         admin_client.roles.create(
             name=name_role,
-            permissions=RBAC.permissions.collections.read(
+            permissions=RBAC.permissions.config.read(
                 collection=col1.name,
             ),
         )
@@ -118,7 +118,7 @@ def test_rbac_search(request: SubRequest, admin_client):
     ) as client_no_rights:
         admin_client.roles.create(
             name=name_role,
-            permissions=RBAC.permissions.collections.objects.read(collection=col1.name),
+            permissions=RBAC.permissions.data.read(collection=col1.name),
         )
         admin_client.roles.assign(user="custom-user", roles=name_role)
 

@@ -27,9 +27,9 @@ def test_rbac_refs(request: SubRequest, admin_client):
     admin_client.roles.delete(role_name)
 
     needed_permissions = [
-        RBAC.permissions.collections.read(collection=target.name),
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.collections.objects.update(collection=source.name),
+        RBAC.permissions.config.read(collection=target.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.update(collection=source.name),
     ]
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
@@ -137,14 +137,14 @@ def test_batch_delete_with_filter(request: SubRequest, admin_client) -> None:
         admin_client.roles.create(
             name=role_name,
             permissions=[
-                RBAC.permissions.collections.read(collection=target.name),
-                RBAC.permissions.collections.read(collection=source.name),
-                RBAC.permissions.collections.objects.delete(collection=target.name),
-                RBAC.permissions.collections.objects.delete(collection=source.name),
-                RBAC.permissions.collections.objects.read(
+                RBAC.permissions.config.read(collection=target.name),
+                RBAC.permissions.config.read(collection=source.name),
+                RBAC.permissions.data.delete(collection=target.name),
+                RBAC.permissions.data.delete(collection=source.name),
+                RBAC.permissions.data.read(
                     collection=target.name,
                 ),
-                RBAC.permissions.collections.objects.read(
+                RBAC.permissions.data.read(
                     collection=source.name,
                 ),
             ],
@@ -179,10 +179,10 @@ def test_batch_delete_with_filter(request: SubRequest, admin_client) -> None:
             admin_client.roles.create(
                 name=role_name,
                 permissions=[
-                    RBAC.permissions.collections.objects.delete(
+                    RBAC.permissions.data.delete(
                         collection=col,
                     ),
-                    RBAC.permissions.collections.read(
+                    RBAC.permissions.config.read(
                         collection=col,
                     ),
                 ],
@@ -243,16 +243,16 @@ def test_search_with_filter_and_return(request: SubRequest, admin_client) -> Non
         admin_client.roles.create(
             name=role_name,
             permissions=[
-                RBAC.permissions.collections.read(
+                RBAC.permissions.config.read(
                     collection=target.name,
                 ),
-                RBAC.permissions.collections.read(
+                RBAC.permissions.config.read(
                     collection=source.name,
                 ),
-                RBAC.permissions.collections.objects.read(
+                RBAC.permissions.data.read(
                     collection=source.name,
                 ),
-                RBAC.permissions.collections.objects.read(
+                RBAC.permissions.data.read(
                     collection=target.name,
                 ),
             ],
@@ -286,7 +286,7 @@ def test_search_with_filter_and_return(request: SubRequest, admin_client) -> Non
         ) as client_no_rights:
             admin_client.roles.create(
                 name=role_name,
-                permissions=RBAC.permissions.collections.read(
+                permissions=RBAC.permissions.config.read(
                     collection=col,
                 ),
             )
@@ -344,8 +344,8 @@ def test_batch_ref(request: SubRequest, admin_client):
 
     # self reference
     self_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.collections.objects.update(collection=source.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.update(collection=source.name),
     ]
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
@@ -389,9 +389,9 @@ def test_batch_ref(request: SubRequest, admin_client):
 
     # ref to one target
     ref1_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.collections.objects.update(collection=source.name),
-        RBAC.permissions.collections.read(collection=target1.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.config.read(collection=target1.name),
     ]
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
@@ -435,10 +435,10 @@ def test_batch_ref(request: SubRequest, admin_client):
 
     # ref to two targets
     ref2_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.collections.objects.update(collection=source.name),
-        RBAC.permissions.collections.read(collection=target1.name),
-        RBAC.permissions.collections.read(collection=target2.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.config.read(collection=target1.name),
+        RBAC.permissions.config.read(collection=target2.name),
     ]
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
