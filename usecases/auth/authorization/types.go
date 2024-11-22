@@ -13,6 +13,7 @@ package authorization
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
@@ -50,7 +51,14 @@ var Actions = map[string]string{
 	DELETE: "delete",
 }
 
-const (
+var (
+	All = String("*")
+
+	ComponentName = "RBAC"
+
+	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
+	// to be added to built in roles
+	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, schema, data
 	ManageRoles   = "manage_roles"
 	ReadRoles     = "read_roles"
 	ManageUsers   = "manage_users"
@@ -65,40 +73,29 @@ const (
 	ReadData   = "read_data"
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
-)
 
-var (
-	All = String("*")
+	availableWeaviateActions = []string{
+		// Roles domain
+		ManageRoles,
+		ReadRoles,
 
-	ComponentName = "RBAC"
+		// Users domain
+		ManageUsers,
 
-	manageAllUsers = &models.Permission{
-		Action: String(ManageUsers),
-		Role:   All,
-	}
-	manageAllRoles = &models.Permission{
-		Action: String(ManageRoles),
-		Role:   All,
-	}
-	manageAllCluster = &models.Permission{
-		Action: String(ManageCluster),
-	}
+		// Cluster domain
+		ManageCluster,
 
-	createAllCollections = &models.Permission{
-		Action:     String(CreateSchema),
-		Collection: All,
-	}
-	readAllCollections = &models.Permission{
-		Action:     String(ReadSchema),
-		Collection: All,
-	}
-	updateAllCollections = &models.Permission{
-		Action:     String(UpdateSchema),
-		Collection: All,
-	}
-	deleteAllCollections = &models.Permission{
-		Action:     String(DeleteSchema),
-		Collection: All,
+		// Schema domain
+		CreateSchema,
+		ReadSchema,
+		UpdateSchema,
+		DeleteSchema,
+
+		// Data domain
+		CreateData,
+		ReadData,
+		UpdateData,
+		DeleteData,
 	}
 )
 
@@ -112,10 +109,14 @@ var (
 		editor: CRU,
 		admin:  CRUD,
 	}
+
+	// viewer : can view everything , roles, users, schema, data
+	// editor : can create/read/update everything , roles, users, schema, data
+	// admin : aka basically super admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
-		viewer: {readAllCollections},
-		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllUsers, manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		viewer: viewerPermissions(),
+		editor: editorPermissions(),
+		admin:  adminPermissions(),
 	}
 )
 
@@ -297,4 +298,56 @@ func Objects(class, shard string, id strfmt.UUID) string {
 
 func String(s string) *string {
 	return &s
+}
+
+func viewerPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+
+		perms = append(perms, &models.Permission{
+			Action:     &action,
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
+}
+
+func editorPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		if strings.ToUpper(action)[0] == DELETE[0] {
+			continue
+		}
+
+		perms = append(perms, &models.Permission{
+			Action:     &action,
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
+}
+func adminPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		perms = append(perms, &models.Permission{
+			Action:     &action,
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
 }
