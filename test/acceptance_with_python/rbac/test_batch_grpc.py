@@ -48,6 +48,7 @@ def test_batch_grpc(request: SubRequest):
                 with client_no_rights.batch.fixed_size() as batch:
                     batch.add_object(collection=col1.name, properties={})
                     batch.add_object(collection=col2.name, properties={})
-                assert len(client_no_rights.batch.failed_objects) == 2
+                # only one permission is missing, so one object will fail
+                assert len(client_no_rights.batch.failed_objects) == 1
                 client.roles.revoke(user="custom-user", roles=name)
                 client.roles.delete(name)

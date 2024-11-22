@@ -308,10 +308,12 @@ func TestGRPCBatchRequest(t *testing.T) {
 			origIndex: map[int]int{0: 0, 1: 3},
 		},
 	}
-
+	getClass := func(class, shard string) (*models.Class, error) {
+		return scheme.GetClass(class), nil
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := BatchFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, scheme.GetClass)
+			out, origIndex, batchErrors := BatchFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {

@@ -33,7 +33,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string) *models.Class) ([]*models.Object, map[int]int, map[int]error) {
+func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -53,8 +53,12 @@ func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string) *models.C
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
 				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
+			class, err := getClass(obj.Collection, obj.Tenant)
+			if err != nil {
+				objectErrors[insertCounter] = err
+				continue
+			}
 			// If class is not in schema, continue as there is no ref to extract
-			class := getClass(obj.Collection)
 			if class != nil {
 				if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
 					objectErrors[i] = err
