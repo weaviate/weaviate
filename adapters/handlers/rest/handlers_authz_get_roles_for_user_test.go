@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -47,7 +46,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		"testRole": policies,
 	}
 
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles("testRole")[0]).Return(nil)
 	controller.On("GetRolesForUser", params.ID).Return(returnedPolices, nil)
 
 	h := &authZHandlers{
@@ -123,7 +122,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "authorization error",
+			name: "authorization error no access to role",
 			params: authz.GetRolesForUserParams{
 				ID: "testUser",
 			},
@@ -139,7 +138,18 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+			returnedPolices := map[string][]authorization.Policy{
+				"testRole": {
+					{
+						Resource: authorization.Collections("ABC")[0],
+						Verb:     authorization.READ,
+						Domain:   authorization.SchemaDomain,
+					},
+				},
+			}
+
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -184,7 +194,6 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRolesForUser", tt.params.ID).Return(nil, tt.getRolesErr)
 
 			h := &authZHandlers{

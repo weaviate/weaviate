@@ -5359,14 +5359,10 @@ func init() {
             "read_schema",
             "update_schema",
             "delete_schema",
-            "create_data_collection_objects",
-            "read_data_collection_objects",
-            "update_data_collection_objects",
-            "delete_data_collection_objects",
-            "create_data_tenant_objects",
-            "read_data_tenant_objects",
-            "update_data_tenant_objects",
-            "delete_data_tenant_objects"
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
         },
         "backup": {
@@ -11941,14 +11937,10 @@ func init() {
             "read_schema",
             "update_schema",
             "delete_schema",
-            "create_data_collection_objects",
-            "read_data_collection_objects",
-            "update_data_collection_objects",
-            "delete_data_collection_objects",
-            "create_data_tenant_objects",
-            "read_data_tenant_objects",
-            "update_data_tenant_objects",
-            "delete_data_tenant_objects"
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
         },
         "backup": {

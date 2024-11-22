@@ -34,13 +34,12 @@ const (
 )
 
 const (
-	UsersDomain              = "users"
-	RolesDomain              = "roles"
-	ClusterDomain            = "cluster"
-	BackupsDomain            = "backups"
-	SchemaDomain             = "schema"
-	ObjectsCollectionsDomain = "data_collection_objects"
-	ObjectsTenantsDomain     = "data_tenant_objects"
+	UsersDomain   = "users"
+	RolesDomain   = "roles"
+	ClusterDomain = "cluster"
+	BackupsDomain = "backups"
+	SchemaDomain  = "schema"
+	DataDomain    = "data"
 )
 
 var Actions = map[string]string{
@@ -67,15 +66,10 @@ const (
 	UpdateSchema = "update_schema"
 	DeleteSchema = "delete_schema"
 
-	CreateObjectsCollection = "create_data_collection_objects"
-	ReadObjectsCollection   = "read_data_collection_objects"
-	UpdateObjectsCollection = "update_data_collection_objects"
-	DeleteObjectsCollection = "delete_data_collection_objects"
-
-	CreateObjectsTenant = "create_data_tenant_objects"
-	ReadObjectsTenant   = "read_data_tenant_objects"
-	UpdateObjectsTenant = "update_data_tenant_objects"
-	DeleteObjectsTenant = "delete_data_tenant_objects"
+	CreateData = "create_data"
+	ReadData   = "read_data"
+	UpdateData = "update_data"
+	DeleteData = "delete_data"
 )
 
 var (

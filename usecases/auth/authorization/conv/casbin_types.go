@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -98,7 +100,7 @@ func CasbinSchema(collection, shard string) string {
 	return fmt.Sprintf("meta/collections/%s/shards/%s", collection, shard)
 }
 
-func CasbinObjects(collection, shard, object string) string {
+func CasbinData(collection, shard, object string) string {
 	if collection == "" {
 		collection = "*"
 	}
@@ -132,6 +134,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		return nil, fmt.Errorf("invalid verb: %s", verb)
 	}
 
+	if permission.Collection != nil {
+		*permission.Collection = schema.UppercaseClassName(*permission.Collection)
+	}
+
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
@@ -158,17 +164,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			tenant = *permission.Tenant
 		}
 		resource = CasbinSchema(collection, tenant)
-	case authorization.ObjectsCollectionsDomain:
-		collection := "*"
-		object := "*"
-		if permission.Collection != nil {
-			collection = *permission.Collection
-		}
-		if permission.Object != nil {
-			object = *permission.Object
-		}
-		resource = CasbinObjects(collection, "*", object)
-	case authorization.ObjectsTenantsDomain:
+	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -181,7 +177,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Object != nil {
 			object = *permission.Object
 		}
-		resource = CasbinObjects(collection, tenant, object)
+		resource = CasbinData(collection, tenant, object)
 	case authorization.BackupsDomain:
 		backend := "*"
 		id := "*"
@@ -231,7 +227,7 @@ func permission(policy []string) (*models.Permission, error) {
 	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
-	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
+	case authorization.DataDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
