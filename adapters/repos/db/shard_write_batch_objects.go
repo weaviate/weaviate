@@ -319,7 +319,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		}
 
 		if shouldGeoIndex {
-			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+			if err := ob.shard.updatePropertySpecificIndices(ctx, object, status); err != nil {
 				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
 				continue
 			}
@@ -434,14 +434,14 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		// ignores deletes.
 		if ob.shard.hasTargetVectors() {
 			if len(object.Vectors) > 0 {
-				if err := ob.shard.updateVectorIndexesIgnoreDelete(object.Vectors, status); err != nil {
+				if err := ob.shard.updateVectorIndexesIgnoreDelete(ctx, object.Vectors, status); err != nil {
 					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 					return
 				}
 			}
 		} else {
 			if object.Vector != nil {
-				if err := ob.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
+				if err := ob.shard.updateVectorIndexIgnoreDelete(ctx, object.Vector, status); err != nil {
 					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 					return
 				}
@@ -449,7 +449,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		}
 	}
 
-	if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+	if err := ob.shard.updatePropertySpecificIndices(ctx, object, status); err != nil {
 		ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), index)
 		return
 	}

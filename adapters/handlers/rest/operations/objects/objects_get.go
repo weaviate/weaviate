@@ -47,7 +47,7 @@ func NewObjectsGet(ctx *middleware.Context, handler ObjectsGetHandler) *ObjectsG
 
 Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.
 
-Lists Objects.
+Get a specific object based on its UUID. Also available as Websocket bus.
 */
 type ObjectsGet struct {
 	Context *middleware.Context

@@ -46,9 +46,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	path := authorization.Objects(cls, id)
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
-		return &Error{path, StatusForbidden, err}
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	m.metrics.MergeObjectInc()
@@ -56,7 +55,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
-		return &Error{path, StatusInternalServerError, err}
+		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)

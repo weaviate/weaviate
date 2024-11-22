@@ -17,15 +17,15 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-type indexChecker struct {
+type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
-func NewIndexChecker(cfg moduletools.ClassConfig) *indexChecker {
-	return &indexChecker{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, true)}
+func NewIndexChecker(cfg moduletools.ClassConfig) *classSettings {
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, true)}
 }
 
-func (ic *indexChecker) Validate(class *models.Class) error {
+func (ic *classSettings) Validate(class *models.Class) error {
 	return ic.BaseClassSettings.ValidateClassSettings()
 }

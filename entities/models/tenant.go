@@ -35,7 +35,7 @@ type Tenant struct {
 	// Enum: [ACTIVE INACTIVE OFFLOADED OFFLOADING ONLOADING HOT COLD FROZEN FREEZING UNFREEZING]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
-	// name of the tenant
+	// The name of the tenant (required).
 	Name string `json:"name,omitempty"`
 }
 

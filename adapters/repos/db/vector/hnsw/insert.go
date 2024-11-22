@@ -95,7 +95,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		h.metrics.InsertVector()
 
 		vector = h.normalizeVec(vector)
-		err := h.addOne(vector, node)
+		err := h.addOne(ctx, vector, node)
 		if err != nil {
 			return err
 		}
@@ -105,7 +105,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
-func (h *hnsw) addOne(vector []float32, node *vertex) error {
+func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
@@ -181,7 +181,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 		distancer, returnFn = h.compressor.NewDistancer(vector)
 		defer returnFn()
 	}
-	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
 		entryPointID, vector, distancer)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
@@ -191,7 +191,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(node, entryPointID, vector, distancer,
+	if err := h.findAndConnectNeighbors(ctx, node, entryPointID, vector, distancer,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
@@ -223,8 +223,8 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	return nil
 }
 
-func (h *hnsw) Add(id uint64, vector []float32) error {
-	return h.AddBatch(context.TODO(), []uint64{id}, [][]float32{vector})
+func (h *hnsw) Add(ctx context.Context, id uint64, vector []float32) error {
+	return h.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {

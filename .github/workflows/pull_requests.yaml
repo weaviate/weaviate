@@ -135,6 +135,7 @@ jobs:
           "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
+          "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
@@ -163,9 +164,34 @@ jobs:
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Modules-On-Demand-Tests-Check:
+    name: modules-on-demand-tests-check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    outputs:
+      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: check
+        name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[api]"* || "$commit_message" == "prepare release"* || "$commit_message" == *"[test]"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
+            echo "run_pipeline=false" >> $GITHUB_OUTPUT
+          fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -199,19 +225,21 @@ jobs:
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
         test: [
+          "--only-module-multi2vec-cohere",
           "--only-module-multi2vec-google",
-          "--only-module-generative-google",
-          "--only-module-text2vec-google",
-          "--only-module-text2vec-aws",
+          "--only-module-generative-anthropic",
           "--only-module-generative-aws",
-          "--only-module-generative-openai",
           "--only-module-generative-cohere",
-          "--only-module-generative-anthropic"
+          "--only-module-generative-google",
+          "--only-module-generative-openai",
+          "--only-module-text2vec-google",
+          "--only-module-text2vec-aws"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -308,7 +336,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-go-client-named-vectors", "--acceptance-lsmkv"]
+        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -355,7 +383,7 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
@@ -462,6 +490,7 @@ jobs:
         if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
@@ -487,4 +516,5 @@ jobs:
         if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh

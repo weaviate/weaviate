@@ -31,13 +31,13 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	return nil, nil, errors.New("OctoAI is permanently shut down")
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	return nil, nil, 0, errors.New("OctoAI is permanently shut down")
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	return nil, errors.New("OctoAI is permanently shut down")
 }
 

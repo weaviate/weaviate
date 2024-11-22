@@ -42,7 +42,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_TENANTS); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.Shards(class)...); err != nil {
 		return 0, err
 	}
 
@@ -139,7 +139,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 	}
 
 	if len(msgs) != 0 {
-		return uco.NewErrInvalidUserInput(strings.Join(msgs, ", "))
+		return uco.NewErrInvalidUserInput("%s", strings.Join(msgs, ", "))
 	}
 	return nil
 }
@@ -150,7 +150,12 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_TENANTS); err != nil {
+	shardNames := make([]string, len(tenants))
+	for idx := range tenants {
+		shardNames[idx] = tenants[idx].Name
+	}
+
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, shardNames...)...); err != nil {
 		return nil, err
 	}
 
@@ -187,14 +192,14 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	return uTenants, err
+	return TenantResponsesToTenants(uTenants), err
 }
 
 // DeleteTenants is used to delete tenants of a class.
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.SCHEMA_TENANTS); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.Shards(class, tenants...)...); err != nil {
 		return err
 	}
 	for i, name := range tenants {
@@ -215,14 +220,14 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Shards(class)...); err != nil {
 		return nil, err
 	}
 	return h.getTenants(class)
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Shards(class)...); err != nil {
 		return nil, err
 	}
 
@@ -276,22 +281,22 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, authorization.GET, authorization.SCHEMA_TENANTS); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Shards(class)...); err != nil {
 		return err
 	}
 
-	var tenants []*models.Tenant
+	var tenantResponses []*models.TenantResponse
 	var err error
 	if consistency {
-		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenantResponses, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
-		tenants, err = h.getTenantsByNames(class, []string{tenant})
+		tenantResponses, err = h.getTenantsByNames(class, []string{tenant})
 	}
 	if err != nil {
 		return err
 	}
-	if len(tenants) == 1 {
+	if len(tenantResponses) == 1 {
 		return nil
 	}
 
@@ -305,22 +310,20 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.TenantResponse, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, 0, len(names))
+	ts := make([]*models.TenantResponse, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
-			ts = append(ts, &models.Tenant{
-				Name:           name,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
-			})
+			physical := ss.Physical[name]
+			ts = append(ts, clusterSchema.MakeTenantWithDataVersion(name, schema.ActivityStatus(physical.Status), physical.BelongsToNodes, physical.DataVersion))
 		}
 		return nil
 	}
@@ -339,4 +342,21 @@ func convertNewTenantNames(status string) string {
 		return models.TenantActivityStatusFROZEN
 	}
 	return status
+}
+
+// tenantResponseToTenant converts a TenantResponse to a Tenant
+func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
+	return &models.Tenant{
+		Name:           tenantResponse.Name,
+		ActivityStatus: tenantResponse.ActivityStatus,
+	}
+}
+
+// TenantResponsesToTenants converts a slice of TenantResponses to a slice of Tenants
+func TenantResponsesToTenants(tenantResponses []*models.TenantResponse) []*models.Tenant {
+	tenants := make([]*models.Tenant, len(tenantResponses))
+	for i, tenantResponse := range tenantResponses {
+		tenants[i] = tenantResponseToTenant(tenantResponse)
+	}
+	return tenants
 }

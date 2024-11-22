@@ -52,9 +52,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 		input.Class = objectRes.Object().Class
 	}
-	path := authorization.Objects(input.Class, input.ID)
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
-		return &Error{path, StatusForbidden, err}
+
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	unlock, err := m.locks.LockSchema()

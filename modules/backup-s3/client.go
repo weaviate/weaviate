@@ -14,17 +14,21 @@ package modstgs3
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -33,9 +37,10 @@ type s3Client struct {
 	config   *clientConfig
 	logger   logrus.FieldLogger
 	dataPath string
+	region   string
 }
 
-func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string) (*s3Client, error) {
+func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket, path string) (*s3Client, error) {
 	region := os.Getenv("AWS_REGION")
 	if len(region) == 0 {
 		region = os.Getenv("AWS_DEFAULT_REGION")
@@ -61,7 +66,21 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &s3Client{client, config, logger, dataPath}, nil
+	return &s3Client{client, config, logger, dataPath, region}, nil
+}
+
+func (s *s3Client) getClient(ctx context.Context) (*minio.Client, error) {
+	xAwsAccessKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-ACCESS-KEY")
+	xAwsSecretKey := modulecomponents.GetValueFromContext(ctx, "X-AWS-SECRET-KEY")
+	xAwsSessionToken := modulecomponents.GetValueFromContext(ctx, "X-AWS-SESSION-TOKEN")
+	if xAwsAccessKey != "" && xAwsSecretKey != "" && xAwsSessionToken != "" {
+		return minio.New(s.config.Endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(xAwsAccessKey, xAwsSecretKey, xAwsSessionToken),
+			Region: s.region,
+			Secure: s.config.UseSSL,
+		})
+	}
+	return s.client, nil
 }
 
 func (s *s3Client) makeObjectName(parts ...string) string {
@@ -69,29 +88,82 @@ func (s *s3Client) makeObjectName(parts ...string) string {
 	return path.Join(s.config.BackupPath, base)
 }
 
-func (s *s3Client) HomeDir(backupID string) string {
-	return "s3://" + path.Join(s.config.Bucket,
-		s.makeObjectName(backupID))
-}
+func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
+	remoteBucket := s.config.Bucket
+	remotePath := s.config.BackupPath
 
-func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
-	objectName := s.makeObjectName(backupID, key)
-
-	if err := ctx.Err(); err != nil {
-		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
+	if overridePath != "" {
+		remotePath = path.Join(overridePath)
 	}
 
-	obj, err := s.client.GetObject(ctx, s.config.Bucket, objectName, minio.GetObjectOptions{})
+	if overrideBucket != "" {
+		remoteBucket = overrideBucket
+	}
+
+	return "s3://" + path.Join(remoteBucket, remotePath, s.makeObjectName(backupID))
+}
+
+func (s *s3Client) AllBackups(ctx context.Context,
+) ([]*backup.DistributedBackupDescriptor, error) {
+	var meta []*backup.DistributedBackupDescriptor
+	objectsInfo := s.client.ListObjects(ctx,
+		s.config.Bucket,
+		minio.ListObjectsOptions{
+			Recursive: true,
+		},
+	)
+	for info := range objectsInfo {
+		if strings.Contains(info.Key, ubak.GlobalBackupFile) {
+			obj, err := s.client.GetObject(ctx,
+				s.config.Bucket, info.Key, minio.GetObjectOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("get object %q: %w", info.Key, err)
+			}
+			contents, err := io.ReadAll(obj)
+			if err != nil {
+				return nil, fmt.Errorf("read object %q: %w", info.Key, err)
+			}
+			var desc backup.DistributedBackupDescriptor
+			if err := json.Unmarshal(contents, &desc); err != nil {
+				return nil, fmt.Errorf("unmarshal object %q: %w", info.Key, err)
+			}
+			meta = append(meta, &desc)
+		}
+	}
+	return meta, nil
+}
+
+func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+	client, err := s.getClient(ctx)
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+		return nil, errors.Wrap(err, "get object: failed to get client")
+	}
+	remotePath := s.makeObjectName(backupID, key)
+
+	if overridePath != "" {
+		remotePath = path.Join(overridePath, backupID, key)
+	}
+
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object %s", remotePath))
+	}
+
+	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", remotePath))
 	}
 
 	contents, err := io.ReadAll(obj)
 	if err != nil {
 		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found %s", bucket, remotePath, remotePath))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s %s", bucket, remotePath, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -102,41 +174,30 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte,
 	return contents, nil
 }
 
-func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath string) error {
-	objectName := s.makeObjectName(backupID, key)
-	srcPath = path.Join(s.dataPath, srcPath)
-	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
-
-	_, err := s.client.FPutObject(ctx, s.config.Bucket, objectName, srcPath, opt)
+func (s *s3Client) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
+	client, err := s.getClient(ctx)
 	if err != nil {
-		return backup.NewErrInternal(
-			errors.Wrapf(err, "put file '%s'", objectName))
+		return errors.Wrap(err, "put object: failed to get client")
 	}
 
-	// Get filesize
-	file, err := os.Stat(srcPath)
-	if err != nil {
-		return nil
-	}
-	size := file.Size()
-
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
-	if err == nil {
-		metric.Add(float64(size))
-	}
-	return nil
-}
-
-func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
-	objectName := s.makeObjectName(backupID, key)
+	remotePath := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
 
-	_, err := s.client.PutObject(ctx, s.config.Bucket, objectName, reader, objectSize, opt)
+	if overridePath != "" {
+		remotePath = path.Join(overridePath, backupID, key)
+	}
+
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+
+	_, err = client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object '%s'", objectName))
+			errors.Wrapf(err, "put object: %s:%s", bucket, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -146,16 +207,21 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []b
 	return nil
 }
 
-func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
+func (s *s3Client) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
+	client, err := s.getClient(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get client")
+	}
+
 	key := "access-check"
 
-	if err := s.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	if err := s.PutObject(ctx, backupID, key, overrideBucket, overridePath, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
 	objectName := s.makeObjectName(backupID, key)
 	opt := minio.RemoveObjectOptions{}
-	if err := s.client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
+	if err := client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
 	}
 
@@ -163,11 +229,24 @@ func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 }
 
 // WriteFile downloads contents of an object to a local file destPath
-func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	object := s.makeObjectName(backupID, key)
-	err := s.client.FGetObject(ctx, s.config.Bucket, object, destPath, minio.GetObjectOptions{})
+func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
+	client, err := s.getClient(ctx)
 	if err != nil {
-		return fmt.Errorf("s3.FGetObject %q %q: %w", destPath, object, err)
+		return errors.Wrap(err, "write to file: cannot get client")
+	}
+	remotePath := s.makeObjectName(backupID, key)
+	if overridePath != "" {
+		remotePath = path.Join(overridePath, backupID, key)
+	}
+
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+
+	err = client.FGetObject(ctx, bucket, remotePath, destPath, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("s3.FGetObject %q %q: %w", destPath, remotePath, err)
 	}
 
 	if st, err := os.Stat(destPath); err == nil {
@@ -179,17 +258,30 @@ func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath stri
 	return nil
 }
 
-func (s *s3Client) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
-	path := s.makeObjectName(backupID, key)
+	client, err := s.getClient(ctx)
+	if err != nil {
+		return -1, errors.Wrap(err, "write: cannot get client")
+	}
+	remotePath := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{
 		ContentType:      "application/octet-stream",
 		DisableMultipart: false,
 	}
 
-	info, err := s.client.PutObject(ctx, s.config.Bucket, path, r, -1, opt)
+	if overridePath != "" {
+		remotePath = path.Join(overridePath, backupID, key)
+	}
+
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+
+	info, err := client.PutObject(ctx, bucket, remotePath, r, -1, opt)
 	if err != nil {
-		return info.Size, fmt.Errorf("write object %q", path)
+		return info.Size, fmt.Errorf("write object %q", remotePath)
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
@@ -199,17 +291,31 @@ func (s *s3Client) Write(ctx context.Context, backupID, key string, r io.ReadClo
 	return info.Size, nil
 }
 
-func (s *s3Client) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	path := s.makeObjectName(backupID, key)
-	obj, err := s.client.GetObject(ctx, s.config.Bucket, path, minio.GetObjectOptions{})
+	client, err := s.getClient(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("get object %q: %w", path, err)
+		return -1, errors.Wrap(err, "read: cannot get client")
+	}
+	remotePath := s.makeObjectName(backupID, key)
+
+	if overridePath != "" {
+		remotePath = path.Join(overridePath, backupID, key)
+	}
+
+	bucket := s.config.Bucket
+	if overrideBucket != "" {
+		bucket = overrideBucket
+	}
+
+	obj, err := client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("get object %q: %w", remotePath, err)
 	}
 
 	read, err := io.Copy(w, obj)
 	if err != nil {
-		err = fmt.Errorf("get object %q: %w", path, err)
+		err = fmt.Errorf("get object %q: %w", remotePath, err)
 		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
 			err = backup.NewErrNotFound(err)
 		}

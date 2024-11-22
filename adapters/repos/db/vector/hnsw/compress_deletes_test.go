@@ -41,6 +41,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	vectors_size := 10000
 	queries_size := 100
 	k := 100
+	ctx := context.Background()
 	delete_indices := make([]uint64, 0, 1000)
 	for i := 0; i < 1000; i++ {
 		delete_indices = append(delete_indices, uint64(i+10))
@@ -72,11 +73,10 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
-	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
 	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
-		return index.Add(uint64(id), vectors[id])
+		return index.Add(ctx, uint64(id), vectors[id])
 	}))
 	index.Delete(delete_indices...)
 
@@ -92,7 +92,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.PQ = cfg
 	index.compress(uc)
 	for _, v := range queries {
-		_, _, err := index.SearchByVector(v, k, nil)
+		_, _, err := index.SearchByVector(ctx, v, k, nil)
 		assert.Nil(t, err)
 	}
 }
@@ -103,6 +103,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 	queries_size := 10
 	logger, _ := test.NewNullLogger()
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	ctx := context.Background()
 
 	// set some vectors to nil
 	for i := range vectors {
@@ -143,7 +144,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return vec, nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)
 
@@ -152,7 +153,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return
 		}
 
-		err := index.Add(uint64(id), vectors[id])
+		err := index.Add(ctx, uint64(id), vectors[id])
 		require.Nil(t, err)
 	})
 
@@ -180,7 +181,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return
 		}
 
-		err = index.Add(uint64(id)+start, vectors[id+start])
+		err = index.Add(ctx, uint64(id)+start, vectors[id+start])
 		require.Nil(t, err)
 	})
 }

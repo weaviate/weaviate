@@ -28,50 +28,56 @@ const (
 	_TimeoutShardCommit = 20 * time.Second
 )
 
-type reqStat struct {
-	Starttime time.Time
-	ID        string
-	Status    backup.Status
-	Path      string
+type reqState struct {
+	Starttime      time.Time
+	ID             string
+	Status         backup.Status
+	Path           string
+	OverrideBucket string
+	OverridePath   string
 }
 
 type backupStat struct {
 	sync.Mutex
-	reqStat
+	reqState
 }
 
-func (s *backupStat) get() reqStat {
+func (s *backupStat) get() reqState {
 	s.Lock()
 	defer s.Unlock()
-	return s.reqStat
+	return s.reqState
 }
 
 // renew state if and only it is not in use
 // it returns "" in case of success and current id in case of failure
-func (s *backupStat) renew(id string, path string) string {
+func (s *backupStat) renew(id string, path string, overrideBucket, overridePath string) string {
 	s.Lock()
 	defer s.Unlock()
-	if s.reqStat.ID != "" {
-		return s.reqStat.ID
+	if s.reqState.ID != "" {
+		return s.reqState.ID
 	}
-	s.reqStat.ID = id
-	s.reqStat.Path = path
-	s.reqStat.Starttime = time.Now().UTC()
-	s.reqStat.Status = backup.Started
+	s.reqState.ID = id
+	s.reqState.Path = path
+	s.reqState.OverrideBucket = overrideBucket
+	s.reqState.OverridePath = overridePath
+	s.reqState.Starttime = time.Now().UTC()
+	s.reqState.Status = backup.Started
 	return ""
 }
 
 func (s *backupStat) reset() {
 	s.Lock()
-	s.reqStat.ID = ""
-	s.reqStat.Path = ""
-	s.reqStat.Status = ""
+	s.reqState.ID = ""
+	s.reqState.Path = ""
+	s.reqState.Status = ""
+	s.reqState.OverrideBucket = ""
+	s.reqState.OverridePath = ""
 	s.Unlock()
 }
 
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
-	s.reqStat.Status = st
+	s.reqState.Status = st
 	s.Unlock()
 }
 

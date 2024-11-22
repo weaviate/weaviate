@@ -30,6 +30,7 @@ import (
 )
 
 func TestUnreachablePoints(t *testing.T) {
+	ctx := context.Background()
 	var vectors [][]float32
 	var vectorIndex *hnsw
 
@@ -58,7 +59,7 @@ func TestUnreachablePoints(t *testing.T) {
 			MaxConnections: 0,
 			EFConstruction: 0,
 			EF:             0,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
+		}, cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index
 		groundtruth := [][]uint64{{}, {2}, {}, {1, 2, 3, 4}, {}}
@@ -79,7 +80,7 @@ func TestUnreachablePoints(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.Add(uint64(originalIndex), vec)
+					err := vectorIndex.Add(ctx, uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)

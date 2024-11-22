@@ -39,13 +39,13 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{server.URL})
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -61,7 +61,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(ctxWithValue, time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -77,7 +77,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{server.URL})
 
-		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{})
 
 		require.NotNil(t, err)
@@ -95,13 +95,13 @@ func TestClient(t *testing.T) {
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Databricks-Endpoint", []string{server.URL})
 
-		expected := &modulecomponents.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		res, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.Nil(t, err)
@@ -116,7 +116,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no Databricks token found "+
@@ -132,7 +132,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Token", []string{""})
 
-		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.NotNil(t, err)
@@ -196,7 +196,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue = context.WithValue(ctxWithValue,
 			"X-Databricks-User-Agent", []string{userAgent})
 
-		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.NoError(t, err)

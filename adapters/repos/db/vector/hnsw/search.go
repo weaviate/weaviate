@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -64,16 +67,20 @@ func (h *hnsw) autoEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
+	k int, allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
-		return h.flatSearch(vector, k, h.searchTimeEF(k), allowList)
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
+		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
 	}
-	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
+	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -85,7 +92,8 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 // eventually turned into objects, for example, a Get query. If the caller just
 // needs ids for sake of something like aggregation, a maxLimit of -1 can be
 // passed in to truly obtain all results from the vector index.
-func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
+func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
+	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	var (
@@ -98,7 +106,7 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 	recursiveSearch := func() (bool, error) {
 		shouldContinue := false
 
-		ids, dist, err := h.SearchByVector(vector, searchParams.totalLimit, allowList)
+		ids, dist, err := h.SearchByVector(ctx, vector, searchParams.totalLimit, allowList)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}
@@ -185,10 +193,16 @@ func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
 	return useAcorn, M
 }
 
-func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
+func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
+	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
+	}()
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
@@ -237,6 +251,14 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	}
 
 	for candidates.Len() > 0 {
+		if err := ctx.Err(); err != nil {
+			h.pools.visitedListsLock.RLock()
+			h.pools.visitedLists.Return(visited)
+			h.pools.visitedListsLock.RUnlock()
+
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
+			return nil, err
+		}
 		var dist float32
 		candidate := candidates.Pop()
 		dist = candidate.Dist
@@ -663,7 +685,7 @@ func (s *fastIterator) Next() (uint64, bool) {
 	return index, index < size
 }
 
-func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
+func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
@@ -707,7 +729,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		eps := priorityqueue.NewMin[any](10)
 		eps.Insert(entryPointID, entryPointDistance)
 
-		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, compressorDistancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -767,13 +789,21 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			eps.Insert(entryPoint, entryPointDistance)
 		}
 	}
-	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, compressorDistancer)
+	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
+	beforeRescore := time.Now()
 	if h.shouldRescore() {
-		h.rescore(res, k, compressorDistancer)
+		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
+			took := time.Since(beforeRescore)
+			helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
+			return nil, nil, fmt.Errorf("knn search:  %w", err)
+		}
+		took := time.Since(beforeRescore)
+		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
 	for res.Len() > k {
@@ -821,7 +851,7 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	}
 }
 
-func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) {
+func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
 	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
 			res.Pop()
@@ -835,20 +865,48 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 		i--
 	}
 	res.Reset()
-	for _, id := range ids {
-		dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-		if err == nil {
-			res.Insert(id, dist)
-			if res.Len() > k {
-				res.Pop()
-			}
-		} else {
-			h.logger.
-				WithField("action", "rescore").
-				WithError(err).
-				Warnf("could not rescore node %d", id)
+
+	mu := sync.Mutex{} // protect res
+	addID := func(id uint64, dist float32) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		res.Insert(id, dist)
+		if res.Len() > k {
+			res.Pop()
 		}
 	}
+
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.rescoreConcurrency; workerID++ {
+		workerID := workerID
+
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(ids); idPos += h.rescoreConcurrency {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("rescore: %w", err)
+				}
+
+				id := ids[idPos]
+				dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+				if err == nil {
+					addID(id, dist)
+				} else {
+					h.logger.
+						WithField("action", "rescore").
+						WithError(err).
+						Warnf("could not rescore node %d", id)
+				}
+			}
+			return nil
+		}, h.logger)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {

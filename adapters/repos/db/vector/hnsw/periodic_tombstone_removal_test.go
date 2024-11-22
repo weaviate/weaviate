@@ -27,6 +27,7 @@ import (
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
+	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 	cleanupIntervalSeconds := 1
 	tombstoneCallbacks := cyclemanager.NewCallbackGroup("tombstone", logger, 1)
@@ -45,14 +46,13 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
 		EFConstruction:         128,
-	}, tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, tombstoneCallbacks, testinghelpers.NewDummyStore(t))
 	index.PostStartup()
 
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
-		err := index.Add(uint64(i), vec)
+		err := index.Add(ctx, uint64(i), vec)
 		require.Nil(t, err)
 	}
 

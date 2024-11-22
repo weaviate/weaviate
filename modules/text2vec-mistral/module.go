@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-mistral/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -27,18 +29,28 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-mistral/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-mistral/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-mistral"
+
+var batchSettings = batch.Settings{
+	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+	// using 30% more than the OpenAI model is a rough estimate but seems to work
+	TokenMultiplier:    1.3,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 1000000, // dummy value, there is only a token limit
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 8192 },
+	HasTokenLimit:      true,
+	ReturnsRateLimit:   false,
+}
 
 func New() *MistralModule {
 	return &MistralModule{}
 }
 
 type MistralModule struct {
-	vectorizer                   text2vecbase.TextVectorizerBatch
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -95,7 +107,10 @@ func (m *MistralModule) initVectorizer(ctx context.Context, timeout time.Duratio
 	apiKey := os.Getenv("MISTRAL_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
+	)
 	m.metaProvider = client
 
 	return nil

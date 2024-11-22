@@ -37,6 +37,7 @@ import (
 var logger, _ = test.NewNullLogger()
 
 func TestDynamic(t *testing.T) {
+	ctx := context.Background()
 	currentIndexing := os.Getenv("ASYNC_INDEXING")
 	os.Setenv("ASYNC_INDEXING", "true")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
@@ -73,10 +74,8 @@ func TestDynamic(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk:     TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:       noopCallback,
-		ShardCompactionCallbacks: noopCallback,
-		ShardFlushCallbacks:      noopCallback,
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		TombstoneCallbacks:   noopCallback,
 	}, ent.UserConfig{
 		Threshold: uint64(vectors_size),
 		Distance:  distancer.Type(),
@@ -86,13 +85,13 @@ func TestDynamic(t *testing.T) {
 	assert.Nil(t, err)
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
-		dynamic.Add(i, vectors[i])
+		dynamic.Add(ctx, i, vectors[i])
 	})
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
 	assert.False(t, dynamic.Upgraded())
-	recall1, latency1 := recallAndLatency(queries, k, dynamic, truths)
+	recall1, latency1 := recallAndLatency(ctx, queries, k, dynamic, truths)
 	fmt.Println(recall1, latency1)
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
@@ -103,7 +102,7 @@ func TestDynamic(t *testing.T) {
 	wg.Wait()
 	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
-	recall2, latency2 := recallAndLatency(queries, k, dynamic, truths)
+	recall2, latency2 := recallAndLatency(ctx, queries, k, dynamic, truths)
 	fmt.Println(recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 	assert.True(t, latency1 > latency2)
@@ -127,10 +126,8 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk:     TempVectorForIDThunk(nil),
-		TombstoneCallbacks:       noopCallback,
-		ShardCompactionCallbacks: noopCallback,
-		ShardFlushCallbacks:      noopCallback,
+		TempVectorForIDThunk: TempVectorForIDThunk(nil),
+		TombstoneCallbacks:   noopCallback,
 	}, ent.UserConfig{
 		Threshold: uint64(100),
 		Distance:  distancer.Type(),
@@ -140,7 +137,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	assert.NotNil(t, err)
 }
 
-func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, truths [][]uint64) (float32, float32) {
+func recallAndLatency(ctx context.Context, queries [][]float32, k int, index dynamic.VectorIndex, truths [][]uint64) (float32, float32) {
 	var relevant uint64
 	retrieved := k * len(queries)
 
@@ -148,7 +145,7 @@ func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, tru
 	mutex := &sync.Mutex{}
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
-		results, _, _ := index.SearchByVector(queries[i], k, nil)
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
 		ellapsed := time.Since(before)
 		hits := testinghelpers.MatchesInLists(truths[i], results)
 		mutex.Lock()

@@ -70,7 +70,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 
 	_, err = New(
 		config, uc,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	assert.Nil(t, err)
 }

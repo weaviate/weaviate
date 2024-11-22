@@ -52,9 +52,6 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	if err != nil {
-		return
-	}
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -309,6 +306,13 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
+func GetOneTenant(t *testing.T, class, tenant string) (*schema.TenantsGetOneOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)
+	resp, err := Client(t).Schema.TenantsGetOne(params, nil)
 	return resp, err
 }
 

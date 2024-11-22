@@ -47,7 +47,7 @@ func NewObjectsDelete(ctx *middleware.Context, handler ObjectsDeleteHandler) *Ob
 
 Delete an Object based on its UUID.
 
-Deletes an Object from the system.
+Deletes an object from the database based on its UUID.
 */
 type ObjectsDelete struct {
 	Context *middleware.Context

@@ -28,7 +28,7 @@ import (
 const ObjectsListOKCode int = 200
 
 /*
-ObjectsListOK Successful response.
+ObjectsListOK Successful response. <br/><br/>If `class` is not provided, the response will not include any objects.
 
 swagger:response objectsListOK
 */

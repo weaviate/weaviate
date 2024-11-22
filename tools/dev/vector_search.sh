@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 search_term="${1:required}"
 

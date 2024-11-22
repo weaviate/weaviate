@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/weaviate/weaviate/modules/text2vec-octoai/clients"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
@@ -26,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-octoai/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
@@ -37,7 +38,7 @@ func New() *OctoAIModule {
 }
 
 type OctoAIModule struct {
-	vectorizer                   text2vecbase.TextVectorizerBatch
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -95,7 +96,10 @@ func (m *OctoAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(octoAIApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, m.logger)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batch.Settings{}, logger, m.Name()),
+		batch.ReturnBatchTokenizer(0, m.Name(), false),
+	)
 	m.metaProvider = client
 
 	return nil

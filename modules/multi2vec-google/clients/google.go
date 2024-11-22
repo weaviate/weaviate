@@ -137,7 +137,7 @@ func (v *google) sendRequest(ctx context.Context,
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return 0, embeddingsResponse{}, errors.Wrap(err, "unmarshal response body")
+		return 0, embeddingsResponse{}, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	return res.StatusCode, resBody, nil

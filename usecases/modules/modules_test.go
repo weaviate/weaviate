@@ -18,11 +18,11 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -508,23 +508,27 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overridePath string) string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	return 0, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	return 0, nil
 }
 
@@ -536,14 +540,14 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, overrideBucket, overridePath, filePath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	return nil
 }

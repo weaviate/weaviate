@@ -53,7 +53,12 @@ func (v *dummy) GenerateAllResults(ctx context.Context, textProperties []map[str
 }
 
 func (v *dummy) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	result := "You want me to generate something based on the following prompt: " + prompt + ". I'm sorry, I'm just a dummy and can't generate anything."
+	cls := cfg.ClassByModuleName("generative-dummy")
+	settings := ""
+	for key, val := range cls {
+		settings += fmt.Sprintf("%s=%s,", key, val)
+	}
+	result := "You want me to generate something based on the following prompt: " + prompt + ". With settings: " + settings + ". I'm sorry, I'm just a dummy and can't generate anything."
 	return &modulecapabilities.GenerateResponse{
 		Result: &result,
 	}, nil

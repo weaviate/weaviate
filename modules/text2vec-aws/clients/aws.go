@@ -258,7 +258,7 @@ func (v *awsClient) makeRequest(req *http.Request, delayInSeconds int, maxRetrie
 func (v *awsClient) parseBedrockResponse(bodyBytes []byte, input []string) (*ent.VectorizationResult, error) {
 	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 	if len(resBody.Embedding) == 0 && len(resBody.Embeddings) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
@@ -279,7 +279,7 @@ func (v *awsClient) parseBedrockResponse(bodyBytes []byte, input []string) (*ent
 func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
 	var resBody sagemakerEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {

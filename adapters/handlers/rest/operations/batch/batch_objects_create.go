@@ -54,7 +54,7 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 
 Creates new Objects based on a Object template as a batch.
 
-Register new Objects in bulk. Provided meta-data and schema values are validated.
+Create new objects in bulk. <br/><br/>Meta-data and schema values are validated. <br/><br/>**Note: idempotence of `/batch/objects`**: <br/>`POST /batch/objects` is idempotent, and will overwrite any existing object given the same id.
 */
 type BatchObjectsCreate struct {
 	Context *middleware.Context

@@ -263,7 +263,7 @@ func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := index.Add(ids[i], vectors[i]); err != nil {
+		if err := index.Add(ctx, ids[i], vectors[i]); err != nil {
 			return err
 		}
 	}
@@ -298,7 +298,11 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
-func (index *flat) Add(id uint64, vector []float32) error {
+func (index *flat) Add(ctx context.Context, id uint64, vector []float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	index.trackDimensionsOnce.Do(func() {
 		size := int32(len(vector))
 		atomic.StoreInt32(&index.dims, size)
@@ -363,19 +367,20 @@ func (index *flat) searchTimeRescore(k int) int {
 	return k
 }
 
-func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	switch index.compression {
 	case compressionBQ:
-		return index.searchByVectorBQ(vector, k, allow)
+		return index.searchByVectorBQ(ctx, vector, k, allow)
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
 	default:
-		return index.searchByVector(vector, k, allow)
+		return index.searchByVector(ctx, vector, k, allow)
 	}
 }
 
-func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) searchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// TODO: pass context into inner methods, so it can be checked more granuarly
 	heap := index.pqResults.GetMax(k)
 	defer index.pqResults.Put(heap)
 
@@ -402,7 +407,8 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 	}
 }
 
-func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// TODO: pass context into inner methods, so it can be checked more granuarly
 	rescore := index.searchTimeRescore(k)
 	heap := index.pqResults.GetMax(rescore)
 	defer index.pqResults.Put(heap)
@@ -628,7 +634,9 @@ func (index *flat) normalized(vector []float32) []float32 {
 	return vector
 }
 
-func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
@@ -638,7 +646,7 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 
 	recursiveSearch := func() (bool, error) {
 		totalLimit := searchParams.TotalLimit()
-		ids, dist, err := index.SearchByVector(vector, totalLimit, allow)
+		ids, dist, err := index.SearchByVector(ctx, vector, totalLimit, allow)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

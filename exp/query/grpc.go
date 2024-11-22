@@ -45,7 +45,7 @@ func NewGRPC(api *API, schema SchemaQuerier, log logrus.FieldLogger) *GRPC {
 func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protocol.SearchReply, error) {
 	class, err := g.schema.Collection(ctx, req.Collection)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search: failed to get collection %q: %w", req.Collection, err)
 	}
 
 	getClass := func(name string) *models.Class {
@@ -83,7 +83,6 @@ func requestFromProto(req *protocol.SearchRequest, getClass func(string) *models
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("clause: %+v\n", filter)
 		sr.Filters = &filters.LocalFilter{Root: &filter}
 	}
 	return sr, nil

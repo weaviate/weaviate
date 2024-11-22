@@ -31,7 +31,15 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.OBJECTS)
+	var (
+		class  = "*"
+		tenant = "*"
+	)
+	if object != nil {
+		class = object.Class
+		tenant = object.Tenant
+	}
+	err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +77,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal(err.Error())
+		return nil, NewErrInternal("%v", err)
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
@@ -138,7 +146,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			return "", NewErrInternal(err.Error())
+			return "", NewErrInternal("%v", err)
 		}
 	}
 

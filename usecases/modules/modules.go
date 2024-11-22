@@ -251,13 +251,30 @@ func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilit
 	return i == 1
 }
 
+func (p *Provider) IsGenerative(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Text2TextGenerative
+}
+
+func (p *Provider) IsReranker(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Text2TextReranker
+}
+
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
 		modulecapabilities.Text2MultiVec,
-		modulecapabilities.Ref2Vec:
+		modulecapabilities.Ref2Vec,
+		modulecapabilities.Text2ColBERT:
 		return true
 	default:
 		return false
@@ -994,11 +1011,17 @@ func (p *Provider) HasMultipleVectorizers() bool {
 }
 
 func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	if module := p.GetByName(backend); module != nil {
+	module := p.GetByName(backend)
+	if module != nil {
 		if module.Type() == modulecapabilities.Backup {
-			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
-				return backend, nil
+			module_backend, ok := module.(modulecapabilities.BackupBackend)
+			if ok {
+				return module_backend, nil
+			} else {
+				return nil, errors.Errorf("backup: %s is not a backup backend (actual type: %T)", backend, module)
 			}
+		} else {
+			return nil, errors.Errorf("backup: %s is not a backup backend type", backend)
 		}
 	}
 	return nil, errors.Errorf("backup: %s not found", backend)
@@ -1013,4 +1036,15 @@ func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadClo
 		}
 	}
 	return nil, false
+}
+
+func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	var backends []modulecapabilities.BackupBackend
+	for _, mod := range p.GetAll() {
+		if backend, ok := mod.(modulecapabilities.BackupBackend); ok &&
+			mod.Type() == modulecapabilities.Backup {
+			backends = append(backends, backend)
+		}
+	}
+	return backends
 }

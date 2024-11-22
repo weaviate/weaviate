@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -125,11 +124,6 @@ type Bucket struct {
 	// sum to more than the specified value.
 	maxSegmentSize int64
 
-	// this serves as a hint for the compaction process that a flush is ongoing.
-	// This does synchronize anything, there are the proper locks in place to do
-	// so. However, the hint can help the compaction process to delay an action
-	// without blocking.
-	isFlushing atomic.Bool
 	// optional segments cleanup interval. If set, segments will be cleaned of
 	// redundant obsolete data, that was deleted or updated in newer segments
 	// (currently supported only in buckets of REPLACE strategy)
@@ -195,7 +189,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
-			isFlushing:            &b.isFlushing,
 			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
@@ -356,7 +349,7 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	if time.Since(beforeMemtable) > 100*time.Millisecond {
 		b.logger.WithField("duration", time.Since(beforeMemtable)).
 			WithField("action", "lsm_bucket_get_active_memtable").
-			Warnf("Waited more than 100ms to retrieve object from memtable")
+			Debugf("Waited more than 100ms to retrieve object from memtable")
 	}
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
@@ -647,49 +640,69 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // There are 3 different locations that we need to check for the key
 // in this order: active memtable, flushing memtable, and disk
 // segment
-func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	if !b.keepTombstones {
-		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
-	switch err {
-	case nil:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	case lsmkv.NotFound:
-		// We can still check flushing and disk
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
 
 	if b.flushing != nil {
 		_, err := b.flushing.get(key)
-		switch err {
-		case nil:
-			return false, nil
-		case lsmkv.Deleted:
-			return true, nil
-		case lsmkv.NotFound:
-			// We can still check disk
-		default:
-			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		if err == nil {
+			return false, time.Time{}, nil
 		}
+		if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
 	}
 
 	_, err = b.disk.getErrDeleted(key)
-	switch err {
-	case nil, lsmkv.NotFound:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
 }
 
 type MapListOptionConfig struct {
@@ -853,6 +866,17 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.setTombstone(key, opts...)
+}
+
+func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if !b.keepTombstones {
+		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
+	}
+
+	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not
@@ -1093,11 +1117,6 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
-	if b.isFlushing.Swap(true) {
-		return fmt.Errorf("unexpected concurrent call to flush and switch")
-	}
-	defer b.isFlushing.Store(false)
-
 	before := time.Now()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").

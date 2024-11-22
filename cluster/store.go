@@ -24,6 +24,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadata"
+	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
@@ -106,8 +107,10 @@ type Config struct {
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
 	NodeToAddressResolver  resolver.NodeToAddress
-	Logger                 *logrus.Logger
-	Voter                  bool
+	// NodeSelector is the memberlist interface to RAFT
+	NodeSelector cluster.NodeSelector
+	Logger       *logrus.Logger
+	Voter        bool
 
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
@@ -374,12 +377,12 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			// serialize snapshot
 			b, c, err := schema.LegacySnapshot(st.cfg.NodeID, legacySchema)
 			if err != nil {
-				return fmt.Errorf("create snapshot: %s" + err.Error())
+				return fmt.Errorf("create snapshot: %w", err)
 			}
 			b.Index = st.raft.LastIndex()
 			b.Term = 1
 			if err := st.raft.Restore(b, c, timeout); err != nil {
-				return fmt.Errorf("raft restore: %w" + err.Error())
+				return fmt.Errorf("raft restore: %w", err)
 			}
 			return nil
 		}

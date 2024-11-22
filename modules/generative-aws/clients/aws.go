@@ -260,6 +260,7 @@ func (v *awsClient) sendBedrockRequest(
 	result, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(model),
 		ContentType: aws.String("application/json"),
+		Accept:      aws.String("application/json"),
 		Body:        body,
 	})
 	if err != nil {
@@ -378,19 +379,19 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	var content string
 	var resBodyMap map[string]interface{}
 	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-		return "", errors.Wrap(err, "unmarshal response body")
+		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if v.isCohereCommandRModel(model) {
 		var resBody bedrockCohereCommandRResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Text, nil
 	} else if v.isAnthropicClaude3Model(model) {
 		var resBody bedrockAnthropicClaude3Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Content) > 0 && resBody.Content[0].Text != nil {
 			return *resBody.Content[0].Text, nil
@@ -399,13 +400,13 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isAnthropicModel(model) {
 		var resBody bedrockAnthropicClaudeResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Completion, nil
 	} else if v.isAI21Model(model) {
 		var resBody bedrockAI21Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Completions) > 0 {
 			return resBody.Completions[0].Data.Text, nil
@@ -414,7 +415,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMistralAIModel(model) {
 		var resBody bedrockMistralAIResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		if len(resBody.Outputs) > 0 {
 			return resBody.Outputs[0].Text, nil
@@ -423,14 +424,14 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 	} else if v.isMetaModel(model) {
 		var resBody bedrockMetaResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return "", errors.Wrap(err, "unmarshal response body")
+			return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 		}
 		return resBody.Generation, nil
 	}
 
 	var resBody bedrockGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return "", errors.Wrap(err, "unmarshal response body")
+		return "", errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if len(resBody.Results) == 0 && len(resBody.Generations) == 0 {
@@ -449,7 +450,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte) (s
 func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*modulecapabilities.GenerateResponse, error) {
 	var resBody sagemakerGenerateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {

@@ -26,7 +26,10 @@ import (
 	"strings"
 	"time"
 
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/fgprof"
+	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
@@ -74,7 +77,9 @@ import (
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
+	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
+	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -97,7 +102,6 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
-	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -187,13 +191,13 @@ func calcCPUs(cpuString string) (int, error) {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
-	appState := startupRoutine(ctx, options)
-
 	build.Version = ParseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 
 	// config.ServerVersion is deprecated: It's there to be backward compatible
 	// use build.Version instead.
 	config.ServerVersion = build.Version
+
+	appState := startupRoutine(ctx, options)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.ServerMetrics = monitoring.NewServerMetrics(appState.ServerConfig.Config.Monitoring, prometheus.DefaultRegisterer)
@@ -321,9 +325,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMinActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds:      appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		SegmentsCleanupIntervalSeconds: appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
+		SeparateObjectsCompactions:     appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                 appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		HNSWMaxLogSize:                 appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWWaitForCachePrefill:        appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:      appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		VisitedListPoolMaxSize:         appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                       appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                     appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:            appState.ServerConfig.Config.QueryMaximumResults,
@@ -398,8 +405,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		querierManager := metadata.NewQuerierManager(appState.Logger)
 		metadataServer := metadata.NewServer(
 			appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
-			1024*1024*1024,
-			true,
 			querierManager,
 			appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
 			appState.Logger)
@@ -409,7 +414,34 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		enterrors.GoWrapper(func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if err := metadataServer.Serve(ctx); err != nil {
+			// NOTE this setup code hasn't been cleaned up because there's a good chance we'll
+			// remove the metadata server code entirely in the future, so didn't want to put
+			// time into making it nice and it's hidden behind the metadata server feature flag
+			// anyway
+			listenAddress := appState.ServerConfig.Config.MetadataServer.GrpcListenAddress
+			appState.Logger.WithField(
+				"address", listenAddress,
+			).Info("starting metadata rpc server ...")
+			if listenAddress == "" {
+				appState.Logger.Error("address of rpc server cannot be empty")
+				return
+			}
+
+			// use ListenConfig so we can pass a context to Listen
+			lc := &net.ListenConfig{}
+			listener, err := lc.Listen(ctx, "tcp", listenAddress)
+			if err != nil {
+				appState.Logger.WithError(err).Error("server tcp net.listen")
+				return
+			}
+			var options []grpc.ServerOption
+			options = append(options, grpc.MaxRecvMsgSize(1024*1024*1024))
+			options = append(options,
+				grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+					grpc_sentry.UnaryServerInterceptor(),
+				)))
+
+			if err := metadataServer.Serve(ctx, listener, options); err != nil {
 				appState.Logger.WithError(err).Error("metadata server did not start")
 			}
 		}, appState.Logger)
@@ -458,9 +490,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                     nil,
-		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
 		NodeNameToPortMap:      server2port,
 		NodeToAddressResolver:  appState.Cluster,
+		NodeSelector:           appState.Cluster,
 		Logger:                 appState.Logger,
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
@@ -477,7 +510,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.ClusterService = rCluster.New(appState.Cluster, rConfig)
+	appState.ClusterService = rCluster.New(rConfig)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
 	executor := schema.NewExecutor(migrator,
@@ -660,6 +693,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
+	setupAuthZHandlers(api, appState.Metrics, appState.Authorizer, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -670,16 +704,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
 	setupGraphQLHandlers(api, appState, appState.SchemaManager, appState.ServerConfig.Config.DisableGraphQL,
 		appState.Metrics, appState.Logger)
-	setupMiscHandlers(api, appState.ServerConfig, appState.SchemaManager, appState.Modules,
+	setupMiscHandlers(api, appState.ServerConfig, appState.Modules,
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.Metrics, appState.Logger)
-	backupScheduler := backup.NewScheduler(
-		appState.Authorizer,
-		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
-		membership{appState.Cluster, appState.ClusterService},
-		appState.SchemaManager,
-		appState.Logger)
+	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 
@@ -697,7 +725,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-
+	enterrors.GoWrapper(
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			backupScheduler.CleanupUnfinishedBackups(ctx)
+		}, appState.Logger)
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -732,6 +765,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	startGrpcServer(grpcServer, appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+func startBackupScheduler(appState *state.State) *backup.Scheduler {
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(appState.ClusterHttpClient),
+		appState.DB, appState.Modules,
+		membership{appState.Cluster, appState.ClusterService},
+		appState.SchemaManager,
+		appState.Logger)
+	return backupScheduler
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
@@ -825,22 +869,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 // Defaults to log level info and json format
 func logger() *logrus.Logger {
 	logger := logrus.New()
-	logger.SetFormatter(&WeaviateTextFormatter{
-		build.Revision,
-		build.Version,
-		config.ServerVersion,
-		goruntime.Version(),
-		&logrus.TextFormatter{},
-	})
+	logger.SetFormatter(NewWeaviateTextFormatter())
 
 	if os.Getenv("LOG_FORMAT") != "text" {
-		logger.SetFormatter(&WeaviateJSONFormatter{
-			build.Revision,
-			build.Version,
-			config.ServerVersion,
-			goruntime.Version(),
-			&logrus.JSONFormatter{},
-		})
+		logger.SetFormatter(NewWeaviateJSONFormatter())
 	}
 	switch os.Getenv("LOG_LEVEL") {
 	case "panic":
@@ -885,31 +917,35 @@ func registerModules(appState *state.State) error {
 	// Default modules
 	defaultVectorizers := []string{
 		modtext2vecaws.Name,
+		modmulti2veccohere.Name,
 		modcohere.Name,
 		moddatabricks.Name,
-		modhuggingface.Name,
-		modjinaai.Name,
-		modoctoai.Name,
-		modopenai.Name,
 		modtext2vecgoogle.Name,
 		modmulti2vecgoogle.Name,
+		modhuggingface.Name,
+		modjinaai.Name,
+		modmulti2vecjinaai.Name,
+		modmistral.Name,
+		modtext2vecoctoai.Name,
+		modopenai.Name,
 		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
+		modgenerativeanthropic.Name,
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
 		modgenerativedatabricks.Name,
 		modgenerativefriendliai.Name,
+		modgenerativegoogle.Name,
 		modgenerativemistral.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
-		modgenerativegoogle.Name,
-		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
 		modrerankervoyageai.Name,
+		modrerankerjinaai.Name,
 	}
 
 	defaultModules := append(defaultVectorizers, defaultGenerative...)
@@ -1058,6 +1094,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecgoogle.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2veccohere.Name]; ok {
+		appState.Modules.Register(modmulti2veccohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2veccohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecjinaai.Name]; ok {
+		appState.Modules.Register(modmulti2vecjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecjinaai.Name).
 			Debug("enabled module")
 	}
 

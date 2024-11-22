@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -36,8 +37,8 @@ type RemoteIndexIncomingRepo interface {
 	ReplicateObject(ctx context.Context, shardName, requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
 	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
-	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID) SimpleResponse
-	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
+	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time) SimpleResponse
+	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) SimpleResponse
 	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(shardName, requestID string) interface{}
 	AbortReplication(shardName, requestID string) interface{}
@@ -95,23 +96,23 @@ func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexName,
-	shardName, requestID string, uuid strfmt.UUID, schemaVersion uint64,
+	shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) SimpleResponse {
 	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateDeletion(ctx, shardName, requestID, uuid)
+	return index.ReplicateDeletion(ctx, shardName, requestID, uuid, deletionTime)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
-	shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
+	shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) SimpleResponse {
 	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateDeletions(ctx, shardName, requestID, uuids, dryRun, schemaVersion)
+	return index.ReplicateDeletions(ctx, shardName, requestID, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,

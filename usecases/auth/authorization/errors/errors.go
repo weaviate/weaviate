@@ -22,16 +22,16 @@ import (
 type Forbidden struct {
 	principal *models.Principal
 	verb      string
-	resource  string
+	resources []string
 }
 
 // NewForbidden creates an explicit Forbidden error with details about the
 // principal and the attempted access on a specific resource
-func NewForbidden(principal *models.Principal, verb, resource string) Forbidden {
+func NewForbidden(principal *models.Principal, verb string, resources ...string) Forbidden {
 	return Forbidden{
 		principal: principal,
 		verb:      verb,
-		resource:  resource,
+		resources: resources,
 	}
 }
 
@@ -46,7 +46,7 @@ func (f Forbidden) Error() string {
 	}
 
 	return fmt.Sprintf("forbidden: user '%s'%s has insufficient permissions to %s %s",
-		f.principal.Username, optionalGroups, f.verb, f.resource)
+		f.principal.Username, optionalGroups, f.verb, f.resources)
 }
 
 func wrapInSingleQuotes(input []string) []string {

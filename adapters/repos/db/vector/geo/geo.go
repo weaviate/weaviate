@@ -39,8 +39,8 @@ type Index struct {
 
 // vectorIndex represents the underlying vector index, typically hnsw
 type vectorIndex interface {
-	Add(id uint64, vector []float32) error
-	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
+	Add(ctx context.Context, id uint64, vector []float32) error
+	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
 	Dump(...string)
@@ -58,8 +58,7 @@ type Config struct {
 }
 
 func NewIndex(config Config,
-	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks,
-	compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	commitLogMaintenanceCallbacks, tombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Index, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
@@ -71,7 +70,7 @@ func NewIndex(config Config,
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
-	}, tombstoneCleanupCallbacks, compactionCallbacks, flushCallbacks, nil)
+	}, tombstoneCleanupCallbacks, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}
@@ -110,13 +109,13 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 
 // Add extends the index with the specified GeoCoordinates. It is thread-safe
 // and can be called concurrently.
-func (i *Index) Add(id uint64, coordinates *models.GeoCoordinates) error {
+func (i *Index) Add(ctx context.Context, id uint64, coordinates *models.GeoCoordinates) error {
 	v, err := geoCoordiantesToVector(coordinates)
 	if err != nil {
 		return errors.Wrap(err, "invalid arguments")
 	}
 
-	return i.vectorIndex.Add(id, v)
+	return i.vectorIndex.Add(ctx, id, v)
 }
 
 // WithinGeoRange searches the index by the specified range. It is thread-safe
@@ -133,7 +132,7 @@ func (i *Index) WithinRange(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid arguments")
 	}
 
-	return i.vectorIndex.KnnSearchByVectorMaxDist(query, geoRange.Distance, 800, nil)
+	return i.vectorIndex.KnnSearchByVectorMaxDist(ctx, query, geoRange.Distance, 800, nil)
 }
 
 func (i *Index) Delete(id uint64) error {

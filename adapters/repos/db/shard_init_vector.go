@@ -94,10 +94,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
 					)
 				},
-				AllocChecker:        s.index.allocChecker,
-				WaitForCachePrefill: s.index.Config.HNSWWaitForCachePrefill,
-			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
+				AllocChecker:           s.index.allocChecker,
+				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
@@ -160,9 +161,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
-			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
+			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

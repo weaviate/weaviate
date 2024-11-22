@@ -94,7 +94,7 @@ func (c *Client) validateConfig() error {
 		return nil
 	}
 
-	return fmt.Errorf(strings.Join(msgs, ", "))
+	return fmt.Errorf("%v", strings.Join(msgs, ", "))
 }
 
 // ValidateAndExtract can be used as a middleware for go-swagger
@@ -105,17 +105,17 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 
 	parsed, err := c.verifier.Verify(context.Background(), token)
 	if err != nil {
-		return nil, errors.New(401, err.Error())
+		return nil, errors.New(401, "unauthorized: %v", err)
 	}
 
 	claims, err := c.extractClaims(parsed)
 	if err != nil {
-		return nil, errors.New(500, fmt.Sprintf("oidc: %v", err))
+		return nil, errors.New(500, "oidc: %v", err)
 	}
 
 	username, err := c.extractUsername(claims)
 	if err != nil {
-		return nil, errors.New(500, fmt.Sprintf("oidc: %v", err))
+		return nil, errors.New(500, "oidc: %v", err)
 	}
 
 	groups := c.extractGroups(claims)

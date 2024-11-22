@@ -116,8 +116,8 @@ type IndexQueueOptions struct {
 
 type batchIndexer interface {
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
-	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
+	SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
@@ -541,17 +541,17 @@ func (q *IndexQueue) logStats(vectorsSent int64) {
 
 // SearchByVector performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, -1, k, allowList)
+func (q *IndexQueue) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return q.search(ctx, vector, -1, k, allowList)
 }
 
 // SearchByVectorDistance performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, dist, int(maxLimit), allowList)
+func (q *IndexQueue) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return q.search(ctx, vector, dist, int(maxLimit), allowList)
 }
 
-func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (q *IndexQueue) search(ctx context.Context, vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	start := time.Now()
 	defer q.metrics.Search(start)
 
@@ -562,9 +562,9 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	var distances []float32
 	var err error
 	if dist == -1 {
-		indexedResults, distances, err = q.index.SearchByVector(vector, maxLimit, allowList)
+		indexedResults, distances, err = q.index.SearchByVector(ctx, vector, maxLimit, allowList)
 	} else {
-		indexedResults, distances, err = q.index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
+		indexedResults, distances, err = q.index.SearchByVectorDistance(ctx, vector, dist, int64(maxLimit), allowList)
 	}
 	if err != nil {
 		return nil, nil, err

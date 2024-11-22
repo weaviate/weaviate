@@ -32,19 +32,19 @@ import (
 // swagger:model Property
 type Property struct {
 
-	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
+	// Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.
 	DataType []string `json:"dataType"`
 
 	// Description of the property.
 	Description string `json:"description,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules
+	// Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
+	// (Deprecated). Whether to include this property in the inverted index. If `false`, this property cannot be used in `where` filters, `bm25` or `hybrid` search. <br/><br/>Unrelated to vectorization behavior (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
 	IndexInverted *bool `json:"indexInverted,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.
+	// Whether to include this property in the filterable, range-based Roaring Bitmap index. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.
 	IndexRangeFilters *bool `json:"indexRangeFilters,omitempty"`
 
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
@@ -53,7 +53,7 @@ type Property struct {
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
-	// Name of the property as URI relative to the schema URL.
+	// The name of the property (required). Multiple words should be concatenated in camelCase, e.g. `nameOfAuthor`.
 	Name string `json:"name,omitempty"`
 
 	// The properties of the nested object(s). Applies to object and object[] data types.
