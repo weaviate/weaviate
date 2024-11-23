@@ -551,7 +551,6 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	var vecA []float32
 	var err error
 	vecA, err = h.vectorForID(context.Background(), node)
-
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
