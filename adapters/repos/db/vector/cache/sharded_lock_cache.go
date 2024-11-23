@@ -517,7 +517,6 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 	}
 
 	vec, err := s.multipleVectorForID(ctx, id)
-
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +601,6 @@ func (s *shardedMultipleLockCache) Grow(node uint64) {
 	newVectorDocID := make([]Keys, newSizeVector)
 	copy(newVectorDocID, s.vectorDocID)
 	s.vectorDocID = newVectorDocID
-
 }
 
 func (s *shardedMultipleLockCache) Len() int32 {

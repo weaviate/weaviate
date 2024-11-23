@@ -105,11 +105,9 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 		h.RUnlock()
 
 		for _, id := range vecIDs {
-
 			if err := h.Delete(id); err != nil {
 				return err
 			}
-
 		}
 		h.Lock()
 		delete(h.docIDVectorMap, docID)

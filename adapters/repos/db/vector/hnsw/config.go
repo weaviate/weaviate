@@ -27,18 +27,17 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath                 string
-	ID                       string
-	MakeCommitLoggerThunk    MakeCommitLogger
-	VectorForIDThunk         common.VectorForID[float32]
-	MultipleVectorForIDThunk common.MultipleVectorForID[float32]
-	TempVectorForIDThunk     common.TempVectorForID
-	Logger                   logrus.FieldLogger
-	DistanceProvider         distancer.Provider
-	PrometheusMetrics        *monitoring.PrometheusMetrics
-	AllocChecker             memwatch.AllocChecker
-	WaitForCachePrefill      bool
-	FlatSearchConcurrency    int
+	RootPath              string
+	ID                    string
+	MakeCommitLoggerThunk MakeCommitLogger
+	VectorForIDThunk      common.VectorForID[float32]
+	TempVectorForIDThunk  common.TempVectorForID
+	Logger                logrus.FieldLogger
+	DistanceProvider      distancer.Provider
+	PrometheusMetrics     *monitoring.PrometheusMetrics
+	AllocChecker          memwatch.AllocChecker
+	WaitForCachePrefill   bool
+	FlatSearchConcurrency int
 
 	// metadata for monitoring
 	ShardName string
@@ -62,7 +61,7 @@ func (c Config) Validate() error {
 		ec.Addf("makeCommitLoggerThunk cannot be nil")
 	}
 
-	if c.VectorForIDThunk == nil && c.MultipleVectorForIDThunk == nil {
+	if c.VectorForIDThunk == nil {
 		ec.Addf("vectorForIDThunk and multipleVectorForIDThunk cannot be nil both")
 	}
 
