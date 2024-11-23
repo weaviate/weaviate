@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -54,7 +55,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	defer m.metrics.DeleteObjectDec()
 
 	if class == "" { // deprecated
-		return m.deleteObjectFromRepo(ctx, id)
+		return m.deleteObjectFromRepo(ctx, id, time.UnixMilli(m.timeSource.Now()))
 	}
 
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, class)
@@ -66,7 +67,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	if err := m.schemaManager.WaitForUpdate(ctx, vclasses[class].Version); err != nil {
 		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclasses[class].Version, err)
 	}
-	if err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, vclasses[class].Version); err != nil {
+	if err = m.vectorRepo.DeleteObject(ctx, class, id, time.UnixMilli(m.timeSource.Now()), repl, tenant, vclasses[class].Version); err != nil {
 		var e1 ErrMultiTenancy
 		if errors.As(err, &e1) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
@@ -84,7 +85,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 // deleteObjectFromRepo deletes objects with same id and different classes.
 //
 // Deprecated
-func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) error {
+func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	// There might be a situation to have UUIDs which are not unique across classes.
 	// Added loop in order to delete all of the objects with given UUID across all classes.
 	// This change is added in response to this issue:
@@ -104,7 +105,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "", 0)
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, deletionTime, nil, "", 0)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/clients"
+	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/clients"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
@@ -53,7 +53,7 @@ func New() *JinaAIModule {
 type JinaAIModule struct {
 	// This needs to be changed to [][]float32 but it can't be done right now bc this interface type change
 	// is not possible now with the current implementation. Will change that later in next PR's
-	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
+	vectorizer                   text2vecbase.TextVectorizerBatch[[][]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -132,7 +132,7 @@ func (m *JinaAIModule) RootHandler() http.Handler {
 
 func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
+) ([][]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
@@ -140,7 +140,7 @@ func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 	return true, nil, nil
 }
 
-func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
 	return vecs, nil, errs
 }
@@ -155,14 +155,14 @@ func (m *JinaAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 
 func (m *JinaAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) ([][]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[][]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())

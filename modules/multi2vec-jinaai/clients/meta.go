@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package types
+package clients
 
-// Just a temporary interface, there should be defined one Vector interface
-// in models to define the Vector type
-type Vector interface {
-	[]float32 | [][]float32
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "JinaAI CLIP Module",
+		"documentationHref": "https://jina.ai/embeddings/",
+	}, nil
 }

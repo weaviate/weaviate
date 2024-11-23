@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type builder struct {
@@ -79,8 +79,8 @@ type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
 	texts, images []string, cfg moduletools.ClassConfig,
-) (*ent.VectorizationResult, error) {
-	result := &ent.VectorizationResult{
+) (*modulecomponents.VectorizationCLIPResult[[]float32], error) {
+	result := &modulecomponents.VectorizationCLIPResult[[]float32]{
 		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
 		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
 	}

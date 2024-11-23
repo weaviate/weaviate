@@ -156,9 +156,9 @@ func (m *HuggingFaceModule) VectorizeInput(ctx context.Context,
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

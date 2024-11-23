@@ -85,7 +85,8 @@ func Test_Authorization(t *testing.T) {
 
 		for _, method := range allExportedMethods(&Scheduler{}) {
 			switch method {
-			case "OnCommit", "OnAbort", "OnCanCommit", "OnStatus":
+			case "OnCommit", "OnAbort", "OnCanCommit",
+				"OnStatus", "CleanupUnfinishedBackups":
 				continue
 			}
 			assert.Contains(t, testedMethods, method)
