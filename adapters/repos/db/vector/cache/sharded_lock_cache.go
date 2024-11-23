@@ -13,7 +13,6 @@ package cache
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -343,15 +342,7 @@ func (s *shardedLockCache[T]) CopyMaxSize() int64 {
 	return sizeCopy
 }
 
-func (s *shardedLockCache[T]) GetMultiple(ctx context.Context, id uint64) ([]T, error) {
-	return nil, errors.New("GetMultiple not implemented for shardedLockCache")
-}
-
 func (s *shardedLockCache[T]) PreloadMultiple(id uint64, docID uint64, relativeID uint64, vec []float32) {
-	panic("not implemented")
-}
-
-func (s *shardedLockCache[T]) PrefetchMultiple(id uint64) {
 	panic("not implemented")
 }
 
@@ -380,7 +371,7 @@ type Keys struct {
 type shardedMultipleLockCache struct {
 	shardedLocks        *common.ShardedRWLocks
 	cache               [][][]float32
-	multipleVectorForID common.MultipleVectorForID[float32]
+	multipleVectorForID common.VectorForID[float32]
 	normalizeOnRead     bool
 	maxSize             int64
 	count               int64
@@ -395,7 +386,7 @@ type shardedMultipleLockCache struct {
 	maintenanceLock sync.RWMutex
 }
 
-func NewShardedMultiFloat32LockCache(multipleVecForID common.MultipleVectorForID[float32], maxSize int,
+func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
@@ -450,7 +441,7 @@ func (s *shardedMultipleLockCache) GetKeysNoLock(id uint64) (uint64, uint64) {
 	return keys.DocID, keys.RelativeID
 }
 
-func (s *shardedMultipleLockCache) GetMultiple(ctx context.Context, id uint64) ([]float32, error) {
+func (s *shardedMultipleLockCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	s.shardedLocks.RLock(id)
 	docID, vecID := s.GetKeysNoLock(id)
 	vec := s.cache[docID][vecID]
@@ -463,8 +454,44 @@ func (s *shardedMultipleLockCache) GetMultiple(ctx context.Context, id uint64) (
 	return s.handleMultipleCacheMiss(ctx, id, docID, vecID)
 }
 
-func (s *shardedMultipleLockCache) Delete(ctx context.Context, docID uint64) {
-	panic("not implemented")
+func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
+	out := make([][]float32, len(ids))
+	errs := make([]error, len(ids))
+
+	for i, id := range ids {
+		s.shardedLocks.RLock(id)
+		docID, relativeID := s.GetKeysNoLock(id)
+		vec := s.cache[docID][relativeID]
+		s.shardedLocks.RUnlock(id)
+
+		if vec == nil {
+			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
+			errs[i] = err
+			vec = vecFromDisk
+		}
+
+		out[i] = vec
+	}
+
+	return out, errs
+}
+
+func (s *shardedMultipleLockCache) Delete(ctx context.Context, id uint64) {
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
+
+	if int(id) >= len(s.vectorDocID) {
+		return
+	}
+
+	docID, relativeID := s.GetKeysNoLock(id)
+
+	if s.cache[docID][relativeID] == nil {
+		return
+	}
+
+	s.cache[docID][relativeID] = nil
+	atomic.AddInt64(&s.count, -1)
 }
 
 func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, vecID uint64) ([]float32, error) {
@@ -512,10 +539,6 @@ func (s *shardedMultipleLockCache) UnlockAll() {
 }
 
 func (s *shardedMultipleLockCache) Prefetch(id uint64) {
-	panic("not implemented")
-}
-
-func (s *shardedMultipleLockCache) PrefetchMultiple(id uint64) {
 	s.shardedLocks.RLock(id)
 	docID, _ := s.GetKeysNoLock(id)
 	defer s.shardedLocks.RUnlock(id)
@@ -639,13 +662,5 @@ func (s *shardedMultipleLockCache) UpdateMaxSize(size int64) {
 }
 
 func (s *shardedMultipleLockCache) CopyMaxSize() int64 {
-	panic("not implemented")
-}
-
-func (s *shardedMultipleLockCache) Get(ctx context.Context, vecID uint64) ([]float32, error) {
-	panic("not implemented")
-}
-
-func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
 	panic("not implemented")
 }

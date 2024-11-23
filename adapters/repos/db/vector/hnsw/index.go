@@ -101,7 +101,6 @@ type hnsw struct {
 	nodes []*vertex
 
 	vectorForID          common.VectorForID[float32]
-	multipleVectorForID  common.MultipleVectorForID[float32]
 	TempVectorForIDThunk common.TempVectorForID
 	multiVectorForID     common.MultiVectorForID
 	trackDimensionsOnce  sync.Once
@@ -171,13 +170,12 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock       *sync.RWMutex
-	className                string
-	shardName                string
-	VectorForIDThunk         common.VectorForID[float32]
-	MultipleVectorForIDThunk common.MultipleVectorForID[float32]
-	shardedNodeLocks         *common.ShardedRWLocks
-	store                    *lsmkv.Store
+	compressActionLock *sync.RWMutex
+	className          string
+	shardName          string
+	VectorForIDThunk   common.VectorForID[float32]
+	shardedNodeLocks   *common.ShardedRWLocks
+	store              *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
@@ -245,7 +243,7 @@ func New(cfg Config, uc ent.UserConfig,
 	var vectorCache cache.Cache[float32]
 
 	if uc.Multivector {
-		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultipleVectorForIDThunk, uc.VectorCacheMaxObjects,
+		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
 		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, cfg.Logger,
@@ -268,7 +266,6 @@ func New(cfg Config, uc ent.UserConfig,
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
 		vectorForID:           vectorCache.Get,
-		multipleVectorForID:   vectorCache.GetMultiple,
 		multiVectorForID:      vectorCache.MultiGet,
 		id:                    cfg.ID,
 		rootPath:              cfg.RootPath,
@@ -292,17 +289,16 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:                 rand.Float64,
-		compressActionLock:       &sync.RWMutex{},
-		className:                cfg.ClassName,
-		VectorForIDThunk:         cfg.VectorForIDThunk,
-		MultipleVectorForIDThunk: cfg.MultipleVectorForIDThunk,
-		TempVectorForIDThunk:     cfg.TempVectorForIDThunk,
-		pqConfig:                 uc.PQ,
-		bqConfig:                 uc.BQ,
-		sqConfig:                 uc.SQ,
-		rescoreConcurrency:       2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:         common.NewDefaultShardedRWLocks(),
+		randFunc:             rand.Float64,
+		compressActionLock:   &sync.RWMutex{},
+		className:            cfg.ClassName,
+		VectorForIDThunk:     cfg.VectorForIDThunk,
+		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
+		pqConfig:             uc.PQ,
+		bqConfig:             uc.BQ,
+		sqConfig:             uc.SQ,
+		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
@@ -503,15 +499,8 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	var vecA, vecB []float32
-	var errA, errB error
-	if !h.multivector.Load() {
-		vecA, errA = h.vectorForID(context.Background(), a)
-		vecB, errB = h.vectorForID(context.Background(), b)
-	} else {
-		vecA, errA = h.multipleVectorForID(context.Background(), a)
-		vecB, errB = h.multipleVectorForID(context.Background(), b)
-	}
+	vecA, errA := h.vectorForID(context.Background(), a)
+
 	if errA != nil {
 		var e storobj.ErrNotFound
 		if errors.As(errA, &e) {
@@ -526,6 +515,8 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if len(vecA) == 0 {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
+
+	vecB, errB := h.vectorForID(context.Background(), b)
 
 	if errB != nil {
 		var e storobj.ErrNotFound
@@ -559,12 +550,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	// ones
 	var vecA []float32
 	var err error
-	if !h.multivector.Load() {
-		vecA, err = h.vectorForID(context.Background(), node)
-	} else {
-		vecA, err = h.multipleVectorForID(context.Background(), node)
-
-	}
+	vecA, err = h.vectorForID(context.Background(), node)
 
 	if err != nil {
 		var e storobj.ErrNotFound
