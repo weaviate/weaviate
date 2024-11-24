@@ -61,8 +61,8 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
-	class, _ := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
-	return class, 0, nil
+	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	return class, 0, err
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
