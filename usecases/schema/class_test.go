@@ -1504,22 +1504,10 @@ func Test_DeleteClass(t *testing.T) {
 			expErr: false,
 		},
 		{
-			name:          "class delete case in-sensitive. create canonical case, delete non-canonical case",
-			classToDelete: "c1", // lowercase
+			name:          "class delete should auto transform to GQL convention",
+			classToDelete: "c1", // all lower case form
 			existing: []*models.Class{
-				{Class: "C1", VectorIndexType: "hnsw"}, // canonical form
-				{Class: "OtherClass", VectorIndexType: "hnsw"},
-			},
-			expected: []*models.Class{
-				classWithDefaultsSet(t, "OtherClass"), // should still delete `C1` class name
-			},
-			expErr: false,
-		},
-		{
-			name:          "class delete case in-sensitive. create non-canonical case, delete canonical case",
-			classToDelete: "C1", // canonical form
-			existing: []*models.Class{
-				{Class: "c1", VectorIndexType: "hnsw"}, // lowercase form
+				{Class: "C1", VectorIndexType: "hnsw"}, // GQL form
 				{Class: "OtherClass", VectorIndexType: "hnsw"},
 			},
 			expected: []*models.Class{
@@ -1583,20 +1571,10 @@ func Test_GetConsistentClass(t *testing.T) {
 			expErr:   false,
 		},
 		{
-			name:       "class get case in-sensitive. create-canonical but access non-canonical",
+			name:       "class get should auto transform to GQL convention",
 			classToGet: "c1", // lowercase
 			existing: []*models.Class{
-				{Class: "C1", VectorIndexType: "hnsw"}, // original class is uppercase
-				{Class: "OtherClass", VectorIndexType: "hnsw"},
-			},
-			expected: classWithDefaultsSet(t, "C1"),
-			expErr:   false,
-		},
-		{
-			name:       "class get case in-sensitive. create-non-canonical but access canonical",
-			classToGet: "C1", // uppercase
-			existing: []*models.Class{
-				{Class: "c1", VectorIndexType: "hnsw"}, // original class is lowercase
+				{Class: "C1", VectorIndexType: "hnsw"}, // original class is GQL form
 				{Class: "OtherClass", VectorIndexType: "hnsw"},
 			},
 			expected: classWithDefaultsSet(t, "C1"),

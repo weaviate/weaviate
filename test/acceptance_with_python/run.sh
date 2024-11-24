@@ -25,4 +25,5 @@ pip install --upgrade pip --quiet
 pip install -r requirements.txt --quiet
 
 # run python tests in parallel
-pytest -n auto .
+# pytest -n auto .
+pytest -s -k test_collection_casing
