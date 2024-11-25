@@ -37,7 +37,7 @@ func New() *ImageModule {
 type ImageModule struct {
 	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
-	searcher        modulecapabilities.Searcher
+	searcher        modulecapabilities.Searcher[[]float32]
 	logger          logrus.FieldLogger
 }
 

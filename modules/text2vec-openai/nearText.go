@@ -26,11 +26,11 @@ func (m *OpenAIModule) Arguments() map[string]modulecapabilities.GraphQLArgument
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *OpenAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *OpenAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

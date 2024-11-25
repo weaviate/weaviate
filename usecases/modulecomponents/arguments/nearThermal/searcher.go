@@ -17,43 +17,39 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
-type Searcher struct {
-	vectorizer bindVectorizer
+type Searcher[T types.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func NewSearcher(vectorizer bindVectorizer) *Searcher {
-	return &Searcher{vectorizer}
+func NewSearcher[T types.Embedding](vectorizer bindVectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer}
 }
 
-type bindVectorizer interface {
-	VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error)
+type bindVectorizer[T types.Embedding] interface {
+	VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearThermal"] = s.vectorForNearThermalParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearThermal"] = &vectorForParams[T]{s.vectorizer}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearThermalParam(ctx context.Context, params interface{},
-	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return s.vectorFromNearThermalParam(ctx, params.(*NearThermalParams), className, findVectorFn, cfg)
+type vectorForParams[T types.Embedding] struct {
+	vectorizer bindVectorizer[T]
 }
 
-func (s *Searcher) vectorFromNearThermalParam(ctx context.Context,
-	params *NearThermalParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) (T, error) {
 	// find vector for given search query
-	vector, err := s.vectorizer.VectorizeThermal(ctx, params.Thermal, cfg)
+	vector, err := v.vectorizer.VectorizeThermal(ctx, params.(*NearThermalParams).Thermal, cfg)
 	if err != nil {
 		return nil, errors.Errorf("vectorize thermal: %v", err)
 	}
-
 	return vector, nil
 }
