@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -34,7 +35,7 @@ import (
 
 // var metrics = lsmkv.BlockMetrics{}
 
-func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, error) {
+func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, *sync.RWMutex, error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 	desiredStrategy := bucket.GetDesiredStrategy()
 	if desiredStrategy == lsmkv.StrategyInverted {
@@ -46,15 +47,15 @@ func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList
 			propertyBoosts[propName] = propertyBoost
 			t, err := b.createTerm(N, filterDocIds, queryTerm, i, []string{propName}, propertyBoosts, duplicateTextBoosts[i], ctx)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if t != nil {
 				term = append(term, t)
 			}
 		}
-		return [][]terms.TermInterface{term}, nil
+		return [][]terms.TermInterface{term}, nil, nil
 	} else {
-		return nil, fmt.Errorf("unsupported strategy %s", desiredStrategy)
+		return nil, nil, fmt.Errorf("unsupported strategy %s", desiredStrategy)
 	}
 }
 
@@ -136,6 +137,15 @@ func (b *BM25Searcher) wandBlock(
 
 	allResults := make([][][]terms.TermInterface, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
+	locks := make(map[string]*sync.RWMutex, len(params.Properties))
+
+	defer func() {
+		for _, lock := range locks {
+			if lock != nil {
+				lock.RUnlock()
+			}
+		}
+	}()
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -148,10 +158,15 @@ func (b *BM25Searcher) wandBlock(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
 			for _, propName := range propNames {
-
-				results, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
+				results, lock, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
+					if lock != nil {
+						lock.RUnlock()
+					}
 					return nil, nil, err
+				}
+				if lock != nil {
+					locks[propName] = lock
 				}
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
