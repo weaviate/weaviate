@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -386,7 +387,7 @@ func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilit
 	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).Arguments()
 }
 
-func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *fakeText2vecContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	searcher := &fakeSearcher{&fakeTxt2VecVectorizer{}}
 	return searcher.VectorSearches()
 }
@@ -849,8 +850,8 @@ func (m *nearCustomTextModule) getInterpretation() modulecapabilities.Additional
 	}
 }
 
-func (m *nearCustomTextModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+func (m *nearCustomTextModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 	return vectorSearches
 }
 
@@ -858,14 +859,14 @@ type fakeSearcher struct {
 	vectorizer *fakeTxt2VecVectorizer
 }
 
-func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearCustomText"] = s.vectorForNearTextParam
+func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
+	vectorSearches["nearCustomText"] = generictypes.VectorForParams(s.vectorForNearTextParam)
 	return vectorSearches
 }
 
 func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
+	className string, findVectorFn modulecapabilities.FindVectorFn[[]float32], cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, nil)
 	if err != nil {

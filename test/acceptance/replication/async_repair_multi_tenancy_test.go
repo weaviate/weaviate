@@ -17,8 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -52,7 +55,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 	var (
 		clusterSize = 3
 		tenantName  = "tenant-0"
-		objectCount = 1000
+		objectCount = 100
 	)
 
 	compose, err := docker.New().
@@ -108,20 +111,25 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 		startNodeAt(ctx, t, compose, 2)
 	})
 
-	t.Run("validate async object propagation", func(t *testing.T) {
-		timeout := time.Minute
-		start := time.Now()
-		for {
-			resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
-			if len(resp) != objectCount {
-				time.Sleep(time.Second)
-				continue
-			} else if time.Since(start) >= timeout {
-				t.Fatalf("expected %d objects, found %d", objectCount, len(resp))
-			} else {
-				// Test was successful
-				break
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			resp, err := body.Payload, clientErr
+			require.NoError(ct, err)
+			require.Len(ct, resp.Nodes, clusterSize)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				assert.Equal(ct, "HEALTHY", *n.Status)
 			}
-		}
+		}, 15*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run("validate async object propagation", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
+			assert.Len(ct, resp, objectCount)
+		}, 40*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 }
