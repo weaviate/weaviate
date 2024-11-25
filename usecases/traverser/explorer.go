@@ -62,23 +62,18 @@ type explorerMetrics interface {
 	AddUsageDimensions(className, queryType, operation string, dims int)
 }
 
-type ModulesMultiVectorProvider interface {
-	MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
-		findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, error)
-	MultiCrossClassVectorFromSearchParam(ctx context.Context, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, string, error)
-	MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error)
-}
-
 type ModulesProvider interface {
-	ModulesMultiVectorProvider
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
 		findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, error)
+	MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+		findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, error)
 	TargetsFromSearchParam(className string, params interface{}) ([]string, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, string, error)
+	MultiCrossClassVectorFromSearchParam(ctx context.Context, param string,
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
@@ -86,6 +81,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
+	MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error)
 }
 
 type objectsSearcher interface {
