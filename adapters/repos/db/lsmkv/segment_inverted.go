@@ -64,7 +64,7 @@ func (s *segment) loadTombstones() error {
 	return nil
 }
 
-func (s *segment) loadPropertyLenghts() error {
+func (s *segment) loadPropertyLengths() error {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
 	if s.strategy != segmentindex.StrategyInverted {
@@ -79,26 +79,26 @@ func (s *segment) loadPropertyLenghts() error {
 	s.invertedData.avgPropertyLengthsCount = binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+8 : s.invertedHeader.PropertyLengthsOffset+16])
 
 	// read property lengths, the first 16 bytes are the propLengthCount and sum, the 8 bytes are the size of the gob encoded map
-	propertyLenghtsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+16 : s.invertedHeader.PropertyLengthsOffset+16+8])
+	propertyLengthsSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.PropertyLengthsOffset+16 : s.invertedHeader.PropertyLengthsOffset+16+8])
 
-	if propertyLenghtsSize == 0 {
+	if propertyLengthsSize == 0 {
 		s.invertedData.propertyLengthsLoaded = true
 		return nil
 	}
 
-	propertyLenghtsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
-	propertyLenghtsEnd := propertyLenghtsStart + propertyLenghtsSize
+	propertyLengthsStart := s.invertedHeader.PropertyLengthsOffset + 16 + 8
+	propertyLengthsEnd := propertyLengthsStart + propertyLengthsSize
 
-	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLenghtsStart:propertyLenghtsEnd]))
+	e := gob.NewDecoder(bytes.NewReader(s.contents[propertyLengthsStart:propertyLengthsEnd]))
 
-	propLenghts := map[uint64]uint32{}
-	err := e.Decode(&propLenghts)
+	propLengths := map[uint64]uint32{}
+	err := e.Decode(&propLengths)
 	if err != nil {
 		return fmt.Errorf("decode property lengths: %w", err)
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
-	s.invertedData.propertyLengths = propLenghts
+	s.invertedData.propertyLengths = propLengths
 	return nil
 }
 
@@ -123,7 +123,7 @@ func (s *segment) GetPropertyLengths() (map[uint64]uint32, error) {
 	}
 
 	if !s.invertedData.propertyLengthsLoaded {
-		s.loadPropertyLenghts()
+		s.loadPropertyLengths()
 	}
 
 	s.invertedData.lockInvertedData.RLock()
