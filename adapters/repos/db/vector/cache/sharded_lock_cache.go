@@ -379,7 +379,8 @@ type shardedMultipleLockCache struct {
 	normalizeOnRead     bool
 	maxSize             int64
 	count               int64
-	cancel              chan bool
+	ctx                 context.Context
+	cancelFn            func()
 	logger              logrus.FieldLogger
 	deletionInterval    time.Duration
 	allocChecker        memwatch.AllocChecker
@@ -416,7 +417,6 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32
 		normalizeOnRead:     normalizeOnRead,
 		count:               0,
 		maxSize:             int64(maxSize),
-		cancel:              make(chan bool),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
 		maintenanceLock:     sync.RWMutex{},
@@ -424,6 +424,8 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 	}
+
+	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
 
 	vc.watchForDeletion()
 	return vc
@@ -455,7 +457,6 @@ func (s *shardedMultipleLockCache) Get(ctx context.Context, id uint64) ([]float3
 		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
 	return docVecs[relativeID], nil
-
 }
 
 func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
@@ -558,7 +559,6 @@ func (s *shardedMultipleLockCache) Prefetch(id uint64) {
 }
 
 func (s *shardedMultipleLockCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
-
 	s.shardedLocks.Lock(docID)
 	defer s.shardedLocks.Unlock(docID)
 
@@ -644,7 +644,7 @@ func (s *shardedMultipleLockCache) CountVectors() int64 {
 func (s *shardedMultipleLockCache) Drop() {
 	s.deleteAllVectors()
 	if s.deletionInterval != 0 {
-		s.cancel <- true
+		s.cancelFn()
 	}
 }
 
@@ -668,7 +668,7 @@ func (s *shardedMultipleLockCache) watchForDeletion() {
 			defer t.Stop()
 			for {
 				select {
-				case <-s.cancel:
+				case <-s.ctx.Done():
 					return
 				case <-t.C:
 					s.replaceIfFull()

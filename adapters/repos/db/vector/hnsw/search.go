@@ -887,7 +887,7 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RLock()
 	vecIDs := h.docIDVectors[docID]
 	h.RUnlock()
-	docVecs, errs := h.multiVectorForID(context.Background(), vecIDs)
+	docVecs, errs := h.multiVectorForID(context.TODO(), vecIDs)
 
 	for _, err := range errs {
 		if err != nil {
