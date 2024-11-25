@@ -85,6 +85,10 @@ func testBatchObject(host string) func(t *testing.T) {
 				}
 			})
 
+			t.Run("check if all objects have been indexed", func(t *testing.T) {
+				testAllObjectsIndexed(t, client, className)
+			})
+
 			t.Run("GraphQL get vectors", func(t *testing.T) {
 				for id := range fixtures.Books() {
 					resultVectors := getVectors(t, client, className, id, targetVectors...)
