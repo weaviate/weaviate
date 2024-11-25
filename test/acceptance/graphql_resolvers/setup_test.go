@@ -20,11 +20,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
@@ -1084,6 +1087,7 @@ func addTestDataRansomNotes(t *testing.T) {
 		numBatches = 50
 	)
 
+	className := "RansomNote"
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := 0; i < numBatches; i++ {
@@ -1093,13 +1097,31 @@ func addTestDataRansomNotes(t *testing.T) {
 			note := helper.GetRandomString(noteLength)
 
 			batch[j] = &models.Object{
-				Class:      "RansomNote",
+				Class:      className,
 				Properties: map[string]interface{}{"contents": note},
 			}
 		}
 
 		createObjectsBatch(t, batch)
 	}
+
+	t.Run("wait for all objects to be indexed", func(t *testing.T) {
+		// wait for all of the objects to get indexed
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			resp, err := body.Payload, clientErr
+			require.NoError(ct, err)
+			require.NotEmpty(ct, resp.Nodes)
+			for _, n := range resp.Nodes {
+				require.NotEmpty(ct, n.Shards)
+				for _, s := range n.Shards {
+					assert.Equal(ct, "READY", s.VectorIndexingStatus)
+				}
+			}
+		}, 15*time.Second, 500*time.Millisecond)
+	})
 }
 
 func addTestDataMultiShard(t *testing.T) {
