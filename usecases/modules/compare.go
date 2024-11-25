@@ -20,12 +20,62 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
-func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, targetVector string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32) {
+func reVectorize(ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[[]float32],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	targetVector string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, models.AdditionalProperties, []float32) {
+	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
+	if shouldReVectorize {
+		return shouldReVectorize, nil, nil
+	}
+
+	if targetVector == "" {
+		return false, oldObject.AdditionalProperties, oldObject.Vector
+	} else {
+		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
+	}
+}
+
+func reVectorizeMulti(ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[[][]float32],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	targetVector string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, models.AdditionalProperties, [][]float32) {
+	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
+	if shouldReVectorize {
+		return shouldReVectorize, nil, nil
+	}
+
+	if targetVector == "" {
+		return false, oldObject.AdditionalProperties, oldObject.MultiVectors[""]
+	} else {
+		return false, oldObject.AdditionalProperties, oldObject.MultiVectors[targetVector]
+	}
+}
+
+func reVectorizeEmbeddings[T types.Embedding](ctx context.Context,
+	cfg moduletools.ClassConfig,
+	mod modulecapabilities.Vectorizer[T],
+	object *models.Object,
+	class *models.Class,
+	sourceProperties []string,
+	findObjectFn modulecapabilities.FindObjectFn,
+) (bool, *search.Result) {
 	textProps, mediaProps, err := mod.VectorizableProperties(cfg)
 	if err != nil {
-		return true, nil, nil
+		return true, nil
 	}
 
 	type compareProps struct {
@@ -86,13 +136,9 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	if len(propsToCompare) == 0 {
 		oldObject, err := findObjectFn(ctx, class.Class, object.ID, nil, additional.Properties{}, object.Tenant)
 		if err != nil || oldObject == nil {
-			return true, nil, nil
+			return true, nil
 		}
-		if targetVector == "" {
-			return false, oldObject.AdditionalProperties, oldObject.Vector
-		} else {
-			return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
-		}
+		return false, oldObject
 	}
 
 	returnProps := make(search.SelectProperties, 0, len(propsToCompare))
@@ -101,7 +147,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	}
 	oldObject, err := findObjectFn(ctx, class.Class, object.ID, returnProps, additional.Properties{}, object.Tenant)
 	if err != nil || oldObject == nil {
-		return true, nil, nil
+		return true, nil
 	}
 	oldProps := oldObject.Schema.(map[string]interface{})
 	var newProps map[string]interface{}
@@ -115,7 +161,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		valOld, isPresentOld := oldProps[propStruct.Name]
 
 		if isPresentNew != isPresentOld {
-			return true, nil, nil
+			return true, nil
 		}
 
 		if !isPresentNew {
@@ -133,23 +179,18 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 			}
 
 			if len(valOld.([]string)) != len(valNew.([]string)) {
-				return true, nil, nil
+				return true, nil
 			}
 			for i, val := range valOld.([]string) {
 				if val != valNew.([]string)[i] {
-					return true, nil, nil
+					return true, nil
 				}
 			}
 		} else {
 			if valOld != valNew {
-				return true, nil, nil
+				return true, nil
 			}
 		}
 	}
-
-	if targetVector == "" {
-		return false, oldObject.AdditionalProperties, oldObject.Vector
-	} else {
-		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
-	}
+	return false, oldObject
 }

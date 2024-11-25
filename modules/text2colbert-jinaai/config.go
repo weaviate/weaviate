@@ -14,7 +14,7 @@ package modjinaai
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/ent"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"

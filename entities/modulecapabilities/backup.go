@@ -14,6 +14,8 @@ package modulecapabilities
 import (
 	"context"
 	"io"
+
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 type BackupBackend interface {
@@ -26,6 +28,8 @@ type BackupBackend interface {
 
 	// GetObject giving backupID and key
 	GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error)
+	// AllBackups returns the top level metadata for all attempted backups
+	AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error)
 
 	// WriteToFile writes an object in the specified file with path destPath
 	// The file will be created if it doesn't exist

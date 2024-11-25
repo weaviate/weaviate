@@ -273,6 +273,6 @@ func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )
