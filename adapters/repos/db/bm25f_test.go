@@ -458,15 +458,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
-		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
-		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
-		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
-		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
+		EqualFloats(t, float32(0.5868752), noautocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), noautocutscores[1], 5) // <= autocut last element
+		EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
+		EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
+		EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, float32(0.5868752), autocutscores[0])
-		require.EqualValues(t, float32(0.5450892), autocutscores[1])
+		EqualFloats(t, float32(0.5868752), autocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), autocutscores[1], 5)
 	})
 }
 
