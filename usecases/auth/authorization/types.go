@@ -38,6 +38,7 @@ const (
 	UsersDomain   = "users"
 	RolesDomain   = "roles"
 	ClusterDomain = "cluster"
+	BackupsDomain = "backups"
 	SchemaDomain  = "schema"
 	DataDomain    = "data"
 )
@@ -63,6 +64,9 @@ var (
 	ReadRoles     = "read_roles"
 	ManageUsers   = "manage_users"
 	ManageCluster = "manage_cluster"
+
+	ManageBackups = "manage_backups"
+	ReadBackups   = "read_backups"
 
 	CreateSchema = "create_schema"
 	ReadSchema   = "read_schema"
@@ -296,6 +300,25 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
 }
 
+// Backups generates a resource string for the given backend.
+// If the backend is an empty string, it defaults to "*".
+
+// Parameters:
+// - backend: the backend name (string)
+
+// Returns:
+// - A string representing the resource path for the given backend.
+
+// Example outputs:
+// - "backups/*" if the backend is an empty string
+// - "backups/{backend}" for the provided backend
+func Backups(backend string) string {
+	if backend == "" {
+		backend = "*"
+	}
+	return fmt.Sprintf("%s/backends/%s", BackupsDomain, backend)
+}
+
 func String(s string) *string {
 	return &s
 }
@@ -309,7 +332,10 @@ func viewerPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,
@@ -329,7 +355,10 @@ func editorPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,
@@ -345,7 +374,10 @@ func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,

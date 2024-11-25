@@ -190,6 +190,13 @@ func DeleteClass(t *testing.T, class string) {
 	AssertRequestOk(t, delRes, err, nil)
 }
 
+func DeleteClassWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, authInfo)
+	AssertRequestOk(t, delRes, err, nil)
+}
+
 func DeleteObject(t *testing.T, object *models.Object) {
 	t.Helper()
 	params := objects.NewObjectsClassDeleteParams().

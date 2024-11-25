@@ -33,6 +33,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s/backends/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/backends/[^/]+$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
@@ -54,6 +56,14 @@ func fromCasbinResource(resource string) string {
 
 func CasbinClusters() string {
 	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
+}
+
+func CasbinBackups(backend string) string {
+	if backend == "" {
+		backend = "*"
+	}
+	backend = strings.ReplaceAll(backend, "*", ".*")
+	return fmt.Sprintf("%s/backends/%s", authorization.BackupsDomain, backend)
 }
 
 func CasbinUsers(user string) string {
@@ -162,6 +172,14 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Object
 		}
 		resource = CasbinData(collection, tenant, object)
+	case authorization.BackupsDomain:
+		backend := "*"
+		if permission.Backup != nil {
+			if permission.Backup.Backend != nil {
+				backend = *permission.Backup.Backend
+			}
+		}
+		resource = CasbinBackups(backend)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -209,7 +227,14 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.User = &splits[1]
 	case authorization.ClusterDomain:
 		// do nothing
+	case authorization.BackupsDomain:
+		permission.Backup = &models.PermissionBackup{
+			Backend: &splits[2],
+		}
 	case *authorization.All:
+		permission.Backup = &models.PermissionBackup{
+			Backend: authorization.All,
+		}
 		permission.Collection = authorization.All
 		permission.Tenant = authorization.All
 		permission.Object = authorization.All

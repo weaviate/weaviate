@@ -113,9 +113,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Cluster()); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(req.Backend)); err != nil {
 		return nil, err
 	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -125,6 +126,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	classes, err := s.validateBackupRequest(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Collections(classes...)...); err != nil {
+		return nil, err
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
@@ -163,9 +168,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Cluster()); err != nil {
+
+	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Backups(req.Backend)); err != nil {
 		return nil, err
 	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -178,6 +185,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
+
+	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Collections(meta.Classes()...)...); err != nil {
+		return nil, err
+	}
+
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -216,7 +228,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	defer func(begin time.Time) {
 		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
 	}(time.Now())
-	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Backups(backend)); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
@@ -238,7 +250,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	defer func(begin time.Time) {
 		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
 	}(time.Now())
-	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Backups(backend)); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
@@ -261,7 +273,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
 	}(time.Now())
 
-	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Cluster()); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Backups(backend)); err != nil {
 		return err
 	}
 
@@ -312,7 +324,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	defer func(begin time.Time) {
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
-	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Backups(backend)); err != nil {
 		return nil, err
 	}
 

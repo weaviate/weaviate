@@ -63,6 +63,24 @@ func TestCluster(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
+func TestBackups(t *testing.T) {
+	tests := []struct {
+		name     string
+		backend  string
+		expected string
+	}{
+		{"No backend", "", fmt.Sprintf("%s/backends/*", BackupsDomain)},
+		{"Backend", "backend1", fmt.Sprintf("%s/backends/backend1", BackupsDomain)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Backups(tt.backend)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestCollections(t *testing.T) {
 	tests := []struct {
 		name     string
