@@ -7,7 +7,7 @@ from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import RBAC
 
-from .conftest import _sanitize_role_name, generate_missing_lists
+from .conftest import _sanitize_role_name, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
@@ -62,7 +62,7 @@ def test_rbac_refs(request: SubRequest, admin_client, custom_client):
     admin_client.roles.revoke(user="custom-user", roles=role_name)
     admin_client.roles.delete(role_name)
 
-    for permissions in generate_missing_lists(needed_permissions):
+    for permissions in generate_missing_permissions(needed_permissions):
         role = admin_client.roles.create(name=role_name, permissions=permissions)
         admin_client.roles.assign(user="custom-user", roles=role.name)
 
@@ -334,7 +334,7 @@ def test_batch_ref(request: SubRequest, admin_client, custom_client):
     admin_client.roles.revoke(user="custom-user", roles=role_name)
     admin_client.roles.delete(role_name)
 
-    for permissions in generate_missing_lists(self_permissions):
+    for permissions in generate_missing_permissions(self_permissions):
         role = admin_client.roles.create(name=role_name, permissions=permissions)
         admin_client.roles.assign(user="custom-user", roles=role.name)
 
