@@ -90,7 +90,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 		propLen := float32(0)
 
-		if os.Getenv("USE_INVERTED_SEARCHABLE") == "true" && os.Getenv("USE_OLD_PROPLENGTH") != "true" {
+		if os.Getenv("USE_INVERTED_SEARCHABLE") == "true" || os.Getenv("USE_NEW_PROPLENGTH") == "true" {
 			// Iterating over all items to calculate the property length, which is the sum of all term frequencies
 			for _, item := range property.Items {
 				propLen += item.TermFrequency

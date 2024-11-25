@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -76,14 +75,8 @@ func (m *Memtable) flush() error {
 		skipIndices = true
 
 	case StrategyMapCollection:
-		if strings.Contains(m.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
-			if keys, _, err = m.flushDataInverted(w, f); err != nil {
-				return err
-			}
-		} else {
-			if keys, err = m.flushDataMap(w); err != nil {
-				return err
-			}
+		if keys, err = m.flushDataMap(w); err != nil {
+			return err
 		}
 	case StrategyInverted:
 		if keys, _, err = m.flushDataInverted(w, f); err != nil {

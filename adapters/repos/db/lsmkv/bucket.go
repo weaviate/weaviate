@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -207,6 +208,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
+	b.desiredStrategy = b.strategy
 	// Actual strategy is stored in segment files. In case it is SetCollection,
 	// while new implementation uses bitmaps and supposed to be RoaringSet,
 	// bucket and segmentgroup strategy is changed back to SetCollection
@@ -230,6 +232,17 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategyMapCollection
+	}
+
+	// Inverted segments share a lot of their logic as the MapCollection,
+	// and the main difference is in the way they store their data.
+	// Setting the desired strategy to Inverted will make sure that we can
+	// distinguish between the two strategies for search.
+	// The changes only apply when we have segments on disk,
+	// as the memtables will always be created with the MapCollection strategy.
+	if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		b.desiredStrategy = StrategyInverted
 	}
 
 	b.disk = sg
@@ -1087,6 +1100,15 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
+	// Searchable buckets are flushed using the inverted index strategy,
+	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
+	// Memtables in memory are always created using the Map strategy.
+	// See the desiredStrategy for more information on why this only matters
+	// for searchable buckets and at flush time.
+	if strings.Contains(b.active.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+		b.active.flushStrategy = StrategyInverted
+	}
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		return err
@@ -1240,6 +1262,15 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
+	// Searchable buckets are flushed using the inverted index strategy,
+	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
+	// Memtables in memory are always created using the Map strategy.
+	// See the desiredStrategy for more information on why this only matters
+	// for searchable buckets and at flush time.
+	if strings.Contains(b.flushing.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+		b.flushing.flushStrategy = StrategyInverted
+	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
@@ -1550,75 +1581,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 	}
 	return output, nil
-
-	/*
-		output := make([]terms.TermInterface, 0, len(segmentsDisk)+2)
-
-		// check if there are any tombstones in the flushing memtable
-		if b.flushing != nil {
-			allTombstones[len(segmentsDisk)] = tombstones
-		}
-
-		// check if there are any tombstones in the active memtable
-		tombstones, err := b.active.GetTombstones()
-		if err != nil {
-			return nil, err
-		}
-		allTombstones[len(segmentsDisk)+1] = tombstones
-
-		if b.flushing != nil {
-			mem, err := b.flushing.getMap(key)
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
-			allTombstones[len(segmentsDisk)] = sroar.NewBitmap()
-			docPointers := make([]terms.DocPointerWithScore, len(mem))
-			for i, v := range mem {
-				if v.Tombstone {
-					id := binary.BigEndian.Uint64(v.Key)
-					allTombstones[len(segmentsDisk)].Set(id)
-					continue
-				}
-				if len(v.Value) < 8 {
-					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
-					continue
-				}
-
-				if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
-					return nil, err
-				}
-
-			}
-			output = append(segments, docPointers)
-		}
-
-		mem, err := b.active.getMap(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
-		docPointers := make([]terms.DocPointerWithScore, len(mem))
-		for i, v := range mem {
-			if len(v.Value) < 8 {
-				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
-				continue
-			}
-			if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
-				return nil, err
-			}
-		}
-		segments = append(segments, docPointers)
-
-		if c.legacyRequireManualSorting {
-			// Sort to support segments which were stored in an unsorted fashion
-			for i := range segments {
-				sort.Slice(segments[i], func(a, b int) bool {
-					return segments[i][a].Id < segments[i][b].Id
-				})
-			}
-		}
-
-		return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
-	*/
 }
 
 func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Term) (uint64, error) {
