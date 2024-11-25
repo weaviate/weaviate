@@ -232,5 +232,5 @@ func (v *vectorizer) getClusterURL(ctx context.Context) (string, error) {
 		return clusterURL, nil
 	}
 	return "", errors.New("no cluster URL found " +
-		"in request header: X-Weaviate-Cluster-URL")
+		"in request header: X-Weaviate-Cluster-Url")
 }
