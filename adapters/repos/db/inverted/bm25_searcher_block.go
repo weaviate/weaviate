@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,7 +36,26 @@ import (
 
 func (b *BM25Searcher) createBlockTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, error) {
 	bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-	return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
+	desiredStrategy := bucket.GetDesiredStrategy()
+	if desiredStrategy == lsmkv.StrategyInverted {
+		return bucket.CreateDiskTerm(N, filterDocIds, query, propName, propertyBoost, duplicateTextBoosts, averagePropLength, config, ctx)
+	} else if desiredStrategy == lsmkv.StrategyMapCollection {
+		term := make([]terms.TermInterface, 0, len(query))
+		for i, queryTerm := range query {
+			propertyBoosts := make(map[string]float32)
+			propertyBoosts[propName] = propertyBoost
+			t, err := b.createTerm(N, filterDocIds, queryTerm, i, []string{propName}, propertyBoosts, duplicateTextBoosts[i], ctx)
+			if err != nil {
+				return nil, err
+			}
+			if t != nil {
+				term = append(term, t)
+			}
+		}
+		return [][]terms.TermInterface{term}, nil
+	} else {
+		return nil, fmt.Errorf("unsupported strategy %s", desiredStrategy)
+	}
 }
 
 func (b *BM25Searcher) wandBlock(
