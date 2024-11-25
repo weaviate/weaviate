@@ -264,7 +264,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 		helper.AssertRequestOk(t, resp, err, nil)
 
 		t.Run("cancel backup", func(t *testing.T) {
-			require.Nil(t, helper.CancelBackup(t, className, backend, backupID))
+			require.Nil(t, helper.CancelBackup(t, backend, backupID))
 		})
 
 		// wait for cancellation

@@ -30,7 +30,7 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Authorization(t *testing.T) {
-	req := &BackupRequest{ID: "123", Backend: "s3"}
+	req := &BackupRequest{ID: "123", Backend: "s3", Bucket: "bucket", Path: "filename"}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -43,37 +43,37 @@ func Test_Authorization(t *testing.T) {
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "BackupStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedVerb:     authorization.READ,
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "RestorationStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.DELETE,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "List",
 			additionalArgs:   []interface{}{"s3"},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("s3"),
 		},
 	}
 

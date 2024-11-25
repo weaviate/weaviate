@@ -5365,6 +5365,7 @@ func init() {
             "manage_roles",
             "read_roles",
             "manage_cluster",
+            "manage_backups",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -5374,6 +5375,17 @@ func init() {
             "update_data",
             "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "backend": {
+              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
@@ -11938,6 +11950,7 @@ func init() {
             "manage_roles",
             "read_roles",
             "manage_cluster",
+            "manage_backups",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -11947,6 +11960,17 @@ func init() {
             "update_data",
             "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "backend": {
+              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
@@ -11970,6 +11994,17 @@ func init() {
         },
         "user": {
           "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionBackup": {
+      "description": "resources applicable for backup actions",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
