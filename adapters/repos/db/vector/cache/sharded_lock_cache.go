@@ -13,7 +13,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -458,10 +457,6 @@ func (s *shardedMultipleLockCache) Get(ctx context.Context, id uint64) ([]float3
 		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
 
-	if len(docVecs[relativeID]) == 0 {
-		fmt.Println("insert called with nil-vector for docID", docID, "relativeID", relativeID)
-	}
-
 	return docVecs[relativeID], nil
 }
 
@@ -476,7 +471,7 @@ func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) (
 		s.shardedLocks.RUnlock(id)
 
 		var vec []float32
-		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil {
+		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil || len(docVecs[relativeID]) == 0 {
 			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 			errs[i] = err
 			vec = vecFromDisk
@@ -544,10 +539,6 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 	}
 	s.cache[docID][relativeID] = vec
 	s.shardedLocks.Unlock(id)
-
-	if len(vec) == 0 {
-		fmt.Println("(cache miss) insert called with nil-vector for docID", docID, "relativeID", relativeID)
-	}
 
 	return vec, nil
 }
