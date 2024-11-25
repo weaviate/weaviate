@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -88,10 +89,17 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
 		}
 		propLen := float32(0)
-		for _, item := range property.Items {
-			propLen += item.TermFrequency
+
+		if os.Getenv("USE_INVERTED_SEARCHABLE") == "true" && os.Getenv("USE_OLD_PROPLENGTH") != "true" {
+			// Iterating over all items to calculate the property length, which is the sum of all term frequencies
+			for _, item := range property.Items {
+				propLen += item.TermFrequency
+			}
+		} else {
+			// This is the old way of calculating the property length, which counts terms that show up multiple times only once,
+			// which is not standard for BM25
+			propLen = float32(len(property.Items))
 		}
-		// propLen = float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
