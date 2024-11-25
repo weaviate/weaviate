@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/journey"
 )
 
@@ -68,6 +70,11 @@ func Test_BackupJourney(t *testing.T) {
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, true, "testbucketoverride", "testBucketPathOverride")
+		})
+
+		t.Run("cancel after restart", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviate().URI())
+			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
 		})
 	})
 

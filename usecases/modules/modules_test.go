@@ -18,11 +18,11 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -510,6 +510,10 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 
 func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overridePath string) string {
 	return ""
+}
+
+func (m *dummyBackupModuleWithAltNames) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, nil
 }
 
 func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {

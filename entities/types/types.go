@@ -9,9 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package types
 
-type VectorizationResult struct {
-	TextVectors  [][]float32
-	ImageVectors [][]float32
+// Just a temporary interface, there should be defined one Embedding interface
+// in models to define the Embedding type
+type Embedding interface {
+	[]float32 | [][]float32
 }

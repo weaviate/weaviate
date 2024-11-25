@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -38,6 +37,12 @@ type SegmentGroup struct {
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
+
+	// flushVsCompactLock is a simple synchronization mechanism between the
+	// compaction and flush cycle. In general, those are independent, however,
+	// there are parts of it that are not. See the comments of the routines
+	// interacting with this lock for more details.
+	flushVsCompactLock sync.Mutex
 
 	strategy string
 
@@ -67,7 +72,6 @@ type SegmentGroup struct {
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
-	isFlushing         *atomic.Bool
 	segmentCleaner     segmentCleaner
 	cleanupInterval    time.Duration
 	lastCleanupCall    time.Time
@@ -85,7 +89,6 @@ type sgConfig struct {
 	calcCountNetAdditions bool
 	forceCompaction       bool
 	maxSegmentSize        int64
-	isFlushing            *atomic.Bool
 	cleanupInterval       time.Duration
 }
 
@@ -115,7 +118,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:          cfg.maxSegmentSize,
 		cleanupInterval:         cfg.cleanupInterval,
 		allocChecker:            allocChecker,
-		isFlushing:              cfg.isFlushing,
 		lastCompactionCall:      now,
 		lastCleanupCall:         now,
 	}
@@ -387,7 +389,15 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := topMostSegment; i >= 0; i-- {
+		beforeSegment := time.Now()
 		v, err := sg.segments[i].get(key)
+		if time.Since(beforeSegment) > 100*time.Millisecond {
+			sg.logger.WithField("duration", time.Since(beforeSegment)).
+				WithField("action", "lsm_segment_group_get_individual_segment").
+				WithError(err).
+				WithField("segment_pos", i).
+				Debug("waited over 100ms to get result from individual segment")
+		}
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -435,7 +445,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMos
 		return v, nil
 	}
 
-	return nil, nil
+	return nil, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {

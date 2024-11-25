@@ -4137,6 +4137,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -4169,6 +4175,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -5603,7 +5615,8 @@ func init() {
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         },
@@ -10484,6 +10497,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -10532,6 +10551,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -12125,7 +12150,8 @@ func init() {
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         },
