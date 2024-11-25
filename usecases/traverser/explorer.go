@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -35,9 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
@@ -47,18 +46,19 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	searcher          objectsSearcher
+	searcher          ObjectsSearcher
 	logger            logrus.FieldLogger
 	modulesProvider   ModulesProvider
-	schemaGetter      uc.SchemaGetter
+	schemaGetter      SchemaGetter
 	nearParamsVector  *nearParamsVector
 	targetParamHelper *TargetVectorParamHelper
-	metrics           explorerMetrics
-	config            config.Config
+	config            *ExplorerConfig
+	metrics           *ExplorerMetrics
 }
 
-type explorerMetrics interface {
-	AddUsageDimensions(className, queryType, operation string, dims int)
+type SchemaGetter interface {
+	GetSchemaSkipAuth() schema.Schema
+	ReadOnlyClass(string) *models.Class
 }
 
 type ModulesProvider interface {
@@ -78,9 +78,7 @@ type ModulesProvider interface {
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
 }
 
-type objectsSearcher interface {
-	hybridSearcher
-
+type ObjectsSearcher interface {
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error)
@@ -94,30 +92,52 @@ type objectsSearcher interface {
 		props search.SelectProperties, additional additional.Properties,
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
-}
 
-type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
 
+type ExplorerConfig struct {
+	DefaultQueryLimit int
+	MaxQueryResults   int
+}
+
+type ExplorerMetrics struct {
+	dimensions      *prometheus.CounterVec
+	dimensionsTotal prometheus.Counter
+
+	// whether to group metric with common `classname="n/a"` to avoid cardinatiliy issues
+	groupClasses bool
+}
+
+func NewExplorerMetrics(dimensions *prometheus.CounterVec, dimensionsTotal *prometheus.Counter, groupClasses bool) *ExplorerMetrics {
+	return &ExplorerMetrics{
+		dimensions:      dimensions,
+		dimensionsTotal: *dimensionsTotal,
+		groupClasses:    groupClasses,
+	}
+}
+
 // NewExplorer with search and connector repo
-func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf config.Config) *Explorer {
+func NewExplorer(
+	searcher ObjectsSearcher,
+	schemaGetter SchemaGetter,
+	modulesProvider ModulesProvider,
+	conf *ExplorerConfig,
+	metrics *ExplorerMetrics,
+	logger logrus.FieldLogger,
+) *Explorer {
 	return &Explorer{
 		searcher:          searcher,
 		logger:            logger,
 		modulesProvider:   modulesProvider,
-		metrics:           metrics,
-		schemaGetter:      nil, // schemaGetter is set later
+		schemaGetter:      schemaGetter,
 		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
 		targetParamHelper: NewTargetParamHelper(),
 		config:            conf,
+		metrics:           metrics,
 	}
-}
-
-func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
-	e.schemaGetter = sg
 }
 
 // GetClass from search and connector repo
@@ -330,12 +350,12 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	}
 
 	if pagination.Limit == -1 {
-		return int(e.config.QueryDefaults.Limit + int64(pagination.Offset)), nil
+		return e.config.DefaultQueryLimit + pagination.Offset, nil
 	}
 
 	totalLimit := pagination.Offset + pagination.Limit
 
-	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
+	return MinInt(totalLimit, e.config.MaxQueryResults), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -879,9 +899,7 @@ func (e *Explorer) trackUsageGet(res search.Results, params dto.GetParams) {
 	}
 
 	op := e.usageOperationFromGetParams(params)
-	if e.metrics != nil {
-		e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
-	}
+	e.addUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
 }
 
 func (e *Explorer) trackUsageGetExplicitVector(res search.Results, params dto.GetParams) {
@@ -889,8 +907,7 @@ func (e *Explorer) trackUsageGetExplicitVector(res search.Results, params dto.Ge
 		return
 	}
 
-	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", "_additional.vector",
-		res[0].Dims)
+	e.addUsageDimensions(params.ClassName, "get_graphql", "_additional.vector", res[0].Dims)
 }
 
 func (e *Explorer) usageOperationFromGetParams(params dto.GetParams) string {
@@ -916,7 +933,7 @@ func (e *Explorer) trackUsageExplore(res search.Results, params ExploreParams) {
 	}
 
 	op := e.usageOperationFromExploreParams(params)
-	e.metrics.AddUsageDimensions("n/a", "explore_graphql", op, res[0].Dims)
+	e.addUsageDimensions("n/a", "explore_graphql", op, res[0].Dims)
 }
 
 func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string {
@@ -934,4 +951,20 @@ func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string 
 	}
 
 	return "n/a"
+}
+
+func (e *Explorer) addUsageDimensions(class, queryType, op string, val int) {
+	if e.metrics == nil {
+		return
+	}
+	if e.metrics.groupClasses {
+		class = "n/a"
+	}
+
+	e.metrics.dimensions.With(prometheus.Labels{
+		"class_name": class,
+		"operation":  op,
+		"query_type": queryType,
+	}).Add(float64(val))
+	e.metrics.dimensionsTotal.Add(float64(val))
 }

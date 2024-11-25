@@ -59,17 +59,22 @@ type PrometheusMetrics struct {
 	RequestsTotal                       *prometheus.GaugeVec
 	QueriesDurations                    *prometheus.HistogramVec
 	QueriesFilteredVectorDurations      *prometheus.SummaryVec
-	QueryDimensions                     *prometheus.CounterVec
-	QueryDimensionsCombined             prometheus.Counter
-	GoroutinesCount                     *prometheus.GaugeVec
-	BackupRestoreDurations              *prometheus.SummaryVec
-	BackupStoreDurations                *prometheus.SummaryVec
-	BucketPauseDurations                *prometheus.SummaryVec
-	BackupRestoreClassDurations         *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations    *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
-	BackupRestoreDataTransferred        *prometheus.CounterVec
-	BackupStoreDataTransferred          *prometheus.CounterVec
+
+	// Q(Kavi): Why need two metrics `QueryDimensions` and `QueryDimensionsCombined`.
+	// seeing their usage, suming `QueryDimensions` without any labels should be
+	// same as `QueryDimensionsCombined`.
+	QueryDimensions         *prometheus.CounterVec
+	QueryDimensionsCombined prometheus.Counter
+
+	GoroutinesCount                   *prometheus.GaugeVec
+	BackupRestoreDurations            *prometheus.SummaryVec
+	BackupStoreDurations              *prometheus.SummaryVec
+	BucketPauseDurations              *prometheus.SummaryVec
+	BackupRestoreClassDurations       *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations *prometheus.SummaryVec
+	BackupRestoreDataTransferred      *prometheus.CounterVec
+	BackupStoreDataTransferred        *prometheus.CounterVec
 
 	// offload metric
 

@@ -370,7 +370,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	vectorRepo = repo
 	// migrator = vectorMigrator
-	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
 		appState.Logger.
@@ -547,7 +546,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
-	explorer.SetSchemaGetter(schemaManager)
+
+	ec := &traverser.ExplorerConfig{
+		DefaultQueryLimit: int(appState.ServerConfig.Config.QueryDefaults.Limit),
+		MaxQueryResults:   int(appState.ServerConfig.Config.QueryMaximumResults),
+	}
+	em := traverser.NewExplorerMetrics(appState.Metrics.QueryDimensions, &appState.Metrics.QueryDimensionsCombined, appState.Metrics.Group)
+	explorer := traverser.NewExplorer(repo, schemaManager, appState.Modules, ec, em, appState.Logger)
+
 	appState.Modules.SetSchemaGetter(schemaManager)
 
 	appState.Traverser = traverser.NewTraverser(appState.ServerConfig, appState.Locks,
