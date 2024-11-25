@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
@@ -54,11 +53,9 @@ type TestQuery struct {
 	MatchingDocIDs []string
 }
 
-var defaultConfig = config.Config{
-	QueryDefaults: config.QueryDefaults{
-		Limit: 100,
-	},
-	QueryMaximumResults: 100,
+var defaultConfig = ExplorerConfig{
+	DefaultQueryLimit: 100,
+	MaxQueryResults:   100,
 }
 
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
@@ -493,8 +490,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -532,8 +528,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -572,8 +567,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 2 ---")
@@ -614,8 +608,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 4 ---")
@@ -739,8 +732,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -770,8 +762,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -811,8 +802,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
@@ -1034,8 +1024,7 @@ func TestHybridOverSearch(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
-		explorer.SetSchemaGetter(schemaGetter)
+		explorer := traverser.NewExplorer(repo, schemaGetter, prov, defaultConfig, nil, log)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
