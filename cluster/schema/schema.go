@@ -29,6 +29,7 @@ var (
 	ErrClassExists   = errors.New("class already exists")
 	ErrClassNotFound = errors.New("class not found")
 	ErrShardNotFound = errors.New("shard not found")
+	ErrMTDisabled    = errors.New("multi-tenancy is not enabled")
 )
 
 type ClassInfo struct {
@@ -233,7 +234,7 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
 	if !info.MultiTenancy.Enabled {
-		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+		return false, nil, ClassInfo{}, fmt.Errorf("%w for class %q", ErrMTDisabled, class)
 	}
 	return true, meta, info, nil
 }
