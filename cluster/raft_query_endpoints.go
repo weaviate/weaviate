@@ -284,31 +284,30 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		))
 	defer t.ObserveDuration()
 
-	resp := &cmd.QueryResponse{}
-	err := backoff.Retry(func() error {
-		var err error
+	if s.store.IsLeader() {
+		return s.store.Query(req)
+	}
 
-		if s.store.IsLeader() {
-			resp, err = s.store.Query(req)
-			return err
-		}
-
-		leader := s.store.Leader()
-		if leader == "" {
-			err = s.leaderErr()
+	// find out who the leader is
+	var leader string
+	f := func() error {
+		if leader = s.store.Leader(); leader == "" {
+			err := s.leaderErr()
 			s.log.Warnf("query: could not find leader: %s", err)
 			return err
 		}
 
-		resp, err = s.cl.Query(ctx, leader, req)
-		if err != nil {
-			s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
-			// Don't retry if the actual query fails
-			return backoff.Permanent(err)
-		}
 		return nil
-		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
-	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	}
+	bf := backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10)
+	if err := backoff.Retry(f, backoff.WithContext(bf, ctx)); err != nil {
+		s.log.Errorf("query: failed to find leader after retries: %s", err)
+		return &cmd.QueryResponse{}, err
+	}
 
+	resp, err := s.cl.Query(ctx, leader, req)
+	if err != nil {
+		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+	}
 	return resp, err
 }
