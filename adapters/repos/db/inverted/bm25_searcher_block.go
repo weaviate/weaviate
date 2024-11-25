@@ -137,6 +137,12 @@ func (b *BM25Searcher) wandBlock(
 
 	allResults := make([][][]terms.TermInterface, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
+
+	// These locks are the segmentCompactions locks for the searched properties
+	// The old search process locked the compactions and read the full postings list into memory.
+	// We don't do that anymore, as the goal of BlockMaxWAND is to avoid reading the full postings list into memory.
+	// The locks are needed here instead of at DoBlockMaxWand only, as we separate term creation from the actual search.
+	// TODO: We should consider if we can remove these locks and only lock at DoBlockMaxWand
 	locks := make(map[string]*sync.RWMutex, len(params.Properties))
 
 	defer func() {
