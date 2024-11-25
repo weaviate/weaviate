@@ -621,6 +621,9 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 	var candidateVec []float32
 	var err error
 	candidateVec, err = h.vectorForID(context.Background(), nodeID)
+	if len(candidateVec) == 0 {
+		fmt.Println("empty vector with nodeid ", nodeID)
+	}
 	if err != nil {
 		return 0, err
 	}

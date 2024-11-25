@@ -62,7 +62,7 @@ func Test_InValidConfig(t *testing.T) {
 				v.VectorForIDThunk = nil
 				return v
 			},
-			expectedErr: errors.Errorf("vectorForIDThunk and multipleVectorForIDThunk cannot be nil both"),
+			expectedErr: errors.Errorf("vectorForIDThunk cannot be nil"),
 		},
 	}
 

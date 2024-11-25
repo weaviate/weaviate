@@ -62,7 +62,7 @@ func (c Config) Validate() error {
 	}
 
 	if c.VectorForIDThunk == nil {
-		ec.Addf("vectorForIDThunk and multipleVectorForIDThunk cannot be nil both")
+		ec.Addf("vectorForIDThunk cannot be nil")
 	}
 
 	if c.DistanceProvider == nil {
