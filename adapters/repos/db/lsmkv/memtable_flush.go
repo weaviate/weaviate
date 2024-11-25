@@ -76,7 +76,7 @@ func (m *Memtable) flush() error {
 		skipIndices = true
 
 	case StrategyMapCollection:
-		if strings.Contains(m.path, "_searchable") && os.Getenv("USE_INVERTED_FORMAT") == "true" {
+		if strings.Contains(m.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
 			if keys, _, err = m.flushDataInverted(w, f); err != nil {
 				return err
 			}

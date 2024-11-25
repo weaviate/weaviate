@@ -98,7 +98,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	var scores []float32
 	var err error
 
-	if os.Getenv("USE_WAND_DISK") == "true" {
+	if os.Getenv("USE_BLOCKMAX_WAND") == "true" {
 		objs, scores, err = b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	} else {
 		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
