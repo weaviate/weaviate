@@ -230,7 +230,7 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 }
 
 func (v *vectorizer) getClusterURL(ctx context.Context) (string, error) {
-	if clusterURL := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Cluster-URL"); clusterURL != "" {
+	if clusterURL := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Cluster-Url"); clusterURL != "" {
 		return clusterURL, nil
 	}
 	return "", errors.New("no cluster URL found " +
