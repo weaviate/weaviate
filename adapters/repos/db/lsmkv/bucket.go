@@ -1483,9 +1483,21 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, *sync.RWMutex, error) {
+	// recover
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	lock := &b.disk.maintenanceLock
+	lock.RLock()
+
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+			lock.RUnlock()
+		}
+	}()
 
 	segmentsDisk := b.disk.segments
 	output := make([][]terms.TermInterface, len(segmentsDisk)+2)
@@ -1506,11 +1518,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.flushing != nil {
 			mapPairs, err := b.flushing.getMap(key)
 			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
+				return nil, lock, err
 			}
 			n2, err := addDataToTerm(mapPairs, filterDocIds, flushing)
 			if err != nil {
-				return nil, err
+				return nil, lock, err
 			}
 			n += n2
 			if n2 > 0 {
@@ -1521,11 +1533,11 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		if b.active != nil {
 			mapPairs, err := b.active.getMap(key)
 			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
+				return nil, lock, err
 			}
 			n2, err := addDataToTerm(mapPairs, filterDocIds, active)
 			if err != nil {
-				return nil, err
+				return nil, lock, err
 			}
 			n += n2
 			if n2 > 0 {
@@ -1550,7 +1562,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	if b.flushing != nil {
 		tombstones, err := b.flushing.GetTombstones()
 		if err != nil {
-			return nil, err
+			return nil, lock, err
 		}
 		allTombstones[len(segmentsDisk)] = tombstones
 
@@ -1558,14 +1570,14 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	tombstones, err := b.active.GetTombstones()
 	if err != nil {
-		return nil, err
+		return nil, lock, err
 	}
 	allTombstones[len(segmentsDisk)+1] = tombstones
 
 	for i, segment := range segmentsDisk {
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
-			return nil, err
+			return nil, lock, err
 		}
 
 		allTombstones[i] = tombstones
@@ -1580,7 +1592,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 		}
 	}
-	return output, nil
+	return output, lock, nil
 }
 
 func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Term) (uint64, error) {
