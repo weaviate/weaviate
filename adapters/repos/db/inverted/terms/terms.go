@@ -254,7 +254,12 @@ func (t *Term) AdvanceAtLeast(minID uint64) {
 }
 
 func (t *Term) AdvanceAtLeastShallow(minID uint64) {
-	t.AdvanceAtLeast(minID - 1)
+	t.AdvanceAtLeast(minID)
+	// go back one document, as the advance blockmax implementation relies on going to the document right before on a shallow advance,
+	// due to the way decoding works in the SegmentBlockMax implementation
+	t.posPointer--
+	t.exhausted = false
+	t.idPointer = t.Data[t.posPointer].Id
 }
 
 func (t *Term) Count() int {
