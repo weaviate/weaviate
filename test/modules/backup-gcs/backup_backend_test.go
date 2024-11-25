@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+var DefaultBlockSize = int64(10 * 1024 * 1024)
 func Test_GCSBackend_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithGCS().Start(ctx)
@@ -81,7 +82,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := gcs.Initialize(testCtx, backupID)
+			err := gcs.Initialize(testCtx, backupID, DefaultBlockSize)
 			assert.Nil(t, err)
 		})
 
@@ -109,7 +110,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
+			err = gcs.PutObject(testCtx, backupID, metadataFilename, b, DefaultBlockSize)
 			require.Nil(t, err)
 
 			dest := gcs.HomeDir(backupID)
@@ -164,7 +165,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"), DefaultBlockSize)
 			assert.Nil(t, err)
 		})
 

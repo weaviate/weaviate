@@ -52,6 +52,9 @@ const (
 
 	// DefaultCPUPercentage default CPU percentage can be consumed by the file writer
 	DefaultCPUPercentage = 50
+
+	// DefaultBlockSize default block size
+	DefaultBlockSize = 10 * 1024 * 1024 // 10MB
 )
 
 const (
@@ -91,19 +94,19 @@ func (s *objStore) Read(ctx context.Context, key string, w io.WriteCloser) (int6
 	return s.b.Read(ctx, s.BasePath, key, w)
 }
 
-func (s *objStore) Initialize(ctx context.Context) error {
-	return s.b.Initialize(ctx, s.BasePath)
+func (s *objStore) Initialize(ctx context.Context, blockSize int64) error {
+	return s.b.Initialize(ctx, s.BasePath, blockSize)
 }
 
 // meta marshals and uploads metadata
-func (s *objStore) putMeta(ctx context.Context, key string, desc interface{}) error {
+func (s *objStore) putMeta(ctx context.Context, key string, desc interface{}, blockSize int64) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
 		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.b.PutObject(ctx, s.BasePath, key, bytes); err != nil {
+	if err := s.b.PutObject(ctx, s.BasePath, key, bytes, blockSize); err != nil {
 		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
@@ -145,8 +148,8 @@ func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bo
 }
 
 // meta marshals and uploads metadata
-func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
-	return s.putMeta(ctx, BackupFile, desc)
+func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, blockSize int64) error {
+	return s.putMeta(ctx, BackupFile, desc, blockSize)
 }
 
 type coordStore struct {
@@ -154,8 +157,8 @@ type coordStore struct {
 }
 
 // PutMeta puts coordinator's global metadata into object store
-func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor) error {
-	return s.putMeta(ctx, filename, desc)
+func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor, blockSize int64) error {
+	return s.putMeta(ctx, filename, desc, blockSize)
 }
 
 // Meta gets coordinator's global metadata from object store
@@ -203,7 +206,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, blockSize int64) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
@@ -217,10 +220,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				desc.Status = string(backup.Cancelled)
 				u.releaseIndexes(classes, desc.ID)
 			}
-			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
+			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc, blockSize))
 		} else {
 			u.log.Info("start uploading meta data")
-			if err = u.backend.PutMeta(ctx, desc); err != nil {
+			if err = u.backend.PutMeta(ctx, desc, blockSize); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)

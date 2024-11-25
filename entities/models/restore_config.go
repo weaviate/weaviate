@@ -30,6 +30,11 @@ import (
 // swagger:model RestoreConfig
 type RestoreConfig struct {
 
+	// Block size used for downloading chunks from the storage
+	// Maximum: 4.194304e+09
+	// Minimum: 1024
+	BlockSize int64 `json:"BlockSize,omitempty"`
+
 	// Desired CPU core utilization ranging from 1%-80%
 	// Maximum: 80
 	// Minimum: 1
@@ -40,6 +45,10 @@ type RestoreConfig struct {
 func (m *RestoreConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateBlockSize(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateCPUPercentage(formats); err != nil {
 		res = append(res, err)
 	}
@@ -47,6 +56,22 @@ func (m *RestoreConfig) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *RestoreConfig) validateBlockSize(formats strfmt.Registry) error {
+	if swag.IsZero(m.BlockSize) { // not required
+		return nil
+	}
+
+	if err := validate.MinimumInt("BlockSize", "body", m.BlockSize, 1024, false); err != nil {
+		return err
+	}
+
+	if err := validate.MaximumInt("BlockSize", "body", m.BlockSize, 4.194304e+09, false); err != nil {
+		return err
+	}
+
 	return nil
 }
 

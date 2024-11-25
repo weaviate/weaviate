@@ -97,6 +97,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
+		BlockSize:   params.Body.Config.BlockSize,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -161,6 +162,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
 		Compression: compressionFromRCfg(params.Body.Config),
+		BlockSize:   params.Body.Config.BlockSize,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
