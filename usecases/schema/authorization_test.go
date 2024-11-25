@@ -70,7 +70,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:        "AddClass",
 			additionalArgs:    []interface{}{&models.Class{Class: "classname"}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.CollectionsMetadata(),
+			expectedResources: authorization.CollectionsMetadata("Classname"),
 		},
 		{
 			methodName:        "UpdateClass",

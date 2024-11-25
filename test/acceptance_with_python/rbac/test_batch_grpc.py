@@ -3,7 +3,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, generate_missing_lists
+from .conftest import _sanitize_role_name, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
@@ -40,7 +40,7 @@ def test_batch_grpc(request: SubRequest, admin_client):
     with weaviate.connect_to_local(
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
     ) as client_no_rights:
-        for permissions in generate_missing_lists(batch_permissions):
+        for permissions in generate_missing_permissions(batch_permissions):
             admin_client.roles.create(name=name, permissions=permissions)
             admin_client.roles.assign(user="custom-user", roles=name)
 
