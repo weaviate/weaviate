@@ -50,7 +50,7 @@ type MultiVectorIndex interface {
 	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
 	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	DeleteMulti(id ...uint64) error
-	SearchByMultipleVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 }
 
 type VectorIndex interface {
@@ -265,10 +265,10 @@ func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k 
 	return dynamic.index.SearchByVector(ctx, vector, k, allow)
 }
 
-func (dynamic *dynamic) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByMultipleVector(ctx, vectors, k, allow)
+	return dynamic.index.SearchByMultiVector(ctx, vectors, k, allow)
 }
 
 func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {

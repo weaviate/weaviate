@@ -83,7 +83,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
 }
 
-func (h *hnsw) SearchByMultipleVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	if !h.multivector.Load() {
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
@@ -618,12 +618,8 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 }
 
 func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64) (float32, error) {
-	var candidateVec []float32
-	var err error
-	candidateVec, err = h.vectorForID(context.Background(), nodeID)
-	if len(candidateVec) == 0 {
-		fmt.Println("empty vector with nodeid ", nodeID)
-	}
+	candidateVec, err := h.vectorForID(context.Background(), nodeID)
+
 	if err != nil {
 		return 0, err
 	}

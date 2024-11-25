@@ -64,7 +64,7 @@ func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, all
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByMultipleVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 

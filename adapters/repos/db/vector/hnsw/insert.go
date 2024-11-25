@@ -128,7 +128,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 	for i, docID := range docIDs {
 		numVectors := len(vectors[i])
-		levels := make([]int, numVectors) // should be outside the loop? they don't have fixed size
+		levels := make([]int, numVectors)
 		for j := range numVectors {
 			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 		}
@@ -191,10 +191,8 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			counter++
 
 			node := &vertex{
-				id:         uint64(nodeId),
-				level:      levels[j],
-				docID:      docID,
-				relativeID: uint64(j),
+				id:    uint64(nodeId),
+				level: levels[j],
 			}
 
 			h.Lock()

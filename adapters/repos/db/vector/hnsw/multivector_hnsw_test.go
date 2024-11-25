@@ -103,7 +103,7 @@ func TestMultiVectorHnsw(t *testing.T) {
 
 	t.Run("inspect a query", func(t *testing.T) {
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -118,14 +118,14 @@ func TestMultiVectorHnsw(t *testing.T) {
 		err := vectorIndex.DeleteMulti(0)
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 0, vectors[0])
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -138,14 +138,14 @@ func TestMultiVectorHnsw(t *testing.T) {
 		err = vectorIndex.DeleteMulti(1)
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 1, vectors[1])
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
@@ -158,14 +158,14 @@ func TestMultiVectorHnsw(t *testing.T) {
 		err = vectorIndex.DeleteMulti(2)
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 2, vectors[2])
 		require.Nil(t, err)
 		for i, query := range queries {
-			ids, _, err := vectorIndex.SearchByMultipleVector(ctx, query, k, nil)
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
 			require.Nil(t, err)
 			require.Equal(t, expectedResults[i], ids)
 		}
