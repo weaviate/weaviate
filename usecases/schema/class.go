@@ -99,13 +99,17 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata()...)
+	cls.Class = schema.UppercaseClassName(cls.Class)
+	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
 		return nil, 0, err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(cls.Class)...); err != nil {
+		return nil, 0, err
+	}
 
-	cls.Class = schema.UppercaseClassName(cls.Class)
-	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
 		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
@@ -201,7 +205,9 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 	if err != nil {
 		return err
 	}
-
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+		return err
+	}
 	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
 }
