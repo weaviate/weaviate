@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -76,6 +78,11 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, override, overrideBucket, overridePath)
+		})
+
+		t.Run("cancel after restart", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviate().URI())
+			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgs3.Name)
 		})
 	})
 

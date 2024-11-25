@@ -281,7 +281,7 @@ func (m *BigramModule) VectorizeBatch(ctx context.Context, objs []*models.Object
 
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 )

@@ -13,6 +13,8 @@ package modstgfs
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path"
@@ -20,8 +22,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
 const (
@@ -75,6 +79,41 @@ func (m *Module) HomeDir(backupID, overrideBucket, overridePath string) string {
 	} else {
 		return path.Join(m.makeBackupDirPath(m.backupsPath, backupID))
 	}
+}
+
+func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	var meta []*backup.DistributedBackupDescriptor
+	backups, err := os.ReadDir(m.backupsPath)
+	if err != nil {
+		return nil, fmt.Errorf("open backups path: %w", err)
+	}
+	for _, bak := range backups {
+		if !bak.IsDir() {
+			continue
+		}
+		backupPath := path.Join(m.backupsPath, bak.Name())
+		contents, err := os.ReadDir(backupPath)
+		if err != nil {
+			return nil, fmt.Errorf("read backup contents: %w", err)
+		}
+		for _, file := range contents {
+			if file.Name() == ubak.GlobalBackupFile {
+				fileName := path.Join(backupPath, file.Name())
+				bytes, err := os.ReadFile(fileName)
+				if err != nil {
+					return nil, fmt.Errorf("read backup meta file %q: %w",
+						fileName, err)
+				}
+				var desc backup.DistributedBackupDescriptor
+				if err := json.Unmarshal(bytes, &desc); err != nil {
+					return nil, fmt.Errorf("unmarshal backup meta file %q: %w",
+						path.Join(backupPath, file.Name()), err)
+				}
+				meta = append(meta, &desc)
+			}
+		}
+	}
+	return meta, nil
 }
 
 func (m *Module) RootHandler() http.Handler {
