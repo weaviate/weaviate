@@ -756,7 +756,6 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 	addit := additional.Properties{}
 
 	t.Run("single term", func(t *testing.T) {
-		t.Skip("TODO")
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
 		res, scores, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
