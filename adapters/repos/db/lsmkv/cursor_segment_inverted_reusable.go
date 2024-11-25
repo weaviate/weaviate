@@ -68,6 +68,10 @@ func (s *segmentCursorInvertedReusable) next() ([]byte, []MapPair, error) {
 func (s *segmentCursorInvertedReusable) first() ([]byte, []MapPair, error) {
 	s.nextOffset = s.segment.dataStartPos
 
+	if s.nextOffset >= s.segment.dataEndPos {
+		return nil, nil, lsmkv.NotFound
+	}
+
 	err := s.parseInvertedNodeInto(nodeOffset{start: s.nextOffset})
 	if err != nil {
 		return s.nodeBuf.key, nil, err

@@ -31,7 +31,7 @@ import (
 
 func NewMapPairFromDocIdAndTf(docId uint64, tf float32, propLength float32, isTombstone bool) MapPair {
 	key := make([]byte, 8)
-	binary.LittleEndian.PutUint64(key, docId)
+	binary.BigEndian.PutUint64(key, docId)
 
 	value := make([]byte, 8)
 	binary.LittleEndian.PutUint32(value[0:4], math.Float32bits(tf))
