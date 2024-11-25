@@ -169,7 +169,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(req.Backend)); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Backups(req.Backend)); err != nil {
 		return nil, err
 	}
 
