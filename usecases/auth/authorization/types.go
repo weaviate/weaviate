@@ -332,7 +332,10 @@ func viewerPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,
@@ -352,7 +355,10 @@ func editorPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,
@@ -368,7 +374,10 @@ func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
-			Action:     &action,
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Backend: All,
+			},
 			Collection: All,
 			Tenant:     All,
 			Role:       All,
