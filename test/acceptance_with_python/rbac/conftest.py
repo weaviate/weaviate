@@ -28,3 +28,11 @@ def admin_client():
         port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("admin-key")
     ) as client:
         yield client
+
+
+@pytest.fixture
+def custom_client():
+    with weaviate.connect_to_local(
+        port=8081, grpc_port=50052, auth_credentials=wvc.init.Auth.api_key("custom-key")
+    ) as client:
+        yield client
