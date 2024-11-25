@@ -205,7 +205,9 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 	if err != nil {
 		return err
 	}
-
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+		return err
+	}
 	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
 }

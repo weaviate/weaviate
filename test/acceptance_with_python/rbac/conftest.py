@@ -1,10 +1,11 @@
+from typing import Union, Callable, Generator, List, Any, ContextManager
+
 import pytest
 import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
-from contextlib import contextmanager
+from contextlib import contextmanager, _GeneratorContextManager
 
-from typing_extensions import Callable, Generator
 from weaviate.rbac.models import _ConfigPermission
 
 
@@ -27,24 +28,35 @@ def generate_missing_lists(permissions: list):
     return result
 
 
-Role_Wrapper_Type = Callable[..., Generator[None, None, None]]
+Role_Wrapper_Type = Callable[
+    [
+        Any,
+        SubRequest,
+        Union[_ConfigPermission, List[_ConfigPermission]],
+    ],
+    ContextManager[Any],
+]
 
 
 @pytest.fixture
 def role_wrapper() -> Role_Wrapper_Type:
     @contextmanager
     def wrapper(
-        admin_client, request: SubRequest, permissions: _ConfigPermission
-    ) -> Generator[None, None, None]:
+        admin_client,
+        request: SubRequest,
+        permissions: Union[_ConfigPermission, List[_ConfigPermission]],
+    ) -> ContextManager[Any]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
-        admin_client.roles.create(name=name, permissions=permissions)
-        admin_client.roles.assign(user="custom-user", roles=name)
+        if not isinstance(permissions, list) or len(permissions) > 0:
+            admin_client.roles.create(name=name, permissions=permissions)
+            admin_client.roles.assign(user="custom-user", roles=name)
 
         yield
 
-        admin_client.roles.revoke(user="custom-user", roles=name)
-        admin_client.roles.delete(name)
+        if not isinstance(permissions, list) or len(permissions) > 0:
+            admin_client.roles.revoke(user="custom-user", roles=name)
+            admin_client.roles.delete(name)
 
     return wrapper
 
