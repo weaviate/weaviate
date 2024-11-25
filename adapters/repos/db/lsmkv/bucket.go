@@ -869,6 +869,11 @@ func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				propLengths, err := segmentsDisk[i].GetPropertyLengths()
+				if err != nil {
+					return nil, err
+				}
+
 				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
@@ -880,6 +885,8 @@ func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption)
 						break
 					}
 				}
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+
 			} else {
 				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
 					return nil, err
