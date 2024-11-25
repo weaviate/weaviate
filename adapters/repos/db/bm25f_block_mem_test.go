@@ -31,8 +31,8 @@ import (
 )
 
 func TestBM25FJourneyBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -284,8 +284,8 @@ func TestBM25FJourneyBlockMem(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -328,8 +328,8 @@ func TestBM25FSinglePropBlockMem(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -393,8 +393,8 @@ func TestBM25FWithFiltersBlockMem(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -454,8 +454,8 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlockMem(t *testing
 }
 
 func TestBM25FDifferentParamsJourneyBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -509,8 +509,8 @@ func TestBM25FDifferentParamsJourneyBlockMem(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -584,8 +584,8 @@ func TestBM25FCompareBlockMem(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -672,8 +672,8 @@ func TestBM25F_ComplexDocumentsBlockMem(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlockMem(t *testing.T) {
-	t.Setenv("USE_INVERTED_FORMAT", "true")
-	t.Setenv("USE_WAND_DISK", "true")
+	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
+	t.Setenv("USE_BLOCKMAX_WAND", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()

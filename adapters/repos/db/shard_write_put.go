@@ -524,7 +524,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if prevObject != nil && os.Getenv("USE_INVERTED_FORMAT") == "true" {
+	if prevObject != nil && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
 		if err := s.extendInvertedIndicesLSM(props, nilprops, status.docID); err != nil {
 			return fmt.Errorf("put inverted indices props: %w", err)
 		}
