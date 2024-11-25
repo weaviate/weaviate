@@ -13,6 +13,7 @@ package rbac
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
@@ -159,27 +160,83 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 
 	// TODO batch enforce
 	for _, resource := range resources {
-		m.logger.WithFields(logrus.Fields{
-			"user":     principal.Username,
-			"resource": resource,
-			"action":   verb,
-		}).Debug("checking for role")
-
 		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
-				"user":     principal.Username,
-				"resource": resource,
-				"action":   verb,
+				"action":         "authorize",
+				"user":           principal.Username,
+				"component":      authorization.ComponentName,
+				"resource":       resource,
+				"request_action": verb,
 			}).WithError(err).Error("failed to enforce policy")
 			return err
 		}
 
-		// TODO audit-log ?
+		perm, err := conv.PathToPermission(verb, resource)
+		if err != nil {
+			return err
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"action":         "authorize",
+			"component":      authorization.ComponentName,
+			"user":           principal.Username,
+			"resources":      prettyPermissionsResources(perm),
+			"request_action": prettyPermissionsActions(perm),
+			"results":        prettyStatus(allow),
+		}).Info()
+
 		if !allow {
-			return errors.NewForbidden(principal, verb, resources...)
+			return errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm))
 		}
 	}
 
 	return nil
+}
+
+func prettyPermissionsActions(perm *models.Permission) string {
+	if perm == nil || perm.Action == nil {
+		return ""
+	}
+	return *perm.Action
+}
+
+func prettyPermissionsResources(perm *models.Permission) string {
+	res := ""
+	if perm == nil {
+		return ""
+	}
+
+	if perm.Collection != nil && *perm.Collection != "" {
+		res += fmt.Sprintf("Collection: %s,", *perm.Collection)
+	}
+
+	if perm.Tenant != nil && *perm.Tenant != "" {
+		res += fmt.Sprintf(" Tenant: %s,", *perm.Tenant)
+	}
+
+	if perm.Object != nil && *perm.Object != "" {
+		res += fmt.Sprintf(" Object: %s,", *perm.Object)
+	}
+
+	if perm.Role != nil && *perm.Role != "" {
+		res += fmt.Sprintf(" Role: %s,", *perm.Role)
+	}
+
+	if perm.User != nil && *perm.User != "" {
+		res += fmt.Sprintf(" User: %s,", *perm.User)
+	}
+
+	if many := strings.Count(res, ","); many == 1 {
+		res = strings.ReplaceAll(res, ",", "")
+		res = strings.TrimSpace(res)
+	}
+	return res
+}
+
+func prettyStatus(value bool) string {
+	if value {
+		return "success"
+	}
+	return "failed"
 }

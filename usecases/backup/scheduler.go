@@ -70,6 +70,43 @@ func NewScheduler(
 	return m
 }
 
+func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
+	for _, backend := range s.backends.EnabledBackupBackends() {
+		backups, err := backend.AllBackups(ctx)
+		if err != nil {
+			s.logger.
+				WithField("action", "cleanup_unfinished_backups").
+				Error(fmt.Errorf("get all backups: %w", err))
+			continue
+		}
+		for _, bak := range backups {
+			if backupNotCompleted(bak.Status) {
+				bak.Status = backup.Cancelled
+				bak.Error = "backup canceled due to node restart"
+				// TODO: make compatible with override bucket/path?
+				store, err := coordBackend(s.backends, backend.Name(), bak.ID, "", "")
+				if err != nil {
+					s.logger.WithField("action", "cleanup_unfinished_backups").
+						Error(fmt.Errorf("init coordinator store: %w", err))
+					continue
+				}
+				// TODO: make compatible with override bucket/path?
+				if err := store.PutMeta(ctx, GlobalBackupFile, bak, "", ""); err != nil {
+					s.logger.WithField("action", "cleanup_unfinished_backups").
+						Error(fmt.Errorf("update meta file: %w", err))
+					continue
+				}
+			}
+		}
+	}
+}
+
+func backupNotCompleted(status backup.Status) bool {
+	return status == backup.Started ||
+		status == backup.Transferred ||
+		status == backup.Transferring
+}
+
 func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (_ *models.BackupCreateResponse, err error) {
 	defer func(begin time.Time) {

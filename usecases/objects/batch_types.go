@@ -12,6 +12,8 @@
 package objects
 
 import (
+	"time"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -70,23 +72,26 @@ type BatchSimpleObject struct {
 type BatchSimpleObjects []BatchSimpleObject
 
 type BatchDeleteParams struct {
-	ClassName schema.ClassName     `json:"className"`
-	Filters   *filters.LocalFilter `json:"filters"`
-	DryRun    bool
-	Output    string
+	ClassName    schema.ClassName     `json:"className"`
+	Filters      *filters.LocalFilter `json:"filters"`
+	DeletionTime time.Time
+	DryRun       bool
+	Output       string
 }
 
 type BatchDeleteResult struct {
-	Matches int64
-	Limit   int64
-	DryRun  bool
-	Objects BatchSimpleObjects
+	Matches      int64
+	Limit        int64
+	DeletionTime time.Time
+	DryRun       bool
+	Objects      BatchSimpleObjects
 }
 
 type BatchDeleteResponse struct {
-	Match  *models.BatchDeleteMatch
-	DryRun bool
-	Output string
-	Params BatchDeleteParams
-	Result BatchDeleteResult
+	Match        *models.BatchDeleteMatch
+	DeletionTime time.Time
+	DryRun       bool
+	Output       string
+	Params       BatchDeleteParams
+	Result       BatchDeleteResult
 }

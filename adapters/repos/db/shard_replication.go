@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -120,7 +121,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 	return replica.SimpleResponse{}
 }
 
-func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
 	bucket, obj, idBytes, docID, updateTime, err := s.canDeleteOne(ctx, uuid)
 	if err != nil {
 		return replica.SimpleResponse{
@@ -131,7 +132,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime); err != nil {
+		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
 				{Code: replica.StatusConflict, Msg: err.Error()},
 			}
@@ -157,9 +158,11 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 	return replica.SimpleResponse{}
 }
 
-func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
+) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
-		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
+		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
 		}
