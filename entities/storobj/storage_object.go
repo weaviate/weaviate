@@ -51,7 +51,6 @@ type Object struct {
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	VectorLen         int           `json:"-"`
-	MultiVectorLen    int           `json:"-"`
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
@@ -111,7 +110,6 @@ func FromObjectMulti(object *models.Object, vector []float32, vectors models.Vec
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
-		MultiVectorLen:    multiVectorCount,
 		MultiVectors:      multiVectors,
 	}
 }
@@ -236,8 +234,6 @@ func FromBinaryOptional(data []byte,
 	}
 
 	if rw.Position < uint64(len(rw.Buffer)) {
-		vectorWeightsCount := rw.ReadUint32()
-		ko.MultiVectorLen = int(vectorWeightsCount)
 		multiVectorsLength := rw.ReadUint32()
 		if len(addProp.MultiVectors) > 0 {
 			if multiVectorsLength > 0 {
@@ -890,7 +886,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 			multivectorsLength = multivectorsLength + uint32(len(vec))
 		}
 	}
-	rw.WriteUint32(multivectorsLength)
 
 	rw.WriteUint32(uint32(len(multiVectorsPacked)))
 	if len(multiVectorsPacked) > 0 {
@@ -1092,8 +1087,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	ko.Vectors = vectors
 
 	if rw.Position < uint64(len(rw.Buffer)) {
-		multiVectorWeightsCount := rw.ReadUint32()
-		ko.MultiVectorLen = int(multiVectorWeightsCount)
 		multivectorsLength := rw.ReadUint32()
 		if multivectorsLength > 0 {
 			multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
