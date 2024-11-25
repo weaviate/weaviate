@@ -126,7 +126,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
 	req.Header.Add("X-Model-Name", model)
-	req.Header.Add("X-Weaviate-Cluster-URL", clusterURL)
+	req.Header.Add("X-Weaviate-Cluster-Url", clusterURL)
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
