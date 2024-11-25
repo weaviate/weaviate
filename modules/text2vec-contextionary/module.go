@@ -58,7 +58,7 @@ type ContextionaryModule struct {
 	configValidator              configValidator
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.Searcher[[]float32]
 	remote                       remoteClient
 	classifierContextual         modulecapabilities.Classifier
 	logger                       logrus.FieldLogger
@@ -250,7 +250,7 @@ func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLA
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
