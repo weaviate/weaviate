@@ -152,7 +152,34 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, s.schemaManager.ReadOnlyClass)
+
+	knownClasses := map[string]*models.Class{}
+	classGetter := func(classname, shard string) (*models.Class, error) {
+		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
+		name := classname + "#" + shard
+		class, ok := knownClasses[name]
+		if ok {
+			return class, nil
+		}
+
+		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(classname, shard)...); err != nil {
+			return nil, err
+		}
+
+		// batch is upsert
+		if err := s.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
+			return nil, err
+		}
+
+		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+			return nil, err
+		}
+		class = s.schemaManager.ReadOnlyClass(classname)
+
+		knownClasses[name] = class
+		return class, nil
+	}
+	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
