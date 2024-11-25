@@ -182,6 +182,7 @@ func (b *BM25Searcher) wandBlock(
 	}
 
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
+	internalLimit := limit
 	if limit == 0 {
 		for _, res := range allResults {
 			for _, res2 := range res {
@@ -192,6 +193,11 @@ func (b *BM25Searcher) wandBlock(
 				}
 			}
 		}
+		internalLimit = limit
+	} else {
+		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
+		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
+		internalLimit = limit + 10
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
@@ -217,7 +223,7 @@ func (b *BM25Searcher) wandBlock(
 			}
 
 			eg.Go(func() (err error) {
-				topKHeap := terms.DoBlockMaxWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				topKHeap := terms.DoBlockMaxWand(internalLimit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
 
 				allObjects[i][j] = objects

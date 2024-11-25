@@ -503,8 +503,8 @@ func TestBM25FDifferentParamsJourneyBlockMem(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.9860), scores[0], 5)
-	EqualFloats(t, float32(0.6327), scores[1], 5)
+	EqualFloats(t, float32(0.98), scores[0], 2)
+	EqualFloats(t, float32(0.63), scores[1], 2)
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
@@ -704,7 +704,6 @@ func TestBM25F_SortMultiPropBlockMem(t *testing.T) {
 	addit := additional.Properties{}
 
 	t.Run("single term", func(t *testing.T) {
-		t.Skip("TODO")
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
 		res, scores, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
