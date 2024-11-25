@@ -194,7 +194,8 @@ func (b *BM25Searcher) wandBlock(
 			}
 		}
 		internalLimit = limit
-	} else {
+
+	} else if len(allResults) > 1 { // we only need to increase the limit if there are multiple properties
 		// TODO: the limit is increased by 10 to make sure candidates that are on the edge of the limit are not missed for multi-property search
 		// the proper fix is to either make sure that the limit is always high enough, or force a rerank of the top results from all properties
 		internalLimit = limit + 10
