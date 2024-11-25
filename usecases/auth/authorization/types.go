@@ -24,10 +24,6 @@ const (
 	CRUD = "(C)|(R)|(U)|(D)"
 	// CRU allow all actions on a resource except DELETE
 	CRU = "(C)|(R)|(U)"
-	// CR Represents the action to create and retrieve a resource
-	CR = "(C)|(R)"
-	// DR Represents the action to delete and retrieve a resource
-	DR = "(C)|(R)"
 	// CREATE Represents the action to create a new resource.
 	CREATE = "C"
 	// READ Represents the action to retrieve a resource.

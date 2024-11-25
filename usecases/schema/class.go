@@ -102,8 +102,11 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
-	err := h.Authorizer.Authorize(principal, authorization.CR, authorization.CollectionsMetadata(cls.Class)...)
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
+		return nil, 0, err
+	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
 	}
 
@@ -198,11 +201,13 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, authorization.DR, authorization.CollectionsMetadata(class)...)
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}
-
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+		return err
+	}
 	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
 }
