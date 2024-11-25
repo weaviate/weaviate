@@ -56,8 +56,8 @@ func (p *Provider) ValidateVectorizer(moduleName string) error {
 		return fmt.Errorf("no module with name %q present", moduleName)
 	}
 
-	_, okVec := mod.(modulecapabilities.Vectorizer[[]float32])
-	_, okRefVec := mod.(modulecapabilities.ReferenceVectorizer[[]float32])
+	okVec := p.implementsVectorizer(mod)
+	okRefVec := p.implementsReferenceVectorizer(mod)
 	if !okVec && !okRefVec {
 		return fmt.Errorf(errorVectorizerCapability, moduleName)
 	}
@@ -77,12 +77,8 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 	}
 
 	for modName := range cfg.(map[string]interface{}) {
-		mod := p.GetByName(modName)
-		switch mod.(type) {
-		case modulecapabilities.ReferenceVectorizer[[]float32], modulecapabilities.ReferenceVectorizer[[][]float32]:
+		if p.implementsReferenceVectorizer(p.GetByName(modName)) {
 			return true
-		default:
-			// do nothing
 		}
 	}
 
@@ -593,4 +589,22 @@ func (p *Provider) getClassVectorizer(className string) (string, interface{}, er
 	}
 
 	return class.Vectorizer, class.VectorIndexConfig, nil
+}
+
+func (p *Provider) implementsVectorizer(mod modulecapabilities.Module) bool {
+	switch mod.(type) {
+	case modulecapabilities.Vectorizer[[]float32], modulecapabilities.Vectorizer[[][]float32]:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Provider) implementsReferenceVectorizer(mod modulecapabilities.Module) bool {
+	switch mod.(type) {
+	case modulecapabilities.ReferenceVectorizer[[]float32], modulecapabilities.ReferenceVectorizer[[][]float32]:
+		return true
+	default:
+		return false
+	}
 }

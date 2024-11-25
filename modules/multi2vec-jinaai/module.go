@@ -38,9 +38,9 @@ func New() *Module {
 type Module struct {
 	vectorizer               *vectorizer.Vectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher
+	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher
+	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
