@@ -62,6 +62,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	containerName := "container"
 	endpoint := os.Getenv(envAzureEndpoint)
 	metadataFilename := "backup.json"
+	DefaultBlockSize := int64(10 * 1024 * 1024)
 
 	t.Log("setup env")
 	t.Setenv(envAzureEndpoint, endpoint)
@@ -77,7 +78,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := azure.Initialize(testCtx, backupID)
+			err := azure.Initialize(testCtx, backupID, DefaultBlockSize)
 			assert.Nil(t, err)
 		})
 
@@ -105,7 +106,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = azure.PutObject(testCtx, backupID, metadataFilename, b)
+			err = azure.PutObject(testCtx, backupID, metadataFilename, b, DefaultBlockSize)
 			require.Nil(t, err)
 
 			dest := azure.HomeDir(backupID)
@@ -142,6 +143,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	backupID := "backup_id"
 	containerName := "container"
 	endpoint := os.Getenv(envAzureEndpoint)
+	DefaultBlockSize := int64(10 * 1024 * 1024)
 
 	t.Log("setup env")
 	t.Setenv(envAzureEndpoint, endpoint)
@@ -157,7 +159,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := azure.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := azure.PutObject(testCtx, backupID, key, []byte("hello"), DefaultBlockSize)
 			assert.Nil(t, err)
 		})
 

@@ -139,6 +139,9 @@ type BackupRequest struct {
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
 	NodeMapping map[string]string
+
+	// BlockSize is the size of the blocks during the upload
+	BlockSize int64
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -169,7 +172,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		if err = store.Initialize(ctx); err != nil {
+		if err = store.Initialize(ctx, req.BlockSize); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}

@@ -127,7 +127,7 @@ func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath st
 	return nil
 }
 
-func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte, blockSize int64) error {
 	objectName := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	reader := bytes.NewReader(byes)
@@ -146,10 +146,10 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []b
 	return nil
 }
 
-func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
+func (s *s3Client) Initialize(ctx context.Context, backupID string, blockSize int64) error {
 	key := "access-check"
 
-	if err := s.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	if err := s.PutObject(ctx, backupID, key, []byte(""), blockSize); err != nil {
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 

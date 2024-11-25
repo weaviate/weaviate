@@ -109,7 +109,7 @@ func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath strin
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
+func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte, blockSize int64) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)
@@ -134,7 +134,7 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]b
 	return nil, args.Error(1)
 }
 
-func (fb *fakeBackend) Initialize(ctx context.Context, backupID string) error {
+func (fb *fakeBackend) Initialize(ctx context.Context, backupID string, blockSize int64) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID)
