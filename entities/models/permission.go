@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles manage_cluster manage_backups read_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
+	// Enum: [manage_users manage_roles read_roles manage_cluster manage_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
 	Action *string `json:"action"`
 
 	// backup
@@ -77,7 +77,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","manage_backups","read_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","manage_cluster","manage_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -101,9 +101,6 @@ const (
 
 	// PermissionActionManageBackups captures enum value "manage_backups"
 	PermissionActionManageBackups string = "manage_backups"
-
-	// PermissionActionReadBackups captures enum value "read_backups"
-	PermissionActionReadBackups string = "read_backups"
 
 	// PermissionActionCreateSchema captures enum value "create_schema"
 	PermissionActionCreateSchema string = "create_schema"
@@ -226,9 +223,6 @@ type PermissionBackup struct {
 
 	// string or regex. if a specific backend name, if left empty it will be ALL or *
 	Backend *string `json:"backend,omitempty"`
-
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
-	Collection *string `json:"collection,omitempty"`
 }
 
 // Validate validates this permission backup

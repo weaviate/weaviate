@@ -90,15 +90,13 @@ var (
 	manageAllBackups = &models.Permission{
 		Action: String(ManageBackups),
 		Backup: &models.PermissionBackup{
-			Backend:    All,
-			Collection: All,
+			Backend: All,
 		},
 	}
 	readAllBackups = &models.Permission{
 		Action: String(ReadBackups),
 		Backup: &models.PermissionBackup{
-			Backend:    All,
-			Collection: All,
+			Backend: All,
 		},
 	}
 
@@ -313,31 +311,23 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
 }
 
-// Backups generates a list of resource strings for the given backend and classes.
-// If no IDs are provided, it returns a default resource string "meta/backups/{backend}/collections/*".
+// Backups generates a resource string for the given backend.
+// If the backend is an empty string, it defaults to "*".
 
 // Parameters:
 // - backend: the backend name (string)
-// - collections: a variadic list of class names (string)
-//
+
 // Returns:
-// - A slice of strings representing the resource paths for the given backend and backup IDs.
+// - A string representing the resource path for the given backend.
 
 // Example outputs:
-// - "meta/backups/*/collections/*" if no IDs are provided
-// - "meta/backups/{backend}/collections/{id}" for each provided ID
-func Backups(backend string, classes ...string) []string {
+// - "backups/*" if the backend is an empty string
+// - "backups/{backend}" for the provided backend
+func Backups(backend string) string {
 	if backend == "" {
 		backend = "*"
 	}
-	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/%s/collections/*", BackupsDomain, backend)}
-	}
-	resources := make([]string, len(classes))
-	for idx := range classes {
-		resources[idx] = fmt.Sprintf("%s/%s/collections/%s", BackupsDomain, backend, classes[idx])
-	}
-	return resources
+	return fmt.Sprintf("%s/backends/%s", BackupsDomain, backend)
 }
 
 func String(s string) *string {

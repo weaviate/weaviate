@@ -132,7 +132,31 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	})
 
 	t.Run("add manage all backups permission to role", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithBackend(backend).WithCollection("*").Permission())
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithBackend(backend).Permission())
+	})
+
+	t.Run("fail to create a backup due to missing read_schema action on clsA.Class", func(t *testing.T) {
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsCreateForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("add read_schema action on clsA.Class to the role", func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewSchemaPermission().WithAction(authorization.ReadSchema).WithCollection(clsA.Class).Permission())
+	})
+
+	t.Run("fail to create a backup due to missing read_data action on clsA.Class", func(t *testing.T) {
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsCreateForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("add read_data action on clsA.Class to the role", func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(clsA.Class).Permission())
 	})
 
 	t.Run("successfully create a backup with sufficient permissions", func(t *testing.T) {
@@ -157,6 +181,30 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 
 	t.Run("delete clsA", func(t *testing.T) {
 		helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("fail to create a backup due to missing create_schema action on clsA.Class", func(t *testing.T) {
+		_, err := helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, backupID, map[string]string{}, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsRestoreForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("add create_schema action on clsA.Class to the role", func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewSchemaPermission().WithAction(authorization.CreateSchema).WithCollection(clsA.Class).Permission())
+	})
+
+	t.Run("fail to restore a backup due to missing create_data action on clsA.Class", func(t *testing.T) {
+		_, err := helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, backupID, map[string]string{}, helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsRestoreForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("add create_data action on clsA.Class to the role", func(t *testing.T) {
+		helper.AddPermissions(t, adminKey, testRoleName, helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(clsA.Class).Permission())
 	})
 
 	t.Run("successfully restore a backup with sufficient permissions", func(t *testing.T) {

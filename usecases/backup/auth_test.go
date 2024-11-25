@@ -30,7 +30,7 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Authorization(t *testing.T) {
-	// req := &BackupRequest{ID: "123", Backend: "s3", Bucket: "bucket", Path: "filename"}
+	req := &BackupRequest{ID: "123", Backend: "s3", Bucket: "bucket", Path: "filename"}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -39,45 +39,41 @@ func Test_Authorization(t *testing.T) {
 	}
 
 	tests := []testCase{
-		// cannot be simply unit tested like this because authorizer logic must go after Backup validation logic
-		// thereby requiring many mocked interfaces to be set up
-		// {
-		// 	methodName:       "Backup",
-		// 	additionalArgs:   []interface{}{req},
-		// 	expectedVerb:     authorization.CRUD,
-		// 	expectedResource: authorization.Backups("s3", "123")[0],
-		// },
+		{
+			methodName:       "Backup",
+			additionalArgs:   []interface{}{req},
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("s3"),
+		},
 		{
 			methodName:       "BackupStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("s3", "123")[0],
+			expectedResource: authorization.Backups("s3"),
 		},
-		// cannot be simply unit tested like this because authorizer logic must go after Restore validation logic
-		// thereby requiring many mocked interfaces to be set up
-		// {
-		// 	methodName:       "Restore",
-		// 	additionalArgs:   []interface{}{req},
-		// 	expectedVerb:     authorization.CRUD,
-		// 	expectedResource: authorization.Backups("s3", "123")[0],
-		// },
+		{
+			methodName:       "Restore",
+			additionalArgs:   []interface{}{req},
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("s3"),
+		},
 		{
 			methodName:       "RestorationStatus",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("s3", "123")[0],
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.CRUD,
-			expectedResource: authorization.Backups("s3", "123")[0],
+			expectedVerb:     authorization.DELETE,
+			expectedResource: authorization.Backups("s3"),
 		},
 		{
 			methodName:       "List",
 			additionalArgs:   []interface{}{"s3"},
 			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("s3", "*")[0],
+			expectedResource: authorization.Backups("s3"),
 		},
 	}
 

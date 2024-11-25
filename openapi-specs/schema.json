@@ -35,11 +35,6 @@
               "type": "string",
               "default": "*",
               "description": "string or regex. if a specific backend name, if left empty it will be ALL or *"
-            },
-            "collection": {
-              "type": "string",
-              "default": "*",
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
             }
           }
         },
@@ -80,7 +75,6 @@
             "manage_cluster",
             
             "manage_backups",
-            "read_backups",
 
             "create_schema",
             "read_schema",

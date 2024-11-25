@@ -134,50 +134,23 @@ func Test_policy(t *testing.T) {
 			tests: clusterTests,
 		},
 		{
-			name:       "all IDs in all backends",
+			name:       "all backends",
 			permission: &models.Permission{},
 			policy: &authorization.Policy{
-				Resource: CasbinBackups("*", "*"),
+				Resource: CasbinBackups("*"),
 				Domain:   authorization.BackupsDomain,
 			},
 			tests: backupsTests,
 		},
 		{
-			name: "all IDs in a backend",
+			name: "a backend",
 			permission: &models.Permission{
 				Backup: &models.PermissionBackup{
 					Backend: authorization.String("s3"),
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinBackups("s3", "*"),
-				Domain:   authorization.BackupsDomain,
-			},
-			tests: backupsTests,
-		},
-		{
-			name: "one ID in all backends",
-			permission: &models.Permission{
-				Backup: &models.PermissionBackup{
-					Collection: authorization.String("Foo"),
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinBackups("*", "Foo"),
-				Domain:   authorization.BackupsDomain,
-			},
-			tests: backupsTests,
-		},
-		{
-			name: "one ID in a backend",
-			permission: &models.Permission{
-				Backup: &models.PermissionBackup{
-					Backend:    authorization.String("s3"),
-					Collection: authorization.String("Foo"),
-				},
-			},
-			policy: &authorization.Policy{
-				Resource: CasbinBackups("s3", "Foo"),
+				Resource: CasbinBackups("s3"),
 				Domain:   authorization.BackupsDomain,
 			},
 			tests: backupsTests,
@@ -436,44 +409,21 @@ func Test_permission(t *testing.T) {
 			tests:      clusterTests,
 		},
 		{
-			name:   "all collections in all backends",
-			policy: []string{"p", "/*/collections/*", "", "backups"},
+			name:   "all backends",
+			policy: []string{"p", "/backends/*", "", "backups"},
 			permission: &models.Permission{
 				Backup: &models.PermissionBackup{
-					Backend:    authorization.All,
-					Collection: authorization.All,
+					Backend: authorization.All,
 				},
 			},
 			tests: backupsTests,
 		},
 		{
-			name:   "all collections in a backend",
-			policy: []string{"p", "/s3/collections/*", "", "backups"},
+			name:   "a backend",
+			policy: []string{"p", "/backends/s3", "", "backups"},
 			permission: &models.Permission{
 				Backup: &models.PermissionBackup{
-					Backend:    authorization.String("s3"),
-					Collection: authorization.All,
-				},
-			},
-			tests: backupsTests,
-		},
-		{
-			name:   "one collection in all backends",
-			policy: []string{"p", "/*/collections/123", "", "backups"},
-			permission: &models.Permission{
-				Backup: &models.PermissionBackup{
-					Backend:    authorization.All,
-					Collection: authorization.String("Foo"),
-				},
-			},
-		},
-		{
-			name:   "one collection in a backend",
-			policy: []string{"p", "/s3/collections/Foo", "", "backups"},
-			permission: &models.Permission{
-				Backup: &models.PermissionBackup{
-					Backend:    authorization.String("s3"),
-					Collection: authorization.String("Foo"),
+					Backend: authorization.String("s3"),
 				},
 			},
 			tests: backupsTests,
@@ -778,21 +728,20 @@ func Test_pObjects(t *testing.T) {
 func Test_CasbinBackups(t *testing.T) {
 	tests := []struct {
 		backend  string
-		id       string
 		expected string
 	}{
-		{backend: "", id: "", expected: fmt.Sprintf("%s/.*/collections/.*", authorization.BackupsDomain)},
-		{backend: "*", id: "*", expected: fmt.Sprintf("%s/.*/collections/.*", authorization.BackupsDomain)},
-		{backend: "foo", id: "", expected: fmt.Sprintf("%s/foo/collections/.*", authorization.BackupsDomain)},
-		{backend: "foo", id: "*", expected: fmt.Sprintf("%s/foo/collections/.*", authorization.BackupsDomain)},
-		{backend: "", id: "bar", expected: fmt.Sprintf("%s/.*/collections/bar", authorization.BackupsDomain)},
-		{backend: "*", id: "bar", expected: fmt.Sprintf("%s/.*/collections/bar", authorization.BackupsDomain)},
-		{backend: "foo", id: "bar", expected: fmt.Sprintf("%s/foo/collections/bar", authorization.BackupsDomain)},
+		{backend: "", expected: fmt.Sprintf("%s/backends/.*", authorization.BackupsDomain)},
+		{backend: "*", expected: fmt.Sprintf("%s/backends/.*", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/backends/foo", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/backends/foo", authorization.BackupsDomain)},
+		{backend: "", expected: fmt.Sprintf("%s/backends/.*", authorization.BackupsDomain)},
+		{backend: "*", expected: fmt.Sprintf("%s/backends/.*", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/backends/foo", authorization.BackupsDomain)},
 	}
 	for _, tt := range tests {
-		name := fmt.Sprintf("backend: %s; id: %s", tt.backend, tt.id)
+		name := fmt.Sprintf("backend: %s", tt.backend)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinBackups(tt.backend, tt.id)
+			p := CasbinBackups(tt.backend)
 			require.Equal(t, tt.expected, p)
 		})
 	}

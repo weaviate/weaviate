@@ -33,10 +33,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
-	fmt.Sprintf(`^%s/.*/collections/.*$`, authorization.BackupsDomain),
-	fmt.Sprintf(`^%s/[^/]+/collections/.*$`, authorization.BackupsDomain),
-	fmt.Sprintf(`^%s/.*/collections/[^/]+$`, authorization.BackupsDomain),
-	fmt.Sprintf(`^%s/[^/]+/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/backends/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/backends/[^/]+$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
@@ -60,16 +58,12 @@ func CasbinClusters() string {
 	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
 }
 
-func CasbinBackups(backend, collection string) string {
+func CasbinBackups(backend string) string {
 	if backend == "" {
 		backend = "*"
 	}
-	if collection == "" {
-		collection = "*"
-	}
 	backend = strings.ReplaceAll(backend, "*", ".*")
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("%s/%s/collections/%s", authorization.BackupsDomain, backend, collection)
+	return fmt.Sprintf("%s/backends/%s", authorization.BackupsDomain, backend)
 }
 
 func CasbinUsers(user string) string {
@@ -180,16 +174,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinData(collection, tenant, object)
 	case authorization.BackupsDomain:
 		backend := "*"
-		collection := "*"
 		if permission.Backup != nil {
 			if permission.Backup.Backend != nil {
 				backend = *permission.Backup.Backend
 			}
-			if permission.Backup.Collection != nil {
-				collection = *permission.Backup.Collection
-			}
 		}
-		resource = CasbinBackups(backend, collection)
+		resource = CasbinBackups(backend)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -239,13 +229,11 @@ func permission(policy []string) (*models.Permission, error) {
 		// do nothing
 	case authorization.BackupsDomain:
 		permission.Backup = &models.PermissionBackup{
-			Backend:    &splits[1],
-			Collection: &splits[3],
+			Backend: &splits[2],
 		}
 	case *authorization.All:
 		permission.Backup = &models.PermissionBackup{
-			Backend:    authorization.All,
-			Collection: authorization.All,
+			Backend: authorization.All,
 		}
 		permission.Collection = authorization.All
 		permission.Tenant = authorization.All

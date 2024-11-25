@@ -5354,7 +5354,6 @@ func init() {
             "read_roles",
             "manage_cluster",
             "manage_backups",
-            "read_backups",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -5371,11 +5370,6 @@ func init() {
           "properties": {
             "backend": {
               "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -11932,7 +11926,6 @@ func init() {
             "read_roles",
             "manage_cluster",
             "manage_backups",
-            "read_backups",
             "create_schema",
             "read_schema",
             "update_schema",
@@ -11949,11 +11942,6 @@ func init() {
           "properties": {
             "backend": {
               "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -11992,11 +11980,6 @@ func init() {
       "properties": {
         "backend": {
           "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

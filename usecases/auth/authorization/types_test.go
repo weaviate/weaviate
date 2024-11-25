@@ -67,19 +67,15 @@ func TestBackups(t *testing.T) {
 	tests := []struct {
 		name     string
 		backend  string
-		ids      []string
-		expected []string
+		expected string
 	}{
-		{"No backend, no ids", "", []string{}, []string{fmt.Sprintf("%s/*/collections/*", BackupsDomain)}},
-		{"Backend, no ids", "backend1", []string{}, []string{fmt.Sprintf("%s/backend1/collections/*", BackupsDomain)}},
-		{"No backend, single id", "", []string{"id1"}, []string{fmt.Sprintf("%s/*/collections/id1", BackupsDomain)}},
-		{"Backend, single id", "backend1", []string{"id1"}, []string{fmt.Sprintf("%s/backend1/collections/id1", BackupsDomain)}},
-		{"Backend, multiple ids", "backend1", []string{"id1", "id2"}, []string{fmt.Sprintf("%s/backend1/collections/id1", BackupsDomain), fmt.Sprintf("%s/backend1/collections/id2", BackupsDomain)}},
+		{"No backend", "", fmt.Sprintf("%s/backends/*", BackupsDomain)},
+		{"Backend", "backend1", fmt.Sprintf("%s/backends/backend1", BackupsDomain)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Backups(tt.backend, tt.ids...)
+			result := Backups(tt.backend)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

@@ -87,36 +87,64 @@ func (p *BackupPermission) WithBackend(backend string) *BackupPermission {
 	return p
 }
 
-func (p *BackupPermission) WithCollection(collection string) *BackupPermission {
-	if p.Backup == nil {
-		p.Backup = &models.PermissionBackup{}
-	}
-	p.Backup.Collection = authorization.String(collection)
-	return p
-}
-
 func (p *BackupPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
 
-type CollectionPermission models.Permission
+type SchemaPermission models.Permission
 
-func NewCollectionPermission() *CollectionPermission {
-	return &CollectionPermission{}
+func NewSchemaPermission() *SchemaPermission {
+	return &SchemaPermission{}
 }
 
-func (p *CollectionPermission) WithAction(action string) *CollectionPermission {
+func (p *SchemaPermission) WithAction(action string) *SchemaPermission {
 	p.Action = authorization.String(action)
 	return p
 }
 
-func (p *CollectionPermission) WithCollection(collection string) *CollectionPermission {
+func (p *SchemaPermission) WithCollection(collection string) *SchemaPermission {
 	p.Collection = authorization.String(collection)
 	return p
 }
 
-func (p *CollectionPermission) Permission() *models.Permission {
+func (p *SchemaPermission) WithTenant(tenant string) *SchemaPermission {
+	p.Tenant = authorization.String(tenant)
+	return p
+}
+
+func (p *SchemaPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
+
+type DataPermission models.Permission
+
+func NewDataPermission() *DataPermission {
+	return &DataPermission{}
+}
+
+func (p *DataPermission) WithAction(action string) *DataPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *DataPermission) WithCollection(collection string) *DataPermission {
+	p.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *DataPermission) WithTenant(tenant string) *DataPermission {
+	p.Tenant = authorization.String(tenant)
+	return p
+}
+
+func (p *DataPermission) WithObject(object string) *DataPermission {
+	p.Object = authorization.String(object)
+	return p
+}
+
+func (p *DataPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
