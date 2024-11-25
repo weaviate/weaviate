@@ -101,7 +101,7 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 
 	for _, docID := range docIDs {
 		h.RLock()
-		vecIDs := h.docIDVectorMap[docID]
+		vecIDs := h.docIDVectors[docID]
 		h.RUnlock()
 
 		for _, id := range vecIDs {
@@ -110,7 +110,7 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			}
 		}
 		h.Lock()
-		delete(h.docIDVectorMap, docID)
+		delete(h.docIDVectors, docID)
 		h.Unlock()
 
 	}

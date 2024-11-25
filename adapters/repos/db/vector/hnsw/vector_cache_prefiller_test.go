@@ -148,19 +148,15 @@ func (f *fakeCache) CountVectors() int64 {
 	panic("not implemented")
 }
 
-func (f *fakeCache) GetMultiple(ctx context.Context, id uint64) ([]float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeCache) PreloadMultiple(id uint64, docID uint64, relativeID uint64, vec []float32) {
-	panic("not implemented")
-}
-
-func (f *fakeCache) PrefetchMultiple(id uint64) {
-	panic("not implemented")
-}
-
 func (f *fakeCache) GetKeys(id uint64) (uint64, uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) GrowMultiCache(id uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 

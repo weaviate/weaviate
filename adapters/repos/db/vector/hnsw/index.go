@@ -182,9 +182,10 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
-	multivector    atomic.Bool
-	docIDVectorMap map[uint64][]uint64
-	vecIDcounter   uint64
+	multivector  atomic.Bool
+	docIDVectors map[uint64][]uint64
+	vecIDcounter uint64
+	maxDocID     uint64
 }
 
 type CommitLogger interface {
@@ -304,9 +305,7 @@ func New(cfg Config, uc ent.UserConfig,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		multivector:    atomic.Bool{},
-		vecIDcounter:   0,
-		docIDVectorMap: make(map[uint64][]uint64),
+		docIDVectors: make(map[uint64][]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 

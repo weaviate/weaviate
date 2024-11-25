@@ -18,13 +18,14 @@ import (
 
 const DefaultDeletionInterval = 3 * time.Second
 
-type CacheMultiple[T any] interface {
-	PreloadMultiple(id uint64, docID uint64, relativeID uint64, vec []float32)
+type MultiCache[T any] interface {
+	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
 	GetKeys(id uint64) (uint64, uint64)
+	GrowMultiCache(id uint64)
 }
 
 type Cache[T any] interface {
-	CacheMultiple[T]
+	MultiCache[T]
 	Get(ctx context.Context, id uint64) ([]T, error)
 	MultiGet(ctx context.Context, ids []uint64) ([][]T, []error)
 	Len() int32

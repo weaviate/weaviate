@@ -884,9 +884,15 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
-	docVecs, err := h.getVectorsFromID(docID)
-	if err != nil {
-		return 0.0, err
+	h.RLock()
+	vecIDs := h.docIDVectors[docID]
+	h.RUnlock()
+	docVecs, errs := h.multiVectorForID(context.Background(), vecIDs)
+
+	for _, err := range errs {
+		if err != nil {
+			return 0.0, errors.Wrap(err, "get vector for docID")
+		}
 	}
 
 	similarity := float32(0.0)
@@ -905,21 +911,6 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	}
 
 	return similarity, nil
-}
-
-func (h *hnsw) getVectorsFromID(docID uint64) ([][]float32, error) {
-	vecIDs := h.docIDVectorMap[docID]
-	vecs := make([][]float32, len(vecIDs))
-	h.RLock()
-	for i, vecID := range vecIDs {
-		vec, err := h.vectorForID(context.Background(), vecID) // should we use multiple vectors for id??
-		if err != nil {
-			return nil, errors.Wrapf(err, "get vector for docID %d", vecID)
-		}
-		vecs[i] = vec
-	}
-	h.RUnlock()
-	return vecs, nil
 }
 
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

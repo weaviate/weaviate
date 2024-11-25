@@ -44,8 +44,8 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 }
 
 const (
-	InitialSize             = 100
-	RelativeInitialSize     = 50
+	InitialSize             = 1000
+	RelativeInitialSize     = 1
 	MinimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
 )
@@ -342,11 +342,15 @@ func (s *shardedLockCache[T]) CopyMaxSize() int64 {
 	return sizeCopy
 }
 
-func (s *shardedLockCache[T]) PreloadMultiple(id uint64, docID uint64, relativeID uint64, vec []float32) {
+func (s *shardedLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
 	panic("not implemented")
 }
 
-func (s *shardedLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
+func (s *shardedLockCache[T]) GrowMultiCache(id uint64) {
+	panic("not implemented")
+}
+
+func (s *shardedLockCache[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 
@@ -363,7 +367,7 @@ func NewNoopCache(vecForID common.VectorForID[float32], maxSize int,
 	return &noopCache{vectorForID: vecForID}
 }
 
-type Keys struct {
+type CacheKeys struct {
 	DocID      uint64
 	RelativeID uint64
 }
@@ -379,7 +383,7 @@ type shardedMultipleLockCache struct {
 	logger              logrus.FieldLogger
 	deletionInterval    time.Duration
 	allocChecker        memwatch.AllocChecker
-	vectorDocID         []Keys
+	vectorDocID         []CacheKeys
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -401,7 +405,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32
 		return vec, nil
 	}
 
-	cache := make([][][]float32, 166975)
+	cache := make([][][]float32, InitialSize)
 	for i := range cache {
 		cache[i] = make([][]float32, RelativeInitialSize)
 	}
@@ -418,7 +422,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32
 		maintenanceLock:     sync.RWMutex{},
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
-		vectorDocID:         make([]Keys, InitialSize),
+		vectorDocID:         make([]CacheKeys, InitialSize),
 	}
 
 	vc.watchForDeletion()
@@ -443,15 +447,15 @@ func (s *shardedMultipleLockCache) GetKeysNoLock(id uint64) (uint64, uint64) {
 
 func (s *shardedMultipleLockCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	s.shardedLocks.RLock(id)
-	docID, vecID := s.GetKeysNoLock(id)
-	vec := s.cache[docID][vecID]
+	docID, relativeID := s.GetKeysNoLock(id)
+	docVecs := s.cache[docID]
 	s.shardedLocks.RUnlock(id)
 
-	if vec != nil {
-		return vec, nil
+	if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil {
+		return s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 	}
+	return docVecs[relativeID], nil
 
-	return s.handleMultipleCacheMiss(ctx, id, docID, vecID)
 }
 
 func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
@@ -461,13 +465,16 @@ func (s *shardedMultipleLockCache) MultiGet(ctx context.Context, ids []uint64) (
 	for i, id := range ids {
 		s.shardedLocks.RLock(id)
 		docID, relativeID := s.GetKeysNoLock(id)
-		vec := s.cache[docID][relativeID]
+		docVecs := s.cache[docID]
 		s.shardedLocks.RUnlock(id)
 
-		if vec == nil {
+		var vec []float32
+		if len(docVecs) <= int(relativeID) || docVecs[relativeID] == nil {
 			vecFromDisk, err := s.handleMultipleCacheMiss(ctx, id, docID, relativeID)
 			errs[i] = err
 			vec = vecFromDisk
+		} else {
+			vec = docVecs[relativeID]
 		}
 
 		out[i] = vec
@@ -494,7 +501,7 @@ func (s *shardedMultipleLockCache) Delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, vecID uint64) ([]float32, error) {
+func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, id uint64, docID uint64, relativeID uint64) ([]float32, error) {
 	if s.allocChecker != nil {
 		// we don't really know the exact size here, but we don't have to be
 		// accurate. If mem pressure is this high, we basically want to prevent any
@@ -509,7 +516,7 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 				"action": "vector_cache_miss",
 				"event":  "vector_load_skipped_oom",
 				"doc_id": docID,
-				"vec_id": vecID,
+				"vec_id": relativeID,
 			}).WithError(err).
 				Warnf("cannot load vector into cache due to memory pressure")
 			return nil, err
@@ -523,7 +530,12 @@ func (s *shardedMultipleLockCache) handleMultipleCacheMiss(ctx context.Context, 
 
 	atomic.AddInt64(&s.count, 1)
 	s.shardedLocks.Lock(id)
-	s.cache[docID][vecID] = vec
+	if len(s.cache[docID]) <= int(relativeID) {
+		newCacheLine := make([][]float32, relativeID+MinimumIndexGrowthDelta)
+		copy(newCacheLine, s.cache[docID])
+		s.cache[docID] = newCacheLine
+	}
+	s.cache[docID][relativeID] = vec
 	s.shardedLocks.Unlock(id)
 
 	return vec, nil
@@ -545,13 +557,16 @@ func (s *shardedMultipleLockCache) Prefetch(id uint64) {
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[docID])))
 }
 
-func (s *shardedMultipleLockCache) PreloadMultiple(id uint64, docID uint64, vecID uint64, vec []float32) {
-	s.shardedLocks.Lock(id)
-	defer s.shardedLocks.Unlock(id)
+func (s *shardedMultipleLockCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 
-	atomic.AddInt64(&s.count, 1)
-	s.cache[docID][vecID] = vec
-	s.vectorDocID[id] = Keys{DocID: docID, RelativeID: vecID}
+	s.shardedLocks.Lock(docID)
+	defer s.shardedLocks.Unlock(docID)
+
+	atomic.AddInt64(&s.count, int64(len(ids)))
+	s.cache[docID] = vecs
+	for i, id := range ids {
+		s.vectorDocID[id] = CacheKeys{DocID: docID, RelativeID: uint64(i)}
+	}
 }
 
 func (s *shardedMultipleLockCache) Preload(docID uint64, vec []float32) {
@@ -586,21 +601,36 @@ func (s *shardedMultipleLockCache) Grow(node uint64) {
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	/*newSizeCache := node + MinimumIndexGrowthDelta
-	newCache := make([][][]float32, newSizeCache)
-	for i := range newCache {
-		newCache[i] = make([][]float32, RelativeInitialSize)
-		for j := range newCache[i] {
-			newCache[i][j] = nil
-		}
-	}
-	copy(newCache, s.cache)
-	s.cache = newCache*/
-
 	newSizeVector := node + MinimumIndexGrowthDelta
-	newVectorDocID := make([]Keys, newSizeVector)
+	newVectorDocID := make([]CacheKeys, newSizeVector)
 	copy(newVectorDocID, s.vectorDocID)
 	s.vectorDocID = newVectorDocID
+}
+
+func (s *shardedMultipleLockCache) GrowMultiCache(id uint64) {
+	s.maintenanceLock.RLock()
+	if id < uint64(len(s.cache)) {
+		s.maintenanceLock.RUnlock()
+		return
+	}
+	s.maintenanceLock.RUnlock()
+
+	s.maintenanceLock.Lock()
+	defer s.maintenanceLock.Unlock()
+
+	// make sure cache still needs growing
+	// (it could have grown while waiting for maintenance lock)
+	if id < uint64(len(s.cache)) {
+		return
+	}
+
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
+
+	newSizeCache := id + MinimumIndexGrowthDelta
+	newCache := make([][][]float32, newSizeCache)
+	copy(newCache, s.cache)
+	s.cache = newCache
 }
 
 func (s *shardedMultipleLockCache) Len() int32 {

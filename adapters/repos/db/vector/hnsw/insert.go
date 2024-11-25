@@ -127,7 +127,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	})
 
 	for i, docID := range docIDs {
-
 		numVectors := len(vectors[i])
 		levels := make([]int, numVectors) // should be outside the loop? they don't have fixed size
 		for j := range numVectors {
@@ -157,6 +156,20 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.RUnlock()
 		}
 
+		h.RLock()
+		if docID >= h.maxDocID {
+			h.RUnlock()
+			h.Lock()
+			if docID >= h.maxDocID {
+				h.maxDocID = docID
+				h.cache.GrowMultiCache(docID)
+			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
+		}
+
+		ids := make([]uint64, numVectors)
 		for j := range numVectors {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -174,6 +187,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			vector = h.normalizeVec(vector)
 
 			nodeId := counter
+			ids[j] = nodeId
 			counter++
 
 			node := &vertex{
@@ -184,7 +198,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			}
 
 			h.Lock()
-			h.docIDVectorMap[docID] = append(h.docIDVectorMap[docIDs[i]], nodeId)
+			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
 
 			err := h.addOne(ctx, vector, node)
@@ -194,6 +208,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			h.insertMetrics.total(globalBefore)
 		}
+		h.cache.PreloadMulti(docID, ids, vectors[i])
 
 	}
 
@@ -265,8 +280,6 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	} else {
 		if !h.multivector.Load() {
 			h.cache.Preload(node.id, vector)
-		} else {
-			h.cache.PreloadMultiple(node.id, node.docID, node.relativeID, vector)
 		}
 	}
 
@@ -362,8 +375,6 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	} else {
 		if !h.multivector.Load() {
 			h.cache.Preload(node.id, nodeVec)
-		} else {
-			h.cache.PreloadMultiple(node.id, node.docID, node.relativeID, nodeVec)
 		}
 	}
 
