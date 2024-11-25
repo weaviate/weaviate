@@ -24,6 +24,7 @@ func DefaultBackupConfig() *models.BackupConfig {
 		CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
 		CPUPercentage:    backup.DefaultCPUPercentage,
 		ChunkSize:        128,
+		BlockSize:        10*71024*1024,
 	}
 }
 
