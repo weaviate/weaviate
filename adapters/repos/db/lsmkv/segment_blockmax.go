@@ -219,7 +219,8 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 }
 
 func (s *SegmentBlockMax) advanceToStart() {
-	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
+		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {
@@ -353,7 +354,8 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
 
-	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
+		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {
@@ -465,7 +467,8 @@ func (s *SegmentBlockMax) Advance() {
 		}
 	}
 
-	for s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx]) {
+	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
+		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
 		s.blockDataIdx++
 		if s.blockDataIdx > s.blockDataSize-1 {
 			if s.blockEntryIdx >= len(s.blockEntries)-1 {
