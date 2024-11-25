@@ -3,7 +3,7 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_lists
+from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
@@ -13,15 +13,15 @@ def test_rbac_collection_create(
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    permissions = [
+    required_permissions = [
         RBAC.permissions.config.read(collection=name),
         RBAC.permissions.config.create(collection=name),
     ]
-    with role_wrapper(admin_client, request, permissions):
+    with role_wrapper(admin_client, request, required_permissions):
         assert custom_client.collections.create(name=name) is not None
         admin_client.collections.delete(name)
 
-    for permission in generate_missing_lists(permissions):
+    for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 custom_client.collections.create(name=name)
@@ -37,7 +37,8 @@ def test_rbac_collection_read(
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
 
-    with role_wrapper(admin_client, request, RBAC.permissions.config.read(collection=name)):
+    required_permissions = RBAC.permissions.config.read(collection=name)
+    with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.get(name=name)
         assert col.config.get() is not None
 
@@ -57,7 +58,8 @@ def test_rbac_schema_read(
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
 
-    with role_wrapper(admin_client, request, RBAC.permissions.config.read()):
+    required_permission = RBAC.permissions.config.read()
+    with role_wrapper(admin_client, request, required_permission):
         custom_client.collections.list_all()
 
     with role_wrapper(admin_client, request, []):
@@ -74,15 +76,15 @@ def test_rbac_collection_update(
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
-    permissions = [
+    required_permissions = [
         RBAC.permissions.config.read(collection=name),
         RBAC.permissions.config.update(collection=name),
     ]
-    with role_wrapper(admin_client, request, permissions):
+    with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name)
         col_custom.config.update(description="test")
 
-    for permission in generate_missing_lists(permissions):
+    for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             col_custom = custom_client.collections.get(name)
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
@@ -98,12 +100,12 @@ def test_rbac_collection_delete(
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
-    permissions = [
+
+    required_permissions = [
         RBAC.permissions.config.read(collection=name),
         RBAC.permissions.config.delete(collection=name),
     ]
-
-    for permission in generate_missing_lists(permissions):
+    for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 custom_client.collections.delete(name)
@@ -111,7 +113,7 @@ def test_rbac_collection_delete(
             assert "forbidden" in e.value.args[0]
             assert admin_client.collections.get(name) is not None
 
-    with role_wrapper(admin_client, request, permissions):
+    with role_wrapper(admin_client, request, required_permissions):
         custom_client.collections.delete(name)
         assert not admin_client.collections.exists(name)
 

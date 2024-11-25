@@ -21,7 +21,7 @@ def _sanitize_role_name(name: str) -> str:
     )
 
 
-def generate_missing_lists(permissions: list):
+def generate_missing_permissions(permissions: list):
     result = []
     for i in range(len(permissions)):
         result.append(permissions[:i] + permissions[i + 1 :])
