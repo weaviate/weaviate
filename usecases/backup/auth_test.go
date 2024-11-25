@@ -42,7 +42,7 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CRUD,
+			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("s3"),
 		},
 		{
@@ -54,7 +54,7 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CRUD,
+			expectedVerb:     authorization.READ,
 			expectedResource: authorization.Backups("s3"),
 		},
 		{
