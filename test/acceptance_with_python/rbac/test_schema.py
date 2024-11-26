@@ -39,6 +39,45 @@ def test_rbac_collection_create(
 
 
 @pytest.mark.parametrize("mt", [True, False])
+def test_rbac_collection_create_with_ref(
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+):
+    name_target = _sanitize_role_name(request.node.name) + "target"
+    name_source = _sanitize_role_name(request.node.name) + "source"
+    admin_client.collections.delete([name_target, name_source])
+    target = admin_client.collections.create(
+        name=name_target, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+
+    required_permissions = [
+        RBAC.permissions.config.read(collection=name_source),
+        RBAC.permissions.config.create(collection=name_source),
+        RBAC.permissions.config.read(collection=target.name),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        custom_client.collections.create(
+            name=name_source,
+            multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+            references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                custom_client.collections.create(
+                    name=name_source,
+                    multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+                    references=[
+                        wvc.config.ReferenceProperty(name="ref", target_collection=target.name)
+                    ],
+                )
+            assert e.value.status_code == 403
+            assert "forbidden" in e.value.args[0]
+
+    admin_client.collections.delete([name_target, name_source])
+
+
+@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_read(
     admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
 ):

@@ -219,6 +219,11 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	return FindPropertyDataTypeWithRefs(s.GetClass, dataType, false, "")
 }
 
+func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+	wrapperFunc := func(name string) (*models.Class, error) { return fn(name), nil }
+	return FindPropertyDataTypeWithRefsAndAuth(wrapperFunc, dataType, relaxCrossRefValidation, beloningToClass)
+}
+
 // FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
 // If relaxCrossRefValidation is set, there is no check if the referenced class
 // exists in the schema. This can be helpful in scenarios, such as restoring
@@ -227,7 +232,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 // exists in the schema is skipped. This is done to allow creating class schema with
 // properties referencing to itself. Previously such properties had to be created separately
 // only after creation of class schema
-func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+func FindPropertyDataTypeWithRefsAndAuth(fn func(string) (*models.Class, error), dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
 	}
@@ -267,7 +272,11 @@ func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []stri
 		}
 
 		if beloningToClass != className && !relaxCrossRefValidation {
-			if fn(className.String()) == nil {
+			class, err := fn(className.String())
+			if err != nil {
+				return nil, err
+			}
+			if class == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}
