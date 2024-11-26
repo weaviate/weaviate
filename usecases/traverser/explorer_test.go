@@ -18,6 +18,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,14 +33,11 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var defaultConfig = config.Config{
-	QueryDefaults: config.QueryDefaults{
-		Limit: 100,
-	},
-	QueryMaximumResults: 100,
+var defaultConfig = ExplorerConfig{
+	DefaultQueryLimit: 100,
+	MaxQueryResults:   100,
 }
 
 func Test_Explorer_GetClass(t *testing.T) {
@@ -71,20 +71,20 @@ func Test_Explorer_GetClass(t *testing.T) {
 		}
 
 		search := &fakeVectorSearcher{}
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{0.8, 0.2, 0.7}}).
 			Return(searchResults, nil)
 
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 		res, err := explorer.GetClass(context.Background(), params)
 
 		t.Run("vector search must be called with right params", func(t *testing.T) {
@@ -105,7 +105,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 
 		t.Run("usage must be tracked", func(t *testing.T) {
-			metrics.AssertExpectations(t)
+			assert.Equal(t, testutil.ToFloat64(metrics.dimensions.WithLabelValues("BestClass", "get_graphql", "nearVector")), 128)
 		})
 	})
 
@@ -124,13 +124,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -155,13 +155,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -216,13 +216,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				metrics := &fakeMetrics{}
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				schemaGetter := &fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
-				})
+				}
+				metrics := fakeMetricss()
+				explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
+
 				vectors := make([][]float32, 1)
 				vectors[0] = searchVector
 				expectedParamsToSearch := params
@@ -232,7 +233,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				search.
 					On("VectorSearch", expectedParamsToSearch, vectors).
 					Return(searchResults, nil)
-				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
+				// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -296,14 +297,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 			expectedParamsToSearch := params
+
 			vectors := make([][]float32, 1)
 			vectors[0] = searchVector
 
@@ -313,7 +315,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorSearch", expectedParamsToSearch, vectors).
 				Return(searchResults, nil)
-			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
+			// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -378,13 +380,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
+
 			expectedParamsToSearch := params
 			vectors := make([][]float32, 1)
 			vectors[0] = searchVector
@@ -395,7 +398,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorSearch", expectedParamsToSearch, vectors).
 				Return(searchResults, nil)
-			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
+			// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -457,15 +460,16 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}
 
 			search := &fakeVectorSearcher{}
-			metrics := &fakeMetrics{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 			expectedParamsToSearch := params
+
 			vectors := make([][]float32, 1)
 			vectors[0] = searchVector
 
@@ -475,7 +479,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorSearch", expectedParamsToSearch, vectors).
 				Return(searchResults, nil)
-			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
+			// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -527,18 +531,19 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				metrics := &fakeMetrics{}
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				schemaGetter := &fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
-				})
+				}
+				metrics := fakeMetricss()
+				explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
+
 				expectedParamsToSearch := params
 				search.
 					On("VectorSearch", expectedParamsToSearch, [][]float32{{0.8, 0.2, 0.7}}).
 					Return(searchResults, nil)
-				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
+				// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -578,18 +583,19 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				metrics := &fakeMetrics{}
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-				explorer.SetSchemaGetter(&fakeSchemaGetter{
+				schemaGetter := &fakeSchemaGetter{
 					schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 						{Class: "BestClass"},
 					}}},
-				})
+				}
+				metrics := fakeMetricss()
+				explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
+
 				expectedParamsToSearch := params
 				search.
 					On("VectorSearch", expectedParamsToSearch, [][]float32{{0.8, 0.2, 0.7}}).
 					Return(searchResults, nil)
-				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
+				// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -619,13 +625,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -655,13 +661,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -713,19 +719,19 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.AdditionalProperties.Vector = true
 		search.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{0.8, 0.2, 0.7}}).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -768,13 +774,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -824,13 +830,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -904,13 +910,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -970,18 +976,18 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "_additional.vector", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "_additional.vector", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -1026,13 +1032,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -1081,13 +1087,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("Search", expectedParamsToSearch).
@@ -1177,12 +1183,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		searcher.
 			On("Search", expectedParamsToSearch).
@@ -1283,12 +1290,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, projector, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProviderWithCustomExtenders(nil, projector, nil), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		searcher.
 			On("Search", expectedParamsToSearch).
@@ -1390,17 +1398,17 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 
-		fakeSearch := &fakeVectorSearcher{}
+		searcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
-		fakeSearch.
+		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
@@ -1408,7 +1416,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		t.Run("class search must be called with right params", func(t *testing.T) {
 			assert.Nil(t, err)
-			fakeSearch.AssertExpectations(t)
+			searcher.AssertExpectations(t)
 		})
 
 		t.Run("response must contain _additional id and vector params for ref prop", func(t *testing.T) {
@@ -1548,17 +1556,17 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 
-		fakeSearch := &fakeVectorSearcher{}
+		searcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
-		fakeSearch.
+		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
 
@@ -1566,7 +1574,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		t.Run("class search must be called with right params", func(t *testing.T) {
 			assert.Nil(t, err)
-			fakeSearch.AssertExpectations(t)
+			searcher.AssertExpectations(t)
 		})
 
 		t.Run("response must contain _additional id param for ref prop", func(t *testing.T) {
@@ -1779,13 +1787,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		fakeSearch := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(fakeSearch, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		fakeSearch.
 			On("Search", expectedParamsToSearch).
@@ -2036,12 +2044,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), nil, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProviderWithCustomExtenders(extender, nil, nil), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		searcher.
 			On("Search", expectedParamsToSearch).
@@ -2146,18 +2155,18 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{1, 2, 3}}).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2208,18 +2217,18 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 			expectedParamsToSearch := params
 			search.
 				On("VectorSearch", expectedParamsToSearch, [][]float32{{1, 2, 3}}).
 				Return(searchResults, nil)
-			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+			// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -2262,18 +2271,18 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			metrics := &fakeMetrics{}
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(&fakeSchemaGetter{
+			schemaGetter := &fakeSchemaGetter{
 				schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 					{Class: "BestClass"},
 				}}},
-			})
+			}
+			metrics := fakeMetricss()
+			explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 			expectedParamsToSearch := params
 			search.
 				On("VectorSearch", expectedParamsToSearch, [][]float32{{1, 2, 3}}).
 				Return(searchResults, nil)
-			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+			// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -2304,13 +2313,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -2333,13 +2342,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -2365,13 +2374,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -2394,13 +2403,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -2423,18 +2432,13 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
-			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
-				{Class: "BestClass"},
-			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -2471,18 +2475,18 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{1.0, 2.0, 3.0}}).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2535,21 +2539,21 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
-		schemaGetter := newFakeSchemaGetter("BestClass")
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(search, schemaGetter, getFakeModulesProvider(), &defaultConfig, metrics, log)
+		schemaGetter = newFakeSchemaGetter("BestClass")
 		schemaGetter.SetVectorIndexConfig(hnsw.UserConfig{Distance: "cosine"})
 		explorer.schemaGetter = schemaGetter
 		expectedParamsToSearch := params
 		search.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{1.0, 2.0, 3.0}}).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2664,19 +2668,19 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				},
 			},
 		}
-		metrics := &fakeMetrics{}
-		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder), metrics, defaultConfig)
-		explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schemaGetter := &fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},
-		})
+		}
+		metrics := fakeMetricss()
+		explorer := NewExplorer(searcher, schemaGetter, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder), &defaultConfig, metrics, log)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.AdditionalProperties.Vector = true // any custom additional params will trigger vector
 		searcher.
 			On("VectorSearch", expectedParamsToSearch, [][]float32{{1, 2, 3}}).
 			Return(searchResults, nil)
-		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
+		// metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2883,4 +2887,17 @@ func getFakeModulesProviderWithCustomExtenders(
 
 func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
+}
+
+func fakeMetricss() *ExplorerMetrics {
+	return &ExplorerMetrics{
+		dimensions: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "query_dimensions_total",
+			Help: "The vector dimensions used by any read-query that involves vectors",
+		}, []string{"query_type", "operation", "class_name"}),
+		dimensionsTotal: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "query_dimensions_combined_total",
+			Help: "The vector dimensions used by any read-query that involves vectors, aggregated across all classes and shards. The sum of all labels for query_dimensions_total should always match this labelless metric",
+		}),
+	}
 }
