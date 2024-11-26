@@ -368,6 +368,10 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 }
 
 func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
+	if principal == nil {
+		return authz.NewGetRolesForOwnUserUnauthorized()
+	}
+
 	existedRoles, err := h.controller.GetRolesForUser(principal.Username)
 	if err != nil {
 		return authz.NewGetRolesForOwnUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
