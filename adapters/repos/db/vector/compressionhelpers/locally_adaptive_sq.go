@@ -315,5 +315,6 @@ func (lasq *LaScalarQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed 
 func (sq *LaScalarQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddLASQCompression(LASQData{
 		Dimensions: uint16(sq.dims),
+		Means:      sq.fMeans,
 	})
 }
