@@ -33,3 +33,26 @@ def test_rbac_refs(request: SubRequest, admin_client, custom_client, to_upper: b
     admin_client.roles.delete(name)
 
     admin_client.collections.delete(name)
+
+
+def test_role_name_case_sensitivity(request: SubRequest, admin_client, custom_client):
+    col_name = _sanitize_role_name(request.node.name)
+    l_name = _sanitize_role_name(request.node.name)
+    u_name = l_name[0].upper() + l_name[1:]
+
+    admin_client.collections.delete(col_name)
+    admin_client.roles.delete(l_name)
+    admin_client.roles.delete(u_name)
+
+    admin_client.roles.create(
+        name=l_name, permissions=RBAC.permissions.config.read(collection="lower")
+    )
+
+    admin_client.roles.create(
+        name=u_name, permissions=RBAC.permissions.config.read(collection="upper")
+    )
+
+    admin_client.roles.assign(user="custom-user", roles=[l_name, u_name])
+
+    roles = admin_client.roles.by_user("custom-user")
+    assert sorted([role.name for role in roles]) == sorted([l_name, u_name])
