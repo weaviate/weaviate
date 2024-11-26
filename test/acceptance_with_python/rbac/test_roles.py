@@ -1,10 +1,6 @@
-import uuid
-
 import pytest
 import weaviate
-import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
-from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import RBAC
 
 from .conftest import _sanitize_role_name, role_wrapper, Role_Wrapper_Type
@@ -29,3 +25,28 @@ def test_rbac_viewer_assign(
         viewer_client.collections.delete(name)
 
     admin_client.collections.delete(name)
+
+
+def test_rbac_with_regexp(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+):
+    name = _sanitize_role_name(request.node.name)
+    base = "python_"
+    python_name = base + name
+    admin_client.collections.delete([name, python_name])
+    admin_client.collections.create(name=name)
+    admin_client.collections.create(name=python_name)
+
+    with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+        custom_client.collections.delete(python_name)
+
+    # can delete everything starting with "python_" but nothing else
+    required_permissions = [
+        RBAC.permissions.config.read(),
+        RBAC.permissions.config.delete(collection=base + "*"),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        custom_client.collections.delete(python_name)
+        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            custom_client.collections.delete(name)
+    admin_client.collections.delete([name, python_name])
