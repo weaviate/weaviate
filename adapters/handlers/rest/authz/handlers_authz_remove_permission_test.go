@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rbacrest
+package authz
 
 import (
 	"fmt"
