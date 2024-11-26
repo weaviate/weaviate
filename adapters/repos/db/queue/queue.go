@@ -901,6 +901,11 @@ func (w *chunkWriter) Promote() error {
 		return errors.Wrap(err, "failed to write record count")
 	}
 
+	err = w.f.Sync()
+	if err != nil {
+		return errors.Wrap(err, "failed to sync chunk")
+	}
+
 	err = w.reader.PromoteChunk(w.f)
 	if err != nil {
 		return errors.Wrap(err, "failed to promote chunk")
