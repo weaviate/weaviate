@@ -545,6 +545,35 @@ func init() {
         ]
       }
     },
+    "/authz/users/ownRoles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.ownRoles"
+        ]
+      }
+    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
@@ -6827,6 +6856,35 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
+        ]
+      }
+    },
+    "/authz/users/ownRoles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.ownRoles"
         ]
       }
     },
