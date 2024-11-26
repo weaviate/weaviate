@@ -249,6 +249,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	} else {
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
+	originalUseAcorn := useAcorn
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
@@ -286,6 +287,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			candidateNode.Unlock()
 			continue
 		}
+		hits := 0.00
+		explored := 0.00
 
 		if allowList == nil || !useAcorn {
 			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
@@ -305,6 +308,14 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
 			}
 			copy(connectionsReusable, candidateNode.connections[level])
+			if allowList != nil && originalUseAcorn {
+				for _, id := range connectionsReusable {
+					explored++
+					if allowList.Contains(id) {
+						hits++
+					}
+				}
+			}
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -334,7 +345,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 						continue
 					}
 					if !visitedExp.Visited(nodeId) {
+						explored++
 						if allowList.Contains(nodeId) {
+							hits++
 							connectionsReusable[realLen] = nodeId
 							realLen++
 							visitedExp.Visit(nodeId)
@@ -376,6 +389,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 					}
 				}
 				hop++
+			}
+			if hits/explored > 0.5 {
+				useAcorn = false
 			}
 			slicePendingNextRound.Slice = pendingNextRound
 			connectionsReusable = connectionsReusable[:realLen]
@@ -445,9 +461,16 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				}
 			}
 		}
+		if allowList != nil && originalUseAcorn {
+			if !useAcorn && hits/explored < 0.4 {
+				useAcorn = true
+			} else if useAcorn && hits/explored > 0.4 {
+				useAcorn = true
+			}
+		}
 	}
 
-	if allowList != nil && useAcorn {
+	if allowList != nil && originalUseAcorn {
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
@@ -694,9 +717,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	useAcorn, _ := h.acornParams(allowList)
 
-	if allowList != nil && useAcorn {
+	/*if allowList != nil && useAcorn {
 		allowList = NewFastSet(allowList)
-	}
+	}*/
 
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
