@@ -27,9 +27,18 @@ import (
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
-	if err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
+	}
+
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
+		return nil, 0, err
+	}
+	classGetterWithAuth := func(name string) (*models.Class, error) {
+		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+			return nil, err
+		}
+		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
 	if class == nil {
@@ -62,7 +71,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		}
 	}
 
-	if err := h.validateProperty(class, existingNames, false, newProps...); err != nil {
+	if err := h.validateProperty(class, existingNames, false, classGetterWithAuth, newProps...); err != nil {
 		return nil, 0, err
 	}
 
