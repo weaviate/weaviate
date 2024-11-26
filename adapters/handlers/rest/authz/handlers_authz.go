@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rbacrest
+package authz
 
 import (
 	"fmt"
@@ -36,7 +36,7 @@ type authZHandlers struct {
 	metrics      *monitoring.PrometheusMetrics
 }
 
-func SetupAuthZHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
 	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, logger: logger, metrics: metrics}
 
 	// rbac role handlers
