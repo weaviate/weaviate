@@ -34,8 +34,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var DefaultBlockSize = int64(10 * 1024 * 1024)
-
 func Test_S3Backend_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithMinIO().Start(ctx)
@@ -66,7 +64,6 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	endpoint := os.Getenv(envMinioEndpoint)
 	metadataFilename := "backup.json"
 
-
 	t.Log("setup env")
 	t.Setenv(envAwsRegion, region)
 	t.Setenv(envS3AccessKey, "aws_access_key")
@@ -82,7 +79,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := s3.Initialize(testCtx, backupID, DefaultBlockSize)
+			err := s3.Initialize(testCtx, backupID)
 			assert.Nil(t, err)
 		})
 
@@ -110,7 +107,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = s3.PutObject(testCtx, backupID, metadataFilename, b, DefaultBlockSize)
+			err = s3.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
 			dest := s3.HomeDir(backupID)
@@ -163,7 +160,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := s3.PutObject(testCtx, backupID, key, []byte("hello"), DefaultBlockSize)
+			err := s3.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err, "expected nil, got: %v", err)
 		})
 

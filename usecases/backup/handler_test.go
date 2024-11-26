@@ -33,7 +33,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	}
 
 	classes := req.Include
-	if err := store.Initialize(ctx, 10*1024*1024); err != nil {
+	if err := store.Initialize(ctx); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
@@ -83,7 +83,7 @@ func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 }
 
 func (m *Handler) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
-	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include, BlockSize: req.BlockSize})
+	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)

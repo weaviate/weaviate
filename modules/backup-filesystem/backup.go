@@ -107,7 +107,7 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte, blockSize int64) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 
 	dir := path.Dir(backupPath)
@@ -128,7 +128,7 @@ func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byt
 	return nil
 }
 
-func (m *Module) Initialize(ctx context.Context, backupID string, blockSize int64) error {
+func (m *Module) Initialize(ctx context.Context, backupID string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }

@@ -4890,14 +4890,6 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
-        "BlockSize": {
-          "description": "Block size used for downloading chunks from the storage",
-          "type": "integer",
-          "default": 10485760,
-          "maximum": 4194304000,
-          "minimum": 1024,
-          "x-nullable": false
-        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -10622,14 +10614,6 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
-        "BlockSize": {
-          "description": "Block size used for downloading chunks from the storage",
-          "type": "integer",
-          "default": 10485760,
-          "maximum": 4194304000,
-          "minimum": 1024,
-          "x-nullable": false
-        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
