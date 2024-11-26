@@ -9,12 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package authz
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
@@ -23,53 +23,49 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestDeleteRoleSuccess(t *testing.T) {
+func TestGetUsersForRoleSuccess(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.DeleteRoleParams{
-		ID: "roleToRemove",
+	params := authz.GetUsersForRoleParams{
+		ID: "testuser",
 	}
-	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Roles("roleToRemove")[0]).Return(nil)
-	controller.On("DeleteRoles", params.ID).Return(nil)
+
+	expectedUsers := []string{"user1", "user2"}
+
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles(params.ID)[0]).Return(nil)
+	controller.On("GetUsersForRole", params.ID).Return(expectedUsers, nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
 		controller: controller,
 		logger:     logger,
 	}
-	res := h.deleteRole(params, principal)
-	parsed, ok := res.(*authz.DeleteRoleNoContent)
+	res := h.getUsersForRole(params, principal)
+	parsed, ok := res.(*authz.GetUsersForRoleOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
+	assert.Equal(t, expectedUsers, parsed.Payload)
 }
 
-func TestDeleteRoleBadRequest(t *testing.T) {
+func TestGetUsersForRoleBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.DeleteRoleParams
+		params        authz.GetUsersForRoleParams
 		principal     *models.Principal
 		expectedError string
 	}
 
 	tests := []testCase{
 		{
-			name: "authorization error",
-			params: authz.DeleteRoleParams{
+			name: "role is required",
+			params: authz.GetUsersForRoleParams{
 				ID: "",
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role id can not be empty",
-		},
-		{
-			name: "update builtin role",
-			params: authz.DeleteRoleParams{
-				ID: authorization.BuiltInRoles[0],
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "you can not delete builtin role",
+			expectedError: "user name is required",
 		},
 	}
 
@@ -82,8 +78,8 @@ func TestDeleteRoleBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.deleteRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.DeleteRoleBadRequest)
+			res := h.getUsersForRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetUsersForRoleBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -93,10 +89,10 @@ func TestDeleteRoleBadRequest(t *testing.T) {
 	}
 }
 
-func TestDeleteRoleForbidden(t *testing.T) {
+func TestGetUsersForRoleForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.DeleteRoleParams
+		params        authz.GetUsersForRoleParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -105,11 +101,11 @@ func TestDeleteRoleForbidden(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "authorization error",
-			params: authz.DeleteRoleParams{
-				ID: "roleToRemove",
+			params: authz.GetUsersForRoleParams{
+				ID: "testRole",
 			},
 			principal:     &models.Principal{Username: "user1"},
-			authorizeErr:  errors.New("authorization error"),
+			authorizeErr:  fmt.Errorf("authorization error"),
 			expectedError: "authorization error",
 		},
 	}
@@ -120,15 +116,15 @@ func TestDeleteRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.DELETE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.deleteRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.DeleteRoleForbidden)
+			res := h.getUsersForRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetUsersForRoleForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -138,24 +134,24 @@ func TestDeleteRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestDeleteRoleInternalServerError(t *testing.T) {
+func TestGetUsersForRoleInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.DeleteRoleParams
+		params        authz.GetUsersForRoleParams
 		principal     *models.Principal
-		upsertErr     error
+		getUsersErr   error
 		expectedError string
 	}
 
 	tests := []testCase{
 		{
-			name: "remove role error",
-			params: authz.DeleteRoleParams{
-				ID: "roleToRemove",
+			name: "internal server error",
+			params: authz.GetUsersForRoleParams{
+				ID: "testRole",
 			},
 			principal:     &models.Principal{Username: "user1"},
-			upsertErr:     errors.New("remove error"),
-			expectedError: "remove error",
+			getUsersErr:   fmt.Errorf("internal server error"),
+			expectedError: "internal server error",
 		},
 	}
 
@@ -165,16 +161,16 @@ func TestDeleteRoleInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.DELETE, authorization.Roles(tt.params.ID)[0]).Return(nil)
-			controller.On("DeleteRoles", tt.params.ID).Return(tt.upsertErr)
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetUsersForRole", tt.params.ID).Return(nil, tt.getUsersErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.deleteRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.DeleteRoleInternalServerError)
+			res := h.getUsersForRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetUsersForRoleInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
