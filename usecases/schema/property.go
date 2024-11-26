@@ -32,6 +32,13 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return nil, 0, err
 	}
 
+	classGetterWithAuth := func(name string) (*models.Class, error) {
+		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+			return nil, err
+		}
+		return h.schemaReader.ReadOnlyClass(name), nil
+	}
+
 	if class == nil {
 		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
 	}
@@ -62,7 +69,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		}
 	}
 
-	if err := h.validateProperty(class, existingNames, false, newProps...); err != nil {
+	if err := h.validateProperty(class, existingNames, false, classGetterWithAuth, newProps...); err != nil {
 		return nil, 0, err
 	}
 
