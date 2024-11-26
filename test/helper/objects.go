@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
