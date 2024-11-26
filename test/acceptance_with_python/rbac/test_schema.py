@@ -1,6 +1,8 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
+from grpc.aio import AioRpcError
+from weaviate.collections.classes.tenants import Tenant, TenantActivityStatus
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_permissions
@@ -8,8 +10,9 @@ from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_p
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_create(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
@@ -18,7 +21,12 @@ def test_rbac_collection_create(
         RBAC.permissions.config.create(collection=name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
-        assert custom_client.collections.create(name=name) is not None
+        col = custom_client.collections.create(
+            name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+        )
+        if mt:
+            col.tenants.create("tenant1")
+
         admin_client.collections.delete(name)
 
     for permission in generate_missing_permissions(required_permissions):
@@ -30,17 +38,24 @@ def test_rbac_collection_create(
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_read(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    admin_client.collections.create(name=name)
+    col_admin = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col_admin.tenants.create("tenant1")
 
     required_permissions = RBAC.permissions.config.read(collection=name)
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.get(name=name)
         assert col.config.get() is not None
+        if mt:
+            assert col.tenants.get() is not None
 
     with role_wrapper(admin_client, request, []):
         col = custom_client.collections.get(name=name)
@@ -48,6 +63,12 @@ def test_rbac_collection_read(
             col.config.get()
         assert e.value.status_code == 403
         assert "forbidden" in e.value.args[0]
+
+        if mt:
+            with pytest.raises(weaviate.exceptions.WeaviateTenantGetError) as e:
+                col.tenants.get()
+            assert "forbidden" in e.value.args[0]
+
     admin_client.collections.delete(name)
 
 
@@ -70,12 +91,18 @@ def test_rbac_schema_read(
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_update(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    admin_client.collections.create(name=name)
+    col_admin = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col_admin.tenants.create("tenant1")
+
     required_permissions = [
         RBAC.permissions.config.read(collection=name),
         RBAC.permissions.config.update(collection=name),
@@ -83,6 +110,14 @@ def test_rbac_collection_update(
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name)
         col_custom.config.update(description="test")
+        if mt:
+            col_custom.tenants.update(
+                Tenant(name="tenant1", activity_status=TenantActivityStatus.INACTIVE)
+            )
+            # ensure that update worked
+            assert (
+                col_admin.tenants.get()["tenant1"].activity_status == TenantActivityStatus.INACTIVE
+            )
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
@@ -91,15 +126,28 @@ def test_rbac_collection_update(
                 col_custom.config.update(description="test")
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
+
+            if mt:
+                with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                    col_custom.tenants.update(
+                        Tenant(name="tenant1", activity_status=TenantActivityStatus.INACTIVE)
+                    )
+                assert "forbidden" in e.value.args[0]
+
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_delete(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
-    admin_client.collections.create(name=name)
+    col_admin = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col_admin.tenants.create("tenant1")
 
     required_permissions = [
         RBAC.permissions.config.read(collection=name),
@@ -113,7 +161,17 @@ def test_rbac_collection_delete(
             assert "forbidden" in e.value.args[0]
             assert admin_client.collections.get(name) is not None
 
+            if mt:
+                col_custom = custom_client.collections.get(name)
+                with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                    col_custom.tenants.remove("tenant1")
+                assert e.value.status_code == 403
+                assert "forbidden" in e.value.args[0]
+
     with role_wrapper(admin_client, request, required_permissions):
+        if mt:
+            col_custom = custom_client.collections.get(name)
+            col_custom.tenants.remove("tenant1")
         custom_client.collections.delete(name)
         assert not admin_client.collections.exists(name)
 
