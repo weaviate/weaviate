@@ -28,7 +28,7 @@ import (
 )
 
 func TestCollectEndpoints(t *testing.T) {
-	// prinst all endpoints grouped  by method
+	// print all endpoints grouped  by method
 	col, err := newCollector()
 	require.Nil(t, err)
 	col.prettyPrint()
