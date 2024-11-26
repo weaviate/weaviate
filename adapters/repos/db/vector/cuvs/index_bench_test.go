@@ -34,7 +34,6 @@ import (
 )
 
 func getHDF5ByteSize(dataset *hdf5.Dataset) (uint, error) {
-
 	datatype, err := dataset.Datatype()
 	if err != nil {
 		return 0, errors.New("Unabled to read datatype\n")
@@ -73,7 +72,6 @@ func convert1DChunk_int[D int](input []D, dimensions int, batchRows int) [][]int
 var paretoConfigurations [](func(indexParams *cagra.IndexParams, searchParams *cagra.SearchParams) (*cagra.IndexParams, *cagra.SearchParams))
 
 func TestPareto(t *testing.T) {
-
 	type cagraConfig struct {
 		graphDegree             int
 		intermediateGraphDegree int
@@ -285,14 +283,7 @@ func TestPareto(t *testing.T) {
 
 	for i, config := range paretoConfigurations {
 
-		memoryResource := cuvs.NewCuvsPoolMemory(60, 100, true)
-
-		memoryResource.Instantiate()
-
-		defer memoryResource.Release()
-
 		indexParams, err := cagra.CreateIndexParams()
-
 		if err != nil {
 			panic(err)
 		}
@@ -317,13 +308,12 @@ func TestPareto(t *testing.T) {
 
 	}
 
-	for i, _ := range benchResults {
+	for i := range benchResults {
 		println("--------------------------------")
 		fmt.Printf("Config: %+v\n", paretoConfigurations[i])
 		fmt.Printf("Result: %+v\n", benchResults[i])
 		println("--------------------------------")
 	}
-
 }
 
 type BenchResult struct {
@@ -335,7 +325,6 @@ type BenchResult struct {
 }
 
 func TestBench(t *testing.T) {
-
 	logger, _ := test.NewNullLogger()
 
 	store, err := lsmkv.New("store", "~/wv-data", logger, nil,
@@ -346,7 +335,7 @@ func TestBench(t *testing.T) {
 
 	defer store.Shutdown(context.Background())
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2}, cuvsEnt.UserConfig{}, store)
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, RootPath: t.TempDir(), CuvsPoolMemory: 90}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
 		panic(err)
 	}
@@ -364,7 +353,6 @@ func TestBench(t *testing.T) {
 	dataset, err := file.OpenDataset("train")
 	testdataset, err := file.OpenDataset("test")
 	neighborsdataset, err := file.OpenDataset("neighbors")
-
 	if err != nil {
 		t.Fatalf("Error opening dataset: %v\n", err)
 	}
@@ -394,11 +382,9 @@ func TestBench(t *testing.T) {
 	println("QueryRecall: ", QueryRecall)
 
 	// return result
-
 }
 
 func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagra.SearchParams) BenchResult {
-
 	logger, _ := test.NewNullLogger()
 
 	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams}, cuvsEnt.UserConfig{}, nil)
@@ -420,7 +406,6 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 	testdataset, err := file.OpenDataset("test")
 	neighborsdataset, err := file.OpenDataset("neighbors")
 	// distancesdataset, err := file.OpenDataset("distances")
-
 	if err != nil {
 		log.Fatalf("Error opening dataset: %v\n", err)
 	}
@@ -439,17 +424,14 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 	result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
 
 	err = index.Shutdown(context.TODO())
-
 	if err != nil {
 		panic(err)
 	}
 
 	return result
-
 }
 
 func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
-
 	dataspace := dataset.Space()
 	dims, _, _ := dataspace.SimpleExtentDims()
 
@@ -537,7 +519,6 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 
 		for j := uint(0); j < batchSize; j++ {
 			ids[j] = uint64(i*batchSize + j)
-
 		}
 
 		// ids := make([]uint64, batchSize)
@@ -573,7 +554,6 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 
 		for i := range chunkData {
 			for j := range chunkData[i] {
-
 				chunkData[i][j] = chunkData[i][j] * 0.146
 				// max := float32(31.99999)
 				// if chunkData[i][j] > max {
@@ -596,7 +576,6 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 		// println("chunk data vector len: ", len(chunkData[0]))
 
 		for i := range chunkData {
-
 			for j := range chunkData[i] {
 				if math.IsNaN(float64(chunkData[i][j])) || math.IsInf(float64(chunkData[i][j]), 0) {
 					log.Printf("Invalid value at [%d][%d]: %f", i, j, chunkData[i][j])
@@ -627,7 +606,7 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 		// 	}
 		// }
 		// log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
-
+		println("add batch")
 		err := index.AddBatch(context.TODO(), ids, chunkData)
 		if err != nil {
 			panic(err)
@@ -650,7 +629,6 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 }
 
 func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf5.Dataset) (float64, float64, float64) {
-
 	dataspace := dataset.Space()
 	dims, _, _ := dataspace.SimpleExtentDims()
 
@@ -788,7 +766,6 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 
 		for i := range chunkData {
 			for j := range chunkData[i] {
-
 				chunkData[i][j] = chunkData[i][j] * 0.146
 				// max := float32(31.99999)
 				// if chunkData[i][j] > max {
@@ -804,7 +781,6 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 
 		for j := uint(0); j < batchSize; j++ {
 			ids[j] = uint64(i*batchSize + j)
-
 		}
 
 		for k := range chunkData {

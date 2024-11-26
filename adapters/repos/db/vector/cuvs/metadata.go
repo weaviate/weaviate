@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build cuvs
+
 package cuvs_index
 
 import (
@@ -50,7 +52,6 @@ func (index *cuvs_index) initMetadata() error {
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
 	var err error
 	index.metadata, err = bolt.Open(path, 0o600, nil)
-
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}

@@ -27,6 +27,7 @@ type Config struct {
 	DistanceMetric   cuvs.Distance
 	CuvsIndexParams  *cagra.IndexParams
 	CuvsSearchParams *cagra.SearchParams
+	CuvsPoolMemory   int
 }
 
 func (c Config) Validate() error {
