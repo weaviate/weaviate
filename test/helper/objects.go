@@ -16,7 +16,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
@@ -53,13 +52,6 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
-}
-
-func CreateClassWithAuthz(t *testing.T, class *models.Class, authInfo runtime.ClientAuthInfoWriter) {
-	t.Helper()
-	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-	resp, err := Client(t).Schema.SchemaObjectsCreate(params, authInfo)
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -311,6 +303,13 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateTenantsAuth(t *testing.T, class string, tenants []*models.Tenant, key string) {
+	t.Helper()
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 
