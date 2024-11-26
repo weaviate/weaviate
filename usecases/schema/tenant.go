@@ -158,6 +158,9 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
 		return nil, err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
+		return nil, err
+	}
 
 	h.logger.WithFields(logrus.Fields{
 		"class":   class,
@@ -202,6 +205,10 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenants...)...); err != nil {
+		return err
+	}
+
 	for i, name := range tenants {
 		if name == "" {
 			return fmt.Errorf("empty tenant name at index %d", i)
