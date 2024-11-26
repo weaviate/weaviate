@@ -55,7 +55,7 @@ def test_role_name_case_sensitivity(request: SubRequest, admin_client):
     admin_client.roles.assign(user="custom-user", roles=[l_name, u_name])
 
     roles = admin_client.roles.by_user("custom-user")
-    assert sorted([role.name for role in roles]) == sorted([l_name, u_name])
+    assert sorted(roles.keys()) == sorted([l_name, u_name])
 
     admin_client.roles.delete(l_name)
     admin_client.roles.delete(u_name)
