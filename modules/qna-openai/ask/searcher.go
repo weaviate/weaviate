@@ -16,15 +16,16 @@ import (
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 )
 
 type vectorFromAskParam struct {
-	nearTextDep modulecapabilities.Dependency
+	nearTextDep modulecapabilities.Dependency[[]float32]
 }
 
 func (s *vectorFromAskParam) vectorForAskParamFn(ctx context.Context, params interface{},
 	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return s.vectorFromAskParam(ctx, params.(*AskParams), className, findVectorFn, cfg)
@@ -32,7 +33,7 @@ func (s *vectorFromAskParam) vectorForAskParamFn(ctx context.Context, params int
 
 func (s *vectorFromAskParam) vectorFromAskParam(ctx context.Context,
 	params *AskParams, className string,
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	arg := s.nearTextDep.GraphQLArgument()
@@ -43,29 +44,29 @@ func (s *vectorFromAskParam) vectorFromAskParam(ctx context.Context,
 	nearTextParam, _, _ := arg.ExtractFunction(rawNearTextParam)
 	vectorSearchFn := s.nearTextDep.VectorSearch()
 
-	return vectorSearchFn(ctx, nearTextParam, className, findVectorFn, cfg)
+	return vectorSearchFn.VectorForParams(ctx, nearTextParam, className, findVectorFn, cfg)
 }
 
 type Searcher struct {
 	// nearText modules dependencies
-	nearTextDeps []modulecapabilities.Dependency
+	nearTextDeps []modulecapabilities.Dependency[[]float32]
 }
 
-func NewSearcher(nearTextDeps []modulecapabilities.Dependency) *Searcher {
+func NewSearcher(nearTextDeps []modulecapabilities.Dependency[[]float32]) *Searcher {
 	return &Searcher{nearTextDeps}
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.ArgumentVectorForParams {
-	vectorSearchers := map[string]modulecapabilities.ArgumentVectorForParams{}
+func (s *Searcher) VectorSearches() map[string]map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearchers := map[string]map[string]modulecapabilities.VectorForParams[[]float32]{}
 	for _, nearTextDep := range s.nearTextDeps {
 		vectorSearchers[nearTextDep.ModuleName()] = s.vectorSearches(nearTextDep)
 	}
 	return vectorSearchers
 }
 
-func (s *Searcher) vectorSearches(nearTextDep modulecapabilities.Dependency) map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+func (s *Searcher) vectorSearches(nearTextDep modulecapabilities.Dependency[[]float32]) map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 	vectorFromAsk := &vectorFromAskParam{nearTextDep}
-	vectorSearches["ask"] = vectorFromAsk.vectorForAskParamFn
+	vectorSearches["ask"] = generictypes.VectorForParams(vectorFromAsk.vectorForAskParamFn)
 	return vectorSearches
 }

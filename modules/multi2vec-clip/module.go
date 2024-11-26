@@ -37,10 +37,10 @@ func New() *ClipModule {
 type ClipModule struct {
 	imageVectorizer          imageVectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
-	nearImageSearcher        modulecapabilities.Searcher
+	nearImageSearcher        modulecapabilities.Searcher[[]float32]
 	textVectorizer           textVectorizer
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
-	nearTextSearcher         modulecapabilities.Searcher
+	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
