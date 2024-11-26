@@ -72,7 +72,7 @@
             "manage_roles",
             "read_roles",
             
-            "manage_cluster",
+            "read_cluster",
             
             "manage_backups",
 

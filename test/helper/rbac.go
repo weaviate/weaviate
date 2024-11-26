@@ -148,3 +148,19 @@ func (p *DataPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
+
+type ClusterPermission models.Permission
+
+func NewClusterPermission() *ClusterPermission {
+	return &ClusterPermission{}
+}
+
+func (p *ClusterPermission) WithAction(action string) *ClusterPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *ClusterPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}

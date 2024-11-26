@@ -51,7 +51,7 @@ var (
 		{permissionAction: authorization.ManageRoles, testDescription: manageDesc, policyVerb: manageVerb},
 	}
 	clusterTests = []innerTest{
-		{permissionAction: authorization.ManageCluster, testDescription: manageDesc, policyVerb: manageVerb},
+		{permissionAction: authorization.ReadCluster, testDescription: readDesc, policyVerb: readVerb},
 	}
 	backupsTests = []innerTest{
 		{permissionAction: authorization.ManageBackups, testDescription: manageDesc, policyVerb: manageVerb},

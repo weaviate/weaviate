@@ -60,13 +60,12 @@ var (
 	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
 	// to be added to built in roles
 	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, schema, data
-	ManageRoles   = "manage_roles"
-	ReadRoles     = "read_roles"
-	ManageUsers   = "manage_users"
-	ManageCluster = "manage_cluster"
+	ManageRoles = "manage_roles"
+	ReadRoles   = "read_roles"
+	ManageUsers = "manage_users"
+	ReadCluster = "read_cluster"
 
 	ManageBackups = "manage_backups"
-	ReadBackups   = "read_backups"
 
 	CreateSchema = "create_schema"
 	ReadSchema   = "read_schema"
@@ -87,7 +86,7 @@ var (
 		ManageUsers,
 
 		// Cluster domain
-		ManageCluster,
+		ReadCluster,
 
 		// Schema domain
 		CreateSchema,
