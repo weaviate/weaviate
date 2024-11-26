@@ -930,14 +930,6 @@
       "description": "Backup custom configuration",
       "type": "object",      
       "properties": {
-        "BlockSize":{
-          "description": "Block size used for uploading chunks to the storage",
-          "type": "integer",
-          "default": 10485760,
-          "minimum": 1024,
-          "maximum": 4194304000,
-          "x-nullable": false
-        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -1073,7 +1065,7 @@
           },             
           "status": {
             "description": "status of backup process",
-            "type": "string",
+            "type": "string",          
             "enum": [
               "STARTED",
               "TRANSFERRING",
