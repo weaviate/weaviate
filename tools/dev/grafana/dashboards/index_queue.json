@@ -225,7 +225,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -256,8 +257,8 @@
             "uid": "Prometheus"
           },
           "disableTextWrap": false,
-          "editorMode": "builder",
-          "expr": "avg(sum by() (rate(queue_partition_processing_duration_ms_sum[$__rate_interval])))",
+          "editorMode": "code",
+          "expr": "avg(sum by(shard_name) (rate(queue_partition_processing_duration_ms_sum[$__rate_interval])))",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "instant": false,
@@ -267,7 +268,7 @@
           "useBackend": false
         }
       ],
-      "title": "Partition processing duration (ms)",
+      "title": "Partition processing duration",
       "type": "timeseries"
     },
     {
@@ -425,7 +426,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unit": "decbytes"
         },
         "overrides": []
       },
@@ -457,7 +459,7 @@
           },
           "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "queue_disk_usage/1024/1024",
+          "expr": "queue_disk_usage",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "instant": false,
@@ -467,7 +469,7 @@
           "useBackend": false
         }
       ],
-      "title": "Queue disk usage (MB)",
+      "title": "Queue disk usage",
       "type": "timeseries"
     },
     {

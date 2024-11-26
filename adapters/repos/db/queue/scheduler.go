@@ -65,8 +65,10 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	}
 
 	if opts.ScheduleInterval == 0 {
-		it, err := time.ParseDuration(os.Getenv("QUEUE_SCHEDULER_INTERVAL"))
+		v := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
+		it, err := time.ParseDuration(v)
 		if err != nil {
+			opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_INTERVAL, using default")
 			it = 1 * time.Second
 		}
 		opts.ScheduleInterval = it
