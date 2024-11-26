@@ -68,8 +68,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	objP := articles.NewParagraph().WithContents("hello world")
 
 	t.Run("setup", func(t *testing.T) {
-		helper.CreateClassWithAuthz(t, clsP, helper.CreateAuth(adminKey))
-		helper.CreateClassWithAuthz(t, clsA, helper.CreateAuth(adminKey))
+		helper.CreateClassAuth(t, clsP, adminKey)
+		helper.CreateClassAuth(t, clsA, adminKey)
 		helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object(), objP.Object()}, adminKey)
 	})
 
