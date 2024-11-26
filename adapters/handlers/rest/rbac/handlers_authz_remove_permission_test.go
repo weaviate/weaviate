@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package rbacrest
 
 import (
 	"fmt"
