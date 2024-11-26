@@ -219,12 +219,13 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	return FindPropertyDataTypeWithRefs(s.GetClass, dataType, false, "")
 }
 
+// FindPropertyDataTypeWithRefs is a no auth wrapper for FindPropertyDataTypeWithRefsAndAuth
 func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
 	wrapperFunc := func(name string) (*models.Class, error) { return fn(name), nil }
 	return FindPropertyDataTypeWithRefsAndAuth(wrapperFunc, dataType, relaxCrossRefValidation, beloningToClass)
 }
 
-// FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
+// FindPropertyDataTypeWithRefsAndAuth Based on the schema, return a valid description of the defined datatype
 // If relaxCrossRefValidation is set, there is no check if the referenced class
 // exists in the schema. This can be helpful in scenarios, such as restoring
 // from a backup where we have no guarantee over the order of class creation.
