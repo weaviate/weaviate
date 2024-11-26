@@ -79,6 +79,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
+		"/authz/users/ownRoles", // will return roles for own user
 	}
 
 	for _, endpoint := range endpoints {

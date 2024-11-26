@@ -87,7 +87,7 @@ func TestGetRolesForUserBadRequest(t *testing.T) {
 				ID: "",
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role name is required",
+			expectedError: "user name is required",
 		},
 	}
 
