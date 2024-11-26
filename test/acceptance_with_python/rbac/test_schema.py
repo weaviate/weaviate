@@ -176,6 +176,39 @@ def test_rbac_collection_update(
     admin_client.collections.delete(name)
 
 
+def test_rbac_collection_update_with_ref(
+    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+):
+    name_target = _sanitize_role_name(request.node.name) + "target"
+    name_source = _sanitize_role_name(request.node.name) + "source"
+    admin_client.collections.delete([name_target, name_source])
+    admin_client.collections.create(name=name_target)
+    admin_client.collections.create(name=name_source)
+
+    required_permissions = [
+        RBAC.permissions.config.read(collection=name_target),
+        RBAC.permissions.config.read(collection=name_source),
+        RBAC.permissions.config.update(collection=name_source),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        col_custom = custom_client.collections.get(name_source)
+        col_custom.config.add_reference(
+            wvc.config.ReferenceProperty(name="self1", target_collection=name_target)
+        )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            col_custom = custom_client.collections.get(name_source)
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                col_custom.config.add_reference(
+                    wvc.config.ReferenceProperty(name="self2", target_collection=name_target)
+                )
+            assert e.value.status_code == 403
+            assert "forbidden" in e.value.args[0]
+
+    admin_client.collections.delete([name_target, name_source])
+
+
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_delete(
     admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
