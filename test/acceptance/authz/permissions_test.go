@@ -47,10 +47,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
 	}
 
-	clientAuth := helper.CreateAuth(existingKey)
-
 	t.Run("create test collection before permissions", func(t *testing.T) {
-		helper.CreateClassWithAuthz(t, testClass, clientAuth)
+		helper.CreateClassAuth(t, testClass, existingKey)
 	})
 
 	t.Run("create and get a role to create all collections", func(t *testing.T) {
