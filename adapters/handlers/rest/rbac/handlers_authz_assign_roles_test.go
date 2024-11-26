@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package rbacrest
 
 import (
 	"fmt"
@@ -24,50 +24,50 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestRevokeRoleSuccess(t *testing.T) {
+func TestAssignRoleSuccess(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.RevokeRoleParams{
+	params := authz.AssignRoleParams{
 		ID: "testUser",
-		Body: authz.RevokeRoleBody{
+		Body: authz.AssignRoleBody{
 			Roles: []string{"testRole"},
 		},
 	}
 
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("RevokeRolesForUser", params.ID, params.Body.Roles[0]).Return(nil)
+	controller.On("AddRolesForUser", params.ID, params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
 		controller: controller,
 		logger:     logger,
 	}
-	res := h.revokeRole(params, principal)
-	parsed, ok := res.(*authz.RevokeRoleOK)
+	res := h.assignRole(params, principal)
+	parsed, ok := res.(*authz.AssignRoleOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
 
-func TestRevokeRoleBadRequest(t *testing.T) {
+func TestAssignRoleBadRequest(t *testing.T) {
 	type testCase struct {
-		name           string
-		params         authz.RevokeRoleParams
-		principal      *models.Principal
-		expectedError  string
-		existedRoles   map[string][]authorization.Policy
-		callToGetRoles bool
+		name          string
+		params        authz.AssignRoleParams
+		principal     *models.Principal
+		expectedError string
+		existedRoles  map[string][]authorization.Policy
+		callToGetRole bool
 	}
 
 	tests := []testCase{
 		{
 			name: "user id can not be empty",
-			params: authz.RevokeRoleParams{
+			params: authz.AssignRoleParams{
 				ID: "",
-				Body: authz.RevokeRoleBody{
+				Body: authz.AssignRoleBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -76,16 +76,16 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 		},
 		{
 			name: "empty role",
-			params: authz.RevokeRoleParams{
+			params: authz.AssignRoleParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.AssignRoleBody{
 					Roles: []string{""},
 				},
 			},
-			principal:      &models.Principal{Username: "user1"},
-			expectedError:  "one or more of the roles you want to revoke doesn't exist",
-			existedRoles:   map[string][]authorization.Policy{},
-			callToGetRoles: true,
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "one or more of the roles you want to assign doesn't exist",
+			existedRoles:  map[string][]authorization.Policy{},
+			callToGetRole: true,
 		},
 	}
 
@@ -95,8 +95,8 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			if tt.callToGetRoles {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			if tt.callToGetRole {
+				authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			}
 
@@ -105,8 +105,8 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleBadRequest)
+			res := h.assignRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -116,10 +116,10 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 	}
 }
 
-func TestRevokeRoleForbidden(t *testing.T) {
+func TestAssignRoleForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.AssignRoleParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -128,9 +128,9 @@ func TestRevokeRoleForbidden(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "authorization error",
-			params: authz.RevokeRoleParams{
+			params: authz.AssignRoleParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.AssignRoleBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -153,8 +153,8 @@ func TestRevokeRoleForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleForbidden)
+			res := h.assignRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -164,34 +164,34 @@ func TestRevokeRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestRevokeRoleInternalServerError(t *testing.T) {
+func TestAssignRoleInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.RevokeRoleParams
+		params        authz.AssignRoleParams
 		principal     *models.Principal
 		getRolesErr   error
-		revokeErr     error
+		assignErr     error
 		expectedError string
 	}
 
 	tests := []testCase{
 		{
-			name: "internal server error from revoking",
-			params: authz.RevokeRoleParams{
+			name: "internal server error from assigning",
+			params: authz.AssignRoleParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.AssignRoleBody{
 					Roles: []string{"testRole"},
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			revokeErr:     fmt.Errorf("internal server error"),
+			assignErr:     fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
 		{
 			name: "internal server error from getting role",
-			params: authz.RevokeRoleParams{
+			params: authz.AssignRoleParams{
 				ID: "testUser",
-				Body: authz.RevokeRoleBody{
+				Body: authz.AssignRoleBody{
 					Roles: []string{"testRole"},
 				},
 			},
@@ -210,7 +210,7 @@ func TestRevokeRoleInternalServerError(t *testing.T) {
 			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("RevokeRolesForUser", tt.params.ID, tt.params.Body.Roles[0]).Return(tt.revokeErr)
+				controller.On("AddRolesForUser", tt.params.ID, tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
 			h := &authZHandlers{
@@ -218,8 +218,8 @@ func TestRevokeRoleInternalServerError(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.revokeRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RevokeRoleInternalServerError)
+			res := h.assignRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.AssignRoleInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
