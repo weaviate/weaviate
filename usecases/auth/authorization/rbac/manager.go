@@ -130,6 +130,19 @@ func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Polic
 		return nil, err
 	}
 
+	users, err := m.casbin.GetRoleManager().GetUsers(user)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(users) == 0 {
+		return nil, fmt.Errorf("user %s doesn't exist", user)
+	}
+
+	if len(rolesNames) == 0 {
+		return nil, nil
+	}
+
 	return m.GetRoles(rolesNames...)
 }
 
