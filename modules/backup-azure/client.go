@@ -163,7 +163,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 	objectName := a.makeObjectName(backupID, key)
 
 	// Get blocksize and concurrency from the environment
-	blockSize := int64(10 * 1024 * 1024)
+	blockSize := int64(40 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
 		blockSize, err = strconv.ParseInt(blockSizeStr, 10, 64)
@@ -172,7 +172,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 		}
 	}
 
-	concurrency := int64(10)
+	concurrency := int64(4)
 	concurrencyStr := os.Getenv("AZURE_CONCURRENCY")
 	if concurrencyStr != "" {
 		concurrency, err = strconv.ParseInt(concurrencyStr, 10, 64)
@@ -247,7 +247,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.Read
 	}()
 
 	// Get blocksize and concurrency from the environment
-	blockSize := int64(10 * 1024 * 1024)
+	blockSize := int64(40 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
 		blockSize, err = strconv.ParseInt(blockSizeStr, 10, 64)
@@ -256,7 +256,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.Read
 		}
 	}
 
-	concurrency := int64(10)
+	concurrency := int64(4)
 	concurrencyStr := os.Getenv("AZURE_CONCURRENCY")
 	if concurrencyStr != "" {
 		concurrency, err = strconv.ParseInt(concurrencyStr, 10, 64)
