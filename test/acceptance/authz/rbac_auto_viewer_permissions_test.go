@@ -33,7 +33,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().
+	compose, err := docker.New().WithWeaviate().WithBackendFilesystem().
+		WithRBAC().
 		WithRbacUser("admin-User", adminKey, "admin-User").
 		WithRbacUser("viewer-user", viewerKey, "viewer").Start(ctx)
 	require.Nil(t, err)
@@ -95,7 +96,12 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 				req, err = http.NewRequest(endpoint.method, url, bytes.NewBuffer(endpoint.validGeneratedBodyData))
 				require.Nil(t, err)
 				req.Header.Set("Content-Type", "application/json")
-				forbidden = true
+				if !strings.Contains(url, "backups/filesystem/someId/restore") {
+					// restore endpoint do READ permissions the backend and then
+					// later checks if the meta file exists, therefor we ignore
+					// it here because it will return 404
+					forbidden = true
+				}
 			} else {
 				req, err = http.NewRequest(endpoint.method, url, nil)
 				require.Nil(t, err)
