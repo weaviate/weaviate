@@ -90,7 +90,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := store.Initialize(ctx, req.BlockSize); err != nil {
+	if err := store.Initialize(ctx); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
@@ -237,7 +237,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	if err := store.Initialize(ctx, 0); err != nil {  // No data transfer so no blocksize
+	if err := store.Initialize(ctx); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 

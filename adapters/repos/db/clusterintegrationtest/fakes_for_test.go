@@ -359,13 +359,13 @@ func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath 
 	return nil
 }
 
-func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte, blockSize int64) error {
+func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string, blockSize int64) error {
+func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil

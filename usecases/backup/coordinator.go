@@ -189,7 +189,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, req.BlockSize); err != nil {
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("cannot init meta file: %w", err)
 	}
@@ -205,7 +205,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, req.BlockSize); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -245,7 +245,7 @@ func (c *coordinator) Restore(
 	}
 
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, req.BlockSize); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
@@ -259,7 +259,7 @@ func (c *coordinator) Restore(
 		c.commit(ctx, &statusReq, nodes, true)
 		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, req.BlockSize); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -386,7 +386,6 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					Duration:    _BookingPeriod,
 					NodeMapping: nodeMapping,
 					Compression: req.Compression,
-					BlockSize:   req.BlockSize,
 				},
 			}
 		}

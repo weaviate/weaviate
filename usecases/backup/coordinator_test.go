@@ -42,7 +42,6 @@ func TestCoordinatedBackup(t *testing.T) {
 			Classes:     req.Classes,
 			Duration:    _BookingPeriod,
 			Compression: req.Compression,
-			BlockSize:   req.BlockSize,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 		sReq         = &StatusRequest{OpCreate, backupID, backendName}
@@ -133,7 +132,6 @@ func TestCoordinatedBackup(t *testing.T) {
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
-			BlockSize: DefaultBlockSize,
 		}
 
 		twoClassesReqcreq := &Request{
@@ -147,7 +145,6 @@ func TestCoordinatedBackup(t *testing.T) {
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
-			BlockSize: DefaultBlockSize,
 		}
 		fc.client.On("CanCommit", any, nodes[0], twoClassesReqcreq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], oneClassReq).Return(cresp, nil)
@@ -365,7 +362,6 @@ func TestCoordinatedRestore(t *testing.T) {
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
-			BlockSize: DefaultBlockSize,
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq     = &StatusRequest{OpRestore, backupID, backendName}
@@ -479,7 +475,6 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 				ChunkSize:     DefaultChunkSize,
 				CPUPercentage: DefaultCPUPercentage,
 			},
-			BlockSize: DefaultBlockSize,
 		}
 		cresp = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq  = &StatusRequest{OpRestore, backupID, backendName}
@@ -637,6 +632,5 @@ func newReq(classes []string, backendName, backupID string) Request {
 			ChunkSize:     DefaultChunkSize,
 			CPUPercentage: DefaultCPUPercentage,
 		},
-		BlockSize: DefaultBlockSize,
 	}
 }

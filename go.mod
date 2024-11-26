@@ -1,7 +1,5 @@
 module github.com/weaviate/weaviate
 
-replace github.com/weaviate/weaviate => ./
-
 require (
 	cloud.google.com/go/storage v1.43.0
 	github.com/bmatcuk/doublestar v1.1.3

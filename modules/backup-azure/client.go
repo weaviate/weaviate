@@ -158,12 +158,12 @@ func (a *azureClient) PutFile(ctx context.Context, backupID, key, srcPath string
 	return nil
 }
 
-func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data []byte, blockSize int64) error {
+func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data []byte) error {
 	var err error
 	objectName := a.makeObjectName(backupID, key)
 
 	// Get blocksize and concurrency from the environment
-
+	blockSize := int64(10 * 1024 * 1024)
 	blockSizeStr := os.Getenv("AZURE_BLOCK_SIZE")
 	if blockSizeStr != "" {
 		blockSize, err = strconv.ParseInt(blockSizeStr, 10, 64)
@@ -199,10 +199,10 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 	return nil
 }
 
-func (a *azureClient) Initialize(ctx context.Context, backupID string, blockSize int64) error {
+func (a *azureClient) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := a.PutObject(ctx, backupID, key, []byte(""), blockSize); err != nil {
+	if err := a.PutObject(ctx, backupID, key, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 

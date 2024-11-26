@@ -31,8 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var DefaultBlockSize = int64(10 * 1024 * 1024)
-
 func Test_FilesystemBackend_Backup(t *testing.T) {
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
@@ -61,7 +59,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := fs.Initialize(testCtx, backupID, DefaultBlockSize)
+			err := fs.Initialize(testCtx, backupID)
 			assert.Nil(t, err)
 		})
 
@@ -89,7 +87,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = fs.PutObject(testCtx, backupID, metadataFilename, b, DefaultBlockSize)
+			err = fs.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
 			dest := fs.HomeDir(backupID)
@@ -120,7 +118,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, []byte("hello"), DefaultBlockSize)
+			err := fs.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 

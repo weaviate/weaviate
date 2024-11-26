@@ -46,9 +46,6 @@ type Request struct {
 	// Duration
 	Duration time.Duration
 
-	// Upload blocksize
-	BlockSize int64
-
 	// Compression is the compression configuration.
 	Compression
 }
