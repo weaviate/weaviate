@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type azureClient struct {
@@ -166,8 +168,10 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 		objectName,
 		reader,
 		&azblob.UploadStreamOptions{
-			Metadata: map[string]*string{"backupid": to.Ptr(backupID)},
-			Tags:     map[string]string{"backupid": backupID},
+			Metadata:    map[string]*string{"backupid": to.Ptr(backupID)},
+			Tags:        map[string]string{"backupid": backupID},
+			BlockSize:   a.getBlockSize(ctx),
+			Concurrency: a.getConcurrency(ctx),
 		})
 	if err != nil {
 		return backup.NewErrInternal(errors.Wrapf(err, "upload stream for object '%s'", objectName))
@@ -215,6 +219,42 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath s
 	return nil
 }
 
+func (a *azureClient) getBlockSize(ctx context.Context) int64 {
+	blockSize := int64(40 * 1024 * 1024)
+	blockSizeStr := modulecomponents.GetValueFromContext(ctx, "X-Azure-Block-Size")
+
+	if blockSizeStr == "" {
+		blockSizeStr = os.Getenv("AZURE_BLOCK_SIZE")
+	}
+
+	if blockSizeStr != "" {
+		bs, err := strconv.ParseInt(blockSizeStr, 10, 64)
+		if err != nil {
+			return 40 * 1024 * 1024
+		}
+		blockSize = bs
+	}
+	return blockSize
+}
+
+func (a *azureClient) getConcurrency(ctx context.Context) int {
+	concurrency := 1
+	concurrencyStr := modulecomponents.GetValueFromContext(ctx, "X-Azure-Concurrency")
+
+	if concurrencyStr == "" {
+		concurrencyStr = os.Getenv("AZURE_CONCURRENCY")
+	}
+
+	if concurrencyStr != "" {
+		cc, err := strconv.Atoi(concurrencyStr)
+		if err != nil {
+			return 1
+		}
+		concurrency = cc
+	}
+	return concurrency
+}
+
 func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (written int64, err error) {
 	path := a.makeObjectName(backupID, key)
 	reader := &reader{src: r}
@@ -228,8 +268,10 @@ func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.Read
 		path,
 		reader,
 		&azblob.UploadStreamOptions{
-			Metadata: map[string]*string{"backupid": to.Ptr(backupID)},
-			Tags:     map[string]string{"backupid": backupID},
+			Metadata:    map[string]*string{"backupid": to.Ptr(backupID)},
+			Tags:        map[string]string{"backupid": backupID},
+			BlockSize:   a.getBlockSize(ctx),
+			Concurrency: a.getConcurrency(ctx),
 		}); err != nil {
 		err = fmt.Errorf("upload stream %q: %w", path, err)
 	}
