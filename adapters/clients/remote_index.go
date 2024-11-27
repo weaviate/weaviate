@@ -402,7 +402,6 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	return objs, nil
 }
 
-// TODO callers
 func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string,
 	vector [][]float32,
 	targetVector []string,
