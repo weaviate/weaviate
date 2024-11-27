@@ -177,7 +177,6 @@ func Test_Authorization(t *testing.T) {
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)
 				callFuncByName(s, test.methodName, args...)
-
 			})
 		}
 	})
