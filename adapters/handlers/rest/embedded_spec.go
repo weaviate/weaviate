@@ -545,7 +545,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/ownRoles": {
+    "/authz/users/own-roles": {
       "get": {
         "tags": [
           "authz"
@@ -570,7 +570,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.users.ownRoles"
+          "weaviate.authz.get.users.own-roles"
         ]
       }
     },
@@ -6859,7 +6859,7 @@ func init() {
         ]
       }
     },
-    "/authz/users/ownRoles": {
+    "/authz/users/own-roles": {
       "get": {
         "tags": [
           "authz"
@@ -6884,7 +6884,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.users.ownRoles"
+          "weaviate.authz.get.users.own-roles"
         ]
       }
     },
