@@ -462,9 +462,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			}
 		}
 		if allowList != nil && originalUseAcorn {
-			if !useAcorn && hits/explored < 0.4 {
+			if !useAcorn && hits/explored < defaultAcornMaxFilterPercentage {
 				useAcorn = true
-			} else if useAcorn && hits/explored > 0.4 {
+			} else if useAcorn && hits/explored > defaultAcornMaxFilterPercentage {
 				useAcorn = true
 			}
 		}
@@ -617,97 +617,6 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
-type FastSet struct {
-	boolSet []bool
-	size    int
-}
-
-func NewFastSet(allow helpers.AllowList) *FastSet {
-	bools := make([]bool, allow.Max()+1)
-	it := allow.Iterator()
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		bools[docID] = true
-	}
-	return &FastSet{
-		boolSet: bools,
-		size:    allow.Len(),
-	}
-}
-
-func (s *FastSet) Contains(node uint64) bool {
-	return uint64(len(s.boolSet)) > node && s.boolSet[node]
-}
-
-func (s *FastSet) DeepCopy() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Insert(ids ...uint64) {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) WrapOnWrite() helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Slice() []uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) IsEmpty() bool {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Len() int {
-	return s.size
-}
-
-func (s *FastSet) Min() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Max() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Size() uint64 {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Truncate(uint64) helpers.AllowList {
-	panic("DeepCopy")
-}
-
-func (s *FastSet) Iterator() helpers.AllowListIterator {
-	return &fastIterator{
-		source:  s,
-		current: 0,
-	}
-}
-
-func (s *FastSet) LimitedIterator(limit int) helpers.AllowListIterator {
-	panic("DeepCopy")
-}
-
-type fastIterator struct {
-	current uint64
-	source  *FastSet
-}
-
-func (s *fastIterator) Len() int {
-	return s.source.Len()
-}
-
-func (s *fastIterator) Next() (uint64, bool) {
-	index := s.current
-	size := uint64(len(s.source.boolSet))
-	for index < size && !s.source.boolSet[index] {
-		index++
-	}
-	s.current = index + 1
-	return index, index < size
-}
-
 func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -716,10 +625,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	useAcorn, _ := h.acornParams(allowList)
-
-	/*if allowList != nil && useAcorn {
-		allowList = NewFastSet(allowList)
-	}*/
 
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
