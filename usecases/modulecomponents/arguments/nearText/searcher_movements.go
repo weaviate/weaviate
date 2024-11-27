@@ -12,18 +12,21 @@
 package nearText
 
 import (
+	"errors"
 	"fmt"
+
+	"github.com/weaviate/weaviate/entities/types"
 )
 
-type movements struct{}
+type movements[T types.Embedding] struct{}
 
-func newMovements() *movements {
-	return &movements{}
+func newMovements[T types.Embedding]() *movements[T] {
+	return &movements[T]{}
 }
 
 // MoveTo moves one vector toward another
-func (v *movements) MoveTo(source []float32, target []float32, weight float32,
-) ([]float32, error) {
+func (v *movements[T]) MoveTo(source T, target T, weight float32,
+) (T, error) {
 	multiplier := float32(0.5)
 
 	if len(source) != len(target) {
@@ -36,17 +39,21 @@ func (v *movements) MoveTo(source []float32, target []float32, weight float32,
 			weight)
 	}
 
-	out := make([]float32, len(source))
-	for i, sourceItem := range source {
-		out[i] = sourceItem*(1-weight*multiplier) + target[i]*(weight*multiplier)
+	switch any(source).(type) {
+	case []float32:
+		out := make([]float32, len(source))
+		for i, sourceItem := range any(source).([]float32) {
+			out[i] = sourceItem*(1-weight*multiplier) + any(target).([]float32)[i]*(weight*multiplier)
+		}
+		return any(out).(T), nil
+	default:
+		return nil, errors.New("not implemented")
 	}
-
-	return out, nil
 }
 
 // MoveAwayFrom moves one vector away from another
-func (v *movements) MoveAwayFrom(source []float32, target []float32, weight float32,
-) ([]float32, error) {
+func (v *movements[T]) MoveAwayFrom(source T, target T, weight float32,
+) (T, error) {
 	multiplier := float32(0.5) // so the movement is fair in comparison with moveTo
 	if len(source) != len(target) {
 		return nil, fmt.Errorf("movement (moveAwayFrom): vector lengths don't match: "+
@@ -58,10 +65,14 @@ func (v *movements) MoveAwayFrom(source []float32, target []float32, weight floa
 			"got %f", weight)
 	}
 
-	out := make([]float32, len(source))
-	for i, sourceItem := range source {
-		out[i] = sourceItem + weight*multiplier*(sourceItem-target[i])
+	switch any(source).(type) {
+	case []float32:
+		out := make([]float32, len(source))
+		for i, sourceItem := range any(source).([]float32) {
+			out[i] = sourceItem + weight*multiplier*(sourceItem-any(target).([]float32)[i])
+		}
+		return any(out).(T), nil
+	default:
+		return nil, errors.New("not implemented")
 	}
-
-	return out, nil
 }

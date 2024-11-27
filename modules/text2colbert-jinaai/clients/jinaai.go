@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+	"github.com/weaviate/weaviate/modules/text2colbert-jinaai/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/jinaai"
 )
 

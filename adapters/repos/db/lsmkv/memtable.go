@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"encoding/binary"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
@@ -85,12 +87,7 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	v, err := m.key.get(key)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	return m.key.get(key)
 }
 
 func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
@@ -109,12 +106,7 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, lsmkv.NotFound
 	}
 
-	v, err := m.key.get(primary)
-	if err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	return m.key.get(primary)
 }
 
 func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
@@ -196,12 +188,78 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Wrap(err, "write into commit log")
 	}
 
-	m.key.setTombstone(key, secondaryKeys)
+	m.key.setTombstone(key, nil, secondaryKeys)
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
 
 	return nil
+}
+
+func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+	start := time.Now()
+	defer m.metrics.setTombstone(start.UnixNano())
+
+	if m.strategy != "replace" {
+		return errors.Errorf("setTombstone only possible with strategy 'replace'")
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	var secondaryKeys [][]byte
+	if m.secondaryIndices > 0 {
+		secondaryKeys = make([][]byte, m.secondaryIndices)
+		for _, opt := range opts {
+			if err := opt(secondaryKeys); err != nil {
+				return err
+			}
+		}
+	}
+
+	tombstonedVal := tombstonedValue(deletionTime)
+
+	if err := m.commitlog.put(segmentReplaceNode{
+		primaryKey:          key,
+		value:               tombstonedVal[:],
+		secondaryIndexCount: m.secondaryIndices,
+		secondaryKeys:       secondaryKeys,
+		tombstone:           true,
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
+	m.key.setTombstone(key, tombstonedVal[:], secondaryKeys)
+	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
+	m.metrics.size(m.size)
+	m.updateDirtyAt()
+
+	return nil
+}
+
+func tombstonedValue(deletionTime time.Time) []byte {
+	var tombstonedVal [1 + 8]byte // version=1 deletionTime
+	tombstonedVal[0] = 1
+	binary.LittleEndian.PutUint64(tombstonedVal[1:], uint64(deletionTime.UnixMilli()))
+	return tombstonedVal[:]
+}
+
+func errorFromTombstonedValue(tombstonedVal []byte) error {
+	if len(tombstonedVal) == 0 {
+		return lsmkv.Deleted
+	}
+
+	if tombstonedVal[0] != 1 {
+		return fmt.Errorf("unexpected tomstoned value, unsupported version %d", tombstonedVal[0])
+	}
+
+	if len(tombstonedVal) != 9 {
+		return fmt.Errorf("unexpected tomstoned value, invalid length")
+	}
+
+	deletionTimeUnixMilli := int64(binary.LittleEndian.Uint64(tombstonedVal[1:]))
+
+	return lsmkv.NewErrDeleted(time.UnixMilli(deletionTimeUnixMilli))
 }
 
 func (m *Memtable) getCollection(key []byte) ([]value, error) {

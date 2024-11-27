@@ -50,8 +50,8 @@ func (m *Module) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return arguments
 }
 
-func (m *Module) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
+func (m *Module) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
 	for name, arg := range m.nearImageSearcher.VectorSearches() {
 		vectorSearches[name] = arg
 	}
@@ -66,5 +66,5 @@ func (m *Module) VectorSearches() map[string]modulecapabilities.VectorForParams 
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

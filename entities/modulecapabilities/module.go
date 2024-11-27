@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 type ModuleType string
@@ -54,11 +55,11 @@ type ModuleDependency interface {
 	InitDependency(modules []Module) error
 }
 
-type Dependency interface {
+type Dependency[T types.Embedding] interface {
 	ModuleName() string
 	Argument() string
 	GraphQLArgument() GraphQLArgument
-	VectorSearch() VectorForParams
+	VectorSearch() VectorForParams[T]
 }
 
 type ModuleHasAltNames interface {
