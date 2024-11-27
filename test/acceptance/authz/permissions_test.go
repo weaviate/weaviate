@@ -26,12 +26,11 @@ import (
 func TestAuthzRolesWithPermissions(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
-	adminRole := "admin"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacAdmin(existingUser, existingKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {

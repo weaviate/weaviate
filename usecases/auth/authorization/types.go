@@ -104,23 +104,23 @@ var (
 )
 
 var (
-	viewer          = "viewer"
+	Viewer          = "viewer"
 	editor          = "editor"
-	admin           = "admin"
-	BuiltInRoles    = []string{viewer, editor, admin}
+	Admin           = "admin"
+	BuiltInRoles    = []string{Viewer, editor, Admin}
 	BuiltInPolicies = map[string]string{
-		viewer: READ,
+		Viewer: READ,
 		editor: CRU,
-		admin:  CRUD,
+		Admin:  CRUD,
 	}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
-	// admin : aka basically super admin or root
+	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
-		viewer: viewerPermissions(),
+		Viewer: viewerPermissions(),
 		editor: editorPermissions(),
-		admin:  adminPermissions(),
+		Admin:  adminPermissions(),
 	}
 )
 
@@ -369,7 +369,7 @@ func editorPermissions() []*models.Permission {
 	return perms
 }
 
-// admin : aka basically super admin or root
+// Admin : aka basically super Admin or root
 func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {

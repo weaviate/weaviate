@@ -24,38 +24,23 @@ func Test_Validation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "admin and users correct",
-			config:  Config{AllUsers: []string{"1", "2"}, Admins: []string{"1", "2"}},
+			name:    "admin and viewers - correct",
+			config:  Config{Admins: []string{"1"}, Viewers: []string{"2"}},
 			wantErr: false,
 		},
 		{
-			name:    "admin and users and viewers correct",
-			config:  Config{AllUsers: []string{"1", "2"}, Admins: []string{"1"}, Viewers: []string{"2"}},
-			wantErr: false,
-		},
-		{
-			name:    "only users",
-			config:  Config{AllUsers: []string{"1", "2"}},
-			wantErr: true,
-		},
-		{
-			name:    "only admins",
+			name:    "only admins - correct",
 			config:  Config{Admins: []string{"1", "2"}},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name:    "only viewers",
+			name:    "only viewers - incorrect",
 			config:  Config{Viewers: []string{"1", "2"}},
 			wantErr: true,
 		},
 		{
-			name:    "overlap viewers and admins",
+			name:    "overlap viewers and admins - incorrect",
 			config:  Config{Viewers: []string{"1", "2"}, Admins: []string{"1", "3"}},
-			wantErr: true,
-		},
-		{
-			name:    "no admin",
-			config:  Config{AllUsers: []string{"1", "2"}},
 			wantErr: true,
 		},
 	}

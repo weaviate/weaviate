@@ -28,11 +28,9 @@ import (
 func TestAuthZBackupsManageJourney(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
-	adminRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
-	customRole := "custom"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -44,8 +42,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithRBAC().
-		WithRbacUser(adminUser, adminKey, adminRole).
-		WithRbacUser(customUser, customKey, customRole).
+		WithRbacAdmin(adminUser, adminKey).
+		WithRbacUser(customUser, customKey).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)

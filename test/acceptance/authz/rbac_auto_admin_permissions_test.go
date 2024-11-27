@@ -31,7 +31,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser("admin-user", adminKey, "admin").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacAdmin("admin-user", adminKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {

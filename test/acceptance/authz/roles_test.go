@@ -87,7 +87,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacAdmin(existingUser, existingKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -189,7 +189,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacAdmin(existingUser, existingKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -341,7 +341,6 @@ func TestAuthzRolesJourney(t *testing.T) {
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
-	existingRole := "admin"
 
 	testRole := "test-role"
 	testAction1 := authorization.CreateSchema
@@ -353,7 +352,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	compose, err := docker.New().WithWeaviateCluster(3).WithRBAC().WithRbacAdmin(existingUser, existingKey).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {

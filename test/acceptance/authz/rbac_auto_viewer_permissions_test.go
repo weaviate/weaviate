@@ -35,8 +35,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 
 	compose, err := docker.New().WithWeaviate().WithBackendFilesystem().
 		WithRBAC().
-		WithRbacUser("admin-User", adminKey, "admin-User").
-		WithRbacUser("viewer-user", viewerKey, "viewer").Start(ctx)
+		WithRbacAdmin("admin-User", adminKey).
+		WithRbacViewer("viewer-user", viewerKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
