@@ -52,6 +52,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzGetUsersForRoleHandler = authz.GetUsersForRoleHandlerFunc(h.getUsersForRole)
 	api.AuthzAssignRoleHandler = authz.AssignRoleHandlerFunc(h.assignRole)
 	api.AuthzRevokeRoleHandler = authz.RevokeRoleHandlerFunc(h.revokeRole)
+	api.AuthzGetRolesForOwnUserHandler = authz.GetRolesForOwnUserHandlerFunc(h.getRolesForOwnUser)
 }
 
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
@@ -323,7 +324,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 	if params.ID == "" {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role name is required")))
+		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
 	}
 
 	existedRoles, err := h.controller.GetRolesForUser(params.ID)
@@ -337,7 +338,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	for roleName, policies := range existedRoles {
 		perms, err := conv.PoliciesToPermission(policies...)
 		if err != nil {
-			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
 		// verify the user has access
@@ -364,6 +365,39 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 	}).Info("roles requested")
 
 	return authz.NewGetRolesForUserOK().WithPayload(response)
+}
+
+func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
+	if principal == nil {
+		return authz.NewGetRolesForOwnUserUnauthorized()
+	}
+
+	existedRoles, err := h.controller.GetRolesForUser(principal.Username)
+	if err != nil {
+		return authz.NewGetRolesForOwnUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	var response []*models.Role
+
+	for roleName, policies := range existedRoles {
+		perms, err := conv.PoliciesToPermission(policies...)
+		if err != nil {
+			return authz.NewGetRolesForOwnUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+
+		response = append(response, &models.Role{
+			Name:        &roleName,
+			Permissions: perms,
+		})
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":    "get_roles_for_own_user",
+		"component": authorization.ComponentName,
+		"user":      principal.Username,
+	}).Info("roles requested")
+
+	return authz.NewGetRolesForOwnUserOK().WithPayload(response)
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {

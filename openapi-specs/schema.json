@@ -3113,6 +3113,35 @@
         }
       }
     },
+    "/authz/users/own-roles": {
+      "get": {
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
