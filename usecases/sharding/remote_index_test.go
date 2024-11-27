@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 var errAny = errors.New("anyErr")
@@ -24,6 +26,7 @@ func TestQueryReplica(t *testing.T) {
 	var (
 		ctx                      = context.Background()
 		canceledCtx, cancledFunc = context.WithCancel(ctx)
+		logger, _                = test.NewNullLogger()
 	)
 	cancledFunc()
 	doIf := func(targetNode string) func(node, host string) (interface{}, error) {
@@ -60,7 +63,7 @@ func TestQueryReplica(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
+		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver, logger}
 		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {

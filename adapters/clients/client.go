@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type retryClient struct {
@@ -26,8 +28,11 @@ type retryClient struct {
 	*retryer
 }
 
+// You can pass in log information via the retryLogEntry, and it will be debug logged
+// before each retry (eg the log appears only if the first attempt fails).
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
+	retryLogEntry *logrus.Entry,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
@@ -57,7 +62,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(ctx, numRetries, try, retryLogEntry)
 }
 
 func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
@@ -103,7 +108,9 @@ func newRetryer() *retryer {
 }
 
 // n is the number of retries, work will always be called at least once.
-func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
+// You can pass in log information via the retryLogEntry, and it will be debug logged
+// before each retry (eg the log appears only if the first attempt fails).
+func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error), retryLogEntry *logrus.Entry) error {
 	delay := r.minBackOff
 	for {
 		keepTrying, err := work(ctx)
@@ -115,6 +122,10 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		if delay = backOff(delay); delay > r.maxBackOff {
 			delay = r.maxBackOff
 		}
+		retryLogEntry.WithFields(logrus.Fields{
+			"numberOfRetriesLeft": n,
+			"delay":               delay,
+		}).Debug("retrying")
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

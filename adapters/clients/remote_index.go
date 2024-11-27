@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
@@ -41,13 +42,17 @@ import (
 
 type RemoteIndex struct {
 	retryClient
+	log logrus.FieldLogger
 }
 
-func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	return &RemoteIndex{retryClient: retryClient{
-		client:  httpClient,
-		retryer: newRetryer(),
-	}}
+func NewRemoteIndex(httpClient *http.Client, log logrus.FieldLogger) *RemoteIndex {
+	return &RemoteIndex{
+		retryClient: retryClient{
+			client:  httpClient,
+			retryer: newRetryer(),
+		},
+		log: log,
+	}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
@@ -415,10 +420,11 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard)
 	url := url.URL{
 		Scheme: "http",
 		Host:   host,
-		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
+		Path:   path,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(body))
 	if err != nil {
@@ -428,7 +434,13 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	retryLogEntry := c.log.WithFields(logrus.Fields{
+		"host":  host,
+		"index": index,
+		"shard": shard,
+		"path":  path,
+	})
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, retryLogEntry)
 	return resp.Objects, resp.Distributions, err
 }
 
