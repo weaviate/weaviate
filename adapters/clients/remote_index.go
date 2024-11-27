@@ -50,6 +50,7 @@ func NewRemoteIndex(httpClient *http.Client, log logrus.FieldLogger) *RemoteInde
 		retryClient: retryClient{
 			client:  httpClient,
 			retryer: newRetryer(),
+			log:     log,
 		},
 		log: log,
 	}
@@ -401,6 +402,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	return objs, nil
 }
 
+// TODO callers
 func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string,
 	vector [][]float32,
 	targetVector []string,
@@ -420,11 +422,10 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard)
 	url := url.URL{
 		Scheme: "http",
 		Host:   host,
-		Path:   path,
+		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/_search", index, shard),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(body))
 	if err != nil {
@@ -434,13 +435,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	retryLogEntry := c.log.WithFields(logrus.Fields{
-		"host":  host,
-		"index": index,
-		"shard": shard,
-		"path":  path,
-	})
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, retryLogEntry)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
 	return resp.Objects, resp.Distributions, err
 }
 

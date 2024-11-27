@@ -26,13 +26,11 @@ import (
 type retryClient struct {
 	client *http.Client
 	*retryer
+	log logrus.FieldLogger
 }
 
-// You can pass in log information via the retryLogEntry, and it will be debug logged
-// before each retry (eg the log appears only if the first attempt fails).
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
-	retryLogEntry *logrus.Entry,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
@@ -62,6 +60,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
+	retryLogEntry := c.log.WithField("url", req.URL.String())
 	return c.retry(ctx, numRetries, try, retryLogEntry)
 }
 
