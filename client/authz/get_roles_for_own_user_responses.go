@@ -102,11 +102,11 @@ func (o *GetRolesForOwnUserOK) Code() int {
 }
 
 func (o *GetRolesForOwnUserOK) Error() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserOK  %+v", 200, o.Payload)
 }
 
 func (o *GetRolesForOwnUserOK) String() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserOK  %+v", 200, o.Payload)
 }
 
 func (o *GetRolesForOwnUserOK) GetPayload() models.RolesListResponse {
@@ -167,11 +167,11 @@ func (o *GetRolesForOwnUserUnauthorized) Code() int {
 }
 
 func (o *GetRolesForOwnUserUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserUnauthorized ", 401)
 }
 
 func (o *GetRolesForOwnUserUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserUnauthorized ", 401)
 }
 
 func (o *GetRolesForOwnUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -224,11 +224,11 @@ func (o *GetRolesForOwnUserInternalServerError) Code() int {
 }
 
 func (o *GetRolesForOwnUserInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRolesForOwnUserInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/users/ownRoles][%d] getRolesForOwnUserInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/users/own-roles][%d] getRolesForOwnUserInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRolesForOwnUserInternalServerError) GetPayload() *models.ErrorResponse {

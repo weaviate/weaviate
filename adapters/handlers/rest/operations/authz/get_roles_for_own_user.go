@@ -43,7 +43,7 @@ func NewGetRolesForOwnUser(ctx *middleware.Context, handler GetRolesForOwnUserHa
 }
 
 /*
-	GetRolesForOwnUser swagger:route GET /authz/users/ownRoles authz getRolesForOwnUser
+	GetRolesForOwnUser swagger:route GET /authz/users/own-roles authz getRolesForOwnUser
 
 get roles assigned to own user
 */

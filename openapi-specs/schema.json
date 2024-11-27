@@ -3113,12 +3113,12 @@
         }
       }
     },
-    "/authz/users/ownRoles": {
+    "/authz/users/own-roles": {
       "get": {
         "summary": "get roles assigned to own user",
         "operationId": "getRolesForOwnUser",
         "x-serviceIds": [
-          "weaviate.authz.get.users.ownRoles"
+          "weaviate.authz.get.users.own-roles"
         ],
         "tags": [
           "authz"
