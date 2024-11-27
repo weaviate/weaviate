@@ -135,6 +135,9 @@ func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Polic
 	if err != nil {
 		return nil, err
 	}
+	if len(rolesNames) == 0 {
+		return map[string][]authorization.Policy{}, err
+	}
 
 	return m.GetRoles(rolesNames...)
 }
