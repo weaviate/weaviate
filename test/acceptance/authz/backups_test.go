@@ -41,9 +41,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithRBAC().
-		WithRbacAdmin(adminUser, adminKey).
-		WithRbacUser(customUser, customKey).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)

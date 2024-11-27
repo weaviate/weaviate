@@ -105,8 +105,11 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
+	withWeaviateApiKey            bool
+	weaviateApiKeyUsers           []ApiKeyUser
 	withWeaviateRbac              bool
-	weaviateRbacUsers             []RbacUser
+	weaviateRbacAdmins            []string
+	weaviateRbacViewers           []string
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -425,47 +428,40 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithApiKey() *Compose {
+	d.withWeaviateApiKey = true
+	return d
+}
+
+func (d *Compose) WithUserApiKey(username, key string) *Compose {
+	if !d.withWeaviateApiKey {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateApiKeyUsers = append(d.weaviateApiKeyUsers, ApiKeyUser{
+		Username: username,
+		Key:      key,
+	})
+	return d
+}
+
 func (d *Compose) WithRBAC() *Compose {
 	d.withWeaviateRbac = true
 	return d
 }
 
-func (d *Compose) WithRbacUser(username, key string) *Compose {
+func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
-		Username: username,
-		Key:      key,
-		Admin:    false,
-		Viewer:   false,
-	})
+	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
 	return d
 }
 
-func (d *Compose) WithRbacAdmin(username, key string) *Compose {
+func (d *Compose) WithRbacViewer(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
-		Username: username,
-		Key:      key,
-		Admin:    true,
-		Viewer:   false,
-	})
-	return d
-}
-
-func (d *Compose) WithRbacViewer(username, key string) *Compose {
-	if !d.withWeaviateRbac {
-		panic("RBAC is not enabled. Chain .WithRBAC() first")
-	}
-	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
-		Username: username,
-		Key:      key,
-		Admin:    false,
-		Viewer:   true,
-	})
+	d.weaviateRbacViewers = append(d.weaviateRbacViewers, usernames...)
 	return d
 }
 
@@ -742,23 +738,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
 
-	if d.withWeaviateRbac {
-		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+	if d.withWeaviateApiKey {
+		usernames := make([]string, 0, len(d.weaviateApiKeyUsers))
+		keys := make([]string, 0, len(d.weaviateApiKeyUsers))
 
-		usernames := make([]string, 0, len(d.weaviateRbacUsers))
-		keys := make([]string, 0, len(d.weaviateRbacUsers))
-		admins := make([]string, 0, len(d.weaviateRbacUsers))
-		viewers := make([]string, 0, len(d.weaviateRbacUsers))
-
-		for _, user := range d.weaviateRbacUsers {
+		for _, user := range d.weaviateApiKeyUsers {
 			usernames = append(usernames, user.Username)
 			keys = append(keys, user.Key)
-			if user.Admin {
-				admins = append(admins, user.Username)
-			}
-			if user.Viewer {
-				viewers = append(viewers, user.Username)
-			}
 		}
 		if len(keys) > 0 {
 			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
@@ -768,11 +754,16 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
 			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
 		}
-		if len(admins) > 0 {
-			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(admins, ",")
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+
+		if len(d.weaviateRbacAdmins) > 0 {
+			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
 		}
-		if len(viewers) > 0 {
-			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(viewers, ",")
+		if len(d.weaviateRbacViewers) > 0 {
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
 		}
 	}
 
