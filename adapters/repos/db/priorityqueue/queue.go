@@ -39,7 +39,10 @@ func NewMin[T supportedValueType](capacity int) *Queue[T] {
 	}
 }
 
-// NewMin constructs a priority queue which prioritizes items with smaller distance and smaller ID
+// NewMin constructs a priority queue which prioritizes items with larger distance and smaller ID:
+// - higher scores first
+// - if tied, lower document id first
+// Thus, the signs in the Less function are opposite for scores and ids
 func NewMinWithId[T supportedValueType](capacity int) *Queue[T] {
 	return &Queue[T]{
 		items: make([]Item[T], 0, capacity),
