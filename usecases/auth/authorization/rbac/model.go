@@ -112,7 +112,7 @@ func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEn
 	}
 
 	for i := range authConfig.Viewers {
-		if _, err := enforcer.AddRoleForUser(authConfig.Admins[i], authorization.Viewer); err != nil {
+		if _, err := enforcer.AddRoleForUser(authConfig.Viewers[i], authorization.Viewer); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
