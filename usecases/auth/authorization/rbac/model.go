@@ -16,6 +16,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
@@ -66,7 +68,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(authConfig Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
+func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)

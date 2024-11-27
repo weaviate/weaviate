@@ -14,14 +14,15 @@ package config
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
 // Authorization configuration
 type Authorization struct {
 	AdminList adminlist.Config `json:"admin_list" yaml:"admin_list"`
-	Rbac      rbac.Config      `json:"rbac" yaml:"rbac"`
+	Rbac      rbacconf.Config  `json:"rbac" yaml:"rbac"`
 }
 
 // Validate the Authorization configuration. This only validates at a general

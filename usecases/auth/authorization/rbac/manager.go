@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,7 +31,7 @@ type manager struct {
 	existingUsersApiKeys []string
 }
 
-func New(rbacStoragePath string, rbac Config, existingUsersApiKeys []string, logger logrus.FieldLogger) (*manager, error) {
+func New(rbacStoragePath string, rbac rbacconf.Config, existingUsersApiKeys []string, logger logrus.FieldLogger) (*manager, error) {
 	casbin, err := Init(rbac, rbacStoragePath)
 	if err != nil {
 		return nil, err
