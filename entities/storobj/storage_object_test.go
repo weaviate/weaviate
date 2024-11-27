@@ -131,7 +131,7 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 		},
 		map[string][][]float32{
 			"vector3": {{7, 8, 9}, {10, 11, 12}},
-			"vector4": {{13, 14, 15}, {16, 17, 18}},
+			"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 			"vector5": {{19, 20, 21}, {22, 23, 24}},
 		},
 	)
@@ -171,75 +171,196 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 }
 
 func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
-	before := FromObjectMulti(
-		&models.Object{
-			Class:              "MyFavoriteClass",
-			CreationTimeUnix:   123456,
-			LastUpdateTimeUnix: 56789,
-			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Additional: models.AdditionalProperties{
-				"classification": &additional.Classification{
-					BasedOn: []string{"some", "fields"},
-				},
-				"interpretation": map[string]interface{}{
-					"Source": []interface{}{
-						map[string]interface{}{
-							"concept":    "foo",
-							"occurrence": float64(7),
-							"weight":     float64(3),
+	t.Run("all vectors stored", func(t *testing.T) {
+		before := FromObjectMulti(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
 						},
 					},
 				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
 			},
-			Properties: map[string]interface{}{
-				"name": "MyName",
-				"foo":  float64(17),
+			[]float32{1, 2, 0.7},
+			models.Vectors{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
 			},
-		},
-		[]float32{1, 2, 0.7},
-		models.Vectors{
-			"vector1": {1, 2, 3},
-			"vector2": {4, 5, 6},
-		},
-		map[string][][]float32{
-			"vector3": {{7, 8, 9}, {10, 11, 12}},
-			"vector4": {{13, 14, 15}, {16, 17, 18}},
-			"vector5": {{19, 20, 21}, {22, 23, 24}},
-		},
-	)
-	before.DocID = 7
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
 
-	asBinary, err := before.MarshalBinary()
-	require.Nil(t, err)
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
 
-	after := &Object{}
-	after.UnmarshalBinary(asBinary)
-	require.Nil(t, err)
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
 
-	t.Run("compare", func(t *testing.T) {
-		assert.Equal(t, before, after)
+		t.Run("compare", func(t *testing.T) {
+			assert.Equal(t, before, after)
+		})
+
+		t.Run("check vector", func(t *testing.T) {
+			require.NotEmpty(t, after.Vector)
+			assert.ElementsMatch(t, after.Vector, before.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.Vectors)
+			assert.ElementsMatch(t, after.Vectors["vector1"], before.Vectors["vector1"])
+			assert.ElementsMatch(t, after.Vectors["vector2"], before.Vectors["vector2"])
+		})
+
+		t.Run("check multi vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
 	})
 
-	t.Run("extract only doc id and compare", func(t *testing.T) {
-		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
+	t.Run("only vectors and multivectors", func(t *testing.T) {
+		before := FromObjectMulti(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			nil,
+			models.Vectors{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+			},
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
+
+		asBinary, err := before.MarshalBinary()
 		require.Nil(t, err)
-		assert.Equal(t, uint64(7), id)
-		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("check vector", func(t *testing.T) {
+			require.Empty(t, after.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.Vectors)
+			assert.ElementsMatch(t, after.Vectors["vector1"], before.Vectors["vector1"])
+			assert.ElementsMatch(t, after.Vectors["vector2"], before.Vectors["vector2"])
+		})
+
+		t.Run("check multivectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
 	})
 
-	t.Run("extract single text prop", func(t *testing.T) {
-		prop, ok, err := ParseAndExtractTextProp(asBinary, "name")
-		require.Nil(t, err)
-		require.True(t, ok)
-		require.NotEmpty(t, prop)
-		assert.Equal(t, "MyName", prop[0])
-	})
+	t.Run("only multi vectors", func(t *testing.T) {
+		before := FromObjectMulti(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			nil,
+			nil,
+			map[string][][]float32{
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
+				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
+			},
+		)
+		before.DocID = 7
 
-	t.Run("extract non-existing text prop", func(t *testing.T) {
-		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		asBinary, err := before.MarshalBinary()
 		require.Nil(t, err)
-		require.True(t, ok)
-		require.Empty(t, prop)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("check vector", func(t *testing.T) {
+			require.Empty(t, after.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.Nil(t, after.Vectors)
+		})
+
+		t.Run("check multi vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
+			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
 	})
 }
 

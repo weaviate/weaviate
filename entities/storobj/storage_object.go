@@ -696,7 +696,7 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
 // 4          | uint32        | length of target vectors segment (in bytes)
 // n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
-// 4		  | uint32        | dimension count of multivectors
+// 4          | uint32        | dimension count of multivectors
 // 4          | uint32        | length of multivectors as msgpack
 // n          | []byte        | multivectors as msgpack
 
