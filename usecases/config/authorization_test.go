@@ -14,9 +14,10 @@ package config
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 )
 
 func Test_Validation(t *testing.T) {
@@ -32,12 +33,12 @@ func Test_Validation(t *testing.T) {
 		},
 		{
 			name:    "Only rbac",
-			config:  Authorization{Rbac: rbac.Config{Enabled: true, Admins: []string{"1"}}},
+			config:  Authorization{Rbac: rbacconf.Config{Enabled: true, Admins: []string{"1"}}},
 			wantErr: false,
 		},
 		{
 			name:    "Only rbac - wrong config",
-			config:  Authorization{Rbac: rbac.Config{Enabled: true}},
+			config:  Authorization{Rbac: rbacconf.Config{Enabled: true}},
 			wantErr: true,
 		},
 		{
@@ -49,7 +50,7 @@ func Test_Validation(t *testing.T) {
 			name: "both adminlist and rbac",
 			config: Authorization{
 				AdminList: adminlist.Config{Enabled: true},
-				Rbac:      rbac.Config{Enabled: true, Admins: []string{"1"}},
+				Rbac:      rbacconf.Config{Enabled: true, Admins: []string{"1"}},
 			},
 			wantErr: true,
 		},
