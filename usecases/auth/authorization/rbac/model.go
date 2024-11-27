@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/pkg/errors"
 
@@ -83,13 +82,7 @@ func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEn
 	}
 	enforcer.EnableCache(false)
 
-	var rbacStoragePath string
-	switch runtime.GOOS {
-	case "windows":
-		rbacStoragePath = fmt.Sprintf("%s/rbac/policy.csv", policyPath)
-	default:
-		rbacStoragePath = fmt.Sprintf("./%s/rbac/policy.csv", policyPath)
-	}
+	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
 	if err := createStorage(rbacStoragePath); err != nil {
 		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
