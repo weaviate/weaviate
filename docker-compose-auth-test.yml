@@ -30,7 +30,7 @@ services:
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'viewer-key,editor-key,admin-key,custom-key'
       AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
       AUTHORIZATION_ENABLE_RBAC: "true"
-      AUTHORIZATION_RBAC_ADMIN_USERS: 'admin'
-      AUTHORIZATION_RBAC_VIEWER_USERS: 'viewer'
+      AUTHORIZATION_RBAC_ADMIN_USERS: "admin"
+      AUTHORIZATION_RBAC_VIEWER_USERS: "viewer"
 
 
