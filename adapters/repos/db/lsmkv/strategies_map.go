@@ -275,15 +275,12 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) BytesInverted() ([]byte, error) {
-	// make sure the 2 byte length indicators will never overflow:
-	if len(kv.Key) >= math.MaxUint16 {
-		return nil, errors.Errorf("mapCollection key must be smaller than %d",
-			math.MaxUint16)
+	if len(kv.Key) != 8 {
+		return nil, errors.Errorf("inverted mapCollection key must be 8 bytes, got %d", len(kv.Key))
 	}
 
-	if len(kv.Value) >= math.MaxUint16 {
-		return nil, errors.Errorf("mapCollection value must be smaller than %d",
-			math.MaxUint16)
+	if len(kv.Value) != 8 {
+		return nil, errors.Errorf("inverted mapCollection value must be 8 bytes, got %d", len(kv.Value))
 	}
 
 	out := bytes.NewBuffer(nil)
@@ -388,11 +385,19 @@ func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.
 
+	if len(in) < 8 {
+		return errors.Errorf("inverted map pair must be at least 8 bytes, got %d", len(in))
+	}
+
 	kv.Key = in[read : read+8]
 	read += 8
 
 	if keyOnly {
 		return nil
+	}
+
+	if len(in) < 16 {
+		return errors.Errorf("inverted map pair with value must be at least 16 bytes, got %d", len(in))
 	}
 
 	kv.Value = in[read : read+8]
