@@ -19,6 +19,7 @@ import (
 	"log"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -258,7 +259,7 @@ func Test_DimensionTracking(t *testing.T) {
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			err := repo.DeleteObject(context.Background(), "Test", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "Test", id, time.Now(), nil, "")
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
@@ -322,6 +323,7 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.Equal(t, 6400, shard.Dimensions(context.Background()))
 			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 64))
 			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), 32))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 0))
 			return nil
 		})
 	})
@@ -371,7 +373,9 @@ func Test_DimensionTracking(t *testing.T) {
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 12800, shard.Dimensions(context.Background()))
 			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 64))
-			assert.Equal(t, 12800, shard.QuantizedDimensions(context.Background(), 0))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 32))
+			// segments = 0, will use 128/2 = 64 segments and so value should be 6400
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 0))
 			return nil
 		})
 	})
@@ -404,6 +408,67 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 }
 
 func Test_DimensionTrackingMetrics(t *testing.T) {
+	type testConfig struct {
+		name            string
+		className       string
+		vectorConfig    func() *enthnsw.UserConfig
+		expectedDims    float64
+		expectedSegs    float64
+		importDimension int
+	}
+
+	tests := []testConfig{
+		{
+			name:      "HNSW",
+			className: "HNSW",
+			vectorConfig: func() *enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				return &cfg
+			},
+			expectedDims:    6400.0, // 100 objects * 64 dimensions
+			expectedSegs:    0.0,
+			importDimension: 64,
+		},
+		{
+			name:      "BQ",
+			className: "BQ",
+			vectorConfig: func() *enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.BQ.Enabled = true
+				return &cfg
+			},
+			expectedDims:    0.0,
+			expectedSegs:    800.0, // 100 objects * 64 dimensions / 8 for BQ
+			importDimension: 64,
+		},
+		{
+			name:      "PQ",
+			className: "PQ",
+			vectorConfig: func() *enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.PQ.Enabled = true
+				cfg.PQ.Segments = 10
+				return &cfg
+			},
+			expectedDims:    0.0,
+			expectedSegs:    1000.0, // 100 objects * 10 segments
+			importDimension: 64,
+		},
+		{
+			name:      "PQ with zero segments",
+			className: "PQZ",
+			vectorConfig: func() *enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.PQ.Enabled = true
+				cfg.PQ.Segments = 0
+				return &cfg
+			},
+			expectedDims:    0.0,
+			expectedSegs:    3200.0, // 100 objects * 32 segments (segments = 64/2 due to auto calculation)
+			importDimension: 64,
+		},
+	}
+
 	r := getRandomSeed()
 	dirName := t.TempDir()
 	var shardName string
@@ -428,180 +493,107 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("set schema type=HNSW", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "HNSW",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set schema
+			t.Run("set schema", func(t *testing.T) {
+				class := &models.Class{
+					Class:             tc.className,
+					VectorIndexConfig: *tc.vectorConfig(),
+					VectorConfig: map[string]models.VectorConfig{
+						"vec": {
+							VectorIndexConfig: *tc.vectorConfig(),
+						},
+					},
+					InvertedIndexConfig: invertedConfig(),
+				}
+				schema := schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{class},
+					},
+				}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+				require.Nil(t,
+					migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-		schemaGetter.schema = schema
-	})
+				schemaGetter.schema = schema
+			})
 
-	t.Run("import objects and validate metric", func(t *testing.T) {
-		dim := 64
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
+			// Import objects and validate metrics
+			t.Run("import objects and validate metrics", func(t *testing.T) {
+				for i := 0; i < 100; i++ {
+					vec := make([]float32, tc.importDimension)
+					for j := range vec {
+						vec[j] = r.Float32()
+					}
 
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "HNSW", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
-			require.Nil(t, err)
-		}
+					id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+					obj := &models.Object{Class: tc.className, ID: id}
+					namedVectors := models.Vectors{
+						"vec": vec,
+					}
+					err := repo.PutObject(context.Background(), obj, vec, namedVectors, nil)
+					require.Nil(t, err)
+				}
 
-		publishDimensionMetricsFromRepo(context.Background(), repo, "HNSW")
+				publishDimensionMetricsFromRepo(context.Background(), repo, tc.className)
 
-		shardName = getSingleShardNameFromRepo(repo, "HNSW")
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 6400.0, metricValue, "dimensions should not have changed")
-	})
+				shardName = getSingleShardNameFromRepo(repo, tc.className)
 
-	t.Run("delete class", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "HNSW")
-		require.Nil(t, err)
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "metric should be reset")
-	})
+				// Check dimensions metric
+				metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue := testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedDims, metricValue, "dimensions should match expected value")
 
-	t.Run("set schema type=BQ", func(t *testing.T) {
-		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
-		vectorIndexConfig.BQ.Enabled = true
+				// Check segments metric
+				metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedSegs, metricValue, "segments should match expected value")
 
-		class := &models.Class{
-			Class:               "BQ",
-			VectorIndexConfig:   vectorIndexConfig,
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
+				// Check named dimensions metric
+				metric, err = metrics.VectorDimensionsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedDims, metricValue, "named dimensions should match expected value")
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+				// Check named segments metric
+				metric, err = metrics.VectorSegmentsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, tc.expectedSegs, metricValue, "named segments should match expected value")
+			})
 
-		schemaGetter.schema = schema
-	})
+			// Delete class and verify metrics are reset
+			t.Run("delete class", func(t *testing.T) {
+				err := migrator.DropClass(context.Background(), tc.className)
+				require.Nil(t, err)
 
-	t.Run("import objects and validate metric type=BQ", func(t *testing.T) {
-		dim := 64
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
+				// Verify dimensions metric is reset
+				metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue := testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "dimensions metric should be reset")
 
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "BQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
-			require.Nil(t, err)
-		}
+				// Verify segments metric is reset
+				metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(tc.className, shardName)
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "segments metric should be reset")
 
-		publishDimensionMetricsFromRepo(context.Background(), repo, "BQ")
+				// Verify dimensions metric is reset
+				metric, err = metrics.VectorDimensionsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "named dimensions metric should be reset")
 
-		shardName = getSingleShardNameFromRepo(repo, "BQ")
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "dimensions should not have changed")
-
-		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("BQ", shardName)
-		require.Nil(t, err)
-		metricValue = testutil.ToFloat64(metric)
-		require.Equal(t, 800.0, metricValue, "segments should match")
-	})
-
-	t.Run("delete class type=BQ", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "BQ")
-		require.Nil(t, err)
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "metric should be still zero")
-
-		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("BQ", shardName)
-		require.Nil(t, err)
-		metricValue = testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "metrics should be reset")
-	})
-
-	t.Run("set schema type=PQ", func(t *testing.T) {
-		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
-		vectorIndexConfig.PQ.Enabled = true
-		vectorIndexConfig.PQ.Segments = 10
-
-		class := &models.Class{
-			Class:               "PQ",
-			VectorIndexConfig:   vectorIndexConfig,
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
-
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-
-		schemaGetter.schema = schema
-	})
-
-	t.Run("import objects and validate metric type=PQ", func(t *testing.T) {
-		dim := 64
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
-
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "PQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
-			require.Nil(t, err)
-		}
-
-		publishDimensionMetricsFromRepo(context.Background(), repo, "PQ")
-
-		shardName = getSingleShardNameFromRepo(repo, "PQ")
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "dimensions should not have changed")
-
-		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQ", shardName)
-		require.Nil(t, err)
-		metricValue = testutil.ToFloat64(metric)
-		require.Equal(t, 1000.0, metricValue, "segments should match")
-	})
-
-	t.Run("delete class type=PQ", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "PQ")
-		require.Nil(t, err)
-		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
-		require.Nil(t, err)
-		metricValue := testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "metric should be still zero")
-
-		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQ", shardName)
-		require.Nil(t, err)
-		metricValue = testutil.ToFloat64(metric)
-		require.Equal(t, 0.0, metricValue, "metrics should be reset")
-	})
+				// Verify segments metric is reset
+				metric, err = metrics.VectorSegmentsSumByVector.GetMetricWithLabelValues(tc.className, shardName, "vec")
+				require.Nil(t, err)
+				metricValue = testutil.ToFloat64(metric)
+				require.Equal(t, 0.0, metricValue, "named segments metric should be reset")
+			})
+		})
+	}
 }

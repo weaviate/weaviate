@@ -22,28 +22,32 @@ import (
 )
 
 type DocPointerWithScore struct {
-	Id         uint64
+	Id uint64
+	// A Frequency of 0 indicates a tombstone
 	Frequency  float32
 	PropLength float32
 }
 
-func (d *DocPointerWithScore) FromBytes(in []byte, boost float32) error {
-	key := in[2:10]
-
-	if len(in) == 12 {
-		d.Id = binary.BigEndian.Uint64(key)
-		d.Frequency = 0
-		d.PropLength = 0
-		return nil
+func (d *DocPointerWithScore) FromBytes(in []byte, isTombstone bool, boost float32) error {
+	if len(in) < 12 {
+		return errors.Errorf("DocPointerWithScore: FromBytes: input too short, expected at least 12 bytes, got %d", len(in))
 	}
-
-	value := in[12:]
-
-	return d.FromKeyVal(key, value, boost)
+	// This class is only to be used with a MapList that has fixed key and value lengths (8 and 8) for posting lists
+	// Thus, we can proceed with fixed offsets, and ignore reading the key and value lengths, at offset 0 and 10
+	// key will be at offset 2, value at offset 12
+	return d.FromKeyVal(in[2:10], in[12:], isTombstone, boost)
 }
 
-func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, boost float32) error {
+func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, isTombstone bool, boost float32) error {
+	if len(key) != 8 {
+		return errors.Errorf("DocPointerWithScore: FromKeyVal: key length must be 8, got %d", len(key))
+	}
+
 	d.Id = binary.BigEndian.Uint64(key)
+	if isTombstone || len(value) < 8 { // tombstone, value length is also checked due to #4125
+		// Id and Freq are automatically set to 0
+		return nil
+	}
 	d.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(value[:4])) * boost
 	d.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(value[4:]))
 	return nil

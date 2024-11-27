@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func readRepair(t *testing.T) {
+func readRepairDeleteOnConflict(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -46,12 +46,14 @@ func readRepair(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor:           2,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor:           2,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -161,9 +163,33 @@ func readRepair(t *testing.T) {
 		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
 	})
 
+	t.Run("stop node1", func(t *testing.T) {
+		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+		time.Sleep(10 * time.Second)
+	})
+
 	t.Run("restart node 2", func(t *testing.T) {
 		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
 		require.Nil(t, err)
+	})
+
+	replaceObj.Properties = map[string]interface{}{
+		"contents": "this paragraph was replaced for second time",
+	}
+
+	t.Run("replace object in node2", func(t *testing.T) {
+		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
+	})
+
+	t.Run("restart node 1", func(t *testing.T) {
+		restartNode1(ctx, t, compose)
+	})
+
+	t.Run("deleted article should not be present in node1", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.False(t, exists)
 	})
 
 	t.Run("deleted article should be present in node2", func(t *testing.T) {
@@ -180,10 +206,17 @@ func readRepair(t *testing.T) {
 		require.False(t, exists)
 	})
 
-	t.Run("deleted article should still be present in node2 (object deletion is not resolved)", func(t *testing.T) {
+	t.Run("deleted article should not be present in node1", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.False(t, exists)
+	})
+
+	t.Run("deleted article should not be present in node2", func(t *testing.T) {
 		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
-		require.True(t, exists)
+		require.False(t, exists)
 	})
 }

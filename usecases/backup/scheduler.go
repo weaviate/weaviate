@@ -238,7 +238,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		case backup.Cancelled:
 			return nil
 		case backup.Success:
-			return fmt.Errorf("backup already succeeded")
+			return backup.NewErrUnprocessable(fmt.Errorf("backup %q already succeeded", backupID))
 		default:
 			// do nothing and continue the cancellation
 		}
@@ -309,16 +309,27 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
 		return nil, err
 	}
-	destPath := store.HomeDir()
-	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	meta, err := store.Meta(ctx, GlobalBackupFile)
-	if err == nil && meta.Status != backup.Cancelled {
-		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
-	}
-	if _, ok := err.(backup.ErrNotFound); !ok {
-		return nil, fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
+	if err := s.checkIfBackupExists(ctx, store, req); err != nil {
+		return nil, err
 	}
 	return classes, nil
+}
+
+func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, req *BackupRequest) error {
+	destPath := store.HomeDir()
+	meta, err := store.Meta(ctx, GlobalBackupFile)
+	if backup.IsCancelled(err, meta) {
+		return fmt.Errorf("backup %q already exists at %q and was cancelled. "+
+			"please retry with new backup id", req.ID, destPath)
+	}
+	if meta != nil && err == nil {
+		return fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
+	}
+	var errNotFound backup.ErrNotFound
+	if !errors.As(err, &errNotFound) {
+		return fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
+	}
+	return nil
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {

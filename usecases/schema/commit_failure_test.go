@@ -158,8 +158,8 @@ func classWithDefaultsWithProps(t *testing.T, name string,
 
 	class.VectorIndexConfig = fakeVectorConfig{}
 	class.ReplicationConfig = &models.ReplicationConfig{
-		Factor:                           1,
-		ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+		Factor:           1,
+		DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 	}
 	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 

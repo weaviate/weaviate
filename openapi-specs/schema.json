@@ -383,12 +383,13 @@
           "description": "Number of times a class is replicated",
           "type": "integer"
         },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         }
@@ -909,7 +910,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -1024,7 +1026,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -1131,7 +1134,8 @@
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -1572,6 +1576,12 @@
           "type": "string",
           "default": "minimal"
         },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -1603,6 +1613,12 @@
           "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
           "type": "string",
           "default": "minimal"
+        },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
         },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
@@ -2021,7 +2037,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.24.24"
+    "version": "1.24.26"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -4616,7 +4632,7 @@
         }
       },
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "operationId": "backups.list",
         "x-serviceIds": [
           "weaviate.local.backup"

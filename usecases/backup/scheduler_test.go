@@ -748,6 +748,7 @@ func TestCancellingBackup(t *testing.T) {
 	var (
 		ctx           = context.Background()
 		backendName   = "s3"
+		backupID      = "abc"
 		fakeScheduler = newFakeScheduler(nil)
 		scheduler     = fakeScheduler.scheduler()
 	)
@@ -768,12 +769,12 @@ func TestCancellingBackup(t *testing.T) {
 		b, err := json.Marshal(ds)
 		assert.Nil(t, err)
 
-		fakeScheduler.backend.On("GetObject", mock.Anything, "abc", GlobalBackupFile).Return(b, nil)
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
-		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc")
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, backupID)
 		assert.NotNil(t, err)
-		assert.Equal(t, "backup already succeeded", err.Error())
+		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 }

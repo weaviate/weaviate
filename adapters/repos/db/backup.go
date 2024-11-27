@@ -243,7 +243,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
-	defer i.resetBackupState()
+	i.resetBackupState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
 	}

@@ -31,19 +31,19 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
+	// Conflict resolution strategy for deleted objects
+	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
+	DeletionStrategy string `json:"deletionStrategy,omitempty"`
+
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
-
-	// Conflict resolution strategy for deleted objects
-	// Enum: [NoAutomatedResolution PermanentDeletion]
-	ObjectDeletionConflictResolution string `json:"objectDeletionConflictResolution,omitempty"`
 }
 
 // Validate validates this replication config
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateObjectDeletionConflictResolution(formats); err != nil {
+	if err := m.validateDeletionStrategy(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -53,42 +53,45 @@ func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var replicationConfigTypeObjectDeletionConflictResolutionPropEnum []interface{}
+var replicationConfigTypeDeletionStrategyPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","PermanentDeletion"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","DeleteOnConflict","TimeBasedResolution"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
-		replicationConfigTypeObjectDeletionConflictResolutionPropEnum = append(replicationConfigTypeObjectDeletionConflictResolutionPropEnum, v)
+		replicationConfigTypeDeletionStrategyPropEnum = append(replicationConfigTypeDeletionStrategyPropEnum, v)
 	}
 }
 
 const (
 
-	// ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution captures enum value "NoAutomatedResolution"
-	ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution string = "NoAutomatedResolution"
+	// ReplicationConfigDeletionStrategyNoAutomatedResolution captures enum value "NoAutomatedResolution"
+	ReplicationConfigDeletionStrategyNoAutomatedResolution string = "NoAutomatedResolution"
 
-	// ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion captures enum value "PermanentDeletion"
-	ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion string = "PermanentDeletion"
+	// ReplicationConfigDeletionStrategyDeleteOnConflict captures enum value "DeleteOnConflict"
+	ReplicationConfigDeletionStrategyDeleteOnConflict string = "DeleteOnConflict"
+
+	// ReplicationConfigDeletionStrategyTimeBasedResolution captures enum value "TimeBasedResolution"
+	ReplicationConfigDeletionStrategyTimeBasedResolution string = "TimeBasedResolution"
 )
 
 // prop value enum
-func (m *ReplicationConfig) validateObjectDeletionConflictResolutionEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationConfigTypeObjectDeletionConflictResolutionPropEnum, true); err != nil {
+func (m *ReplicationConfig) validateDeletionStrategyEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationConfigTypeDeletionStrategyPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ReplicationConfig) validateObjectDeletionConflictResolution(formats strfmt.Registry) error {
-	if swag.IsZero(m.ObjectDeletionConflictResolution) { // not required
+func (m *ReplicationConfig) validateDeletionStrategy(formats strfmt.Registry) error {
+	if swag.IsZero(m.DeletionStrategy) { // not required
 		return nil
 	}
 
 	// value enum
-	if err := m.validateObjectDeletionConflictResolutionEnum("objectDeletionConflictResolution", "body", m.ObjectDeletionConflictResolution); err != nil {
+	if err := m.validateDeletionStrategyEnum("deletionStrategy", "body", m.DeletionStrategy); err != nil {
 		return err
 	}
 
