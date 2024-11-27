@@ -39,11 +39,9 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.
-		New().
-		WithWeaviate().
-		WithRBAC().
-		WithRbacAdmin(adminUser, adminKey).
-		WithRbacUser(customUser, customKey).
+		New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 
 	require.Nil(t, err)

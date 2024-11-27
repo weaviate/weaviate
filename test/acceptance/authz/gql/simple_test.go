@@ -40,9 +40,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithRBAC().
-		WithRbacAdmin(adminUser, adminKey).
-		WithRbacUser(customUser, customKey).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 
@@ -186,9 +185,8 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithRBAC().
-		WithRbacAdmin(adminUser, adminKey).
-		WithRbacUser(customUser, customKey).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 
