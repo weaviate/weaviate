@@ -12,11 +12,23 @@
 package backup
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	cmocks "github.com/weaviate/weaviate/entities/modulecapabilities/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authZMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	bmocks "github.com/weaviate/weaviate/usecases/backup/mocks"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -25,59 +37,57 @@ import (
 func Test_Authorization(t *testing.T) {
 	req := &BackupRequest{ID: "123", Backend: "filesystem"}
 	type testCase struct {
-		methodName       string
-		additionalArgs   []interface{}
-		classes          []string
-		expectedVerb     string
-		expectedResource string
-		ignoreAuthZ      bool
+		methodName     string
+		additionalArgs []interface{}
+		classes        []string
+		expectedAuthz  map[string][]string
+		ignoreAuthZ    bool
 	}
 
 	tests := []testCase{
 		{
-			methodName:       "Backup",
-			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
+			methodName:     "Backup",
+			additionalArgs: []interface{}{req},
+			expectedAuthz: map[string][]string{
+				authorization.CREATE: authorization.Backups("ABC"),
+				authorization.READ:   authorization.Collections("ABC"),
+			},
+			classes: []string{"ABC"},
 		},
 		{
-			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
-			ignoreAuthZ:      true,
+			methodName:     "BackupStatus",
+			additionalArgs: []interface{}{"filesystem", "123", "", ""},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 		{
-			methodName:       "Restore",
-			additionalArgs:   []interface{}{req},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
+			methodName:     "Restore",
+			additionalArgs: []interface{}{req},
+			expectedAuthz: map[string][]string{
+				authorization.READ:   authorization.Backups("ABC"),
+				authorization.CREATE: authorization.Collections("ABC"),
+			},
+			classes: []string{"ABC"},
 		},
 		{
-			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
-			ignoreAuthZ:      true,
+			methodName:     "RestorationStatus",
+			additionalArgs: []interface{}{"filesystem", "123", "", ""},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 		{
-			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
-			expectedVerb:     authorization.DELETE,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
+			methodName:     "Cancel",
+			additionalArgs: []interface{}{"filesystem", "123", "", ""},
+			expectedAuthz: map[string][]string{
+				authorization.DELETE: authorization.Backups("ABC"),
+			},
+			classes: []string{"ABC"},
 		},
 		{
-			methodName:       "List",
-			additionalArgs:   []interface{}{"filesystem"},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Backups("ABC")[0],
-			classes:          []string{"ABC"},
-			ignoreAuthZ:      true,
+			methodName:     "List",
+			additionalArgs: []interface{}{"filesystem"},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 	}
 
@@ -98,69 +108,95 @@ func Test_Authorization(t *testing.T) {
 	})
 
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
-		// TODO: mooga come back
-		// logger, _ := test.NewNullLogger()
-		// // for _, test := range tests {
-		// 	t.Run(test.methodName, func(t *testing.T) {
-		// 		authorizer := authZMocks.NewAuthorizer(t)
-		// 		selector := bmocks.NewSelector(t)
-		// 		backupProvider := bmocks.NewBackupBackendProvider(t)
-		// 		nodeResolver := bmocks.NewNodeResolver(t)
-		// 		modulecapabilities := cmocks.NewBackupBackend(t)
+		logger, _ := test.NewNullLogger()
+		for _, test := range tests {
+			t.Run(test.methodName, func(t *testing.T) {
+				authorizer := authZMocks.NewAuthorizer(t)
+				selector := bmocks.NewSelector(t)
+				backupProvider := bmocks.NewBackupBackendProvider(t)
+				nodeResolver := bmocks.NewNodeResolver(t)
+				modulecapabilities := cmocks.NewBackupBackend(t)
 
-		// 		backupProvider.On("BackupBackend", mock.Anything).Return(modulecapabilities, nil).Maybe()
+				backupProvider.On("BackupBackend", mock.Anything).Return(modulecapabilities, nil).Maybe()
 
-		// 		modulecapabilities.On("IsExternal").Return(false).Maybe()
-		// 		modulecapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()
+				modulecapabilities.On("IsExternal").Return(false).Maybe()
+				modulecapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()
 
-		// 		d, err := json.Marshal(backup.DistributedBackupDescriptor{
-		// 			Status: backup.Cancelled,
-		// 		})
-		// 		require.Nil(t, err)
-		// 		var dd backup.DistributedBackupDescriptor
-		// 		err = json.Unmarshal(d, &dd)
-		// 		require.Nil(t, err)
+				d, err := json.Marshal(backup.DistributedBackupDescriptor{
+					StartedAt: time.Now(),
+					Nodes: map[string]*backup.NodeDescriptor{
+						"node-0": {
+							Classes: test.classes,
+							Status:  backup.Success,
+						},
+					},
+					Status:        backup.Success,
+					ID:            "123",
+					Version:       "2.1",
+					ServerVersion: "x.x.x",
+					Error:         "",
+				})
+				require.Nil(t, err)
+				var dd backup.DistributedBackupDescriptor
+				err = json.Unmarshal(d, &dd)
+				require.Nil(t, err)
 
-		// 		modulecapabilities.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(d, nil).Maybe()
-		// 		modulecapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				var notFound interface{}
+				if test.methodName == "Backup" {
+					notFound = backup.ErrNotFound{}
+				} else {
+					notFound = nil
+				}
 
-		// 		nodeResolver.On("NodeCount").Return(1).Maybe()
+				modulecapabilities.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(d, notFound).Maybe()
+				modulecapabilities.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-		// 		selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
-		// 		selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
+				modulecapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-		// 		s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
-		// 		require.NotNil(t, s)
+				nodeResolver.On("NodeCount").Return(1).Maybe()
+				nodeResolver.On("LeaderID").Return("node-0").Maybe()
+				nodeResolver.On("AllNames").Return([]string{"node-0"}).Maybe()
+				nodeResolver.On("NodeHostname", mock.Anything).Return("localhost", false).Maybe()
 
-		// 		args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)
-		// 		callFuncByName(s, test.methodName, args...)
-		// 		if !test.ignoreAuthZ {
-		// 			authorizer.On("Authorize", mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
-		// 			// require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-		// 			// assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-		// 			// 	"execution must abort with authorizer error")
-		// 			// assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
-		// 			// 	authorizer.Calls()[0], "correct parameters must have been used on authorizer")
-		// 		}
-		// 	})
-		// }
+				selector.On("Shards", mock.Anything, test.classes[0]).Return([]string{"node-0"}, nil).Maybe()
+				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
+				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
+				require.NotNil(t, s)
+
+				if !test.ignoreAuthZ {
+					for verb, resources := range test.expectedAuthz {
+						if len(resources) > 1 {
+							authorizer.On("Authorize", mock.Anything, verb, resources[0], resources[1]).Return(nil)
+						} else {
+							authorizer.On("Authorize", mock.Anything, verb, resources[0]).Return(nil)
+						}
+					}
+				}
+
+				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)
+				callFuncByName(s, test.methodName, args...)
+
+			})
+		}
 	})
 }
 
 // inspired by https://stackoverflow.com/a/33008200
-// func callFuncByName(manager interface{}, funcName string, params ...interface{}) (out []reflect.Value, err error) {
-// 	managerValue := reflect.ValueOf(manager)
-// 	m := managerValue.MethodByName(funcName)
-// 	if !m.IsValid() {
-// 		return make([]reflect.Value, 0), fmt.Errorf("Method not found \"%s\"", funcName)
-// 	}
-// 	in := make([]reflect.Value, len(params))
-// 	for i, param := range params {
-// 		in[i] = reflect.ValueOf(param)
-// 	}
-// 	out = m.Call(in)
-// 	return
-// }
+func callFuncByName(manager interface{}, funcName string, params ...interface{}) (out []reflect.Value, err error) {
+	managerValue := reflect.ValueOf(manager)
+	m := managerValue.MethodByName(funcName)
+	if !m.IsValid() {
+		return make([]reflect.Value, 0), fmt.Errorf("Method not found \"%s\"", funcName)
+	}
+	in := make([]reflect.Value, len(params))
+	for i, param := range params {
+		in[i] = reflect.ValueOf(param)
+	}
+	out = m.Call(in)
+	return
+}
 
 func allExportedMethods(subject interface{}) []string {
 	var methods []string

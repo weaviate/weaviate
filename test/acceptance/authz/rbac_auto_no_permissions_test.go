@@ -81,6 +81,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/ready",
 		"/meta",
 		"/authz/users/own-roles", // will return roles for own user
+		"/backups/{backend}",     // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
+		"/backups/{backend}/{id}",
+		"/backups/{backend}/{id}/restore",
 	}
 
 	for _, endpoint := range endpoints {
