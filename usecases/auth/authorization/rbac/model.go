@@ -16,6 +16,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/casbin/casbin/v2"
@@ -82,7 +84,7 @@ func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEn
 
 	rbacStoragePath := fmt.Sprintf("./%s/rbac/policy.csv", policyPath)
 	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
 	}
 
 	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
@@ -118,7 +120,7 @@ func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEn
 	}
 
 	if err := enforcer.SavePolicy(); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "save policy")
 	}
 
 	return enforcer, nil
