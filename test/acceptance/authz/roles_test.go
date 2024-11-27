@@ -26,6 +26,57 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+func TestAuthzGetOwnRole(t *testing.T) {
+	customUser := "custom-user"
+	customKey := "custom-key"
+	testingRole := "testingOwnRole"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(customUser, customKey, "custom").WithRbacUser("adminUser", adminKey, "admin").Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(testingRole),
+		adminAuth,
+	)
+
+	t.Run("Get own roles - empty", func(t *testing.T) {
+		roles := helper.GetRolesForOwnUser(t, customKey)
+		require.Len(t, roles, 0)
+	})
+
+	_, err = helper.Client(t).Authz.CreateRole(
+		authz.NewCreateRoleParams().WithBody(&models.Role{
+			Name: &testingRole,
+			Permissions: []*models.Permission{{
+				Action:     String(authorization.CreateSchema),
+				Collection: String("*"),
+			}},
+		}),
+		adminAuth,
+	)
+	require.NoError(t, err)
+	helper.AssignRoleToUser(t, "admin-key", testingRole, customUser)
+
+	t.Run("Get own roles - existing role", func(t *testing.T) {
+		roles := helper.GetRolesForOwnUser(t, customKey)
+		require.Len(t, roles, 1)
+		require.Equal(t, testingRole, *roles[0].Name)
+	})
+}
+
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
