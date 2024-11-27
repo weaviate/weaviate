@@ -123,7 +123,6 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
-	EnableRBACEnforcer                  bool                     `json:"rbac_enforcer" yaml:"rbac_enforcer"`
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`

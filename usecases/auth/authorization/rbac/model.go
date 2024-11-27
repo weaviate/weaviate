@@ -13,7 +13,6 @@ package rbac
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -22,7 +21,6 @@ import (
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -68,19 +66,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
-	numRoles := len(authConfig.Roles)
-	if numRoles == 0 {
-		log.Printf("no roles found")
-		return nil, nil
-	}
-
-	if len(authConfig.Users) != numRoles || len(authConfig.AllowedKeys) != numRoles {
-		return nil, fmt.Errorf(
-			"AUTHENTICATION_APIKEY_ROLES must contain the same number of entries as " +
-				"AUTHENTICATION_APIKEY_USERS and AUTHENTICATION_APIKEY_ALLOWED_KEYS")
-	}
-
+func Init(authConfig Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
@@ -117,8 +103,14 @@ func Init(authConfig config.APIKey, policyPath string) (*casbin.SyncedCachedEnfo
 		}
 	}
 
-	for i := range authConfig.Roles {
-		if _, err := enforcer.AddRoleForUser(authConfig.Users[i], authConfig.Roles[i]); err != nil {
+	for i := range authConfig.Admins {
+		if _, err := enforcer.AddRoleForUser(authConfig.Admins[i], authorization.BuiltInPolicies[authorization.Admin]); err != nil {
+			return nil, fmt.Errorf("add role for user: %w", err)
+		}
+	}
+
+	for i := range authConfig.Viewers {
+		if _, err := enforcer.AddRoleForUser(authConfig.Admins[i], authorization.BuiltInPolicies[authorization.Viewer]); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}

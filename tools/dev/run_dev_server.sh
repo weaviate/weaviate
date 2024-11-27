@@ -70,7 +70,8 @@ case $CONFIG in
     AUTHORIZATION_ENABLE_RBAC=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
+    AUTHORIZATION_RBAC_ADMIN_USERS='admin' \
+    AUTHORIZATION_RBAC_VIEWER_USERS='viewer' \
     PERSISTENCE_DATA_PATH="./data-weaviate-0" \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
     ENABLE_MODULES="backup-filesystem" \
@@ -92,7 +93,8 @@ case $CONFIG in
     AUTHORIZATION_ENABLE_RBAC=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
+    AUTHORIZATION_RBAC_ADMIN_USERS='admin' \
+    AUTHORIZATION_RBAC_VIEWER_USERS='viewer' \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
     DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
@@ -118,7 +120,8 @@ case $CONFIG in
     AUTHORIZATION_ENABLE_RBAC=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
+    AUTHORIZATION_RBAC_ADMIN_USERS='admin' \
+    AUTHORIZATION_RBAC_VIEWER_USERS='viewer' \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-1" \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
     CLUSTER_HOSTNAME="weaviate-1" \
@@ -148,7 +151,8 @@ case $CONFIG in
     AUTHORIZATION_ENABLE_RBAC=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHENTICATION_APIKEY_ROLES='viewer,editor,admin' \
+    AUTHORIZATION_RBAC_ADMIN_USERS='admin' \
+    AUTHORIZATION_RBAC_VIEWER_USERS='viewer' \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
     CLUSTER_HOSTNAME="weaviate-2" \

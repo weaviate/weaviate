@@ -13,6 +13,7 @@ package docker
 
 type RbacUser struct {
 	Key      string
-	Role     string
 	Username string
+	Admin    bool
+	Viewer   bool
 }

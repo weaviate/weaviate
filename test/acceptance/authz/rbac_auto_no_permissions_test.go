@@ -41,8 +41,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().WithWeaviate().WithRBAC().
-		WithRbacUser("admin-User", adminKey, "admin-User").
-		WithRbacUser("custom-user", customKey, "custom").
+		WithRbacAdmin("admin-User", adminKey).
+		WithRbacUser("custom-user", customKey).
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

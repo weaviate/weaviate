@@ -110,7 +110,7 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 
 func configureAuthorizer(appState *state.State, authorizer authorization.Authorizer) error {
 	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
-	if appState.ServerConfig.Config.EnableRBACEnforcer {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		appState.Authorizer = authorizer
 		return nil
 	}

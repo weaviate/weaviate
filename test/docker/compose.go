@@ -430,14 +430,41 @@ func (d *Compose) WithRBAC() *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacUser(username, key, role string) *Compose {
+func (d *Compose) WithRbacUser(username, key string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
 	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
 		Username: username,
 		Key:      key,
-		Role:     role,
+		Admin:    false,
+		Viewer:   false,
+	})
+	return d
+}
+
+func (d *Compose) WithRbacAdmin(username, key string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
+		Username: username,
+		Key:      key,
+		Admin:    true,
+		Viewer:   false,
+	})
+	return d
+}
+
+func (d *Compose) WithRbacViewer(username, key string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
+		Username: username,
+		Key:      key,
+		Admin:    false,
+		Viewer:   true,
 	})
 	return d
 }
@@ -720,12 +747,18 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 
 		usernames := make([]string, 0, len(d.weaviateRbacUsers))
 		keys := make([]string, 0, len(d.weaviateRbacUsers))
-		roles := make([]string, 0, len(d.weaviateRbacUsers))
+		admins := make([]string, 0, len(d.weaviateRbacUsers))
+		viewers := make([]string, 0, len(d.weaviateRbacUsers))
 
 		for _, user := range d.weaviateRbacUsers {
 			usernames = append(usernames, user.Username)
 			keys = append(keys, user.Key)
-			roles = append(roles, user.Role)
+			if user.Admin {
+				admins = append(admins, user.Username)
+			}
+			if user.Viewer {
+				viewers = append(viewers, user.Username)
+			}
 		}
 		if len(keys) > 0 {
 			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
@@ -735,9 +768,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
 			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
 		}
-		if len(roles) > 0 {
-			settings["AUTHENTICATION_APIKEY_ROLES"] = strings.Join(roles, ",")
-			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		if len(admins) > 0 {
+			settings["AUTHORIZATION_RBAC_ADMIN_USERS"] = strings.Join(admins, ",")
+		}
+		if len(viewers) > 0 {
+			settings["AUTHORIZATION_RBAC_VIEWER_USERS"] = strings.Join(viewers, ",")
 		}
 	}
 
