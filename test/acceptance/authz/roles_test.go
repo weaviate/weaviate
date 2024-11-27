@@ -36,7 +36,7 @@ func TestAuthzGetOwnRole(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(customUser, customKey, "custom").WithRbacUser("adminUser", adminKey, "admin").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(customUser, customKey).WithRbacAdmin("adminUser", adminKey).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
