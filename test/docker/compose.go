@@ -769,10 +769,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
 		}
 		if len(admins) > 0 {
-			settings["AUTHORIZATION_RBAC_ADMIN_USERS"] = strings.Join(admins, ",")
+			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(admins, ",")
 		}
 		if len(viewers) > 0 {
-			settings["AUTHORIZATION_RBAC_VIEWER_USERS"] = strings.Join(viewers, ",")
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(viewers, ",")
 		}
 	}
 
