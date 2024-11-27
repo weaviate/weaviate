@@ -17,8 +17,7 @@ def test_collection_casing() -> None:
 
         # DELETE should also transform to GQL
         client.collections.delete("testcollectioncase")
-        col = client.collections.get("testcollectioncase")
-        assert col.exists() is False
+        assert client.collections.exists("testcollectioncase") is False
 
         # same with mult-word with "_"
         assert client.collections.create_from_dict({
@@ -33,5 +32,4 @@ def test_collection_casing() -> None:
 
         # DELETE should also transform to GQL
         client.collections.delete("test_collection_case")
-        col = client.collections.get("testcollectioncase")
-        assert col.exists() is False
+        assert client.collections.exists("testcollectioncase") is False
