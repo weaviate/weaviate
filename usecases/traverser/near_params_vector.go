@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -197,7 +198,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 ) ([]float32, error) {
 	if v.modulesProvider != nil {
 		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, targetVector, tenant, paramName, paramValue, v.findVector,
+			className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
 		)
 		if err != nil {
 			return nil, errors.Errorf("vectorize params: %v", err)

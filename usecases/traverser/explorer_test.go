@@ -2755,13 +2755,23 @@ func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, in
 	panic("not implemented")
 }
 
+func (p *fakeModulesProvider) MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error) {
+	panic("not implemented")
+}
+
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
+	vec, err := vectorForParams.VectorForParams(ctx, params, "", findVectorFn, nil)
 	return vec, err
+}
+
+func (p *fakeModulesProvider) MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
+) ([][]float32, error) {
+	panic("not implemented")
 }
 
 func (p *fakeModulesProvider) TargetsFromSearchParam(className string, params interface{}) ([]string, error) {
@@ -2771,13 +2781,20 @@ func (p *fakeModulesProvider) TargetsFromSearchParam(className string, params in
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, string, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
 	targetVector := ""
-	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
+	vec, err := vectorForParams.VectorForParams(ctx, params, "", findVectorFn, nil)
 	return vec, targetVector, err
+}
+
+func (p *fakeModulesProvider) MultiCrossClassVectorFromSearchParam(ctx context.Context,
+	param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
+) ([][]float32, string, error) {
+	panic("not implemented")
 }
 
 func (p *fakeModulesProvider) CrossClassValidateSearchParam(name string, value interface{}) error {

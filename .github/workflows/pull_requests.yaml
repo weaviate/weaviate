@@ -77,7 +77,7 @@ jobs:
         run: |
           echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.29.0
         env:
           # NOTE: needed because sometimes GHCR hits the rate limit AWS will be used instead
           TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db"

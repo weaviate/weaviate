@@ -17,8 +17,7 @@ import (
 )
 
 func (m *JinaAIModule) initNearText() error {
-	// TODO: add support for generic searcher
-	// m.searcher = nearText.NewSearcher(m.vectorizer)
+	m.searcher = nearText.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
@@ -27,11 +26,11 @@ func (m *JinaAIModule) Arguments() map[string]modulecapabilities.GraphQLArgument
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *JinaAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *JinaAIModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[][]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[][]float32](New())
 )
