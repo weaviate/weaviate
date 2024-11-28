@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -584,7 +585,8 @@ func TestExpBackOff(t *testing.T) {
 }
 
 func newReplicationClient(httpClient *http.Client) *replicationClient {
-	c := NewReplicationClient(httpClient).(*replicationClient)
+	log, _ := test.NewNullLogger()
+	c := NewReplicationClient(httpClient, log).(*replicationClient)
 	c.minBackOff = time.Millisecond * 1
 	c.maxBackOff = time.Millisecond * 8
 	c.timeoutUnit = time.Millisecond * 20
