@@ -330,7 +330,7 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
 	}
 
-	if !h.existsUser(params.ID) {
+	if !h.userExists(params.ID) {
 		return authz.NewGetRolesForUserNotFound()
 	}
 
@@ -466,7 +466,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	return authz.NewRevokeRoleOK()
 }
 
-func (h *authZHandlers) existsUser(user string) bool {
+func (h *authZHandlers) userExists(user string) bool {
 	if h.existingUsersApiKeys != nil {
 		for _, apiKey := range h.existingUsersApiKeys {
 			if apiKey == user {
