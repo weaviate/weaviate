@@ -11,8 +11,9 @@
 
 package docker
 
-type RbacUser struct {
+type ApiKeyUser struct {
 	Key      string
-	Role     string
 	Username string
+	Admin    bool
+	Viewer   bool
 }

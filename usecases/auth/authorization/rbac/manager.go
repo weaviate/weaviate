@@ -15,27 +15,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type manager struct {
-	casbin *casbin.SyncedCachedEnforcer
-	logger logrus.FieldLogger
+	casbin               *casbin.SyncedCachedEnforcer
+	logger               logrus.FieldLogger
+	existingUsersApiKeys []string
 }
 
-func New(rbacStoragePath string, apiKeys config.APIKey, logger logrus.FieldLogger) (*manager, error) {
-	casbin, err := Init(apiKeys, rbacStoragePath)
+func New(rbacStoragePath string, rbac rbacconf.Config, existingUsersApiKeys []string, logger logrus.FieldLogger) (*manager, error) {
+	casbin, err := Init(rbac, rbacStoragePath)
 	if err != nil {
 		return nil, err
 	}
 
-	return &manager{casbin, logger}, nil
+	return &manager{casbin, logger, existingUsersApiKeys}, nil
 }
 
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
@@ -125,9 +127,16 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 }
 
 func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
+	if !m.existsUser(user) {
+		return nil, fmt.Errorf("user %v does not exist", user)
+	}
+
 	rolesNames, err := m.casbin.GetRolesForUser(user)
 	if err != nil {
 		return nil, err
+	}
+	if len(rolesNames) == 0 {
+		return map[string][]authorization.Policy{}, err
 	}
 
 	return m.GetRoles(rolesNames...)
@@ -192,6 +201,18 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 	}
 
 	return nil
+}
+
+func (m *manager) existsUser(user string) bool {
+	if m.existingUsersApiKeys != nil {
+		for _, apiKey := range m.existingUsersApiKeys {
+			if apiKey == user {
+				return true
+			}
+		}
+		return false
+	}
+	return true // dont block OICD for now
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

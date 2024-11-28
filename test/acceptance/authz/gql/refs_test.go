@@ -31,21 +31,17 @@ import (
 func TestAuthZGraphQLRefs(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
-	adminRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
-	customRole := "custom"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.
-		New().
-		WithWeaviate().
-		WithRBAC().
-		WithRbacUser(adminUser, adminKey, adminRole).
-		WithRbacUser(customUser, customKey, customRole).
+		New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 
 	require.Nil(t, err)

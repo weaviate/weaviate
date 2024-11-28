@@ -24,14 +24,16 @@ import (
 )
 
 func TestAuthzRolesWithPermissions(t *testing.T) {
-	existingUser := "existing-user"
-	existingKey := "existing-key"
-	adminRole := "admin"
+	adminUser := "existing-user"
+	adminKey := "existing-key"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -48,18 +50,18 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 	}
 
 	t.Run("create test collection before permissions", func(t *testing.T) {
-		helper.CreateClassAuth(t, testClass, existingKey)
+		helper.CreateClassAuth(t, testClass, adminKey)
 	})
 
 	t.Run("create and get a role to create all collections", func(t *testing.T) {
 		name := "create-all-collections"
-		helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String(authorization.CreateSchema), Collection: String("*")},
 			},
 		})
-		role := helper.GetRoleByName(t, existingKey, name)
+		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -69,13 +71,13 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to create all tenants in a collection", func(t *testing.T) {
 		name := "create-all-tenants-in-foo"
-		helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String(authorization.CreateSchema), Collection: String(testClass.Class)},
 			},
 		})
-		role := helper.GetRoleByName(t, existingKey, name)
+		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -86,13 +88,13 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage all roles", func(t *testing.T) {
 		name := "manage-all-roles"
-		helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String(authorization.ManageRoles), Role: String("*")},
 			},
 		})
-		role := helper.GetRoleByName(t, existingKey, name)
+		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -102,14 +104,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to manage one role", func(t *testing.T) {
 		name := "manage-one-role"
-		helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String(authorization.ManageRoles), Role: String("foo")},
 			},
 		})
 		require.Nil(t, err)
-		role := helper.GetRoleByName(t, existingKey, name)
+		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
@@ -119,14 +121,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 
 	t.Run("create and get a role to read two roles", func(t *testing.T) {
 		name := "read-one-role"
-		helper.CreateRole(t, existingKey, &models.Role{
+		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
 				{Action: String(authorization.ReadRoles), Role: String("foo")},
 				{Action: String(authorization.ReadRoles), Role: String("bar")},
 			},
 		})
-		role := helper.GetRoleByName(t, existingKey, name)
+		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
