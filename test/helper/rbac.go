@@ -149,18 +149,34 @@ func (p *DataPermission) Permission() *models.Permission {
 	return &perm
 }
 
-type ClusterPermission models.Permission
+type NodesPermission models.Permission
 
-func NewClusterPermission() *ClusterPermission {
-	return &ClusterPermission{}
+func NewNodesPermission() *NodesPermission {
+	return &NodesPermission{}
 }
 
-func (p *ClusterPermission) WithAction(action string) *ClusterPermission {
+func (p *NodesPermission) WithAction(action string) *NodesPermission {
 	p.Action = authorization.String(action)
 	return p
 }
 
-func (p *ClusterPermission) Permission() *models.Permission {
+func (p *NodesPermission) WithVerbosity(verbosity string) *NodesPermission {
+	if p.Nodes == nil {
+		p.Nodes = &models.PermissionNodes{}
+	}
+	p.Nodes.Verbosity = authorization.String(verbosity)
+	return p
+}
+
+func (p *NodesPermission) WithCollection(collection string) *NodesPermission {
+	if p.Nodes == nil {
+		p.Nodes = &models.PermissionNodes{}
+	}
+	p.Nodes.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *NodesPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }

@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles read_cluster manage_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
+	// Enum: [manage_users manage_roles read_roles read_nodes read_cluster manage_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
 	Action *string `json:"action"`
 
 	// backup
@@ -41,6 +41,9 @@ type Permission struct {
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
+
+	// nodes
+	Nodes *PermissionNodes `json:"nodes,omitempty"`
 
 	// string or regex. if a specific object ID, if left empty it will be ALL or *
 	Object *string `json:"object,omitempty"`
@@ -67,6 +70,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateNodes(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -77,7 +84,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","read_cluster","manage_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","read_nodes","read_cluster","manage_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -95,6 +102,9 @@ const (
 
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
+
+	// PermissionActionReadNodes captures enum value "read_nodes"
+	PermissionActionReadNodes string = "read_nodes"
 
 	// PermissionActionReadCluster captures enum value "read_cluster"
 	PermissionActionReadCluster string = "read_cluster"
@@ -168,11 +178,34 @@ func (m *Permission) validateBackup(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Permission) validateNodes(formats strfmt.Registry) error {
+	if swag.IsZero(m.Nodes) { // not required
+		return nil
+	}
+
+	if m.Nodes != nil {
+		if err := m.Nodes.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("nodes")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("nodes")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this permission based on the context it is used
 func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.contextValidateBackup(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateNodes(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -190,6 +223,22 @@ func (m *Permission) contextValidateBackup(ctx context.Context, formats strfmt.R
 				return ve.ValidateName("backup")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("backup")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Permission) contextValidateNodes(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Nodes != nil {
+		if err := m.Nodes.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("nodes")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("nodes")
 			}
 			return err
 		}
@@ -246,6 +295,98 @@ func (m *PermissionBackup) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *PermissionBackup) UnmarshalBinary(b []byte) error {
 	var res PermissionBackup
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionNodes resources applicable for cluster actions
+//
+// swagger:model PermissionNodes
+type PermissionNodes struct {
+
+	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	Collection *string `json:"collection,omitempty"`
+
+	// whether to allow (verbose) returning shards and stats data in the response
+	// Enum: [verbose minimal]
+	Verbosity *string `json:"verbosity,omitempty"`
+}
+
+// Validate validates this permission nodes
+func (m *PermissionNodes) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateVerbosity(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var permissionNodesTypeVerbosityPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["verbose","minimal"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		permissionNodesTypeVerbosityPropEnum = append(permissionNodesTypeVerbosityPropEnum, v)
+	}
+}
+
+const (
+
+	// PermissionNodesVerbosityVerbose captures enum value "verbose"
+	PermissionNodesVerbosityVerbose string = "verbose"
+
+	// PermissionNodesVerbosityMinimal captures enum value "minimal"
+	PermissionNodesVerbosityMinimal string = "minimal"
+)
+
+// prop value enum
+func (m *PermissionNodes) validateVerbosityEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, permissionNodesTypeVerbosityPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *PermissionNodes) validateVerbosity(formats strfmt.Registry) error {
+	if swag.IsZero(m.Verbosity) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateVerbosityEnum("nodes"+"."+"verbosity", "body", *m.Verbosity); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validates this permission nodes based on context it is used
+func (m *PermissionNodes) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionNodes) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionNodes) UnmarshalBinary(b []byte) error {
+	var res PermissionNodes
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

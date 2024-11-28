@@ -38,6 +38,7 @@ const (
 	UsersDomain   = "users"
 	RolesDomain   = "roles"
 	ClusterDomain = "cluster"
+	NodesDomain   = "nodes"
 	BackupsDomain = "backups"
 	SchemaDomain  = "schema"
 	DataDomain    = "data"
@@ -64,6 +65,7 @@ var (
 	ReadRoles   = "read_roles"
 	ManageUsers = "manage_users"
 	ReadCluster = "read_cluster"
+	ReadNodes   = "read_nodes"
 
 	ManageBackups = "manage_backups"
 
@@ -87,6 +89,9 @@ var (
 
 		// Cluster domain
 		ReadCluster,
+
+		// Nodes domain
+		ReadNodes,
 
 		// Schema domain
 		CreateSchema,
@@ -134,6 +139,34 @@ type Policy struct {
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
 	return fmt.Sprintf("%s/*", ClusterDomain)
+}
+
+func nodes(verbosity, class string) string {
+	if verbosity == "" {
+		verbosity = "minimal"
+	}
+	if verbosity == "minimal" {
+		return fmt.Sprintf("%s/verbosity/%s", NodesDomain, verbosity)
+	} else {
+		return fmt.Sprintf("%s/verbosity/%s/collections/%s", NodesDomain, verbosity, class)
+	}
+}
+
+func Nodes(verbosity string, classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{nodes(verbosity, "*")}
+	}
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = nodes(verbosity, "*")
+		} else {
+			resources[idx] = nodes(verbosity, classes[idx])
+		}
+	}
+
+	return resources
 }
 
 // Users generates a list of user resource strings based on the provided user names.

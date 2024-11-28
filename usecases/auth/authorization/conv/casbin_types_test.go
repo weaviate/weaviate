@@ -53,6 +53,9 @@ var (
 	clusterTests = []innerTest{
 		{permissionAction: authorization.ReadCluster, testDescription: readDesc, policyVerb: readVerb},
 	}
+	nodesTests = []innerTest{
+		{permissionAction: authorization.ReadNodes, testDescription: readDesc, policyVerb: readVerb},
+	}
 	backupsTests = []innerTest{
 		{permissionAction: authorization.ManageBackups, testDescription: manageDesc, policyVerb: manageVerb},
 	}
@@ -132,6 +135,47 @@ func Test_policy(t *testing.T) {
 				Domain:   authorization.ClusterDomain,
 			},
 			tests: clusterTests,
+		},
+		{
+			name: "minimal nodes",
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Verbosity: authorization.String("minimal"),
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinNodesMinimal(),
+				Domain:   authorization.NodesDomain,
+			},
+			tests: nodesTests,
+		},
+		{
+			name: "verbose nodes for all collections",
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Verbosity:  authorization.String("verbose"),
+					Collection: authorization.All,
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinNodesVerbose("*"),
+				Domain:   authorization.NodesDomain,
+			},
+			tests: nodesTests,
+		},
+		{
+			name: "verbose nodes for one collections",
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Verbosity:  authorization.String("verbose"),
+					Collection: authorization.String("Foo"),
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinNodesVerbose("Foo"),
+				Domain:   authorization.NodesDomain,
+			},
+			tests: nodesTests,
 		},
 		{
 			name:       "all backends",
@@ -407,6 +451,38 @@ func Test_permission(t *testing.T) {
 			policy:     []string{"p", "/*", "", authorization.ClusterDomain},
 			permission: &models.Permission{},
 			tests:      clusterTests,
+		},
+		{
+			name:   "minimal nodes",
+			policy: []string{"p", "/verbosity/minimal", "", authorization.NodesDomain},
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Verbosity: authorization.String("minimal"),
+				},
+			},
+			tests: nodesTests,
+		},
+		{
+			name:   "verbose nodes over all collections",
+			policy: []string{"p", "/verbosity/verbose/collections/*", "", authorization.NodesDomain},
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Collection: authorization.All,
+					Verbosity:  authorization.String("verbose"),
+				},
+			},
+			tests: nodesTests,
+		},
+		{
+			name:   "verbose nodes over one collection",
+			policy: []string{"p", "/verbosity/verbose/collections/Foo", "", authorization.NodesDomain},
+			permission: &models.Permission{
+				Nodes: &models.PermissionNodes{
+					Collection: authorization.String("Foo"),
+					Verbosity:  authorization.String("verbose"),
+				},
+			},
+			tests: nodesTests,
 		},
 		{
 			name:   "all backends",

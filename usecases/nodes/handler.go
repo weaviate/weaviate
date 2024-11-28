@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	verbosityPkg "github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -50,14 +49,10 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Nodes(verbosity, className)...); err != nil {
 		return nil, err
 	}
-	if verbosity == verbosityPkg.OutputVerbose {
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(className)...); err != nil {
-			return nil, err
-		}
-	}
+
 	return m.db.GetNodeStatus(ctxWithTimeout, className, verbosity)
 }
 

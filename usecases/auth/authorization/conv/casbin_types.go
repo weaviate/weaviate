@@ -33,6 +33,9 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
+	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
+	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/backends/.*$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/backends/[^/]+$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
@@ -56,6 +59,18 @@ func fromCasbinResource(resource string) string {
 
 func CasbinClusters() string {
 	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
+}
+
+func CasbinNodesMinimal() string {
+	return fmt.Sprintf("%s/verbosity/minimal", authorization.NodesDomain)
+}
+
+func CasbinNodesVerbose(collection string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, collection)
 }
 
 func CasbinBackups(backend string) string {
@@ -180,6 +195,22 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinBackups(backend)
+	case authorization.NodesDomain:
+		collection := "*"
+		verbosity := "minimal"
+		if permission.Nodes != nil {
+			if permission.Nodes.Collection != nil {
+				collection = *permission.Nodes.Collection
+			}
+			if permission.Nodes.Verbosity != nil {
+				verbosity = *permission.Nodes.Verbosity
+			}
+		}
+		if verbosity == "minimal" {
+			resource = CasbinNodesMinimal()
+		} else {
+			resource = CasbinNodesVerbose(collection)
+		}
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -227,6 +258,18 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.User = &splits[1]
 	case authorization.ClusterDomain:
 		// do nothing
+	case authorization.NodesDomain:
+		verbosity := splits[2]
+		var collection *string
+		if verbosity == "minimal" {
+			collection = nil
+		} else {
+			collection = &splits[4]
+		}
+		permission.Nodes = &models.PermissionNodes{
+			Collection: collection,
+			Verbosity:  &verbosity,
+		}
 	case authorization.BackupsDomain:
 		permission.Backup = &models.PermissionBackup{
 			Backend: &splits[2],
