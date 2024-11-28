@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -34,6 +36,7 @@ import (
 
 type autoSchemaManager struct {
 	mutex         sync.RWMutex
+	authorizer    authorization.Authorizer
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
@@ -41,13 +44,14 @@ type autoSchemaManager struct {
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig, logger logrus.FieldLogger,
+	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) *autoSchemaManager {
 	return &autoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
+		authorizer:    authorizer,
 	}
 }
 
@@ -70,6 +74,11 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			continue
 		}
 		classes = append(classes, schema.UppercaseClassName(object.Class))
+	}
+
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classes...)...)
+	if err != nil {
+		return 0, err
 	}
 
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
@@ -113,6 +122,10 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
+				err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
+				if err != nil {
+					return 0, err
+				}
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
 					principal, schemaClass, schemaClass.Class, true, newProperties...)
 				if err != nil {
