@@ -36,24 +36,83 @@ func TestCollectionNamingGQL(t *testing.T) {
 		}
 	}()
 
-	testCollection := "testcollectioncase"
+	cases := []struct {
+		name       string
+		createWith string
+		deleteWith string
+		getWith    string
+		shouldFail bool
+	}{
+		{
+			name:       "all-lower",
+			createWith: "testcollectioncase",
+			deleteWith: "testcollectioncase",
+			getWith:    "testcollectioncase",
+		},
+		{
+			name:       "create-lower-get-delete-GQL",
+			createWith: "testcollectioncase",
+			deleteWith: "Testcollectioncase",
+			getWith:    "Testcollectioncase",
+		},
+		{
+			name:       "create-mixed-get-delete-lower",
+			createWith: "testCollectionCase",
+			deleteWith: "testCollectionCase",
+			getWith:    "testCollectionCase",
+		},
+		{
+			name:       "create-mixed-get-delete-GQL",
+			createWith: "testCollectionCase",
+			deleteWith: "TestCollectionCase",
+			getWith:    "TestCollectionCase",
+		},
+		{
+			name:       "create-lower-get-delete-nonGQL-should-fail",
+			createWith: "testCollectionCase",
+			deleteWith: "TestCoLLectionCase", // not GQL
+			getWith:    "TestCoLLectionCase", // not GQL
+			shouldFail: true,
+		},
+	}
 
-	helper.SetupClient(compose.GetWeaviate().URI()) // node1
-	helper.CreateClass(t, &models.Class{
-		Class:      testCollection,
-		Vectorizer: "none",
-	})
-	helper.GetClass(t, testCollection) // try to get from same node
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviate().URI()) // node1
+			helper.CreateClass(t, &models.Class{
+				Class:      c.createWith,
+				Vectorizer: "none",
+			})
 
-	timeout := 2 * time.Second
-	compose.Stop(ctx, docker.Weaviate1, &timeout) // stop node1
+			if c.shouldFail {
+				// get should fail
+				class, err := helper.GetClassWithoutAssert(t, c.getWith)
+				require.Nil(t, class)
+				require.Error(t, err)
 
-	helper.SetupClient(compose.GetWeaviateNode2().URI()) // node2
-	helper.GetClass(t, testCollection)                   // try getting it from different node
-	helper.DeleteClass(t, testCollection)                // try deleting it from different node
+				helper.SetupClient(compose.GetWeaviateNode2().URI())    // node2
+				class, err = helper.GetClassWithoutAssert(t, c.getWith) // try getting it from different node
+				require.Nil(t, class)
+				require.Error(t, err)
 
-	// collection should not exist
-	class, err := helper.GetClassWithoutAssert(t, testCollection)
-	require.Nil(t, class)
-	require.Error(t, err)
+				// delete should fail
+				helper.DeleteClass(t, c.deleteWith) // try deleting it from different node
+				// make sure after delete, collection still exist with original created name
+				helper.GetClass(t, c.createWith)
+
+				return
+			}
+
+			helper.GetClass(t, c.getWith) // try to get from same node
+
+			helper.SetupClient(compose.GetWeaviateNode2().URI()) // node2
+			helper.GetClass(t, c.getWith)                        // try getting it from different node
+			helper.DeleteClass(t, c.deleteWith)                  // try deleting it from different node
+
+			// make sure after delete, collection should not exist
+			class, err := helper.GetClassWithoutAssert(t, c.deleteWith)
+			require.Nil(t, class)
+			require.Error(t, err)
+		})
+	}
 }
