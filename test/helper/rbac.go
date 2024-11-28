@@ -93,11 +93,11 @@ func (p *BackupPermission) WithAction(action string) *BackupPermission {
 	return p
 }
 
-func (p *BackupPermission) WithBackend(backend string) *BackupPermission {
+func (p *BackupPermission) WithCollection(collection string) *BackupPermission {
 	if p.Backup == nil {
 		p.Backup = &models.PermissionBackup{}
 	}
-	p.Backup.Backend = authorization.String(backend)
+	p.Backup.Collection = authorization.String(collection)
 	return p
 }
 

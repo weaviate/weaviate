@@ -270,8 +270,8 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionBackup
 type PermissionBackup struct {
 
-	// string or regex. if a specific backend name, if left empty it will be ALL or *
-	Backend *string `json:"backend,omitempty"`
+	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	Collection *string `json:"collection,omitempty"`
 }
 
 // Validate validates this permission backup

@@ -88,10 +88,10 @@ func TestBackups(t *testing.T) {
 	tests := []struct {
 		name     string
 		backend  string
-		expected string
+		expected []string
 	}{
-		{"No backend", "", fmt.Sprintf("%s/backends/*", BackupsDomain)},
-		{"Backend", "backend1", fmt.Sprintf("%s/backends/backend1", BackupsDomain)},
+		{"No collection", "", []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}},
+		{"Collection", "class1", []string{fmt.Sprintf("%s/collections/class1", BackupsDomain)}},
 	}
 
 	for _, tt := range tests {

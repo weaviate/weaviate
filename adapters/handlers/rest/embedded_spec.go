@@ -5410,8 +5410,8 @@ func init() {
           "description": "resources applicable for backup actions",
           "type": "object",
           "properties": {
-            "backend": {
-              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12045,8 +12045,8 @@ func init() {
           "description": "resources applicable for backup actions",
           "type": "object",
           "properties": {
-            "backend": {
-              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12103,8 +12103,8 @@ func init() {
       "description": "resources applicable for backup actions",
       "type": "object",
       "properties": {
-        "backend": {
-          "description": "string or regex. if a specific backend name, if left empty it will be ALL or *",
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

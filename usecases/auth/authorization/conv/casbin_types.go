@@ -36,8 +36,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
-	fmt.Sprintf(`^%s/backends/.*$`, authorization.BackupsDomain),
-	fmt.Sprintf(`^%s/backends/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/collections/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
@@ -73,12 +73,12 @@ func CasbinNodesVerbose(collection string) string {
 	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, collection)
 }
 
-func CasbinBackups(backend string) string {
-	if backend == "" {
-		backend = "*"
+func CasbinBackups(class string) string {
+	if class == "" {
+		class = "*"
 	}
-	backend = strings.ReplaceAll(backend, "*", ".*")
-	return fmt.Sprintf("%s/backends/%s", authorization.BackupsDomain, backend)
+	class = strings.ReplaceAll(class, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
 }
 
 func CasbinUsers(user string) string {
@@ -188,13 +188,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinData(collection, tenant, object)
 	case authorization.BackupsDomain:
-		backend := "*"
+		collection := "*"
 		if permission.Backup != nil {
-			if permission.Backup.Backend != nil {
-				backend = *permission.Backup.Backend
+			if permission.Backup.Collection != nil {
+				collection = *permission.Backup.Collection
 			}
 		}
-		resource = CasbinBackups(backend)
+		resource = CasbinBackups(collection)
 	case authorization.NodesDomain:
 		collection := "*"
 		verbosity := "minimal"
@@ -272,11 +272,11 @@ func permission(policy []string) (*models.Permission, error) {
 		}
 	case authorization.BackupsDomain:
 		permission.Backup = &models.PermissionBackup{
-			Backend: &splits[2],
+			Collection: &splits[2],
 		}
 	case *authorization.All:
 		permission.Backup = &models.PermissionBackup{
-			Backend: authorization.All,
+			Collection: authorization.All,
 		}
 		permission.Collection = authorization.All
 		permission.Tenant = authorization.All

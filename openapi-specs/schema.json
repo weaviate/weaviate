@@ -31,10 +31,10 @@
           "type": "object",
           "description": "resources applicable for backup actions",
           "properties": {
-            "backend": {
+            "collection": {
               "type": "string",
               "default": "*",
-              "description": "string or regex. if a specific backend name, if left empty it will be ALL or *"
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
             }
           }
         },
