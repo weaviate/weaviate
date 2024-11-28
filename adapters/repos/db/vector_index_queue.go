@@ -24,11 +24,13 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 const (
 	vectorIndexQueueInsertOp uint8 = iota + 1
 	vectorIndexQueueDeleteOp
+	vectorIndexQueueMultiInsertOp
 )
 
 type VectorIndexQueue struct {
@@ -106,51 +108,34 @@ func (iq *VectorIndexQueue) Close() error {
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
-		ids := make([]uint64, len(vectors))
-		vecs := make([][]float32, len(vectors))
-		for i, v := range vectors {
-			ids[i] = v.ID
-			vecs[i] = v.Vector
-		}
-
-		return iq.vectorIndex.AddBatch(ctx, ids, vecs)
+		return common.AddVectorToIndex(ctx, vectors, iq.vectorIndex)
 	}
 
 	start := time.Now()
 	defer iq.metrics.Insert(start, len(vectors))
 
 	var buf []byte
+	var err error
 
-	for i, v := range vectors {
-		// ensure the vector is not empty
-		if len(v.Vector) == 0 {
-			return errors.Errorf("vector is empty")
-		}
-
-		// delegate the validation to the index
-		err := iq.vectorIndex.ValidateBeforeInsert(v.Vector)
-		if err != nil {
-			return errors.WithStack(err)
+	for _, v := range vectors {
+		// validate vector
+		if err := v.Validate(iq.vectorIndex); err != nil {
+			return errors.Wrap(err, "failed to validate")
 		}
 
 		// if the index is still empty, ensure the first batch is consistent
 		// by keeping track of the dimensions of the vectors.
-		if !iq.dims.CompareAndSwap(0, int32(len(v.Vector))) {
-			if iq.dims.Load() != int32(len(v.Vector)) {
-				return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].Vector), iq.dims.Load())
+		if !iq.dims.CompareAndSwap(0, int32(v.Len())) {
+			if iq.dims.Load() != int32(v.Len()) {
+				return errors.Errorf("inconsistent vector lengths: %d != %d", v.Len(), iq.dims.Load())
 			}
 		}
 
+		// encode vector
 		buf = buf[:0]
-
-		// write the operation first
-		buf = append(buf, vectorIndexQueueInsertOp)
-		// write the id
-		buf = binary.BigEndian.AppendUint64(buf, v.ID)
-		// write the vector
-		buf = binary.BigEndian.AppendUint16(buf, uint16(len(v.Vector)))
-		for _, v := range v.Vector {
-			buf = binary.BigEndian.AppendUint32(buf, math.Float32bits(v))
+		buf, err = encodeVector(buf, v)
+		if err != nil {
+			return errors.Wrap(err, "failed to encode record")
 		}
 
 		err = iq.DiskQueue.Push(buf)
@@ -278,7 +263,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			data = data[4:]
 		}
 
-		return &Task{
+		return &Task[[]float32]{
 			op:     op,
 			id:     uint64(id),
 			vector: vec,
@@ -288,57 +273,87 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		// decode id
 		id := binary.BigEndian.Uint64(data)
 
-		return &Task{
+		return &Task[[]float32]{
 			op:  op,
 			id:  uint64(id),
 			idx: v.q.vectorIndex,
+		}, nil
+	case vectorIndexQueueMultiInsertOp:
+		// decode id
+		id := binary.BigEndian.Uint64(data)
+		data = data[8:]
+
+		// decode array size on 2 bytes
+		alen := binary.BigEndian.Uint16(data)
+		data = data[2:]
+
+		// decode vector
+		multiVec := make([][]float32, alen)
+		for i := 0; i < int(alen); i++ {
+			vec := make([]float32, alen)
+			alenvec := binary.BigEndian.Uint16(data)
+			for j := 0; j < int(alenvec); j++ {
+				bits := binary.BigEndian.Uint32(data)
+				vec[j] = math.Float32frombits(bits)
+				data = data[4:]
+			}
+			multiVec[i] = vec
+		}
+
+		return &Task[[][]float32]{
+			op:     op,
+			id:     uint64(id),
+			vector: multiVec,
+			idx:    v.q.vectorIndex,
 		}, nil
 	}
 
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task struct {
+type Task[T types.Embedding] struct {
 	op     uint8
 	id     uint64
-	vector []float32
+	vector T
 	idx    VectorIndex
 }
 
-func (t *Task) Op() uint8 {
+func (t *Task[T]) Op() uint8 {
 	return t.op
 }
 
-func (t *Task) Key() uint64 {
+func (t *Task[T]) Key() uint64 {
 	return t.id
 }
 
-func (t *Task) Execute(ctx context.Context) error {
+func (t *Task[T]) Execute(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
 	switch t.op {
 	case vectorIndexQueueInsertOp:
-		return t.idx.Add(ctx, t.id, t.vector)
+		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
 	case vectorIndexQueueDeleteOp:
 		return t.idx.Delete(t.id)
+	case vectorIndexQueueMultiInsertOp:
+		return t.idx.AddMulti(ctx, t.id, any(t.vector).([][]float32))
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
 }
 
-func (t *Task) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
+func (t *Task[T]) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	ids := make([]uint64, len(tasks))
-	vectors := make([][]float32, len(tasks))
+	vectors := make([]T, len(tasks))
 
 	for i, task := range tasks {
-		t := task.(*Task)
+		t := task.(*Task[T])
 		ids[i] = t.id
 		vectors[i] = t.vector
 	}
 
-	return &TaskGroup{
+	return &TaskGroup[T]{
 		op:      op,
 		ids:     ids,
 		vectors: vectors,
@@ -346,35 +361,72 @@ func (t *Task) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	}
 }
 
-type TaskGroup struct {
+type TaskGroup[T types.Embedding] struct {
 	op      uint8
 	ids     []uint64
-	vectors [][]float32
+	vectors []T
 	idx     VectorIndex
 }
 
-func (t *TaskGroup) Op() uint8 {
+func (t *TaskGroup[T]) Op() uint8 {
 	return t.op
 }
 
-func (t *TaskGroup) Key() uint64 {
+func (t *TaskGroup[T]) Key() uint64 {
 	return t.ids[0]
 }
 
-func (tg *TaskGroup) Execute(ctx context.Context) error {
+func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	switch tg.op {
+	switch t.op {
 	case vectorIndexQueueInsertOp:
-		return tg.idx.AddBatch(ctx, tg.ids, tg.vectors)
+		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
 	case vectorIndexQueueDeleteOp:
-		return tg.idx.Delete(tg.ids...)
+		return t.idx.Delete(t.ids...)
+	case vectorIndexQueueMultiInsertOp:
+		return t.idx.AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
 	}
 
-	return errors.Errorf("unknown operation: %d", tg.Op())
+	return errors.Errorf("unknown operation: %d", t.Op())
+}
+
+func encodeVector(buf []byte, vectorRec common.VectorRecord) ([]byte, error) {
+	switch v := vectorRec.(type) {
+	case *common.Vector[[]float32]:
+		// write the operation first
+		buf = append(buf, vectorIndexQueueInsertOp)
+		// put multi or normal vector operation header!
+		buf = binary.BigEndian.AppendUint64(buf, v.ID)
+		// write the vector
+		buf = binary.BigEndian.AppendUint16(buf, uint16(len(v.Vector)))
+		for _, v := range v.Vector {
+			buf = binary.BigEndian.AppendUint32(buf, math.Float32bits(v))
+		}
+		return buf, nil
+	case *common.Vector[[][]float32]:
+		// write the operation first
+		buf = append(buf, vectorIndexQueueMultiInsertOp)
+		// put multi or normal vector operation header!
+		buf = binary.BigEndian.AppendUint64(buf, v.ID)
+		// write the vector
+		buf = binary.BigEndian.AppendUint16(buf, uint16(len(v.Vector)))
+		for _, v := range v.Vector {
+			buf = binary.BigEndian.AppendUint16(buf, uint16(len(v)))
+			for _, v := range v {
+				buf = binary.BigEndian.AppendUint32(buf, math.Float32bits(v))
+			}
+		}
+		return buf, nil
+	default:
+		return nil, errors.Errorf("unrecognized vector type: %T", vectorRec)
+	}
 }
 
 // compile time check for TaskGrouper interface
-var _ = queue.TaskGrouper(new(Task))
+var (
+	_ = queue.TaskGrouper(new(Task[[]float32]))
+	_ = queue.TaskGrouper(new(Task[[][]float32]))
+)
