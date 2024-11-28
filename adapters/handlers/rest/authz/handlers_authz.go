@@ -38,7 +38,8 @@ type authZHandlers struct {
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
-	existingUsersApiKeys []string, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	existingUsersApiKeys []string, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+) {
 	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, existingUsersApiKeys: existingUsersApiKeys, logger: logger, metrics: metrics}
 
 	// rbac role handlers
