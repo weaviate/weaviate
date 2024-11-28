@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
@@ -249,7 +250,8 @@ func TestRemoteIndexPutFile(t *testing.T) {
 }
 
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	ri := NewRemoteIndex(httpClient)
+	log, _ := test.NewNullLogger()
+	ri := NewRemoteIndex(httpClient, log)
 	ri.minBackOff = time.Millisecond * 1
 	ri.maxBackOff = time.Millisecond * 10
 	ri.timeoutUnit = time.Millisecond * 20

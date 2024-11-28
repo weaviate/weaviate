@@ -60,11 +60,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
-	retryLogEntry := c.log.WithFields(logrus.Fields{
-		"url":    req.URL.String(),
-		"method": req.Method,
-	})
-	return c.retry(ctx, numRetries, try, retryLogEntry)
+	return c.retry(ctx, numRetries, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
@@ -92,7 +88,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		return false, nil
 	}
-	return code, c.retry(ctx, 9, try)
+	return code, c.retry(ctx, 9, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 type retryer struct {
@@ -124,10 +120,12 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		if delay = backOff(delay); delay > r.maxBackOff {
 			delay = r.maxBackOff
 		}
-		retryLogEntry.WithFields(logrus.Fields{
-			"numberOfRetriesLeft": n,
-			"delay":               delay,
-		}).Debug("retrying after work errored")
+		if retryLogEntry != nil {
+			retryLogEntry.WithFields(logrus.Fields{
+				"numberOfRetriesLeft": n,
+				"delay":               delay,
+			}).WithError(err).Debug("retrying after work errored")
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -141,4 +139,16 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 
 func successCode(code int) bool {
 	return code >= http.StatusOK && code <= http.StatusIMUsed
+}
+
+// logEntryForReq returns a log entry with the given method/url if the retryClient's logger
+// is not nil. If the retryClient's logger is nil, returns nil.
+func (c *retryClient) logEntryForReq(method, url string) *logrus.Entry {
+	if c.log == nil {
+		return nil
+	}
+	return c.log.WithFields(logrus.Fields{
+		"method": method,
+		"url":    url,
+	})
 }

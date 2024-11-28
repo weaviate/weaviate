@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -39,10 +40,11 @@ import (
 
 type replicationClient retryClient
 
-func NewReplicationClient(httpClient *http.Client) replica.Client {
+func NewReplicationClient(httpClient *http.Client, log logrus.FieldLogger) replica.Client {
 	return &replicationClient{
 		client:  httpClient,
 		retryer: newRetryer(),
+		log:     log,
 	}
 }
 
@@ -387,7 +389,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(ctx, numRetries, try, (*retryClient)(c).logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,

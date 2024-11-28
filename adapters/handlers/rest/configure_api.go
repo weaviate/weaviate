@@ -313,9 +313,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
-	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
+	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient, appState.Logger)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
-	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
+	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient, appState.Logger)
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:                  config.ServerVersion,
 		GitHash:                        build.Revision,
