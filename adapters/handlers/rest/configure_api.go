@@ -694,7 +694,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	authz.SetupHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, appState.Metrics, appState.Authorizer, appState.Logger)
+	var existingUsersApiKeys []string
+	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
+	}
+	authz.SetupHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, existingUsersApiKeys, appState.Metrics, appState.Authorizer, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -835,11 +839,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
 	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
-	var existingUsersApiKeys []string
-	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
-		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
-	}
-	controller, err := rbac.New(rbacStoragePath, rbacConfig, existingUsersApiKeys, appState.Logger)
+	controller, err := rbac.New(rbacStoragePath, rbacConfig, appState.Logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
