@@ -325,7 +325,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					Do(context.Background())
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode)
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "tenant not found")
 
 				t.Run("verify not created", func(t *testing.T) {
@@ -423,7 +423,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					Do(context.Background())
 				require.NotNil(t, err)
 				clientErr := err.(*fault.WeaviateClientError)
-				assert.Equal(t, 500, clientErr.StatusCode)
+				assert.Equal(t, 422, clientErr.StatusCode)
 				assert.Contains(t, clientErr.Msg, "no object with id")
 
 				t.Run("verify not created", func(t *testing.T) {
