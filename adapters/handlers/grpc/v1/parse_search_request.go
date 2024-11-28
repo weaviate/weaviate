@@ -62,6 +62,7 @@ func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
 	}
 }
 
+// Search transforms the given req into the returned GetParams
 func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class := p.getClass(req.Collection)
