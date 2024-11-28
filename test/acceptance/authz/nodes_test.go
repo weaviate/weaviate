@@ -30,7 +30,6 @@ import (
 func TestAuthzNodes(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
-	adminRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
@@ -42,9 +41,11 @@ func TestAuthzNodes(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
+		WithApiKey().
 		WithRBAC().
-		WithRbacUser(adminUser, adminKey, adminRole).
-		WithRbacUser(customUser, customKey, customRole).
+		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey(customUser, customKey).
+		WithRbacAdmins(adminUser).
 		Start(ctx)
 
 	require.Nil(t, err)
