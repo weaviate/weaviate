@@ -29,11 +29,9 @@ import (
 func TestAutoTenantActivation(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
-	existingRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
-	customRole := "custom"
 
 	testRoleName := "test-role"
 
@@ -43,7 +41,7 @@ func TestAutoTenantActivation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).WithRbacUser(customUser, customKey, customRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithRBAC().WithApiKey().WithUserApiKey(existingUser, existingKey).WithUserApiKey(customUser, customKey).WithRbacAdmins(existingUser).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -69,8 +67,8 @@ func TestAutoTenantActivation(t *testing.T) {
 			AutoTenantActivation: true,
 			AutoTenantCreation:   false,
 		}
-		helper.CreateClassWithAuthz(t, cls, adminAuth)
-		helper.CreateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
+		helper.CreateClassAuth(t, cls, existingKey)
+		helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, existingKey)
 	})
 
 	t.Run("create and assign role that can create objects in and read schema of tenant of collection", func(t *testing.T) {
@@ -78,9 +76,8 @@ func TestAutoTenantActivation(t *testing.T) {
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
 				{
-					Action:     String(authorization.CreateObjectsTenant),
+					Action:     String(authorization.CreateSchema),
 					Collection: String(cls.Class),
-					Tenant:     String(tenant),
 				},
 				{
 					Action:     String(authorization.ReadSchema),

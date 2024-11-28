@@ -36,6 +36,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
+	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -104,8 +105,11 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
+	withWeaviateApiKey            bool
+	weaviateApiKeyUsers           []ApiKeyUser
 	withWeaviateRbac              bool
-	weaviateRbacUsers             []RbacUser
+	weaviateRbacAdmins            []string
+	weaviateRbacViewers           []string
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -224,6 +228,12 @@ func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
 func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2veccohere.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
 	return d
 }
 
@@ -418,20 +428,40 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithApiKey() *Compose {
+	d.withWeaviateApiKey = true
+	return d
+}
+
+func (d *Compose) WithUserApiKey(username, key string) *Compose {
+	if !d.withWeaviateApiKey {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateApiKeyUsers = append(d.weaviateApiKeyUsers, ApiKeyUser{
+		Username: username,
+		Key:      key,
+	})
+	return d
+}
+
 func (d *Compose) WithRBAC() *Compose {
 	d.withWeaviateRbac = true
 	return d
 }
 
-func (d *Compose) WithRbacUser(username, key, role string) *Compose {
+func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacUsers = append(d.weaviateRbacUsers, RbacUser{
-		Username: username,
-		Key:      key,
-		Role:     role,
-	})
+	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	return d
+}
+
+func (d *Compose) WithRbacViewer(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewers = append(d.weaviateRbacViewers, usernames...)
 	return d
 }
 
@@ -708,17 +738,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
 
-	if d.withWeaviateRbac {
-		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+	if d.withWeaviateApiKey {
+		usernames := make([]string, 0, len(d.weaviateApiKeyUsers))
+		keys := make([]string, 0, len(d.weaviateApiKeyUsers))
 
-		usernames := make([]string, 0, len(d.weaviateRbacUsers))
-		keys := make([]string, 0, len(d.weaviateRbacUsers))
-		roles := make([]string, 0, len(d.weaviateRbacUsers))
-
-		for _, user := range d.weaviateRbacUsers {
+		for _, user := range d.weaviateApiKeyUsers {
 			usernames = append(usernames, user.Username)
 			keys = append(keys, user.Key)
-			roles = append(roles, user.Role)
 		}
 		if len(keys) > 0 {
 			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
@@ -728,9 +754,16 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
 			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
 		}
-		if len(roles) > 0 {
-			settings["AUTHENTICATION_APIKEY_ROLES"] = strings.Join(roles, ",")
-			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+
+		if len(d.weaviateRbacAdmins) > 0 {
+			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		}
+		if len(d.weaviateRbacViewers) > 0 {
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
 		}
 	}
 

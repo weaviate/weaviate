@@ -126,7 +126,7 @@ type locks interface {
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
-	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
+	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,

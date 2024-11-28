@@ -50,7 +50,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 		helper.AssertRequestFail(t, resp, err, func() {
 			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
 			require.True(t, ok, "error should be unprocessable entity")
-			assert.Equal(t, "property 'someProperty': invalid dataType: dataType cannot be an empty string",
+			assert.Equal(t, "property 'someProperty': invalid dataType: []: dataType cannot be an empty string",
 				parsed.Payload.Error[0].Message)
 		})
 	})

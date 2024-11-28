@@ -13,6 +13,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
@@ -44,7 +45,7 @@ func NewGRPC(api *API, schema SchemaQuerier, log logrus.FieldLogger) *GRPC {
 func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protocol.SearchReply, error) {
 	class, err := g.schema.Collection(ctx, req.Collection)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("search: failed to get collection %q: %w", req.Collection, err)
 	}
 
 	getClass := func(name string) (*models.Class, error) {

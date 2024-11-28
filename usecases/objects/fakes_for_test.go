@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -271,7 +272,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
@@ -283,9 +284,9 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	args := f.Called(className, id)
+	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
 

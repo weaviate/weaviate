@@ -27,6 +27,37 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
+        "backup": {
+          "type": "object",
+          "description": "resources applicable for backup actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            }
+          }
+        },
+        "nodes": {
+          "type": "object",
+          "description": "resources applicable for cluster actions",
+          "properties": {
+            "verbosity": {
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ],
+              "description": "whether to allow (verbose) returning shards and stats data in the response"
+            },
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "object": {
           "type": "string",
           "default": "*",
@@ -57,24 +88,24 @@
           "description": "allowed actions in weaviate.",
           "enum": [
             "manage_users",
+
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            
+            "read_nodes",
+            "read_cluster",
+            
+            "manage_backups",
 
             "create_schema",
             "read_schema",
             "update_schema",
             "delete_schema",
 
-            "create_data_collection_objects",
-            "read_data_collection_objects",
-            "update_data_collection_objects",
-            "delete_data_collection_objects",
-
-            "create_data_tenant_objects",
-            "read_data_tenant_objects",
-            "update_data_tenant_objects",
-            "delete_data_tenant_objects"
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
         }
       },
@@ -475,7 +506,8 @@
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         }
@@ -1851,6 +1883,12 @@
           "type": "string",
           "default": "minimal"
         },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -1882,6 +1920,12 @@
           "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
           "type": "string",
           "default": "minimal"
+        },
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer",
+          "x-nullable": true
         },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
@@ -3080,6 +3124,35 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/users/own-roles": {
+      "get": {
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

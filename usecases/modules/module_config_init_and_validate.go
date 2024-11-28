@@ -277,8 +277,7 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, targetVector string) {
 	mod := p.GetByName(moduleName)
 
-	_, okVec := mod.(modulecapabilities.Vectorizer)
-	if class.VectorConfig == nil || !okVec {
+	if class.VectorConfig == nil || !p.implementsVectorizer(mod) {
 		return
 	}
 

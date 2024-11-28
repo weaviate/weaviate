@@ -179,10 +179,11 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
-	shard, requestID string, uuid strfmt.UUID, schemaVersion uint64,
+	shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil, schemaVersion)
+	uuidTs := fmt.Sprintf("%s/%d", uuid.String(), deletionTime.UnixMilli())
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuidTs, nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -249,9 +250,9 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) (resp replica.SimpleResponse, err error) {
-	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
+	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, deletionTime, dryRun)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
