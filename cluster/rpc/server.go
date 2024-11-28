@@ -23,6 +23,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -174,6 +175,8 @@ func toRPCError(err error) error {
 		ec = codes.ResourceExhausted
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
+	case errors.Is(err, schema.ErrMTDisabled):
+		ec = codes.FailedPrecondition
 	default:
 		ec = codes.Internal
 	}
