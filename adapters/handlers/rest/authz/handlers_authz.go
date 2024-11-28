@@ -29,18 +29,18 @@ import (
 )
 
 type authZHandlers struct {
-	authorizer           authorization.Authorizer
-	controller           authorization.Controller
-	schemaReader         schemaUC.SchemaGetter
-	logger               logrus.FieldLogger
-	metrics              *monitoring.PrometheusMetrics
-	existingUsersApiKeys []string
+	authorizer         authorization.Authorizer
+	controller         authorization.Controller
+	schemaReader       schemaUC.SchemaGetter
+	logger             logrus.FieldLogger
+	metrics            *monitoring.PrometheusMetrics
+	existingAuthNUsers []string
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
-	existingUsersApiKeys []string, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	existingAuthNUsers []string, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, existingUsersApiKeys: existingUsersApiKeys, logger: logger, metrics: metrics}
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, existingAuthNUsers: existingAuthNUsers, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -467,8 +467,8 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 }
 
 func (h *authZHandlers) userExists(user string) bool {
-	if h.existingUsersApiKeys != nil {
-		for _, apiKey := range h.existingUsersApiKeys {
+	if h.existingAuthNUsers != nil {
+		for _, apiKey := range h.existingAuthNUsers {
 			if apiKey == user {
 				return true
 			}
