@@ -63,6 +63,27 @@ func TestCluster(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
+func TestNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		verbosity string
+		classes   []string
+		expected  []string
+	}{
+		{"Empty verbosity", "", []string{}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Minimal verbosity", "minimal", []string{}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Minimal verbosity with classes", "minimal", []string{"class1"}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Verbose verbosity with no classes", "verbose", []string{}, []string{fmt.Sprintf("%s/verbosity/verbose/collections/*", NodesDomain)}},
+		{"Verbose verbosity with classes", "verbose", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/verbosity/verbose/collections/class1", NodesDomain), fmt.Sprintf("%s/verbosity/verbose/collections/class2", NodesDomain)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Nodes(tt.verbosity, tt.classes...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestBackups(t *testing.T) {
 	tests := []struct {
 		name     string

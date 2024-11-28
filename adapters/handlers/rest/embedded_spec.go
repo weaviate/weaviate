@@ -5393,7 +5393,8 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "read_nodes",
+            "read_cluster",
             "manage_backups",
             "create_schema",
             "read_schema",
@@ -5420,6 +5421,26 @@ func init() {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -12007,7 +12028,8 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "read_nodes",
+            "read_cluster",
             "manage_backups",
             "create_schema",
             "read_schema",
@@ -12034,6 +12056,26 @@ func init() {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -12065,6 +12107,26 @@ func init() {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        }
+      }
+    },
+    "PermissionNodes": {
+      "description": "resources applicable for cluster actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "verbosity": {
+          "description": "whether to allow (verbose) returning shards and stats data in the response",
+          "type": "string",
+          "default": "minimal",
+          "enum": [
+            "verbose",
+            "minimal"
+          ]
         }
       }
     },
