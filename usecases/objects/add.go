@@ -88,7 +88,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid object")
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	now := m.timeSource.Now()

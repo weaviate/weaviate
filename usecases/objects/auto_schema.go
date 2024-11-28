@@ -88,12 +88,12 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 	for _, object := range objects {
 		if object == nil {
-			return 0, fmt.Errorf(validation.ErrorMissingObject)
+			return 0, ErrInvalidUserInput{validation.ErrorMissingObject}
 		}
 
 		if len(object.Class) == 0 {
 			// stop performing auto schema
-			return 0, fmt.Errorf(validation.ErrorMissingClass)
+			return 0, ErrInvalidUserInput{validation.ErrorMissingClass}
 		}
 
 		object.Class = schema.UppercaseClassName(object.Class)
@@ -104,7 +104,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		schemaVersion := vclass.Version
 
 		if schemaClass == nil && !allowCreateClass {
-			return 0, fmt.Errorf("given class does not exist")
+			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
 		properties, err := m.getProperties(object)
 		if err != nil {
