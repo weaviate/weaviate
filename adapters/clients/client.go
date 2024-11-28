@@ -60,7 +60,10 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
-	retryLogEntry := c.log.WithField("url", req.URL.String())
+	retryLogEntry := c.log.WithFields(logrus.Fields{
+		"url":    req.URL.String(),
+		"method": req.Method,
+	})
 	return c.retry(ctx, numRetries, try, retryLogEntry)
 }
 
@@ -124,7 +127,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		retryLogEntry.WithFields(logrus.Fields{
 			"numberOfRetriesLeft": n,
 			"delay":               delay,
-		}).Debug("retrying")
+		}).Debug("retrying after work errored")
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
