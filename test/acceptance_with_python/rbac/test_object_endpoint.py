@@ -8,19 +8,27 @@ from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_p
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_insert(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
     admin_client.roles.delete(name)
-    col = admin_client.collections.create(name=name)
+    col = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col.tenants.create("tenant1")
+
     required_permissions = [
         RBAC.permissions.data.create(collection=col.name),
         RBAC.permissions.config.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
         source_no_rights.data.insert({})
 
     for permission in generate_missing_permissions(required_permissions):
@@ -28,19 +36,27 @@ def test_obj_insert(
             source_no_rights = custom_client.collections.get(
                 name
             )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 source_no_rights.data.insert({})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_replace(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
     admin_client.roles.delete(name)
-    col = admin_client.collections.create(name=name)
+    col = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col.tenants.create("tenant1")
+        col = col.with_tenant("tenant1")
 
     uuid_to_replace = col.data.insert({})
 
@@ -50,6 +66,8 @@ def test_obj_replace(
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
         source_no_rights.data.replace(uuid=uuid_to_replace, properties={})
 
     for permission in generate_missing_permissions(required_permissions):
@@ -57,19 +75,28 @@ def test_obj_replace(
             source_no_rights = custom_client.collections.get(
                 name
             )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 source_no_rights.data.replace(uuid=uuid_to_replace, properties={})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_update(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
     admin_client.roles.delete(name)
-    col = admin_client.collections.create(name=name)
+    col = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col.tenants.create("tenant1")
+        col = col.with_tenant("tenant1")
 
     uuid_to_replace = col.data.insert({})
 
@@ -79,6 +106,8 @@ def test_obj_update(
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
         source_no_rights.data.update(uuid=uuid_to_replace, properties={})
 
     for permission in generate_missing_permissions(required_permissions):
@@ -86,19 +115,27 @@ def test_obj_update(
             source_no_rights = custom_client.collections.get(
                 name
             )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 source_no_rights.data.update(uuid=uuid_to_replace, properties={})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_delete(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
     admin_client.roles.delete(name)
-    col = admin_client.collections.create(name=name)
+    col = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col.tenants.create("tenant1")
+        col = col.with_tenant("tenant1")
 
     uuid_to_delete = col.data.insert({})
 
@@ -108,6 +145,8 @@ def test_obj_delete(
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+        if mt:
+            col_no_rights = col_no_rights.with_tenant("tenant1")
         assert len(col) == 1
         col_no_rights.data.delete_by_id(uuid=uuid_to_delete)
         assert len(col) == 0
@@ -116,6 +155,8 @@ def test_obj_delete(
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+            if mt:
+                col_no_rights = col_no_rights.with_tenant("tenant1")
 
             assert len(col) == 1
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
@@ -125,13 +166,19 @@ def test_obj_delete(
     admin_client.collections.delete(name)
 
 
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_exists(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
     admin_client.roles.delete(name)
-    col = admin_client.collections.create(name=name)
+    col = admin_client.collections.create(
+        name=name, multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    if mt:
+        col.tenants.create("tenant1")
+        col = col.with_tenant("tenant1")
 
     uuid_to_check = col.data.insert({})
 
@@ -141,14 +188,16 @@ def test_obj_exists(
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+        if mt:
+            col_no_rights = col_no_rights.with_tenant("tenant1")
         assert col_no_rights.data.exists(uuid=uuid_to_check)
-    admin_client.roles.revoke(user="custom-user", roles=name)
-    admin_client.roles.delete(name)
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
 
             col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
+            if mt:
+                col_no_rights = col_no_rights.with_tenant("tenant1")
 
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 col_no_rights.data.exists(uuid=uuid_to_check)
