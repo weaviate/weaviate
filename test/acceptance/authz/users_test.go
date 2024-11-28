@@ -68,11 +68,9 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	t.Run("get roles for non existing user", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists"), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
-		targetErr, ok := err.(*authz.GetRolesForUserInternalServerError)
+		targetErr, ok := err.(*authz.GetRolesForUserNotFound)
 		require.True(t, ok)
-
-		require.Equal(t, 500, targetErr.Code())
-		require.Equal(t, "user notExists does not exist", targetErr.Payload.Error[0].Message)
+		require.Equal(t, 404, targetErr.Code())
 	})
 }
 

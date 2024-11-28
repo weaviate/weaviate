@@ -29,15 +29,17 @@ import (
 )
 
 type authZHandlers struct {
-	authorizer   authorization.Authorizer
-	controller   authorization.Controller
-	schemaReader schemaUC.SchemaGetter
-	logger       logrus.FieldLogger
-	metrics      *monitoring.PrometheusMetrics
+	authorizer           authorization.Authorizer
+	controller           authorization.Controller
+	schemaReader         schemaUC.SchemaGetter
+	logger               logrus.FieldLogger
+	metrics              *monitoring.PrometheusMetrics
+	existingUsersApiKeys []string
 }
 
-func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, logger: logger, metrics: metrics}
+func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
+	existingUsersApiKeys []string, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, existingUsersApiKeys: existingUsersApiKeys, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -327,6 +329,10 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
 	}
 
+	if !h.existsUser(params.ID) {
+		return authz.NewGetRolesForUserNotFound()
+	}
+
 	existedRoles, err := h.controller.GetRolesForUser(params.ID)
 	if err != nil {
 		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -457,6 +463,18 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 	}).Info("roles revoked")
 
 	return authz.NewRevokeRoleOK()
+}
+
+func (h *authZHandlers) existsUser(user string) bool {
+	if h.existingUsersApiKeys != nil {
+		for _, apiKey := range h.existingUsersApiKeys {
+			if apiKey == user {
+				return true
+			}
+		}
+		return false
+	}
+	return true // dont block OICD for now
 }
 
 // func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
