@@ -94,48 +94,11 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	vectors = h.normalizeVecs(vectors)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
-		return nil, nil, errors.New("flat search is not supported for multivector search")
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
+		return h.flatMultiSearch(ctx, vectors, k, allowList)
 	}
-
-	k_prime := k
-	candidateSet := make(map[uint64]bool)
-	for _, vec := range vectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, k_prime, h.searchTimeEF(k_prime), allowList)
-		if err != nil {
-			return nil, nil, err
-		}
-		h.RLock()
-		for _, id := range ids {
-			docId, _ := h.cache.GetKeys(id)
-			candidateSet[docId] = true
-		}
-		h.RUnlock()
-	}
-
-	resultsQueue := priorityqueue.NewMin[any](1)
-	for docID := range candidateSet {
-		sim, err := h.computeScore(vectors, docID)
-		if err != nil {
-			return nil, nil, err
-		}
-		resultsQueue.Insert(docID, sim)
-		if resultsQueue.Len() > k {
-			resultsQueue.Pop()
-		}
-	}
-
-	distances := make([]float32, resultsQueue.Len())
-	ids := make([]uint64, resultsQueue.Len())
-
-	i := len(ids) - 1
-	for resultsQueue.Len() > 0 {
-		element := resultsQueue.Pop()
-		ids[i] = element.ID
-		distances[i] = element.Dist
-		i--
-	}
-
-	return ids, distances, nil
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
+	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -879,6 +842,51 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 	return ids, dists, nil
+}
+
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	k_prime := k
+	candidateSet := make(map[uint64]bool)
+	for _, vec := range queryVectors {
+		ids, _, err := h.knnSearchByVector(ctx, vec, k_prime, h.searchTimeEF(k_prime), allowList)
+		if err != nil {
+			return nil, nil, err
+		}
+		h.RLock()
+		for _, id := range ids {
+			docId, _ := h.cache.GetKeys(id)
+			candidateSet[docId] = true
+		}
+		h.RUnlock()
+	}
+	return h.computeLateInteraction(queryVectors, k, candidateSet)
+}
+
+func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]bool) ([]uint64, []float32, error) {
+	resultsQueue := priorityqueue.NewMin[any](1)
+	for docID := range candidateSet {
+		sim, err := h.computeScore(queryVectors, docID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resultsQueue.Insert(docID, sim)
+		if resultsQueue.Len() > k {
+			resultsQueue.Pop()
+		}
+	}
+
+	distances := make([]float32, resultsQueue.Len())
+	ids := make([]uint64, resultsQueue.Len())
+
+	i := len(ids) - 1
+	for resultsQueue.Len() > 0 {
+		element := resultsQueue.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+		i--
+	}
+
+	return ids, distances, nil
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
