@@ -12,8 +12,12 @@
 package test
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
@@ -28,26 +32,25 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 	adminKey := "admin-key"
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	readSchemaAction := authorization.ReadSchema
 	createDataAction := authorization.CreateData
 
-	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	//defer cancel()
-	//
-	//compose, err := docker.New().WithWeaviate().WithAutoschema().
-	//	WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-	//	WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	//require.Nil(t, err)
-	//defer func() {
-	//	if err := compose.Terminate(ctx); err != nil {
-	//		t.Fatalf("failed to terminate test containers: %v", err)
-	//	}
-	//}()
-	//helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("127.0.0.1:8081")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithAutoschema().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
 	className := "Class"
@@ -77,11 +80,11 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	helper.DeleteRole(t, adminKey, *readSchemaRole.Name)
 	helper.CreateRole(t, adminKey, readSchemaRole)
 
-	_, err := helper.Client(t).Authz.AssignRole(
+	_, err = helper.Client(t).Authz.AssignRole(
 		authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{readSchemaAndCreateDataRoleName}}),
 		adminAuth,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	t.Run("Only read rights for schema", func(t *testing.T) {
 		// object which does NOT introduce a new prop => no failure
@@ -119,7 +122,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
 			adminAuth,
 		)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		// object which does NOT introduce a new prop => no failure
 		_, err = createObject(t, &models.Object{
