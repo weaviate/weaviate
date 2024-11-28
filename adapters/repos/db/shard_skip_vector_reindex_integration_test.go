@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -510,11 +511,17 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorToBeFound}, []string{targetVector},
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
-				require.NoError(t, err)
-				require.Len(t, found, 1)
-				require.Equal(t, uuid_, found[0].Object.ID)
+				require.EventuallyWithT(t, func(collect *assert.CollectT) {
+					found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorToBeFound}, []string{targetVector},
+						vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
+					if !assert.NoError(collect, err) {
+						return
+					}
+					if !assert.Len(collect, found, 1) {
+						return
+					}
+					assert.Equal(collect, uuid_, found[0].Object.ID)
+				}, 15*time.Second, 100*time.Millisecond)
 			})
 
 			t.Run("not to be found", func(t *testing.T) {
@@ -1300,8 +1307,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
 			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
 			t.Setenv("ASYNC_INDEXING", "true")
-			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms")
-			t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
+			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
 			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
 			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)

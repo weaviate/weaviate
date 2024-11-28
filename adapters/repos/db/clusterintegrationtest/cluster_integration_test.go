@@ -740,16 +740,23 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-				if tt.asyncIndexing {
-					time.Sleep(1 * time.Second)
-				}
+				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
+					if !assert.Nil(collect, err) {
+						return
+					}
+					if !assert.Len(collect, res, 1) {
+						return
+					}
+					if !assert.Equal(collect, res[0].ID, obj.ID) {
+						return
+					}
+					if !assert.Equal(collect, res[0].Dist, float32(1)) {
+						return
+					}
 
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
-				require.Nil(t, err)
-				require.Equal(t, res[0].ID, obj.ID)
-				require.Equal(t, res[0].Dist, float32(1))
-
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
+					assert.Nil(collect, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
+				}, 20*time.Second, 1*time.Second)
 			})
 
 			t.Run("get some targets", func(t *testing.T) {
@@ -760,16 +767,20 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-				if tt.asyncIndexing {
-					time.Sleep(1 * time.Second)
-				}
+				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[2]})
+					if !assert.Nil(collect, err) {
+						return
+					}
+					if !assert.Equal(collect, res[0].ID, obj.ID) {
+						return
+					}
+					if !assert.Equal(collect, res[0].Dist, float32(1)) {
+						return
+					}
 
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[2]})
-				require.Nil(t, err)
-				require.Equal(t, res[0].ID, obj.ID)
-				require.Equal(t, res[0].Dist, float32(1))
-
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
+					assert.Nil(collect, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, time.Now(), nil, "", 0))
+				}, 20*time.Second, 1*time.Second)
 			})
 
 			t.Run("get non-existing target", func(t *testing.T) {
@@ -781,15 +792,17 @@ func TestDistributedVectorDistance(t *testing.T) {
 				}
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-				if tt.asyncIndexing {
-					time.Sleep(1 * time.Second)
-				}
+				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+					if !assert.Nil(collect, err) {
+						return
+					}
+					if !assert.Len(collect, res, 0) { // no results because we are searching for target custom3 which the only object does not have
+						return
+					}
 
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
-				require.Nil(t, err)
-				require.Len(t, res, 0) // no results because we are searching for target custom3 which the only object does not have
-
-				require.True(t, time.Since(start) < 19*time.Second) // this will fail if the remote call is retried and should be long enough to never be triggerd in normal conditions
+					assert.True(collect, time.Since(start) < 19*time.Second) // this will fail if the remote call is retried and should be long enough to never be triggerd in normal conditions
+				}, 20*time.Second, 1*time.Second)
 			})
 
 			t.Run("Multiple objects", func(t *testing.T) {
@@ -804,13 +817,11 @@ func TestDistributedVectorDistance(t *testing.T) {
 					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 				}
 
-				if tt.asyncIndexing {
-					time.Sleep(1 * time.Second)
-				}
-
-				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
-				require.Nil(t, err)
-				require.Greater(t, len(res), 0)
+				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+					assert.Nil(collect, err)
+					assert.Greater(collect, len(res), 0)
+				}, 20*time.Second, 1*time.Second)
 			})
 
 			for _, node := range nodes {

@@ -357,7 +357,13 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
-		if q.q.Size() == 0 {
+		size := q.q.Size()
+		s.Logger.
+			WithField("queue_id", q.q.ID()).
+			WithField("queue_size", size).
+			Debug("queue stats")
+
+		if size == 0 {
 			q.MarkAsUnscheduled()
 			continue
 		}
@@ -385,6 +391,10 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 		return 0, errors.Wrap(err, "failed to dequeue batch")
 	}
 	if batch == nil || len(batch.Tasks) == 0 {
+		s.Logger.
+			WithField("queue_id", q.q.ID()).
+			WithField("queue_size", q.q.Size()).
+			Debug("no tasks to schedule")
 		return 0, nil
 	}
 

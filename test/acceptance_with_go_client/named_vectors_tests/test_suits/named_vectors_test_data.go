@@ -347,5 +347,5 @@ func testAllObjectsIndexed(t *testing.T, client *wvt.Client, className string) {
 				assert.Equal(ct, "READY", s.VectorIndexingStatus)
 			}
 		}
-	}, 15*time.Second, 500*time.Millisecond)
+	}, 30*time.Second, 500*time.Millisecond)
 }

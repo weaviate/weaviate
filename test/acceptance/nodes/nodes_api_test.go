@@ -224,8 +224,8 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 		WithWeaviate().
 		WithText2VecContextionary().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms").
-		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "1ms").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
+		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -265,7 +265,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 				return nodeStatus.Shards[0].Compressed
 			}
 
-			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 15*time.Second)
 		})
 	})
 
@@ -338,7 +338,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 				return nodeStatus.Shards[0].Compressed
 			}
 
-			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 15*time.Second)
 		})
 	})
 }

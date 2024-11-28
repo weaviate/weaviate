@@ -72,8 +72,7 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 		WithWeaviate().
 		WithText2VecContextionary().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1ms").
-		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "1ms").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
