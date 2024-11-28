@@ -290,7 +290,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, adminKey, res.Payload[0])
+		require.Equal(t, adminUser, res.Payload[0])
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
@@ -298,7 +298,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminKey), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, existingRole, *res.Payload[0].Name)
