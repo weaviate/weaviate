@@ -15,7 +15,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -28,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -58,6 +56,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 			appState.ServerConfig.Config,
 			appState.Traverser,
 			appState.Modules,
+			appState.Authorizer,
 		)
 		if err != nil && err != utils.ErrEmptySchema {
 			appState.Logger.WithField("action", "graphql_rebuild").
@@ -68,9 +67,9 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider,
+	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.GraphQL, error) {
-	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -109,17 +108,10 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State) error {
-	if appState.ServerConfig.Config.EnableRBACEnforcer {
-		rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
-		casbin, err := rbac.Init(appState.ServerConfig.Config.Authentication.APIKey, rbacStoragePath)
-		if err != nil {
-			return err
-		}
-
-		rbacController := rbac.New(casbin, appState.Logger)
-		appState.Authorizer = rbacController
-		appState.AuthzController = rbacController
+func configureAuthorizer(appState *state.State, authorizer authorization.Authorizer) error {
+	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
+		appState.Authorizer = authorizer
 		return nil
 	}
 

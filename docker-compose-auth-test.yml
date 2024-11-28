@@ -26,9 +26,11 @@ services:
       RAFT_BOOTSTRAP_EXPECT: "1"
       DISABLE_TELEMETRY: "true"
       DISABLE_RECOVERY_ON_PANIC: "true"
-      AUTHORIZATION_ENABLE_RBAC: "true"
       AUTHENTICATION_APIKEY_ENABLED: "true"
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'viewer-key,editor-key,admin-key,custom-key'
       AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
-      AUTHENTICATION_APIKEY_ROLES: 'viewer,editor,admin,custom'
+      AUTHORIZATION_ENABLE_RBAC: "true"
+      AUTHORIZATION_ADMIN_USERS: "admin-user"
+      AUTHORIZATION_VIEWER_USERS: "viewer-user"
+
 

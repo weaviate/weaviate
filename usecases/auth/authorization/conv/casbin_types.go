@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -26,16 +28,21 @@ const (
 )
 
 var resourcePatterns = []string{
-	`^meta/users/.*$`,
-	`^meta/users/[^/]+$`,
-	`^meta/roles/.*$`,
-	`^meta/roles/[^/]+$`,
-	`^meta/cluster/.*$`,
-	`^meta/collections/.*$`,
-	`^meta/collections/[^/]+$`,
-	`^meta/collections/[^/]+/shards/.*$`,
-	`^data/collections/[^/]+/shards/[^/]+/objects/.*$`,
-	`^data/collections/[^/]+/shards/[^/]+/objects/[^/]+$`,
+	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.RolesDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.ClusterDomain),
+	fmt.Sprintf(`^%s/verbosity/minimal$`, authorization.NodesDomain),
+	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
+	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
+	fmt.Sprintf(`^%s/collections/.*$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -51,7 +58,26 @@ func fromCasbinResource(resource string) string {
 }
 
 func CasbinClusters() string {
-	return "meta/cluster/.*"
+	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
+}
+
+func CasbinNodes(verbosity, collection string) string {
+	if verbosity == "minimal" {
+		return fmt.Sprintf("%s/verbosity/minimal", authorization.NodesDomain)
+	}
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, collection)
+}
+
+func CasbinBackups(class string) string {
+	if class == "" {
+		class = "*"
+	}
+	class = strings.ReplaceAll(class, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s", authorization.BackupsDomain, class)
 }
 
 func CasbinUsers(user string) string {
@@ -59,7 +85,7 @@ func CasbinUsers(user string) string {
 		user = "*"
 	}
 	user = strings.ReplaceAll(user, "*", ".*")
-	return fmt.Sprintf("meta/users/%s", user)
+	return fmt.Sprintf("%s/%s", authorization.UsersDomain, user)
 }
 
 func CasbinRoles(role string) string {
@@ -67,7 +93,7 @@ func CasbinRoles(role string) string {
 		role = "*"
 	}
 	role = strings.ReplaceAll(role, "*", ".*")
-	return fmt.Sprintf("meta/roles/%s", role)
+	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
 func CasbinSchema(collection, shard string) string {
@@ -79,10 +105,10 @@ func CasbinSchema(collection, shard string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	return fmt.Sprintf("meta/collections/%s/shards/%s", collection, shard)
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
 }
 
-func CasbinObjects(collection, shard, object string) string {
+func CasbinData(collection, shard, object string) string {
 	if collection == "" {
 		collection = "*"
 	}
@@ -95,7 +121,7 @@ func CasbinObjects(collection, shard, object string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	object = strings.ReplaceAll(object, "*", ".*")
-	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", collection, shard, object)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
 func policy(permission *models.Permission) (*authorization.Policy, error) {
@@ -114,6 +140,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 
 	if !validVerb(verb) {
 		return nil, fmt.Errorf("invalid verb: %s", verb)
+	}
+
+	if permission.Collection != nil {
+		*permission.Collection = schema.UppercaseClassName(*permission.Collection)
 	}
 
 	var resource string
@@ -142,17 +172,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			tenant = *permission.Tenant
 		}
 		resource = CasbinSchema(collection, tenant)
-	case authorization.ObjectsCollectionsDomain:
-		collection := "*"
-		object := "*"
-		if permission.Collection != nil {
-			collection = *permission.Collection
-		}
-		if permission.Object != nil {
-			object = *permission.Object
-		}
-		resource = CasbinObjects(collection, "*", object)
-	case authorization.ObjectsTenantsDomain:
+	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -165,7 +185,27 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Object != nil {
 			object = *permission.Object
 		}
-		resource = CasbinObjects(collection, tenant, object)
+		resource = CasbinData(collection, tenant, object)
+	case authorization.BackupsDomain:
+		collection := "*"
+		if permission.Backup != nil {
+			if permission.Backup.Collection != nil {
+				collection = *permission.Backup.Collection
+			}
+		}
+		resource = CasbinBackups(collection)
+	case authorization.NodesDomain:
+		collection := "*"
+		verbosity := "minimal"
+		if permission.Nodes != nil {
+			if permission.Nodes.Collection != nil {
+				collection = *permission.Nodes.Collection
+			}
+			if permission.Nodes.Verbosity != nil {
+				verbosity = *permission.Nodes.Verbosity
+			}
+		}
+		resource = CasbinNodes(verbosity, collection)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
@@ -203,17 +243,36 @@ func permission(policy []string) (*models.Permission, error) {
 	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
-	case authorization.ObjectsCollectionsDomain, authorization.ObjectsTenantsDomain:
+	case authorization.DataDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
 		permission.Object = &splits[6]
 	case authorization.RolesDomain:
-		permission.Role = &splits[2]
+		permission.Role = &splits[1]
 	case authorization.UsersDomain:
-		permission.User = &splits[2]
+		permission.User = &splits[1]
 	case authorization.ClusterDomain:
 		// do nothing
+	case authorization.NodesDomain:
+		verbosity := splits[2]
+		var collection *string
+		if verbosity == "minimal" {
+			collection = nil
+		} else {
+			collection = &splits[4]
+		}
+		permission.Nodes = &models.PermissionNodes{
+			Collection: collection,
+			Verbosity:  &verbosity,
+		}
+	case authorization.BackupsDomain:
+		permission.Backup = &models.PermissionBackup{
+			Collection: &splits[2],
+		}
 	case *authorization.All:
+		permission.Backup = &models.PermissionBackup{
+			Collection: authorization.All,
+		}
 		permission.Collection = authorization.All
 		permission.Tenant = authorization.All
 		permission.Object = authorization.All

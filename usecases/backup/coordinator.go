@@ -61,8 +61,8 @@ type participantStatus struct {
 	Reason   string
 }
 
-// selector is used to select participant nodes
-type selector interface {
+// Selector is used to select participant nodes
+type Selector interface {
 	// Shards gets all nodes on which this class is sharded
 	Shards(ctx context.Context, class string) ([]string, error)
 	// ListClasses returns a list of all existing classes
@@ -90,11 +90,11 @@ type selector interface {
 // - The coordinator will try to repair previous DBROs whenever it is possible
 type coordinator struct {
 	// dependencies
-	selector     selector
+	selector     Selector
 	client       client
 	schema       schemaManger
 	log          logrus.FieldLogger
-	nodeResolver nodeResolver
+	nodeResolver NodeResolver
 
 	// state
 	Participants map[string]participantStatus
@@ -110,11 +110,11 @@ type coordinator struct {
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
 func newCoordinator(
-	selector selector,
+	selector Selector,
 	client client,
 	schema schemaManger,
 	log logrus.FieldLogger,
-	nodeResolver nodeResolver,
+	nodeResolver NodeResolver,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,

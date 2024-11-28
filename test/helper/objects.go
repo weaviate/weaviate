@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
@@ -56,10 +57,10 @@ func CreateClass(t *testing.T, class *models.Class) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func CreateClassWithAuthz(t *testing.T, class *models.Class, authInfo runtime.ClientAuthInfoWriter) {
+func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-	resp, err := Client(t).Schema.SchemaObjectsCreate(params, authInfo)
+	resp, err := Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -120,6 +121,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 			Objects: objects,
 		})
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
+	t.Helper()
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
@@ -303,10 +315,10 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func CreateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant, authInfo runtime.ClientAuthInfoWriter) {
+func CreateTenantsAuth(t *testing.T, class string, tenants []*models.Tenant, key string) {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
-	resp, err := Client(t).Schema.TenantsCreate(params, authInfo)
+	resp, err := Client(t).Schema.TenantsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 

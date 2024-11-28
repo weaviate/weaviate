@@ -12,10 +12,9 @@
 package rest
 
 import (
-	"errors"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
@@ -63,7 +62,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 				var forbidden autherrs.Forbidden
 				switch {
 				case errors.As(err, &forbidden):
-					return classifications.NewClassificationsGetForbidden().
+					return classifications.NewClassificationsPostForbidden().
 						WithPayload(errPayloadFromSingleErr(err))
 				default:
 					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))

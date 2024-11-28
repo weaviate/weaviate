@@ -13,6 +13,7 @@ package authorization
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,12 +35,13 @@ const (
 )
 
 const (
-	UsersDomain              = "users"
-	RolesDomain              = "roles"
-	ClusterDomain            = "cluster"
-	SchemaDomain             = "schema"
-	ObjectsCollectionsDomain = "data_collection_objects"
-	ObjectsTenantsDomain     = "data_tenant_objects"
+	UsersDomain   = "users"
+	RolesDomain   = "roles"
+	ClusterDomain = "cluster"
+	NodesDomain   = "nodes"
+	BackupsDomain = "backups"
+	SchemaDomain  = "schema"
+	DataDomain    = "data"
 )
 
 var Actions = map[string]string{
@@ -51,75 +53,81 @@ var Actions = map[string]string{
 	DELETE: "delete",
 }
 
-const (
-	ManageRoles   = "manage_roles"
-	ReadRoles     = "read_roles"
-	ManageUsers   = "manage_users"
-	ManageCluster = "manage_cluster"
+var (
+	All = String("*")
+
+	ComponentName = "RBAC"
+
+	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
+	// to be added to built in roles
+	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, schema, data
+	ManageRoles = "manage_roles"
+	ReadRoles   = "read_roles"
+	ManageUsers = "manage_users"
+	ReadCluster = "read_cluster"
+	ReadNodes   = "read_nodes"
+
+	ManageBackups = "manage_backups"
 
 	CreateSchema = "create_schema"
 	ReadSchema   = "read_schema"
 	UpdateSchema = "update_schema"
 	DeleteSchema = "delete_schema"
 
-	CreateObjectsCollection = "create_data_collection_objects"
-	ReadObjectsCollection   = "read_data_collection_objects"
-	UpdateObjectsCollection = "update_data_collection_objects"
-	DeleteObjectsCollection = "delete_data_collection_objects"
+	CreateData = "create_data"
+	ReadData   = "read_data"
+	UpdateData = "update_data"
+	DeleteData = "delete_data"
 
-	CreateObjectsTenant = "create_data_tenant_objects"
-	ReadObjectsTenant   = "read_data_tenant_objects"
-	UpdateObjectsTenant = "update_data_tenant_objects"
-	DeleteObjectsTenant = "delete_data_tenant_objects"
-)
+	availableWeaviateActions = []string{
+		// Roles domain
+		ManageRoles,
+		ReadRoles,
 
-var (
-	All = String("*")
+		// Backups domain
+		ManageBackups,
 
-	manageAllUsers = &models.Permission{
-		Action: String(ManageUsers),
-		Role:   All,
-	}
-	manageAllRoles = &models.Permission{
-		Action: String(ManageRoles),
-		Role:   All,
-	}
-	manageAllCluster = &models.Permission{
-		Action: String(ManageCluster),
-	}
+		// Users domain
+		ManageUsers,
 
-	createAllCollections = &models.Permission{
-		Action:     String(CreateSchema),
-		Collection: All,
-	}
-	readAllCollections = &models.Permission{
-		Action:     String(ReadSchema),
-		Collection: All,
-	}
-	updateAllCollections = &models.Permission{
-		Action:     String(UpdateSchema),
-		Collection: All,
-	}
-	deleteAllCollections = &models.Permission{
-		Action:     String(DeleteSchema),
-		Collection: All,
+		// Cluster domain
+		ReadCluster,
+
+		// Nodes domain
+		ReadNodes,
+
+		// Schema domain
+		CreateSchema,
+		ReadSchema,
+		UpdateSchema,
+		DeleteSchema,
+
+		// Data domain
+		CreateData,
+		ReadData,
+		UpdateData,
+		DeleteData,
 	}
 )
 
 var (
-	viewer          = "viewer"
+	Viewer          = "viewer"
 	editor          = "editor"
-	admin           = "admin"
-	BuiltInRoles    = []string{viewer, editor, admin}
+	Admin           = "admin"
+	BuiltInRoles    = []string{Viewer, editor, Admin}
 	BuiltInPolicies = map[string]string{
-		viewer: READ,
+		Viewer: READ,
 		editor: CRU,
-		admin:  CRUD,
+		Admin:  CRUD,
 	}
+
+	// viewer : can view everything , roles, users, schema, data
+	// editor : can create/read/update everything , roles, users, schema, data
+	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
-		viewer: {readAllCollections},
-		editor: {createAllCollections, readAllCollections, updateAllCollections},
-		admin:  {manageAllUsers, manageAllRoles, manageAllCluster, createAllCollections, readAllCollections, updateAllCollections, deleteAllCollections},
+		Viewer: viewerPermissions(),
+		editor: editorPermissions(),
+		Admin:  adminPermissions(),
 	}
 )
 
@@ -133,7 +141,34 @@ type Policy struct {
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
-	return "meta/cluster/*"
+	return fmt.Sprintf("%s/*", ClusterDomain)
+}
+
+func nodes(verbosity, class string) string {
+	if verbosity == "" {
+		verbosity = "minimal"
+	}
+	if verbosity == "minimal" {
+		return fmt.Sprintf("%s/verbosity/%s", NodesDomain, verbosity)
+	}
+	return fmt.Sprintf("%s/verbosity/%s/collections/%s", NodesDomain, verbosity, class)
+}
+
+func Nodes(verbosity string, classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{nodes(verbosity, "*")}
+	}
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = nodes(verbosity, "*")
+		} else {
+			resources[idx] = nodes(verbosity, classes[idx])
+		}
+	}
+
+	return resources
 }
 
 // Users generates a list of user resource strings based on the provided user names.
@@ -149,13 +184,13 @@ func Cluster() string {
 func Users(users ...string) []string {
 	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
 		return []string{
-			"meta/users/*",
+			fmt.Sprintf("%s/*", UsersDomain),
 		}
 	}
 
 	resources := make([]string, len(users))
 	for idx := range users {
-		resources[idx] = fmt.Sprintf("meta/users/%s", users[idx])
+		resources[idx] = fmt.Sprintf("%s/%s", UsersDomain, users[idx])
 	}
 
 	return resources
@@ -174,13 +209,13 @@ func Users(users ...string) []string {
 func Roles(roles ...string) []string {
 	if len(roles) == 0 || (len(roles) == 1 && (roles[0] == "" || roles[0] == "*")) {
 		return []string{
-			"meta/roles/*",
+			fmt.Sprintf("%s/*", RolesDomain),
 		}
 	}
 
 	resources := make([]string, len(roles))
 	for idx := range roles {
-		resources[idx] = fmt.Sprintf("meta/roles/%s", roles[idx])
+		resources[idx] = fmt.Sprintf("%s/%s", RolesDomain, roles[idx])
 	}
 
 	return resources
@@ -199,15 +234,15 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{"meta/collections/*/shards/*"}
+		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = "meta/collections/*/shards/*"
+			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*", classes[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
 		}
 	}
 
@@ -248,15 +283,15 @@ func ShardsMetadata(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("meta/collections/%s/shards/*", class)}
+		return []string{fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/*", class)
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)
 		} else {
-			resources[idx] = fmt.Sprintf("meta/collections/%s/shards/%s", class, shards[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/%s", SchemaDomain, class, shards[idx])
 		}
 	}
 
@@ -296,9 +331,103 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	if id == "" {
 		id = "*"
 	}
-	return fmt.Sprintf("data/collections/%s/shards/%s/objects/%s", class, shard, id)
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+}
+
+// Backups generates a resource string for the given classes.
+// If the backend is an empty string, it defaults to "*".
+
+// Parameters:
+// - class: the class name (string)
+
+// Returns:
+// - A string representing the resource path for the given classes.
+
+// Example outputs:
+// - "backups/*" if the backend is an empty string
+// - "backups/{backend}" for the provided backend
+func Backups(classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}
+	}
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/*", BackupsDomain)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s", BackupsDomain, classes[idx])
+		}
+	}
+
+	return resources
 }
 
 func String(s string) *string {
 	return &s
+}
+
+// viewer : can view everything , roles, users, schema, data
+func viewerPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Collection: All,
+			},
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
+}
+
+// editor : can create/read/update everything , roles, users, schema, data
+func editorPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		if strings.ToUpper(action)[0] == DELETE[0] {
+			continue
+		}
+
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Collection: All,
+			},
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
+}
+
+// Admin : aka basically super Admin or root
+func adminPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Backup: &models.PermissionBackup{
+				Collection: All,
+			},
+			Collection: All,
+			Tenant:     All,
+			Role:       All,
+			User:       All,
+		})
+	}
+
+	return perms
 }

@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -59,11 +60,12 @@ func newResources(s interface{}) (*resources, error) {
 }
 
 type resolver struct {
+	authorizer      authorization.Authorizer
 	modulesProvider ModulesProvider
 }
 
-func newResolver(modulesProvider ModulesProvider) *resolver {
-	return &resolver{modulesProvider}
+func newResolver(authorizer authorization.Authorizer, modulesProvider ModulesProvider) *resolver {
+	return &resolver{authorizer, modulesProvider}
 }
 
 func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
@@ -75,6 +77,13 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) {
+	principal := principalFromContext(p.Context)
+
+	err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...)
+	if err != nil {
+		return nil, err
+	}
+
 	resources, err := newResources(p.Source)
 	if err != nil {
 		return nil, err
@@ -117,8 +126,7 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 		params.WithCertaintyProp = true
 	}
 
-	return resources.resolver.Explore(p.Context,
-		principalFromContext(p.Context), params)
+	return resources.resolver.Explore(p.Context, principal, params)
 }
 
 func principalFromContext(ctx context.Context) *models.Principal {

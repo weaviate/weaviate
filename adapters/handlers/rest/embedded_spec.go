@@ -545,6 +545,35 @@ func init() {
         ]
       }
     },
+    "/authz/users/own-roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
+        ]
+      }
+    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
@@ -4177,6 +4206,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -4209,6 +4244,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -5352,25 +5393,54 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "read_nodes",
+            "read_cluster",
+            "manage_backups",
             "create_schema",
             "read_schema",
             "update_schema",
             "delete_schema",
-            "create_data_collection_objects",
-            "read_data_collection_objects",
-            "update_data_collection_objects",
-            "delete_data_collection_objects",
-            "create_data_tenant_objects",
-            "read_data_tenant_objects",
-            "update_data_tenant_objects",
-            "delete_data_tenant_objects"
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -5645,7 +5715,8 @@ func init() {
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         },
@@ -6806,6 +6877,35 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
+        ]
+      }
+    },
+    "/authz/users/own-roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
         ]
       }
     },
@@ -10566,6 +10666,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
           "type": "boolean",
@@ -10614,6 +10720,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -11916,25 +12028,54 @@ func init() {
             "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
+            "read_nodes",
+            "read_cluster",
+            "manage_backups",
             "create_schema",
             "read_schema",
             "update_schema",
             "delete_schema",
-            "create_data_collection_objects",
-            "read_data_collection_objects",
-            "update_data_collection_objects",
-            "delete_data_collection_objects",
-            "create_data_tenant_objects",
-            "read_data_tenant_objects",
-            "update_data_tenant_objects",
-            "delete_data_tenant_objects"
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -11955,6 +12096,37 @@ func init() {
           "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        }
+      }
+    },
+    "PermissionBackup": {
+      "description": "resources applicable for backup actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionNodes": {
+      "description": "resources applicable for cluster actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "verbosity": {
+          "description": "whether to allow (verbose) returning shards and stats data in the response",
+          "type": "string",
+          "default": "minimal",
+          "enum": [
+            "verbose",
+            "minimal"
+          ]
         }
       }
     },
@@ -12209,7 +12381,8 @@ func init() {
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "DeleteOnConflict"
+            "DeleteOnConflict",
+            "TimeBasedResolution"
           ],
           "x-omitempty": true
         },

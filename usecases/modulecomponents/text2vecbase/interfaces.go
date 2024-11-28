@@ -16,20 +16,20 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type TextVectorizer[T types.Vector] interface {
+type TextVectorizer[T types.Embedding] interface {
 	Object(ctx context.Context, object *models.Object,
 		cfg moduletools.ClassConfig) (T, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (T, error)
 }
 
-type TextVectorizerBatch[T types.Vector] interface {
+type TextVectorizerBatch[T types.Embedding] interface {
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (T, error)
 	Object(ctx context.Context, object *models.Object,
@@ -41,14 +41,14 @@ type MetaProvider interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-type BatchVectorizer[T types.Vector] struct {
+type BatchVectorizer[T types.Embedding] struct {
 	client           BatchClient[T]
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 	batchVectorizer  *batch.Batch[T]
 	tokenizerFunc    batch.TokenizerFuncType
 }
 
-type BatchClient[T types.Vector] interface {
+type BatchClient[T types.Embedding] interface {
 	batch.BatchClient[T]
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], error)

@@ -21,9 +21,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 type classBuilder struct {
+	authorizer      authorization.Authorizer
 	schema          *schema.Schema
 	knownClasses    map[string]*graphql.Object
 	beaconClass     *graphql.Object
@@ -32,13 +34,14 @@ type classBuilder struct {
 }
 
 func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) *classBuilder {
 	b := &classBuilder{}
 
 	b.logger = logger
 	b.schema = schema
 	b.modulesProvider = modulesProvider
+	b.authorizer = authorizer
 
 	b.initKnownClasses()
 	b.initBeaconClass()
@@ -100,7 +103,7 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-	classField := buildGetClassField(classObject, class, b.modulesProvider, fusionEnum)
+	classField := buildGetClassField(classObject, class, b.modulesProvider, fusionEnum, b.authorizer)
 	return &classField, nil
 }
 

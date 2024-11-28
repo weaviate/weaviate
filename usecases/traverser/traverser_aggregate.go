@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -29,11 +28,6 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 ) (interface{}, error) {
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
-
-	err := t.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(params.ClassName.String())...)
-	if err != nil {
-		return nil, err
-	}
 
 	unlock, err := t.locks.LockConnector()
 	if err != nil {

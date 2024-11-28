@@ -41,6 +41,7 @@ var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
 	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
+	EnabledBackupBackends() []modulecapabilities.BackupBackend
 }
 
 type schemaManger interface {
@@ -48,7 +49,7 @@ type schemaManger interface {
 	NodeName() string
 }
 
-type nodeResolver interface {
+type NodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 	AllNames() []string
 	NodeCount() int
