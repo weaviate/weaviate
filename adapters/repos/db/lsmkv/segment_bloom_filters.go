@@ -144,9 +144,11 @@ func (s *segment) precomputeBloomFilter() error {
 	}
 
 	if ok {
-		err := os.Remove(path)
-		if err != nil {
-			return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
+		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
+			WithField("path", path).
+			Debugf("temp bloom filter already exists - deleting")
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("delete existing primary temp bloom filter %s: %w", path, err)
 		}
 	}
 
@@ -263,7 +265,13 @@ func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
 	}
 
 	if ok {
-		return fmt.Errorf("a secondary bloom filter already exists with path %s", path)
+		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
+			WithField("secondary_index_position", pos).
+			WithField("path", path).
+			Debugf("temp bloom filter already exists - deleting")
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("delete existing secondary temp bloom filter %s: %w", path, err)
+		}
 	}
 
 	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {

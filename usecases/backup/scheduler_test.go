@@ -46,6 +46,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
 	t.Run("ValidateID", func(t *testing.T) {
 		_, err := s.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -54,6 +55,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
 	t.Run("IncludeExclude", func(t *testing.T) {
 		_, err := s.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -740,4 +742,39 @@ func TestFirstDuplicate(t *testing.T) {
 			t.Errorf("firstDuplicate(%v) want=%s got=%s", test.in, test.want, got)
 		}
 	}
+}
+
+func TestCancellingBackup(t *testing.T) {
+	var (
+		ctx           = context.Background()
+		backendName   = "s3"
+		backupID      = "abc"
+		fakeScheduler = newFakeScheduler(nil)
+		scheduler     = fakeScheduler.scheduler()
+	)
+
+	t.Run("ValidateEmptyID-Cancellation", func(t *testing.T) {
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, ""))
+	})
+
+	t.Run("ValidateID", func(t *testing.T) {
+		assert.NotNil(t, scheduler.Cancel(ctx, nil, backendName, "A*:"))
+	})
+
+	t.Run("CancellingSucceeded", func(t *testing.T) {
+		fakeScheduler := newFakeScheduler(nil)
+		ds := backup.BackupDescriptor{
+			Status: string(backup.Success),
+		}
+		b, err := json.Marshal(ds)
+		assert.Nil(t, err)
+
+		fakeScheduler.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(b, nil)
+		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, backupID)
+		assert.NotNil(t, err)
+		assert.Equal(t, fmt.Sprintf("backup %q already succeeded", backupID), err.Error())
+		fakeScheduler.backend.AssertExpectations(t)
+	})
 }

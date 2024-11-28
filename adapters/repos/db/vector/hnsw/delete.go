@@ -251,10 +251,9 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	if h.tombstoneCleanupRunning.Load() {
+	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
 		return false, errors.New("tombstone cleanup already running")
 	}
-	h.tombstoneCleanupRunning.Store(true)
 	defer h.tombstoneCleanupRunning.Store(false)
 
 	h.compressActionLock.RLock()
@@ -404,8 +403,6 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
-	h.resetLock.Lock()
-	defer h.resetLock.Unlock()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ctx, cancel := context.WithCancel(ctx)
@@ -434,12 +431,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
+					h.resetLock.RLock()
 					if h.getEntrypoint() != deletedID {
 						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
 							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
 						}
 					}
+					h.resetLock.RUnlock()
 				}
 			}
 		})
@@ -517,7 +516,7 @@ func (h *hnsw) reassignNeighbor(
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "reassignNeighbor")
 			return true, nil
 		} else {
 			// not a typed error, we can recover from, return with err

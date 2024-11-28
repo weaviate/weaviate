@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -106,17 +105,17 @@ func readRepair(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("assert new object read repair was made", func(t *testing.T) {
+	t.Run("require new object read repair was made", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 		time.Sleep(10 * time.Second)
 
 		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
-		assert.Equal(t, repairObj.ID, resp.ID)
-		assert.Equal(t, repairObj.Class, resp.Class)
-		assert.EqualValues(t, repairObj.Properties, resp.Properties)
-		assert.EqualValues(t, repairObj.Vector, resp.Vector)
+		require.Equal(t, repairObj.ID, resp.ID)
+		require.Equal(t, repairObj.Class, resp.Class)
+		require.EqualValues(t, repairObj.Properties, resp.Properties)
+		require.EqualValues(t, repairObj.Vector, resp.Vector)
 	})
 
 	replaceObj := repairObj
@@ -139,7 +138,7 @@ func readRepair(t *testing.T) {
 		require.True(t, exists)
 	})
 
-	t.Run("assert updated object read repair was made", func(t *testing.T) {
+	t.Run("require updated object read repair was made", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
 		time.Sleep(10 * time.Second)
 
@@ -151,9 +150,40 @@ func readRepair(t *testing.T) {
 		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
-		assert.Equal(t, replaceObj.ID, resp.ID)
-		assert.Equal(t, replaceObj.Class, resp.Class)
-		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
-		assert.EqualValues(t, replaceObj.Vector, resp.Vector)
+		require.Equal(t, replaceObj.ID, resp.ID)
+		require.Equal(t, replaceObj.Class, resp.Class)
+		require.EqualValues(t, replaceObj.Properties, resp.Properties)
+		require.EqualValues(t, replaceObj.Vector, resp.Vector)
+	})
+
+	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
+	})
+
+	t.Run("restart node 2", func(t *testing.T) {
+		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
+		require.Nil(t, err)
+	})
+
+	t.Run("deleted article should be present in node2", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("run exists to trigger read repair with deleted object resolution", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.All)
+		require.Nil(t, err)
+		require.False(t, exists)
+	})
+
+	t.Run("deleted article should still be present in node2 (object deletion is not resolved)", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.True(t, exists)
 	})
 }

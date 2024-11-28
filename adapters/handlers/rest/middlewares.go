@@ -192,9 +192,14 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
-			code := http.StatusServiceUnavailable
-			if state.DB.StartupComplete() && state.Cluster.ClusterHealthScore() == 0 {
-				code = http.StatusOK
+			code := http.StatusOK
+			if !state.DB.StartupComplete() || state.Cluster.ClusterHealthScore() != 0 {
+				code = http.StatusServiceUnavailable
+			} else if state.Modules != nil {
+				_, err := state.Modules.GetMeta()
+				if err != nil {
+					code = http.StatusServiceUnavailable
+				}
 			}
 			w.WriteHeader(code)
 			return

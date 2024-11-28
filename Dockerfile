@@ -4,7 +4,7 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.21-alpine AS build_base
+FROM golang:1.22-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
@@ -36,7 +36,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # This image gets grpc health check probe
 FROM golang:1.22-alpine AS grpc_health_probe_builder
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.29
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.34
 RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
 
 ###############################################################################
@@ -47,6 +47,6 @@ COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade ca-certificates openssl
+RUN apk add --no-cache --upgrade bc ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

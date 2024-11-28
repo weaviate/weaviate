@@ -54,7 +54,7 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 		dist, err := h.distBetweenNodeAndVec(candidate, queryVector)
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "flatSearch")
 			continue
 		}
 		if err != nil {

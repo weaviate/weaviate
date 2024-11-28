@@ -48,7 +48,7 @@ type hnsw struct {
 	tombstoneLock *sync.RWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.Mutex
+	resetLock *sync.RWMutex
 	// indicates whether reset operation occurred or not - if so tombstones cleanup method
 	// is aborted as it makes no sense anymore
 	resetCtx       context.Context
@@ -254,7 +254,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		distancerProvider:   cfg.DistanceProvider,
 		deleteLock:          &sync.Mutex{},
 		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.Mutex{},
+		resetLock:           &sync.RWMutex{},
 		resetCtx:            resetCtx,
 		resetCtxCancel:      resetCtxCancel,
 		shutdownCtx:         shutdownCtx,
@@ -427,7 +427,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
 			continue
 		}
 		if err != nil {
@@ -481,7 +481,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -497,7 +497,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -528,7 +528,7 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err

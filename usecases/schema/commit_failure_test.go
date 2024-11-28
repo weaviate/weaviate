@@ -157,7 +157,10 @@ func classWithDefaultsWithProps(t *testing.T, name string,
 	class.ShardingConfig = sc
 
 	class.VectorIndexConfig = fakeVectorConfig{}
-	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+	class.ReplicationConfig = &models.ReplicationConfig{
+		Factor:           1,
+		DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+	}
 	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 
 	(&fakeModuleConfig{}).SetClassDefaults(class)

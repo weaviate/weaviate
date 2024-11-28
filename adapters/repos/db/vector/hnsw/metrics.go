@@ -36,7 +36,7 @@ type Metrics struct {
 	tombstoneFindGlobalEntrypoint prometheus.Counter
 	tombstoneFindLocalEntrypoint  prometheus.Counter
 	tombstoneDeleteListSize       prometheus.Gauge
-	tombstoneUnexpected           prometheus.Counter
+	tombstoneUnexpected           prometheus.CounterVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -122,7 +122,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
-	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.With(prometheus.Labels{
+	tombstoneUnexpected := prom.VectorIndexTombstoneUnexpected.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 	})
@@ -160,7 +160,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneFindGlobalEntrypoint: tombstoneFindGlobalEntrypoint,
 		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
 		tombstoneDeleteListSize:       tombstoneDeleteListSize,
-		tombstoneUnexpected:           tombstoneUnexpected,
+		tombstoneUnexpected:           *tombstoneUnexpected,
 	}
 }
 
@@ -204,12 +204,12 @@ func (m *Metrics) AddTombstone() {
 	m.tombstones.Inc()
 }
 
-func (m *Metrics) AddUnexpectedTombstone() {
+func (m *Metrics) AddUnexpectedTombstone(operation string) {
 	if !m.enabled {
 		return
 	}
 
-	m.tombstoneUnexpected.Inc()
+	m.tombstoneUnexpected.With(prometheus.Labels{"operation": operation}).Inc()
 }
 
 func (m *Metrics) RemoveTombstone() {

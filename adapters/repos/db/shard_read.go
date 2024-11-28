@@ -240,7 +240,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher,
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
-		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -494,7 +494,7 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	return strfmt.UUID(prop[0]), nil
 }
 
-func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -519,7 +519,11 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
 
-	err = bucket.Delete(idBytes)
+	if deletionTime.IsZero() {
+		err = bucket.Delete(idBytes)
+	} else {
+		err = bucket.DeleteWith(idBytes, deletionTime)
+	}
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
@@ -544,10 +548,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	return nil
 }
 
-func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return false, err
+		return false, time.Time{}, err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)

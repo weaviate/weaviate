@@ -54,7 +54,7 @@ func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
 		go func() {
 			logger := logrus.New()
 			logger.Level = logrus.ErrorLevel
-			asyncWorker(ch, logger, itv)
+			NewAsyncWorker(ch, logger, itv).Run()
 		}()
 	}
 

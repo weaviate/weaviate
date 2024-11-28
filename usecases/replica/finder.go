@@ -70,15 +70,17 @@ func NewFinder(className string,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
+	deletionStrategy string,
 ) *Finder {
 	cl := finderClient{client}
 	return &Finder{
 		resolver: resolver,
 		finderStream: finderStream{
 			repairer: repairer{
-				class:  className,
-				client: cl,
-				logger: l,
+				class:            className,
+				deletionStrategy: deletionStrategy,
+				client:           cl,
+				logger:           l,
 			},
 			log: l,
 		},
@@ -95,18 +97,27 @@ func (f *Finder) GetOne(ctx context.Context,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
+
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
+
 			var x RepairResponse
+
 			if len(xs) == 1 {
 				x = xs[0]
 			}
-			r := objects.Replica{ID: id, Deleted: x.Deleted}
+
+			r := objects.Replica{
+				ID:                      id,
+				Deleted:                 x.Deleted,
+				LastUpdateTimeUnixMilli: x.UpdateTime,
+			}
+
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
@@ -129,7 +140,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
 	c := newReadCoordinator[[]strfmt.UUID](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
@@ -215,7 +226,7 @@ func (f *Finder) Exists(ctx context.Context,
 	id strfmt.UUID,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard,
-		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
 		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
@@ -263,7 +274,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 ) ([]*storobj.Object, error) {
 	var (
 		c = newReadCoordinator[batchReply](f, batch.Shard,
-			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
+			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)

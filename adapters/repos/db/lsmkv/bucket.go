@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -601,49 +602,69 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // There are 3 different locations that we need to check for the key
 // in this order: active memtable, flushing memtable, and disk
 // segment
-func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	if !b.keepTombstones {
-		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
-	switch err {
-	case nil:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	case lsmkv.NotFound:
-		// We can still check flushing and disk
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
 
 	if b.flushing != nil {
 		_, err := b.flushing.get(key)
-		switch err {
-		case nil:
-			return false, nil
-		case lsmkv.Deleted:
-			return true, nil
-		case lsmkv.NotFound:
-			// We can still check disk
-		default:
-			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		if err == nil {
+			return false, time.Time{}, nil
 		}
+		if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
 	}
 
 	_, err = b.disk.getErrDeleted(key)
-	switch err {
-	case nil, lsmkv.NotFound:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
 }
 
 type MapListOptionConfig struct {
@@ -682,7 +703,6 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	segments := [][]MapPair{}
-	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
@@ -706,11 +726,6 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segments = append(segments, segmentDecoded)
 	}
 
-	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
-
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
@@ -720,18 +735,11 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segments = append(segments, v)
 	}
 
-	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
 	segments = append(segments, v)
-	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// defer func() {
-	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
-	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
@@ -820,6 +828,17 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.setTombstone(key, opts...)
+}
+
+func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if !b.keepTombstones {
+		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
+	}
+
+	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not
@@ -1095,4 +1114,71 @@ func (b *Bucket) WriteWAL() error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.writeWAL()
+}
+
+func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := [][]terms.DocPointerWithScore{}
+	disk, err := b.disk.getCollectionBySegments(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, v.tombstone, propBoost); err != nil {
+				return nil, err
+			}
+		}
+		segments = append(segments, segmentDecoded)
+	}
+
+	if b.flushing != nil {
+		mem, err := b.flushing.getMap(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		docPointers := make([]terms.DocPointerWithScore, len(mem))
+		for i, v := range mem {
+			if err := docPointers[i].FromKeyVal(v.Key, v.Value, v.Tombstone, propBoost); err != nil {
+				return nil, err
+			}
+		}
+		segments = append(segments, docPointers)
+	}
+
+	mem, err := b.active.getMap(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	docPointers := make([]terms.DocPointerWithScore, len(mem))
+	for i, v := range mem {
+		if err := docPointers[i].FromKeyVal(v.Key, v.Value, v.Tombstone, propBoost); err != nil {
+			return nil, err
+		}
+	}
+	segments = append(segments, docPointers)
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return segments[i][a].Id < segments[i][b].Id
+			})
+		}
+	}
+
+	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }

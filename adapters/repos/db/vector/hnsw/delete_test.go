@@ -303,18 +303,49 @@ func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
 		}
 	})
 
-	t.Run("running two cleanups should start only once", func(t *testing.T) {
-		wg := sync.WaitGroup{}
-		wg.Add(1)
-		go func() {
-			wg.Done()
-			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-			require.Nil(t, err)
-		}()
+	t.Run("running two cleanups concurrently", func(t *testing.T) {
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+				results <- err
+			}()
+		}
+
 		wg.Wait()
-		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-		assert.NotNil(t, err)
-		assert.Equal(t, err.Error(), "tombstone cleanup already running")
+		close(results)
+
+		var errors []error
+		for err := range results {
+			errors = append(errors, err)
+		}
+
+		require.Len(t, errors, 2, "Expected exactly two results")
+
+		successCount := 0
+		alreadyRunningCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if err.Error() == "tombstone cleanup already running" {
+				alreadyRunningCount++
+			} else {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		}
+
+		// There is a possibility the first cleanup completes before the second one starts
+		assert.GreaterOrEqual(t, successCount, 1, "Expected at least one successful cleanup")
+		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
+		stats, err := vectorIndex.Stats()
+		require.Nil(t, err)
+		hnswStats, ok := stats.(*HnswStats)
+		require.True(t, ok)
+		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -874,6 +905,100 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
+	var (
+		vectorIndex *hnsw
+		// there is a single bulk clean event after all the deletes
+		vectors    = vectorsForDeleteTest()
+		rootPath   = t.TempDir()
+		userConfig = ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+			PQ: ent.PQConfig{
+				Enabled: false,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
+			},
+		}
+	)
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              rootPath,
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
+	deletedIds := make([]uint64, 0, len(vectors)/2)
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			deletedIds = append(deletedIds, uint64(i))
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("running the cleanup and an delete, the delete should not take forever", func(t *testing.T) {
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			allowList := helpers.NewAllowList(deletedIds...)
+			ok, err := vectorIndex.reassignNeighborsOf(allowList, slowNeverStop)
+			require.Nil(t, err)
+			require.True(t, ok)
+		}()
+		ellapsed := time.Duration(0)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Millisecond * 100)
+			starting := time.Now()
+			err := vectorIndex.Delete(vectorIndex.entryPointID)
+			ellapsed = time.Since(starting)
+			require.Nil(t, err)
+		}()
+		wg.Wait()
+		fmt.Println(ellapsed.Milliseconds())
+		assert.LessOrEqual(t, ellapsed.Milliseconds(), int64(180))
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -1467,6 +1592,11 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 }
 
 func neverStop() bool {
+	return false
+}
+
+func slowNeverStop() bool {
+	time.Sleep(time.Millisecond * 10)
 	return false
 }
 

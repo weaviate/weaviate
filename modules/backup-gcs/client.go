@@ -307,11 +307,8 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCl
 	writer.Metadata = map[string]string{"backup-id": backupID}
 
 	// if we return early make sure writer is closed
-	closeWriter := true
 	defer func() {
-		if closeWriter {
-			writer.Close()
-		}
+		writer.Close()
 	}()
 
 	// copy
@@ -319,10 +316,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCl
 	if err != nil {
 		return 0, fmt.Errorf("io.copy %q: %w", path, err)
 	}
-	closeWriter = false
-	if err := writer.Close(); err != nil {
-		return 0, fmt.Errorf("writer.close %q: %w", path, err)
-	}
+
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
 		GetMetricWithLabelValues(Name, "class"); err == nil {
 		metric.Add(float64(written))

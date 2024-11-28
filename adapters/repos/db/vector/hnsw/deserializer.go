@@ -31,6 +31,7 @@ type Deserializer struct {
 
 type DeserializationResult struct {
 	Nodes             []*vertex
+	NodesDeleted      map[uint64]struct{}
 	Entrypoint        uint64
 	Level             uint16
 	Tombstones        map[uint64]struct{}
@@ -86,6 +87,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 	if out == nil {
 		out = &DeserializationResult{
 			Nodes:             make([]*vertex, cache.InitialSize),
+			NodesDeleted:      make(map[uint64]struct{}),
 			Tombstones:        make(map[uint64]struct{}),
 			TombstonesDeleted: make(map[uint64]struct{}),
 			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
@@ -134,7 +136,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			err = d.ReadClearLinksAtLevel(fd, out, keepLinkReplaceInformation)
 			readThisRound = 10
 		case DeleteNode:
-			err = d.ReadDeleteNode(fd, out)
+			err = d.ReadDeleteNode(fd, out, out.NodesDeleted)
 			readThisRound = 8
 		case ResetIndex:
 			out.Entrypoint = 0
@@ -452,7 +454,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 	return nil
 }
 
-func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, nodesDeleted map[uint64]struct{}) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
@@ -468,6 +470,7 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	}
 
 	res.Nodes[id] = nil
+	nodesDeleted[id] = struct{}{}
 	return nil
 }
 
