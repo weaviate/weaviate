@@ -126,7 +126,8 @@ func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
 	e.schemaGetter = sg
 }
 
-// GetClass from search and connector repo
+// GetClass from search and connector repo. Returns search results for the given params.
+// Used by the Traverser, generally not called directly.
 func (e *Explorer) GetClass(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
