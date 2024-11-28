@@ -7,100 +7,108 @@ from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import RBAC
 
-from .conftest import _sanitize_role_name, generate_missing_permissions
+from .conftest import _sanitize_role_name, generate_missing_permissions, Role_Wrapper_Type
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
-def test_rbac_refs(request: SubRequest, admin_client, custom_client):
+@pytest.mark.parametrize("mt", [True, False])
+def test_rbac_refs(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+):
     col_name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([col_name + "target", col_name + "source"])
     # create two collections with some objects to test refs
-    target = admin_client.collections.create(name=col_name + "target")
+    target = admin_client.collections.create(
+        name=col_name + "target",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+    )
     source = admin_client.collections.create(
         name=col_name + "source",
         references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
+    if mt:
+        target.tenants.create("tenant1")
+        source.tenants.create("tenant1")
+        target = target.with_tenant("tenant1")
+        source = source.with_tenant("tenant1")
+
     uuid_target1 = target.data.insert({})
     uuid_target2 = target.data.insert({})
     uuid_source = source.data.insert(properties={})
     role_name = _sanitize_role_name(request.node.name)
     admin_client.roles.delete(role_name)
 
-    needed_permissions = [
+    required_permissions = [
         RBAC.permissions.config.read(collection=target.name),
         RBAC.permissions.config.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
     ]
-    admin_client.roles.create(
-        name=role_name,
-        permissions=needed_permissions,
-    )
-    admin_client.roles.assign(user="custom-user", roles=role_name)
-
-    source_no_rights = custom_client.collections.get(
-        source.name
-    )  # no network call => no RBAC check
-    source_no_rights.data.reference_add(
-        from_uuid=uuid_source,
-        from_property="ref",
-        to=uuid_target1,
-    )
-
-    source_no_rights.data.reference_replace(
-        from_uuid=uuid_source,
-        from_property="ref",
-        to=uuid_target2,
-    )
-
-    source_no_rights.data.reference_delete(
-        from_uuid=uuid_source,
-        from_property="ref",
-        to=uuid_target2,
-    )
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
-
-    for permissions in generate_missing_permissions(needed_permissions):
-        role = admin_client.roles.create(name=role_name, permissions=permissions)
-        admin_client.roles.assign(user="custom-user", roles=role.name)
-
+    with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
             source.name
         )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
-            source_no_rights.data.reference_add(
-                from_uuid=uuid_source,
-                from_property="ref",
-                to=uuid_target1,
-            )
-        assert e.value.status_code == 403
+        source_no_rights.data.reference_add(
+            from_uuid=uuid_source,
+            from_property="ref",
+            to=uuid_target1,
+        )
 
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
-            source_no_rights.data.reference_replace(
-                from_uuid=uuid_source,
-                from_property="ref",
-                to=uuid_target2,
-            )
-        assert e.value.status_code == 403
+        source_no_rights.data.reference_replace(
+            from_uuid=uuid_source,
+            from_property="ref",
+            to=uuid_target2,
+        )
 
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
-            source_no_rights.data.reference_delete(
-                from_uuid=uuid_source,
-                from_property="ref",
-                to=uuid_target1,
-            )
-        assert e.value.status_code == 403
+        source_no_rights.data.reference_delete(
+            from_uuid=uuid_source,
+            from_property="ref",
+            to=uuid_target2,
+        )
 
-        admin_client.roles.revoke(user="custom-user", roles=role.name)
-        admin_client.roles.delete(role.name)
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.reference_add(
+                    from_uuid=uuid_source,
+                    from_property="ref",
+                    to=uuid_target1,
+                )
+            assert e.value.status_code == 403
+
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.reference_replace(
+                    from_uuid=uuid_source,
+                    from_property="ref",
+                    to=uuid_target2,
+                )
+            assert e.value.status_code == 403
+
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.reference_delete(
+                    from_uuid=uuid_source,
+                    from_property="ref",
+                    to=uuid_target1,
+                )
+            assert e.value.status_code == 403
 
     admin_client.collections.delete([target.name, source.name])
 
 
-def test_batch_delete_with_filter(request: SubRequest, admin_client, custom_client) -> None:
+@pytest.mark.parametrize("mt", [True, False])
+def test_batch_delete_with_filter(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+) -> None:
     col_name = _sanitize_role_name(request.node.name)
 
     admin_client.collections.delete([col_name + "target", col_name + "source"])
@@ -108,95 +116,84 @@ def test_batch_delete_with_filter(request: SubRequest, admin_client, custom_clie
     target = admin_client.collections.create(
         name=col_name + "target",
         properties=[wvc.config.Property(name="prop", data_type=wvc.config.DataType.TEXT)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
     source = admin_client.collections.create(
         name=col_name + "source",
         references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
+    if mt:
+        target.tenants.create("tenant1")
+        source.tenants.create("tenant1")
+        target = target.with_tenant("tenant1")
+        source = source.with_tenant("tenant1")
+
     uuid_target1 = target.data.insert({})
 
     role_name = _sanitize_role_name(request.node.name)
     admin_client.roles.delete(role_name)
 
-    # read+delete for both
     uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
-
     source.data.reference_add(
         from_uuid=uuid_source,
         from_property="ref",
         to=uuid_target1,
     )
-    admin_client.roles.create(
-        name=role_name,
-        permissions=[
-            RBAC.permissions.config.read(collection=target.name),
-            RBAC.permissions.config.read(collection=source.name),
-            RBAC.permissions.data.delete(collection=target.name),
-            RBAC.permissions.data.delete(collection=source.name),
-            RBAC.permissions.data.read(
-                collection=target.name,
-            ),
-            RBAC.permissions.data.read(
-                collection=source.name,
-            ),
-        ],
-    )
-    admin_client.roles.assign(user="custom-user", roles=role_name)
-    assert len(source) == 1  # uses aggregate in background, cannot do that with restricted user
 
-    source_no_rights = custom_client.collections.get(
-        source.name
-    )  # no network call => no RBAC check
+    required_permissions = [
+        RBAC.permissions.config.read(collection=target.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.delete(collection=source.name),
+        RBAC.permissions.data.read(collection=target.name),
+        RBAC.permissions.data.read(collection=source.name),
+    ]
 
-    ret = source_no_rights.data.delete_many(
-        where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
-    )
-    assert ret.successful == 1
-    assert len(source) == 0  # uses aggregate in background, cannot do that with restricted user
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
+    # failing permissions first, so the object isn't actually deleted
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            assert (
+                len(source) == 1
+            )  # uses aggregate in background, cannot do that with restricted user
 
-    # read+delete for just one
-    for col in [source.name, target.name]:
-        uuid_source = source.data.insert(properties={}, references={"ref": uuid_target1})
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
 
-        source.data.reference_add(
-            from_uuid=uuid_source,
-            from_property="ref",
-            to=uuid_target1,
-        )
-        admin_client.roles.create(
-            name=role_name,
-            permissions=[
-                RBAC.permissions.data.delete(collection=col),
-                RBAC.permissions.config.read(collection=col),
-            ],
-        )
-        admin_client.roles.assign(user="custom-user", roles=role_name)
+            # deletion does not work
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                source_no_rights.data.delete_many(
+                    where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                )
+            assert "forbidden" in e.value.args[0]
+            assert (
+                len(source) == 1
+            )  # uses aggregate in background, cannot do that with restricted user
+
+    with role_wrapper(admin_client, request, required_permissions):
         assert len(source) == 1  # uses aggregate in background, cannot do that with restricted user
 
         source_no_rights = custom_client.collections.get(
             source.name
         )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
-        # deletion does not work
-        with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
-            source_no_rights.data.delete_many(
-                where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
-            )
-        assert "forbidden" in e.value.args[0]
-        assert len(source) == 1  # uses aggregate in background, cannot do that with restricted user
-
-        # delete from admin-collection so next iteration is "clean" again
-        source.data.delete_many(where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1))
-
-        admin_client.roles.revoke(user="custom-user", roles=role_name)
-        admin_client.roles.delete(role_name)
+        ret = source_no_rights.data.delete_many(
+            where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+        )
+        assert ret.successful == 1
+        assert len(source) == 0  # uses aggregate in background, cannot do that with restricted user
 
     admin_client.collections.delete([target.name, source.name])
 
 
-def test_search_with_filter_and_return(request: SubRequest, admin_client, custom_client) -> None:
+@pytest.mark.parametrize("mt", [True, False])
+def test_search_with_filter_and_return(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+) -> None:
     col_name = _sanitize_role_name(request.node.name)
 
     admin_client.collections.delete([col_name + "target", col_name + "source"])
@@ -204,107 +201,110 @@ def test_search_with_filter_and_return(request: SubRequest, admin_client, custom
     target = admin_client.collections.create(
         name=col_name + "target",
         properties=[wvc.config.Property(name="prop", data_type=wvc.config.DataType.TEXT)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
     source = admin_client.collections.create(
         name=col_name + "source",
         references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
+    if mt:
+        target.tenants.create("tenant1")
+        source.tenants.create("tenant1")
+        target = target.with_tenant("tenant1")
+        source = source.with_tenant("tenant1")
+
     uuid_target1 = target.data.insert({"prop": "word"})
     source.data.insert(properties={}, references={"ref": uuid_target1})
 
     role_name = _sanitize_role_name(request.node.name)
     admin_client.roles.delete(role_name)
 
-    # read for both
-    admin_client.roles.create(
-        name=role_name,
-        permissions=[
-            RBAC.permissions.config.read(
-                collection=target.name,
-            ),
-            RBAC.permissions.config.read(
-                collection=source.name,
-            ),
-            RBAC.permissions.data.read(
-                collection=source.name,
-            ),
-            RBAC.permissions.data.read(
-                collection=target.name,
-            ),
-        ],
-    )
-    admin_client.roles.assign(user="custom-user", roles=role_name)
-
-    source_no_rights = custom_client.collections.get(
-        source.name
-    )  # no network call => no RBAC check
-
-    ret_filter = source_no_rights.query.fetch_objects(
-        filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1),
-    )
-    assert len(ret_filter.objects) == 1
-
-    ret_return = source_no_rights.query.fetch_objects(
-        return_references=wvc.query.QueryReference(
-            link_on="ref",
-            return_properties=["prop"],
-        ),
-    )
-    assert len(ret_return.objects[0].references["ref"].objects) == 1
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
-
-    # read for just one
-    for col in [source.name, target.name]:
-        admin_client.roles.create(
-            name=role_name,
-            permissions=RBAC.permissions.config.read(
-                collection=col,
-            ),
-        )
-        admin_client.roles.assign(user="custom-user", roles=role_name)
-
+    required_permissions = [
+        RBAC.permissions.config.read(collection=target.name),
+        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.data.read(collection=source.name),
+        RBAC.permissions.data.read(collection=target.name),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
             source.name
         )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
-        with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
-            source_no_rights.query.fetch_objects(
-                filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
-            )
-        assert "forbidden" in e.value.args[0]
+        ret_filter = source_no_rights.query.fetch_objects(
+            filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1),
+        )
+        assert len(ret_filter.objects) == 1
 
-        with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
-            source_no_rights.query.fetch_objects(
-                return_references=wvc.query.QueryReference(
-                    link_on="ref",
-                    return_properties=["prop"],
-                ),
-            )
-        assert "forbidden" in e.value.args[0]
+        ret_return = source_no_rights.query.fetch_objects(
+            return_references=wvc.query.QueryReference(
+                link_on="ref",
+                return_properties=["prop"],
+            ),
+        )
+        assert len(ret_return.objects[0].references["ref"].objects) == 1
 
-        admin_client.roles.revoke(user="custom-user", roles=role_name)
-        admin_client.roles.delete(role_name)
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                source_no_rights.query.fetch_objects(
+                    filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
+                )
+            assert "forbidden" in e.value.args[0]
+
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                source_no_rights.query.fetch_objects(
+                    return_references=wvc.query.QueryReference(
+                        link_on="ref",
+                        return_properties=["prop"],
+                    ),
+                )
+            assert "forbidden" in e.value.args[0]
 
     admin_client.collections.delete([target.name, source.name])
 
 
-def test_batch_ref(request: SubRequest, admin_client, custom_client):
+@pytest.mark.parametrize("mt", [True, False])
+def test_batch_ref(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+):
     col_name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(
         [col_name + "target1", col_name + "target2", col_name + "source"]
     )
     # create two collections with some objects to test refs
-    target1 = admin_client.collections.create(name=col_name + "target1")
-    target2 = admin_client.collections.create(name=col_name + "target2")
+    target1 = admin_client.collections.create(
+        name=col_name + "target1",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+    )
+    target2 = admin_client.collections.create(
+        name=col_name + "target2",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+    )
     source = admin_client.collections.create(
         name=col_name + "source",
         references=[
             wvc.config.ReferenceProperty(name="ref1", target_collection=target1.name),
             wvc.config.ReferenceProperty(name="ref2", target_collection=target2.name),
         ],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
     )
+    if mt:
+        target1.tenants.create("tenant1")
+        target2.tenants.create("tenant1")
+        source.tenants.create("tenant1")
+        target1 = target1.with_tenant("tenant1")
+        target2 = target2.with_tenant("tenant1")
+        source = source.with_tenant("tenant1")
+
     source.config.add_reference(
         wvc.config.ReferenceProperty(name="self", target_collection=source.name)
     )
@@ -316,142 +316,119 @@ def test_batch_ref(request: SubRequest, admin_client, custom_client):
     admin_client.roles.delete(role_name)
 
     # self reference
-    self_permissions = [
+    required_permissions = [
         RBAC.permissions.config.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.data.read(collection=source.name),
     ]
-    admin_client.roles.create(name=role_name, permissions=self_permissions)
-    admin_client.roles.assign(user="custom-user", roles=role_name)
-
-    source_no_rights = custom_client.collections.get(
-        source.name
-    )  # no network call => no RBAC check
-    ret = source_no_rights.data.reference_add_many(
-        [DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source)]
-    )
-    assert len(ret.errors) == 0
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
-
-    for permissions in generate_missing_permissions(self_permissions):
-        role = admin_client.roles.create(name=role_name, permissions=permissions)
-        admin_client.roles.assign(user="custom-user", roles=role.name)
-
+    with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
             source.name
         )  # no network call => no RBAC check
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
-            source_no_rights.data.reference_add_many(
-                [DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source)]
-            )
-        assert e.value.status_code == 403
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
-        admin_client.roles.revoke(user="custom-user", roles=role_name)
-        admin_client.roles.delete(role_name)
+        ret = source_no_rights.data.reference_add_many(
+            [DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source)]
+        )
+        assert len(ret.errors) == 0
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.reference_add_many(
+                    [
+                        DataReference(
+                            from_property="self", from_uuid=uuid_source, to_uuid=uuid_source
+                        )
+                    ]
+                )
+            assert e.value.status_code == 403
 
     # ref to one target
-    ref1_permissions = [
+    required_permissions = [
         RBAC.permissions.config.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.data.read(collection=source.name),
+        RBAC.permissions.data.read(collection=target1.name),
         RBAC.permissions.config.read(collection=target1.name),
     ]
-    admin_client.roles.create(name=role_name, permissions=ref1_permissions)
-    admin_client.roles.assign(user="custom-user", roles=role_name)
 
-    source_no_rights = custom_client.collections.get(source.name)
-    ret = source_no_rights.data.reference_add_many(
-        [
-            DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
-            DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
-        ]
-    )
-    assert len(ret.errors) == 0
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(source.name)
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
+        ret = source_no_rights.data.reference_add_many(
+            [
+                DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
+            ]
+        )
+        assert len(ret.errors) == 0
 
     # without read permission for target that one reference fails
     # no rights to read target class
-    role = admin_client.roles.create(name=role_name, permissions=ref1_permissions[:-1])
-    admin_client.roles.assign(user="custom-user", roles=role.name)
+    with role_wrapper(admin_client, request, required_permissions[:-1]):
+        source_no_rights = custom_client.collections.get(source.name)
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        ret = source_no_rights.data.reference_add_many(
+            [
+                DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
+            ]
+        )
 
-    source_no_rights = custom_client.collections.get(source.name)
-    ret = source_no_rights.data.reference_add_many(
-        [
-            DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
-            DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
-        ]
-    )
-
-    assert len(ret.errors) == 1
-    assert "forbidden" in ret.errors[1].message
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
+        assert len(ret.errors) == 1
+        assert "forbidden" in ret.errors[1].message
 
     # ref to two targets
-    ref2_permissions = [
+    ref2_required_permissions = [
         RBAC.permissions.config.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.data.read(collection=source.name),
+        RBAC.permissions.data.read(collection=target1.name),
+        RBAC.permissions.data.read(collection=target2.name),
         RBAC.permissions.config.read(collection=target1.name),
         RBAC.permissions.config.read(collection=target2.name),
     ]
-    admin_client.roles.create(name=role_name, permissions=ref2_permissions)
-    admin_client.roles.assign(user="custom-user", roles=role_name)
+    with role_wrapper(admin_client, request, ref2_required_permissions):
+        source_no_rights = custom_client.collections.get(source.name)
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        ret = source_no_rights.data.reference_add_many(
+            [
+                DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
+                DataReference(from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2),
+            ]
+        )
+        assert len(ret.errors) == 0
 
-    source_no_rights = custom_client.collections.get(source.name)
-    ret = source_no_rights.data.reference_add_many(
-        [
-            DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
-            DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
-            DataReference(from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2),
-        ]
-    )
-    assert len(ret.errors) == 0
+    # without read permission for target collection config, references TO that collection fail
+    with role_wrapper(admin_client, request, ref2_required_permissions[:-1]):
+        source_no_rights = custom_client.collections.get(source.name)
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        ret = source_no_rights.data.reference_add_many(
+            [
+                DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
+                DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
+                DataReference(from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2),
+            ]
+        )
 
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
+        # only target where we miss permissions is failing
+        assert len(ret.errors) == 1
+        assert "forbidden" in ret.errors[2].message
 
-    # without read permission for target that one reference fails
-    # no rights to read target class
-    role = admin_client.roles.create(name=role_name, permissions=ref2_permissions[:-1])
-    admin_client.roles.assign(user="custom-user", roles=role.name)
-
-    source_no_rights = custom_client.collections.get(source.name)
-    ret = source_no_rights.data.reference_add_many(
-        [
-            DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
-            DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
-            DataReference(from_property="ref2", from_uuid=uuid_source, to_uuid=uuid_target2),
-        ]
-    )
-
-    # only target where we miss permissions is failing
-    assert len(ret.errors) == 1
-    assert "forbidden" in ret.errors[2].message
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
-
-    # data permission is not needed as the target uuid is not checked for existence
-    admin_client.roles.create(name=role_name, permissions=ref2_permissions)
-    admin_client.roles.assign(user="custom-user", roles=role_name)
-
-    source_no_rights = custom_client.collections.get(source.name)
-    ret = source_no_rights.data.reference_add_many(
-        [
-            DataReference(from_property="self", from_uuid=uuid_source, to_uuid=uuid_source),
-            DataReference(from_property="ref1", from_uuid=uuid_source, to_uuid=uuid_target1),
-            DataReference(  # silently fails => target collection is not accessed to check
-                from_property="ref2", from_uuid=uuid_source, to_uuid=uuid.uuid4()
-            ),
-        ]
-    )
-    assert len(ret.errors) == 0
-
-    admin_client.roles.revoke(user="custom-user", roles=role_name)
-    admin_client.roles.delete(role_name)
     admin_client.collections.delete(
         [col_name + "target1", col_name + "target2", col_name + "source"]
     )

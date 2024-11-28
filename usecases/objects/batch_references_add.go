@@ -81,20 +81,31 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	var mtTargetPaths []string
 	var schemaVersion uint64
 	for i, ref := range refs {
-		if ref.Err == nil {
-			if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-				// can only validate multi-tenancy when everything above succeeds
-				classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
-				if err != nil {
-					refs[i].Err = err
-				}
-				if classVersion > schemaVersion {
-					schemaVersion = classVersion
-				}
+		if ref.Err != nil {
+			continue
+		}
+
+		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			// can only validate multi-tenancy when everything above succeeds
+			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
+			if err != nil {
+				refs[i].Err = err
+			}
+			if classVersion > schemaVersion {
+				schemaVersion = classVersion
 			}
 		}
+
+		mtTargetPaths = append(mtTargetPaths, authorization.ShardsData(ref.To.Class, ref.Tenant)...)
+	}
+
+	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
+	// the permission for everything, to not complicate things too much
+	if err := b.authorizer.Authorize(principal, authorization.READ, mtTargetPaths...); err != nil {
+		return nil, err
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
