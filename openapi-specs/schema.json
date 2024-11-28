@@ -38,6 +38,26 @@
             }
           }
         },
+        "nodes": {
+          "type": "object",
+          "description": "resources applicable for cluster actions",
+          "properties": {
+            "verbosity": {
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ],
+              "description": "whether to allow (verbose) returning shards and stats data in the response"
+            },
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "object": {
           "type": "string",
           "default": "*",
@@ -72,7 +92,8 @@
             "manage_roles",
             "read_roles",
             
-            "manage_cluster",
+            "read_nodes",
+            "read_cluster",
             
             "manage_backups",
 

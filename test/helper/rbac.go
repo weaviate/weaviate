@@ -162,3 +162,35 @@ func (p *DataPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
+
+type NodesPermission models.Permission
+
+func NewNodesPermission() *NodesPermission {
+	return &NodesPermission{}
+}
+
+func (p *NodesPermission) WithAction(action string) *NodesPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *NodesPermission) WithVerbosity(verbosity string) *NodesPermission {
+	if p.Nodes == nil {
+		p.Nodes = &models.PermissionNodes{}
+	}
+	p.Nodes.Verbosity = authorization.String(verbosity)
+	return p
+}
+
+func (p *NodesPermission) WithCollection(collection string) *NodesPermission {
+	if p.Nodes == nil {
+		p.Nodes = &models.PermissionNodes{}
+	}
+	p.Nodes.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *NodesPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
