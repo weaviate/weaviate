@@ -413,15 +413,13 @@ func (q *DiskQueue) Wait() {
 }
 
 func (q *DiskQueue) Drop() error {
-	_ = q.Close()
+	err := q.Close()
+	if err != nil {
+		q.Logger.WithError(err).Error("failed to close queue")
+	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
-
-	err := q.w.Close()
-	if err != nil {
-		return errors.Wrap(err, "failed to close partial chunk")
-	}
 
 	// remove the directory
 	err = os.RemoveAll(q.dir)

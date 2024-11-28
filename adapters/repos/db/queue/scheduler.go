@@ -55,6 +55,8 @@ type SchedulerOptions struct {
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
+	var err error
+
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
@@ -65,10 +67,17 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 	}
 
 	if opts.ScheduleInterval == 0 {
+		var it time.Duration
 		v := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
-		it, err := time.ParseDuration(v)
-		if err != nil {
-			opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_INTERVAL, using default")
+
+		if v != "" {
+			it, err = time.ParseDuration(v)
+			if err != nil {
+				opts.Logger.WithError(err).WithField("value", v).Warn("failed to parse QUEUE_SCHEDULER_INTERVAL, using default")
+			}
+		}
+
+		if it == 0 {
 			it = 1 * time.Second
 		}
 		opts.ScheduleInterval = it
@@ -88,21 +97,23 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.ID()] = newQueueState(q)
+	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
 
 	q.Metrics().Registered(q.ID())
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
-	s.PauseQueue(id)
-
 	q := s.getQueue(id)
 	if q == nil {
 		return
 	}
 
+	s.PauseQueue(id)
+
+	q.cancelFn()
+
 	// wait for the workers to finish processing the queue's tasks
-	q.activeTasks.Wait()
+	s.Wait(id)
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
@@ -330,6 +341,10 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
+	if q.ctx.Err() != nil {
+		return 0, nil
+	}
+
 	batch, err := q.q.DequeueBatch()
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to dequeue batch")
@@ -375,9 +390,13 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			s.activeTasks.Decr()
 			q.activeTasks.Decr()
 			return taskCount, nil
+		case <-q.ctx.Done():
+			s.activeTasks.Decr()
+			q.activeTasks.Decr()
+			return taskCount, nil
 		case s.chans[i] <- Batch{
 			Tasks: partition,
-			Ctx:   s.ctx,
+			Ctx:   q.ctx,
 			onDone: func() {
 				defer s.activeTasks.Decr()
 				defer q.activeTasks.Decr()
@@ -453,14 +472,20 @@ type queueState struct {
 	paused      bool
 	scheduled   *common.SharedGauge
 	activeTasks *common.SharedGauge
+	ctx         context.Context
+	cancelFn    context.CancelFunc
 }
 
-func newQueueState(q Queue) *queueState {
-	return &queueState{
+func newQueueState(ctx context.Context, q Queue) *queueState {
+	qs := queueState{
 		q:           q,
 		scheduled:   common.NewSharedGauge(),
 		activeTasks: common.NewSharedGauge(),
 	}
+
+	qs.ctx, qs.cancelFn = context.WithCancel(ctx)
+
+	return &qs
 }
 
 func (qs *queueState) Paused() bool {
@@ -471,22 +496,13 @@ func (qs *queueState) Paused() bool {
 }
 
 func (qs *queueState) Scheduled() bool {
-	qs.m.RLock()
-	defer qs.m.RUnlock()
-
 	return qs.scheduled.Count() > 0
 }
 
 func (qs *queueState) MarkAsScheduled() {
-	qs.m.Lock()
-	defer qs.m.Unlock()
-
 	qs.scheduled.Incr()
 }
 
 func (qs *queueState) MarkAsUnscheduled() {
-	qs.m.Lock()
-	defer qs.m.Unlock()
-
 	qs.scheduled.Decr()
 }
