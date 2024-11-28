@@ -29,14 +29,15 @@ import (
 
 func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	adminKey := "admin-Key"
+	adminUser := "admin-User"
 	viewerKey := "viewer-key"
+	viewerUser := "viewer-User"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().WithWeaviate().WithBackendFilesystem().
-		WithRBAC().
-		WithRbacUser("admin-User", adminKey, "admin-User").
-		WithRbacUser("viewer-user", viewerKey, "viewer").Start(ctx)
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(viewerUser, viewerKey).
+		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewer(viewerUser).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {

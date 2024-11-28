@@ -834,10 +834,14 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
-	apiKeys := appState.ServerConfig.Config.Authentication.APIKey
-	controller, err := rbac.New(rbacStoragePath, apiKeys, appState.Logger)
+	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
+	var existingUsersApiKeys []string
+	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
+	}
+	controller, err := rbac.New(rbacStoragePath, rbacConfig, existingUsersApiKeys, appState.Logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithField("error", err).Error("cannot init casbin")
+		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
 	}
 	// assign authController

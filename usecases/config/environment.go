@@ -163,10 +163,6 @@ func FromEnv(config *Config) error {
 			config.Authentication.APIKey.Users = users
 		}
 
-		if rawRoles, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ROLES"); ok {
-			roles := strings.Split(rawRoles, ",")
-			config.Authentication.APIKey.Roles = roles
-		}
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
@@ -190,6 +186,20 @@ func FromEnv(config *Config) error {
 		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
 		if ok {
 			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
+	}
+
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+		config.Authorization.Rbac.Enabled = true
+
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+		}
+
+		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		if ok {
+			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
 		}
 	}
 
@@ -474,9 +484,6 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
-		config.EnableRBACEnforcer = true
-	}
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()

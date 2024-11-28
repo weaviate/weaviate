@@ -30,11 +30,9 @@ import (
 func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
-	adminRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
-	customRole := "custom"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -42,9 +40,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithRBAC().
-		WithRbacUser(adminUser, adminKey, adminRole).
-		WithRbacUser(customUser, customKey, customRole).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 
@@ -178,11 +175,9 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
-	adminRole := "admin"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
-	customRole := "custom"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -190,9 +185,8 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithRBAC().
-		WithRbacUser(adminUser, adminKey, adminRole).
-		WithRbacUser(customUser, customKey, customRole).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 
