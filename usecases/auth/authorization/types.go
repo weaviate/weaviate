@@ -66,7 +66,6 @@ var (
 	ManageCluster = "manage_cluster"
 
 	ManageBackups = "manage_backups"
-	ReadBackups   = "read_backups"
 
 	CreateSchema = "create_schema"
 	ReadSchema   = "read_schema"
@@ -82,6 +81,9 @@ var (
 		// Roles domain
 		ManageRoles,
 		ReadRoles,
+
+		// Backups domain
+		ManageBackups,
 
 		// Users domain
 		ManageUsers,
@@ -300,23 +302,33 @@ func Objects(class, shard string, id strfmt.UUID) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
 }
 
-// Backups generates a resource string for the given backend.
+// Backups generates a resource string for the given classes.
 // If the backend is an empty string, it defaults to "*".
 
 // Parameters:
-// - backend: the backend name (string)
+// - class: the class name (string)
 
 // Returns:
-// - A string representing the resource path for the given backend.
+// - A string representing the resource path for the given classes.
 
 // Example outputs:
 // - "backups/*" if the backend is an empty string
 // - "backups/{backend}" for the provided backend
-func Backups(backend string) string {
-	if backend == "" {
-		backend = "*"
+func Backups(classes ...string) []string {
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}
 	}
-	return fmt.Sprintf("%s/backends/%s", BackupsDomain, backend)
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/*", BackupsDomain)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s", BackupsDomain, classes[idx])
+		}
+	}
+
+	return resources
 }
 
 func String(s string) *string {
@@ -334,7 +346,7 @@ func viewerPermissions() []*models.Permission {
 		perms = append(perms, &models.Permission{
 			Action: &action,
 			Backup: &models.PermissionBackup{
-				Backend: All,
+				Collection: All,
 			},
 			Collection: All,
 			Tenant:     All,
@@ -357,7 +369,7 @@ func editorPermissions() []*models.Permission {
 		perms = append(perms, &models.Permission{
 			Action: &action,
 			Backup: &models.PermissionBackup{
-				Backend: All,
+				Collection: All,
 			},
 			Collection: All,
 			Tenant:     All,
@@ -376,7 +388,7 @@ func adminPermissions() []*models.Permission {
 		perms = append(perms, &models.Permission{
 			Action: &action,
 			Backup: &models.PermissionBackup{
-				Backend: All,
+				Collection: All,
 			},
 			Collection: All,
 			Tenant:     All,

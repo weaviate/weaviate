@@ -758,11 +758,11 @@ type fakeScheduler struct {
 	backend      *fakeBackend
 	backendErr   error
 	auth         authorization.Authorizer
-	nodeResolver nodeResolver
+	nodeResolver NodeResolver
 	log          logrus.FieldLogger
 }
 
-func newFakeScheduler(resolver nodeResolver) *fakeScheduler {
+func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 	fc := fakeScheduler{}
 	fc.backend = newFakeBackend()
 	fc.backendErr = nil

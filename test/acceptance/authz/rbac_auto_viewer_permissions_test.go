@@ -71,6 +71,9 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/graphql",
 		"/graphql/batch",
 		"/objects/validate",
+		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
+		"/backups/{backend}/{id}",
+		"/backups/{backend}/{id}/restore",
 	}
 
 	for _, endpoint := range endpoints {
