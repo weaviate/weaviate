@@ -37,22 +37,21 @@ import (
 func Test_Authorization(t *testing.T) {
 	req := &BackupRequest{ID: "123", Backend: "filesystem"}
 	type testCase struct {
-		methodName     string
-		additionalArgs []interface{}
-		classes        []string
-		expectedAuthz  map[string][]string
-		ignoreAuthZ    bool
+		methodName       string
+		additionalArgs   []interface{}
+		classes          []string
+		expectedVerb     string
+		expectedResource string
+		ignoreAuthZ      bool
 	}
 
 	tests := []testCase{
 		{
-			methodName:     "Backup",
-			additionalArgs: []interface{}{req},
-			expectedAuthz: map[string][]string{
-				authorization.CREATE: authorization.Backups("ABC"),
-				authorization.READ:   authorization.Collections("ABC"),
-			},
-			classes: []string{"ABC"},
+			methodName:       "Backup",
+			additionalArgs:   []interface{}{req},
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
 			methodName:     "BackupStatus",
@@ -61,13 +60,11 @@ func Test_Authorization(t *testing.T) {
 			ignoreAuthZ:    true,
 		},
 		{
-			methodName:     "Restore",
-			additionalArgs: []interface{}{req},
-			expectedAuthz: map[string][]string{
-				authorization.READ:   authorization.Backups("ABC"),
-				authorization.CREATE: authorization.Collections("ABC"),
-			},
-			classes: []string{"ABC"},
+			methodName:       "Restore",
+			additionalArgs:   []interface{}{req},
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
 			methodName:     "RestorationStatus",
@@ -76,12 +73,11 @@ func Test_Authorization(t *testing.T) {
 			ignoreAuthZ:    true,
 		},
 		{
-			methodName:     "Cancel",
-			additionalArgs: []interface{}{"filesystem", "123", "", ""},
-			expectedAuthz: map[string][]string{
-				authorization.DELETE: authorization.Backups("ABC"),
-			},
-			classes: []string{"ABC"},
+			methodName:       "Cancel",
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
+			expectedVerb:     authorization.CRUD,
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
 			methodName:     "List",
@@ -166,13 +162,7 @@ func Test_Authorization(t *testing.T) {
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					for verb, resources := range test.expectedAuthz {
-						if len(resources) > 1 {
-							authorizer.On("Authorize", mock.Anything, verb, resources[0], resources[1]).Return(nil)
-						} else {
-							authorizer.On("Authorize", mock.Anything, verb, resources[0]).Return(nil)
-						}
-					}
+					authorizer.On("Authorize", mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

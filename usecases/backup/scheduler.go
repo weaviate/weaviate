@@ -124,11 +124,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
-		return nil, err
-	}
-
-	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Collections(classes...)...); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(classes...)...); err != nil {
 		return nil, err
 	}
 
@@ -182,10 +178,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.READ, authorization.Backups(meta.Classes()...)...); err != nil {
-		return nil, err
-	}
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Collections(meta.Classes()...)...); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.CRUD, authorization.Backups(meta.Classes()...)...); err != nil {
 		return nil, err
 	}
 
@@ -227,9 +220,6 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	defer func(begin time.Time) {
 		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
 	}(time.Now())
-	// if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Backups(backend)); err != nil {
-	// 	return nil, err
-	// }
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
@@ -249,9 +239,6 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	defer func(begin time.Time) {
 		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
 	}(time.Now())
-	// if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Backups(backend)); err != nil {
-	// 	return nil, err
-	// }
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
@@ -288,7 +275,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
 	if meta != nil {
-		if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+		if err := s.authorizer.Authorize(principal, authorization.CRUD, authorization.Backups(meta.Classes()...)...); err != nil {
 			return err
 		}
 		// if existed meta and not in the next cases shall be cancellable

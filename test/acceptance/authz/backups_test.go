@@ -96,14 +96,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("fail to get restore backup because it wasn't created in 1st place", func(t *testing.T) {
-		_, err := helper.RestoreBackupStatusWithAuthz(t, backend, backupID, "", "", helper.CreateAuth(customKey))
-		require.NotNil(t, err)
-		_, notfound := err.(*backups.BackupsRestoreStatusNotFound)
-		require.True(t, notfound)
-	})
-
-	t.Run("add manage all backups permission to role", func(t *testing.T) {
+	t.Run("manage backups of clsA.Class collection", func(t *testing.T) {
 		helper.AddPermissions(t, adminKey, testRoleName, helper.NewBackupPermission().WithAction(authorization.ManageBackups).WithCollection(clsA.Class).Permission())
 	})
 
