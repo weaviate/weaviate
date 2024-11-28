@@ -37,6 +37,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 	readSchemaAction := authorization.ReadSchema
 	createDataAction := authorization.CreateData
+	updateSchemaAction := authorization.UpdateSchema
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -112,7 +113,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	updateSchemaRoleName := "updateSchema"
 	updateSchemaRole := &models.Role{
 		Name:        &updateSchemaRoleName,
-		Permissions: []*models.Permission{{Action: &readSchemaAction, Collection: &className}},
+		Permissions: []*models.Permission{{Action: &updateSchemaAction, Collection: &className}},
 	}
 	helper.DeleteRole(t, adminKey, *updateSchemaRole.Name)
 	helper.CreateRole(t, adminKey, updateSchemaRole)
@@ -137,7 +138,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 		_, err = createObject(t, &models.Object{
 			ID:         UUID4,
 			Class:      className,
-			Properties: map[string]interface{}{"other": "prop"},
+			Properties: map[string]interface{}{"different": "prop"},
 			Tenant:     "",
 		}, customKey)
 		require.NoError(t, err)
