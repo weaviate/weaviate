@@ -45,6 +45,54 @@ def test_obj_insert(
 
 
 @pytest.mark.parametrize("mt", [True, False])
+def test_obj_insert_ref(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+):
+    name = _sanitize_role_name(request.node.name)
+    admin_client.collections.delete([name + "source", name + "target"])
+    admin_client.roles.delete(name)
+    target = admin_client.collections.create(
+        name=name + "target", multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    source = admin_client.collections.create(
+        name=name + "source",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+        references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+    )
+
+    if mt:
+        source.tenants.create("tenant1")
+        target.tenants.create("tenant1")
+        target = target.with_tenant("tenant1")
+
+    uuid_target = target.data.insert({})
+
+    required_permissions = [
+        RBAC.permissions.data.create(collection=source.name),
+        RBAC.permissions.config.read(collection=source.name),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(
+            source.name
+        )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        source_no_rights.data.insert(properties={}, references={"ref": uuid_target})
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.insert(properties={}, references={"ref": uuid_target})
+            assert e.value.status_code == 403
+    admin_client.collections.delete(name)
+
+
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_replace(
     request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
@@ -85,6 +133,60 @@ def test_obj_replace(
 
 
 @pytest.mark.parametrize("mt", [True, False])
+def test_obj_replace_ref(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+):
+    name = _sanitize_role_name(request.node.name)
+    admin_client.collections.delete([name + "source", name + "target"])
+    admin_client.roles.delete(name)
+    target = admin_client.collections.create(
+        name=name + "target", multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    source = admin_client.collections.create(
+        name=name + "source",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+        references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+    )
+
+    if mt:
+        source.tenants.create("tenant1")
+        target.tenants.create("tenant1")
+        source = source.with_tenant("tenant1")
+        target = target.with_tenant("tenant1")
+
+    uuid_target = target.data.insert({})
+    uuid_to_replace = source.data.insert({})
+
+    required_permissions = [
+        RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.config.read(collection=source.name),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(
+            source.name
+        )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        source_no_rights.data.replace(
+            uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
+        )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.replace(
+                    uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
+                )
+            assert e.value.status_code == 403
+    admin_client.collections.delete(name)
+
+
+@pytest.mark.parametrize("mt", [True, False])
 def test_obj_update(
     request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
 ):
@@ -119,6 +221,60 @@ def test_obj_update(
                 source_no_rights = source_no_rights.with_tenant("tenant1")
             with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
                 source_no_rights.data.update(uuid=uuid_to_replace, properties={})
+            assert e.value.status_code == 403
+    admin_client.collections.delete(name)
+
+
+@pytest.mark.parametrize("mt", [True, False])
+def test_obj_update_ref(
+    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+):
+    name = _sanitize_role_name(request.node.name)
+    admin_client.collections.delete([name + "source", name + "target"])
+    admin_client.roles.delete(name)
+    target = admin_client.collections.create(
+        name=name + "target", multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt)
+    )
+    source = admin_client.collections.create(
+        name=name + "source",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+        references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+    )
+
+    if mt:
+        source.tenants.create("tenant1")
+        target.tenants.create("tenant1")
+        source = source.with_tenant("tenant1")
+        target = target.with_tenant("tenant1")
+
+    uuid_target = target.data.insert({})
+    uuid_to_replace = source.data.insert({})
+
+    required_permissions = [
+        RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.config.read(collection=source.name),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(
+            source.name
+        )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
+        source_no_rights.data.update(
+            uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
+        )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                source_no_rights.data.update(
+                    uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
+                )
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
 
