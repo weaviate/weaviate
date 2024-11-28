@@ -148,7 +148,7 @@ func TestHnswPqGist(t *testing.T) {
 	switch_at := 200000
 
 	before := time.Now()
-	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "gist", "../diskAnn/testdata")
+	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "gist", "../diskAnn/generated_testdata")
 	testinghelpers.Normalize(vectors)
 	testinghelpers.Normalize(queries)
 	for i, v := range vectors {
@@ -160,7 +160,7 @@ func TestHnswPqGist(t *testing.T) {
 	}
 	k := 100
 	distancer := distancer.NewCosineDistanceProvider()
-	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata/gist/cosine")
+	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/generated_testdata/gist/cosine")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 	for segmentRate := 3; segmentRate < 4; segmentRate++ {
 		fmt.Println(segmentRate)
@@ -320,10 +320,10 @@ func TestHnswPqSift(t *testing.T) {
 	switch_at := 200000
 	fmt.Println("Sift1M PQ")
 	before := time.Now()
-	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "sift", "../diskAnn/testdata")
+	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "sift", "../diskAnn/generated_testdata")
 	k := 100
 	distancer := distancer.NewL2SquaredProvider()
-	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
+	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/generated_testdata")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 	for i := 0; i < len(params); i++ {
 		fmt.Println(i)
@@ -424,10 +424,10 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 	switch_at := 2000
 	fmt.Println("Sift1M PQ Deletes")
 	before := time.Now()
-	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "sift", "../diskAnn/testdata")
+	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "sift", "../diskAnn/generated_testdata")
 	k := 100
 	distancer := distancer.NewL2SquaredProvider()
-	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
+	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/generated_testdata")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 	for segmentRate := 0; segmentRate < 1; segmentRate++ {
 		fmt.Println(segmentRate)
@@ -504,8 +504,8 @@ func TestHnswPqDeepImage(t *testing.T) {
 	}(rootPath)
 	vectors_size := 9990000
 	queries_size := 1000
-	vectors := parseFromTxt("../diskAnn/testdata/deep-image/train.txt", vectors_size)
-	queries := parseFromTxt("../diskAnn/testdata/deep-image/test.txt", queries_size)
+	vectors := parseFromTxt("../diskAnn/generated_testdata/deep-image/train.txt", vectors_size)
+	queries := parseFromTxt("../diskAnn/generated_testdata/deep-image/test.txt", queries_size)
 	dimensions := 96
 
 	params := [][]int{
@@ -520,7 +520,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 	before := time.Now()
 	k := 100
 	distancer := distancer.NewL2SquaredProvider()
-	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata/deep-image")
+	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/generated_testdata/deep-image")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 	for segmentRate := 1; segmentRate < 4; segmentRate++ {
 		fmt.Println(segmentRate)

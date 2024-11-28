@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -210,6 +211,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		ctx := context.Background()
 		if err != nil {
 			desc.Error = err.Error()
+			if errors.Is(err, context.Canceled) {
+				u.setStatus(backup.Cancelled)
+				desc.Status = string(backup.Cancelled)
+				u.releaseIndexes(classes, desc.ID)
+			}
 			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
 		} else {
 			u.log.Info("start uploading meta data")
@@ -225,6 +231,7 @@ Loop:
 		select {
 		case cdesc, ok := <-ch:
 			if !ok {
+				u.releaseIndexes(classes, desc.ID)
 				break Loop // we are done
 			}
 			if cdesc.Error != nil {
@@ -238,12 +245,32 @@ Loop:
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
 		case <-ctx.Done():
-			return ctx.Err()
+			ctxerr := ctx.Err()
+			if ctxerr != nil {
+				u.setStatus(backup.Cancelled)
+				desc.Status = string(backup.Cancelled)
+				u.releaseIndexes(classes, desc.ID)
+			}
+			return ctxerr
 		}
 	}
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
 	return nil
+}
+
+func (u *uploader) releaseIndexes(classes []string, ID string) {
+	for _, class := range classes {
+		className := class
+		enterrors.GoWrapper(func() {
+			if err := u.sourcer.ReleaseBackup(context.Background(), ID, className); err != nil {
+				u.log.WithFields(logrus.Fields{
+					"class":    className,
+					"backupID": ID,
+				}).Error("failed to release backup")
+			}
+		}, u.log)
+	}
 }
 
 // class uploads one class
@@ -259,7 +286,14 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}
 	defer func() {
 		// backups need to be released anyway
-		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
+		enterrors.GoWrapper(func() {
+			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
+				u.log.WithFields(logrus.Fields{
+					"class":    id,
+					"backupID": desc.Name,
+				}).Error("failed to release backup")
+			}
+		}, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
@@ -321,6 +355,9 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 						return err
 					}
 					for hasJobs.Load() {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
 						shards, err := u.compress(ctx, desc.Name, chunk, sender)
 						if err != nil {
@@ -366,13 +403,15 @@ func (u *uploader) compress(ctx context.Context,
 		defer zip.Close()
 		lastShardSize := int64(0)
 		for shard := range ch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if _, err := zip.WriteShard(ctx, shard); err != nil {
 				return err
 			}
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-
 			zip.gzw.Flush() // flush new shard
 			lastShardSize = zip.lastWritten() - lastShardSize
 			if zip.lastWritten()+lastShardSize > maxSize {

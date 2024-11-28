@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -228,7 +229,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search
-	addit := additional.Properties{}
+	addit := additional.Properties{Vector: true}
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
@@ -248,6 +249,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(3), res[3].DocID)
 		require.Equal(t, uint64(0), res[4].DocID)
 		require.Equal(t, uint64(2), res[5].DocID)
+
+		// vectors should be returned
+		require.NotNil(t, res[0].Vector)
 
 		// Without additionalExplanations no explainScore entry should be present
 		require.NotContains(t, res[0].Object.Additional, "explainScore")
@@ -997,7 +1001,6 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 }
 
 func TestBM25F_SortMultiProp(t *testing.T) {
-	t.Skip("Currently failing")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -1040,5 +1043,27 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 		// Document 1 is a result for both terms
 		require.Len(t, res, 1)
 		require.Equal(t, uint64(1), res[0].DocID)
+	})
+
+	t.Run("two docs to test additional explanations", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana", AdditionalExplanations: true}
+		res, _, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, additional: %v\n", r.DocID, r.ExplainScore(), r.Object.Additional)
+		}
+
+		// We have two results, one that matches both terms and one that matches only one
+		require.Len(t, res, 2)
+		require.Equal(t, uint64(1), res[0].DocID)
+		// these assertions failed if we didn't swap the positions of the additional explanations, as we would be getting the explanations from the second doc
+		explanationString := fmt.Sprintf("%f", res[0].Object.Additional["explainScore"])
+		require.True(t, strings.Contains(explanationString, "BM25F_pepper_frequency:1"))
+		require.True(t, strings.Contains(explanationString, "BM25F_pepper_propLength:1"))
+		require.True(t, strings.Contains(explanationString, "BM25F_banana_frequency:1"))
+		require.True(t, strings.Contains(explanationString, "BM25F_banana_propLength:1"))
 	})
 }

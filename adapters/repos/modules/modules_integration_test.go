@@ -35,7 +35,7 @@ func mustRandIntn(max int64) int {
 }
 
 func Test_ModuleStorage(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", mustRandIntn(10000000))
+	dirName := fmt.Sprintf("./generated_testdata/%d", mustRandIntn(10000000))
 	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)

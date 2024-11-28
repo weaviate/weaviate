@@ -64,6 +64,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         class.ReplicationConfig.Factor,
+			DeletionStrategy:          class.ReplicationConfig.DeletionStrategy,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will

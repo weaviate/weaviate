@@ -31,6 +31,8 @@ const (
 	DefaultBaseURL               = "https://api.jina.ai"
 )
 
+var DefaultDimensions int64 = 1024
+
 type classSettings struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
@@ -46,6 +48,10 @@ func (cs *classSettings) Model() string {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.getProperty("baseURL", DefaultBaseURL)
+}
+
+func (cs *classSettings) Dimensions() *int64 {
+	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", &DefaultDimensions)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {

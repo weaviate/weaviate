@@ -34,6 +34,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -240,6 +241,12 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
 	return d
@@ -343,7 +350,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
 		ctx,
-		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
 	networkName := network.Name
@@ -500,7 +506,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		if d.withWeaviateAuth {
 			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
 			envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 			envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"

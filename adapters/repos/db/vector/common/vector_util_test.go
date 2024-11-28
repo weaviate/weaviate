@@ -79,3 +79,56 @@ func TestVectorUtil_Equal(t *testing.T) {
 		})
 	}
 }
+
+func Test_CalculateOptimalSegments(t *testing.T) {
+	type testCase struct {
+		dimensions       int
+		expectedSegments int
+	}
+
+	for _, tc := range []testCase{
+		{
+			dimensions:       2048,
+			expectedSegments: 256,
+		},
+		{
+			dimensions:       1536,
+			expectedSegments: 256,
+		},
+		{
+			dimensions:       768,
+			expectedSegments: 128,
+		},
+		{
+			dimensions:       512,
+			expectedSegments: 128,
+		},
+		{
+			dimensions:       256,
+			expectedSegments: 64,
+		},
+		{
+			dimensions:       125,
+			expectedSegments: 125,
+		},
+		{
+			dimensions:       64,
+			expectedSegments: 32,
+		},
+		{
+			dimensions:       27,
+			expectedSegments: 27,
+		},
+		{
+			dimensions:       19,
+			expectedSegments: 19,
+		},
+		{
+			dimensions:       2,
+			expectedSegments: 1,
+		},
+	} {
+		segments := CalculateOptimalSegments(tc.dimensions)
+		assert.Equal(t, tc.expectedSegments, segments)
+	}
+}

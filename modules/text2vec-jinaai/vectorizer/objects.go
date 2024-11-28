@@ -67,8 +67,9 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	// vectorize text
 	icheck := NewClassSettings(cfg)
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Model:   icheck.Model(),
-		BaseURL: icheck.BaseURL(),
+		Model:      icheck.Model(),
+		BaseURL:    icheck.BaseURL(),
+		Dimensions: icheck.Dimensions(),
 	})
 	if err != nil {
 		return nil, err

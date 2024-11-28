@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,75 +25,143 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
+// findCompactionCandidates looks for pair of segments eligible for compaction
+// into single segment.
+// Segments use level property to mark how many times they were compacted.
+//
+// By default pair of segments with lowest matching levels is searched. If there are more
+// than 2 segments of the same level, the oldest ones are picked.
+// Behaviour of the method can be changed with 2 segment group settings:
+// - maxSegmentSize (prevents segments being compacted into single segment of too large size)
+// - compactLeftOverSegments (allows picking for compaction segments of not equal levels)
+// Regardless of compaction settings, following constraints have to be met:
+// - only consecutive segments can be merged to keep order of creations/updates/deletions of data stored
+// - newer segments have levels lower or equal than levels of older segments (descendent order is kept)
+//
+// E.g. out of segments: s1(4), s2(3), s3(3), s4(2), s5(2), s6(2), s7(1), s8(0), s4+s5 will be
+// selected for compaction first producing single segment s4s5(3), then s2+s3 producing s2s3(4),
+// then s1+s2s3 producing s1s2s3(5). Until new segment s9(0) will be added to segment group,
+// no next pair will be returned, as all segments will have different levels.
+//
+// If maxSegmentSize is set, estimated total size of compacted segment must not exceed given limit.
+// Only pair of segments having sum of sizes <= maxSegmentSize can be returned by the method. If there
+// exist older segments with same lavel as level of selected pair, level of compacted segment will
+// not be changed to ensure no new segment have higher level than older ones. If there is no segment
+// having same level as selected pair, new segment's level will be incremented.
+// E.g. out of segments: s1(4), s2(3), s3(3), s4(2), s5(2), s6(2), s7(1), s8(0),
+// when s4.size+s5.size > maxSegmentSize, but s5.size+s6.size <= maxSegmentSize, s5+s6 will be selected
+// first for compaction producing segment s5s6(2) (note same level, due to older s2(2)).
+// If s2.size+s3.size <= maxSegmentSize, then s2+s3 producing s2s3(4) (note incremented level,
+// due to no older segment of level 3). If s1.size+s2s3.size <= maxSegmentSize s1s2s3(5) will be produced,
+// if not, no other pair will be returned until new segments will be added to segment group.
+//
+// If compactLeftOverSegments is set, pair of segments of lowest levels, though similar in sizes
+// can be returned if no pair of matching levels will be found. Segment sizes need to be close to each
+// other to prevent merging large segments (GiB) with tiny one (KiB). Level of newly produced segment
+// will be the same as level of larger(left) segment.
+// maxSegmentSize ise respected for pair of leftover segments.
+func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	// if true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
 	// SegmentGroup should refrain from flushing until its
 	// shard indicates otherwise
 	if sg.isReadyOnly() {
-		return nil
+		return nil, 0
 	}
+
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
 
 	// Nothing to compact
 	if len(sg.segments) < 2 {
-		return nil
+		return nil, 0
 	}
 
-	// first determine the lowest level with candidates
-	levels := map[uint16]int{}
-	lowestPairLevel := uint16(math.MaxUint16)
-	lowestLevel := uint16(math.MaxUint16)
-	lowestIndex := -1
-	secondLowestIndex := -1
-	pairExists := false
+	matchingPairFound := false
+	leftoverPairFound := false
+	var matchingLeftId, leftoverLeftId int
+	var matchingLevel, leftoverLevel uint16
 
-	for ind, seg := range sg.segments {
-		levels[seg.level]++
-		val := levels[seg.level]
-		if val > 1 {
-			if seg.level < lowestPairLevel {
-				lowestPairLevel = seg.level
-				pairExists = true
+	// as newest segments are prioritized, loop in reverse order
+	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
+		left, right := sg.segments[leftId], sg.segments[leftId+1]
+
+		if left.level == right.level {
+			if sg.compactionFitsSizeLimit(left, right) {
+				// max size not exceeded
+				matchingPairFound = true
+				matchingLeftId = leftId
+				matchingLevel = left.level + 1
+			} else if matchingPairFound {
+				// older segment of same level as pair's level exist.
+				// keep unchanged level
+				matchingLevel = left.level
 			}
-		}
-
-		if seg.level < lowestLevel {
-			secondLowestIndex = lowestIndex
-			lowestLevel = seg.level
-			lowestIndex = ind
-		}
-	}
-
-	if pairExists {
-		// now pick any two segments which match the level
-		var res []int
-
-		for i, segment := range sg.segments {
-			if len(res) >= 2 {
+		} else {
+			if matchingPairFound {
+				// moving to segments of higher level, but matching pair is already found.
+				// stop further search
 				break
 			}
-
-			if segment.level == lowestPairLevel {
-				res = append(res, i)
+			if sg.compactLeftOverSegments && !leftoverPairFound {
+				// eftover segments enabled, none leftover pair found yet
+				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.size, right.size) {
+					// max size not exceeded, segment sizes similar despite different levels
+					leftoverPairFound = true
+					leftoverLeftId = leftId
+					leftoverLevel = left.level
+				}
 			}
 		}
-
-		return res
-	} else {
-		if sg.compactLeftOverSegments {
-			// Some segments exist, but none are of the same level
-			// Merge the two lowest segments
-
-			return []int{secondLowestIndex, lowestIndex}
-		} else {
-			// No segments of the same level exist, and we are not allowed to merge the lowest segments
-			// This means we cannot compact.  Set COMPACT_LEFTOVER_SEGMENTS to true to compact the remaining segments
-			return nil
-		}
 	}
+
+	if matchingPairFound {
+		return []int{matchingLeftId, matchingLeftId + 1}, matchingLevel
+	}
+	if leftoverPairFound {
+		return []int{leftoverLeftId, leftoverLeftId + 1}, leftoverLevel
+	}
+	return nil, 0
+}
+
+func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
+	MiB := int64(1024 * 1024)
+	GiB := 1024 * MiB
+
+	threshold1 := 10 * MiB
+	threshold2 := 100 * MiB
+	threshold3 := GiB
+	threshold4 := 10 * GiB
+
+	factor2 := int64(10)
+	factor3 := int64(5)
+	factor4 := int64(3)
+	factorDef := int64(2)
+
+	// if both sizes less then 10 MiB
+	if leftSize <= threshold1 && rightSize <= threshold1 {
+		return true
+	}
+
+	lowerSize, higherSize := leftSize, rightSize
+	if leftSize > rightSize {
+		lowerSize, higherSize = rightSize, leftSize
+	}
+
+	// if higher size less than 100 MiB and not 10x bigger than lower
+	if higherSize <= threshold2 && lowerSize*factor2 >= higherSize {
+		return true
+	}
+	// if higher size less than 1 GiB and not 5x bigger than lower
+	if higherSize <= threshold3 && lowerSize*factor3 >= higherSize {
+		return true
+	}
+	// if higher size less than 10 GiB and not 3x bigger than lower
+	if higherSize <= threshold4 && lowerSize*factor4 >= higherSize {
+		return true
+	}
+	// if higher size not 2x bigger than lower
+	return lowerSize*factorDef >= higherSize
 }
 
 // segmentAtPos retrieves the segment for the given position using a read-lock
@@ -117,7 +184,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// that the array contents stay stable over the duration of an entire
 	// compaction. We do however need to protect against a read-while-write (race
 	// condition) on the array. Thus any read from sg.segments need to protected
-	pair := sg.bestCompactionCandidatePair()
+
+	pair, level := sg.findCompactionCandidates()
 	if pair == nil {
 		// nothing to do
 		return false, nil
@@ -146,12 +214,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
-	if !sg.compactionFitsSizeLimit(leftSegment, rightSegment) {
-		// nothing to do this round, let's wait for the next round in the hopes
-		// that we'll find smaller (lower-level) segments that can still fit.
-		return false, nil
-	}
-
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
 	f, err := os.Create(path)
@@ -161,15 +223,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	scratchSpacePath := rightSegment.path + "compaction.scratch.d"
 
-	// the assumption is that the first element is older, and/or a higher level
-	level := leftSegment.level
-	secondaryIndices := leftSegment.secondaryIndexCount
-
-	if level == rightSegment.level {
-		level = level + 1
-	}
-
 	strategy := leftSegment.strategy
+	secondaryIndices := leftSegment.secondaryIndexCount
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
@@ -262,35 +317,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.segments[old2].countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
-	err := func() error {
-		sg.maintenanceLock.Lock()
-		defer sg.maintenanceLock.Unlock()
-
-		leftSegment := sg.segments[old1]
-		rightSegment := sg.segments[old2]
-		newSegmentId := "segment-" + segmentID(leftSegment.path) + "_" + segmentID(rightSegment.path)
-
-		// delete any existing bloom tmp files in the form of segment-<seg1>_<seg2>*bloom.tmp
-		tmpFiles, err := filepath.Glob(filepath.Join(sg.dir, newSegmentId+"*bloom.tmp"))
-		if err != nil {
-			return errors.Wrap(err, "glob tmp files")
-		}
-
-		for _, tmpFile := range tmpFiles {
-			err = os.Remove(tmpFile)
-			if err != nil {
-				return errors.Wrap(err, "remove tmp file")
-			}
-		}
-		return nil
-	}()
-	if err != nil {
-		return err
-	}
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
-
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
@@ -301,6 +327,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
+
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")

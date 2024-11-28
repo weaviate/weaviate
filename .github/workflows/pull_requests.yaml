@@ -3,7 +3,7 @@ name: Tests
 on:
   push:
     branches:
-      - master
+      - main
       - 'stable/v*'
     tags:
       - '**'
@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -42,12 +42,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.22.0
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+            # NOTE: needed because sometimes GHCR hits the rate limit AWS will be used instead
+            TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db"
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
@@ -61,7 +64,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -78,7 +81,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -109,7 +112,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh ${{ matrix.test }}
@@ -130,7 +133,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Acceptance tests Large (modules)
         run: ./test/run.sh ${{ matrix.test }}
@@ -149,7 +152,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: check
         env:
@@ -164,7 +167,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
@@ -172,7 +175,7 @@ jobs:
       - name: Acceptance tests (modules)
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         run: PALM_APIKEY=$(gcloud auth print-access-token) ./test/run.sh ${{ matrix.test }}
   Modules-Acceptance-Tests-aws:
     name: modules-acceptance-tests-aws
@@ -189,7 +192,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: check
         env:
@@ -240,7 +243,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Acceptance tests
         env:
@@ -276,7 +279,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: goreleaser
         run: |
@@ -328,7 +331,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: start weaviate
         shell: bash
@@ -360,6 +363,7 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
@@ -380,4 +384,5 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh

@@ -65,6 +65,10 @@ func clusterBackupJourneyTest(t *testing.T, backend, className,
 			checkClassAndDataPresence, tenantNames, pqEnabled)
 	})
 
+	t.Run(fmt.Sprintf("cancelling with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
+		backupJourneyWithCancellation(t, className, backend, fmt.Sprintf("%s-with-cancellation", backupID), clusterJourney)
+	})
+
 	t.Run("cleanup", func(t *testing.T) {
 		helper.DeleteClass(t, className)
 	})

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -225,7 +226,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
@@ -237,9 +238,9 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
+	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string,
 ) error {
-	args := f.Called(className, id)
+	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
 

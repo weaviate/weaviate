@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -28,28 +29,45 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 )
 
+type (
+	task          string
+	embeddingType string
+)
+
+const (
+	// taskType
+	retrievalQuery   task = "retrieval.query"
+	retrievalPassage task = "retrieval.passage"
+	// embeddingType
+	embeddingTypeFloat   embeddingType = "float"
+	embeddingTypeBase64  embeddingType = "base64"
+	embeddingTypeBinary  embeddingType = "binary"
+	embeddingTypeUbinary embeddingType = "ubinary"
+)
+
 type embeddingsRequest struct {
-	Input []string `json:"input"`
-	Model string   `json:"model,omitempty"`
+	Input         []string      `json:"input"`
+	Model         string        `json:"model,omitempty"`
+	EmbeddingType embeddingType `json:"embedding_type,omitempty"`
+	Normalized    bool          `json:"normalized,omitempty"`
+	Task          *task         `json:"task,omitempty"`
+	Dimensions    *int64        `json:"dimensions,omitempty"`
+}
+
+type jinaErrorDetail struct {
+	Detail string `json:"detail,omitempty"` // in case of error detail holds the error message
 }
 
 type embedding struct {
+	jinaErrorDetail
 	Object string          `json:"object"`
 	Data   []embeddingData `json:"data,omitempty"`
-	Error  *jinaAIApiError `json:"error,omitempty"`
 }
 
 type embeddingData struct {
 	Object    string    `json:"object"`
 	Index     int       `json:"index"`
 	Embedding []float32 `json:"embedding"`
-}
-
-type jinaAIApiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
 }
 
 func buildUrl(config ent.VectorizationConfig) (string, error) {
@@ -79,17 +97,19 @@ func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) 
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, []string{input}, config.Model, config)
+	return v.vectorize(ctx, []string{input}, config.Model, retrievalPassage, config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config)
+	return v.vectorize(ctx, input, config.Model, retrievalQuery, config)
 }
 
-func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(v.getEmbeddingsRequest(input, model))
+func (v *vectorizer) vectorize(ctx context.Context,
+	input []string, model string, task task, config ent.VectorizationConfig,
+) (*ent.VectorizationResult, error) {
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, task, config.Dimensions))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
@@ -127,8 +147,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error)
+	if res.StatusCode != 200 {
+		return nil, v.getError(res.StatusCode, resBody.Detail)
 	}
 
 	texts := make([]string, len(resBody.Data))
@@ -145,16 +165,22 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 	}, nil
 }
 
-func (v *vectorizer) getError(statusCode int, resBodyError *jinaAIApiError) error {
+func (v *vectorizer) getError(statusCode int, errorMessage string) error {
 	endpoint := "JinaAI API"
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	if errorMessage != "" {
+		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, errorMessage)
 	}
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input []string, model string) embeddingsRequest {
-	return embeddingsRequest{Input: input, Model: model}
+func (v *vectorizer) getEmbeddingsRequest(input []string, model string, task task, dimensions *int64) embeddingsRequest {
+	req := embeddingsRequest{Input: input, Model: model, EmbeddingType: embeddingTypeFloat, Normalized: false}
+	if strings.Contains(model, "v3") {
+		// v3 models require taskType and dimensions params
+		req.Task = &task
+		req.Dimensions = dimensions
+	}
+	return req
 }
 
 func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
@@ -162,20 +188,15 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	var apiKey, envVar string
-
-	apiKey = "X-Jinaai-Api-Key"
-	envVar = "JINAAI_APIKEY"
-	if len(v.jinaAIApiKey) > 0 {
-		return v.jinaAIApiKey, nil
-	}
-
-	return v.getApiKeyFromContext(ctx, apiKey, envVar)
+	return v.getApiKeyFromContext(ctx, "X-Jinaai-Api-Key", "JINAAI_APIKEY")
 }
 
 func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
 	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
+	}
+	if v.jinaAIApiKey != "" {
+		return v.jinaAIApiKey, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }

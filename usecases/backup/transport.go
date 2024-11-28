@@ -79,6 +79,5 @@ type StatusResponse struct {
 }
 
 type (
-	AbortRequest  StatusRequest
-	AbortResponse StatusResponse
+	AbortRequest StatusRequest
 )
