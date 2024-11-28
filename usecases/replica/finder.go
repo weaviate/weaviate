@@ -102,14 +102,23 @@ func (f *Finder) GetOne(ctx context.Context,
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
+
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
+
 			var x RepairResponse
+
 			if len(xs) == 1 {
 				x = xs[0]
 			}
-			r := objects.Replica{ID: id, Deleted: x.Deleted}
+
+			r := objects.Replica{
+				ID:                      id,
+				Deleted:                 x.Deleted,
+				LastUpdateTimeUnixMilli: x.UpdateTime,
+			}
+
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}

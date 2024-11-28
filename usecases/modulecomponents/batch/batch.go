@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
@@ -36,7 +36,7 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
-type BatchJob[T types.Vector] struct {
+type BatchJob[T types.Embedding] struct {
 	texts      []string
 	tokens     []int
 	ctx        context.Context
@@ -66,14 +66,14 @@ func (b BatchJob[T]) copy() BatchJob[T] {
 	}
 }
 
-type BatchClient[T types.Vector] interface {
+type BatchClient[T types.Embedding] interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
-func NewBatchVectorizer[T types.Vector](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
+func NewBatchVectorizer[T types.Embedding](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
 	batch := Batch[T]{
 		client:            client,
 		objectVectorizer:  objectsvectorizer.New(),
@@ -108,7 +108,7 @@ type endOfBatchJob struct {
 	concurrentBatch   bool
 }
 
-type Batch[T types.Vector] struct {
+type Batch[T types.Embedding] struct {
 	client            BatchClient[T]
 	objectVectorizer  *objectsvectorizer.ObjectVectorizer
 	jobQueueCh        chan BatchJob[T]

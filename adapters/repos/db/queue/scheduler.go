@@ -94,6 +94,11 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 }
 
 func (s *Scheduler) RegisterQueue(q Queue) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
@@ -103,6 +108,11 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	q := s.getQueue(id)
 	if q == nil {
 		return
@@ -194,6 +204,11 @@ func (s *Scheduler) Close() error {
 }
 
 func (s *Scheduler) PauseQueue(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	q := s.getQueue(id)
 	if q == nil {
 		return
@@ -207,6 +222,11 @@ func (s *Scheduler) PauseQueue(id string) {
 }
 
 func (s *Scheduler) ResumeQueue(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	q := s.getQueue(id)
 	if q == nil {
 		return
@@ -220,6 +240,11 @@ func (s *Scheduler) ResumeQueue(id string) {
 }
 
 func (s *Scheduler) Wait(id string) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	q := s.getQueue(id)
 	if q == nil {
 		return
@@ -230,6 +255,11 @@ func (s *Scheduler) Wait(id string) {
 }
 
 func (s *Scheduler) WaitAll() {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	s.activeTasks.Wait()
 }
 
@@ -260,6 +290,11 @@ func (s *Scheduler) runScheduler() {
 
 // Manually schedule the queues.
 func (s *Scheduler) Schedule(ctx context.Context) {
+	if s.ctx == nil {
+		// scheduler not started
+		return
+	}
+
 	ch := make(chan struct{})
 	select {
 	case s.triggerCh <- ch:
@@ -483,7 +518,9 @@ func newQueueState(ctx context.Context, q Queue) *queueState {
 		activeTasks: common.NewSharedGauge(),
 	}
 
-	qs.ctx, qs.cancelFn = context.WithCancel(ctx)
+	if ctx != nil {
+		qs.ctx, qs.cancelFn = context.WithCancel(ctx)
+	}
 
 	return &qs
 }
