@@ -83,11 +83,11 @@ func TestMultiVectorHnsw(t *testing.T) {
 				docID, relativeID := vectorIndex.cache.GetKeys(id)
 				return vectors[docID][relativeID], nil
 			},
+			Multivector: true,
 		}, ent.UserConfig{
 			MaxConnections: maxConnections,
 			EFConstruction: efConstruction,
 			EF:             ef,
-			Multivector:    true,
 		}, cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index

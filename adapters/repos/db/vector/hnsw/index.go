@@ -243,7 +243,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 	var vectorCache cache.Cache[float32]
 
-	if uc.Multivector {
+	if cfg.Multivector {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
@@ -309,7 +309,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
-	index.multivector.Store(uc.Multivector)
+	index.multivector.Store(cfg.Multivector)
 
 	if uc.BQ.Enabled {
 		var err error
@@ -739,6 +739,11 @@ func (h *hnsw) Upgraded() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
+	docID, relativeID := h.cache.GetKeys(id)
+	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {

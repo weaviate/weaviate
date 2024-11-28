@@ -58,7 +58,6 @@ type UserConfig struct {
 	BQ                     BQConfig `json:"bq"`
 	SQ                     SQConfig `json:"sq"`
 	FilterStrategy         string   `json:"filterStrategy"`
-	Multivector            bool     `json:"multivector"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -104,7 +103,6 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.FilterStrategy = DefaultFilterStrategy
-	u.Multivector = false
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
