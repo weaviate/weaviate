@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -38,10 +39,11 @@ type RemoteIndex struct {
 	retryClient
 }
 
-func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
+func NewRemoteIndex(httpClient *http.Client, log logrus.FieldLogger) *RemoteIndex {
 	return &RemoteIndex{retryClient: retryClient{
 		client:  httpClient,
 		retryer: newRetryer(),
+		log:     log,
 	}}
 }
 
@@ -630,7 +632,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		return false, nil
 	}
-	return size, c.retry(ctx, 9, try)
+	return size, c.retry(ctx, 9, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
@@ -673,7 +675,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, 9, try)
+	return status, c.retry(ctx, 9, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -709,7 +711,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, 9, try, c.logEntryForReq(method, url.String()).WithField("targetStatus", targetStatus))
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
@@ -745,7 +747,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 12, try)
+	return c.retry(ctx, 12, try, c.logEntryForReq(method, url.String()).WithField("fileName", fileName))
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -774,7 +776,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, 9, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
@@ -804,7 +806,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, 9, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
@@ -837,5 +839,5 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 34, try)
+	return c.retry(ctx, 34, try, c.logEntryForReq(method, url.String()))
 }

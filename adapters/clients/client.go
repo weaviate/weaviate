@@ -18,11 +18,14 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type retryClient struct {
 	client *http.Client
 	*retryer
+	log logrus.FieldLogger
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
@@ -55,7 +58,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
-	return c.retry(ctx, numRetries, try)
+	return c.retry(ctx, numRetries, try, c.logEntryForReq(req.Method, req.URL.String()))
 }
 
 type retryer struct {
@@ -73,7 +76,7 @@ func newRetryer() *retryer {
 }
 
 // n is the number of retries, work will always be called at least once.
-func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
+func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error), retryLogEntry *logrus.Entry) error {
 	delay := r.minBackOff
 	for {
 		keepTrying, err := work(ctx)
@@ -85,6 +88,12 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		if delay = backOff(delay); delay > r.maxBackOff {
 			delay = r.maxBackOff
 		}
+		if retryLogEntry != nil {
+			retryLogEntry.WithFields(logrus.Fields{
+				"numberOfRetriesLeft": n,
+				"delay":               delay,
+			}).WithError(err).Debug("retrying after work errored")
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -94,4 +103,16 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		}
 		timer.Stop()
 	}
+}
+
+// logEntryForReq returns a log entry with the given method/url if the retryClient's logger
+// is not nil. If the retryClient's logger is nil, returns nil.
+func (c *retryClient) logEntryForReq(method, url string) *logrus.Entry {
+	if c.log == nil {
+		return nil
+	}
+	return c.log.WithFields(logrus.Fields{
+		"method": method,
+		"url":    url,
+	})
 }
