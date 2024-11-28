@@ -144,7 +144,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinNodesMinimal(),
+				Resource: CasbinNodes("minimal", "doesntmatter"),
 				Domain:   authorization.NodesDomain,
 			},
 			tests: nodesTests,
@@ -158,7 +158,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinNodesVerbose("*"),
+				Resource: CasbinNodes("verbose", "*"),
 				Domain:   authorization.NodesDomain,
 			},
 			tests: nodesTests,
@@ -172,7 +172,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinNodesVerbose("Foo"),
+				Resource: CasbinNodes("verbose", "Foo"),
 				Domain:   authorization.NodesDomain,
 			},
 			tests: nodesTests,

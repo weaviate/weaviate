@@ -150,9 +150,8 @@ func nodes(verbosity, class string) string {
 	}
 	if verbosity == "minimal" {
 		return fmt.Sprintf("%s/verbosity/%s", NodesDomain, verbosity)
-	} else {
-		return fmt.Sprintf("%s/verbosity/%s/collections/%s", NodesDomain, verbosity, class)
 	}
+	return fmt.Sprintf("%s/verbosity/%s/collections/%s", NodesDomain, verbosity, class)
 }
 
 func Nodes(verbosity string, classes ...string) []string {

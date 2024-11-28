@@ -61,11 +61,10 @@ func CasbinClusters() string {
 	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
 }
 
-func CasbinNodesMinimal() string {
-	return fmt.Sprintf("%s/verbosity/minimal", authorization.NodesDomain)
-}
-
-func CasbinNodesVerbose(collection string) string {
+func CasbinNodes(verbosity, collection string) string {
+	if verbosity == "minimal" {
+		return fmt.Sprintf("%s/verbosity/minimal", authorization.NodesDomain)
+	}
 	if collection == "" {
 		collection = "*"
 	}
@@ -206,11 +205,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 				verbosity = *permission.Nodes.Verbosity
 			}
 		}
-		if verbosity == "minimal" {
-			resource = CasbinNodesMinimal()
-		} else {
-			resource = CasbinNodesVerbose(collection)
-		}
+		resource = CasbinNodes(verbosity, collection)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 	}
