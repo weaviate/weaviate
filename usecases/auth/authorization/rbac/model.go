@@ -70,7 +70,11 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
+func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
+	if !conf.Enabled {
+		return nil, nil
+	}
+
 	m, err := model.NewModelFromString(MODEL)
 	if err != nil {
 		return nil, fmt.Errorf("load rbac model: %w", err)
@@ -108,14 +112,14 @@ func Init(authConfig rbacconf.Config, policyPath string) (*casbin.SyncedCachedEn
 		}
 	}
 
-	for i := range authConfig.Admins {
-		if _, err := enforcer.AddRoleForUser(authConfig.Admins[i], authorization.Admin); err != nil {
+	for i := range conf.Admins {
+		if _, err := enforcer.AddRoleForUser(conf.Admins[i], authorization.Admin); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
-	for i := range authConfig.Viewers {
-		if _, err := enforcer.AddRoleForUser(authConfig.Viewers[i], authorization.Viewer); err != nil {
+	for i := range conf.Viewers {
+		if _, err := enforcer.AddRoleForUser(conf.Viewers[i], authorization.Viewer); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
