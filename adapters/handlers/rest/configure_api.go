@@ -43,6 +43,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -693,7 +694,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	setupAuthZHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, appState.Metrics, appState.Authorizer, appState.Logger)
+	authz.SetupHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, appState.Metrics, appState.Authorizer, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -833,10 +834,14 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
-	apiKeys := appState.ServerConfig.Config.Authentication.APIKey
-	controller, err := rbac.New(rbacStoragePath, apiKeys, appState.Logger)
+	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
+	var existingUsersApiKeys []string
+	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
+	}
+	controller, err := rbac.New(rbacStoragePath, rbacConfig, existingUsersApiKeys, appState.Logger)
 	if err != nil {
-		logger.WithField("action", "startup").WithField("error", err).Error("cannot init casbin")
+		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
 	}
 	// assign authController

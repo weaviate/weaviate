@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package authz
 
 import (
 	"fmt"

@@ -125,6 +125,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
 		}),
+		AuthzGetRolesForOwnUserHandler: authz.GetRolesForOwnUserHandlerFunc(func(params authz.GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForOwnUser has not yet been implemented")
+		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
 		}),
@@ -365,6 +368,8 @@ type WeaviateAPI struct {
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
+	// AuthzGetRolesForOwnUserHandler sets the operation handler for the get roles for own user operation
+	AuthzGetRolesForOwnUserHandler authz.GetRolesForOwnUserHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
@@ -595,6 +600,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
+	}
+	if o.AuthzGetRolesForOwnUserHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForOwnUserHandler")
 	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
@@ -907,6 +915,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/authz/roles"] = authz.NewGetRoles(o.context, o.AuthzGetRolesHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/users/own-roles"] = authz.NewGetRolesForOwnUser(o.context, o.AuthzGetRolesForOwnUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

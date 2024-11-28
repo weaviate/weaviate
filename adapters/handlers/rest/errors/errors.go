@@ -9,10 +9,16 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package docker
+package errors
 
-type RbacUser struct {
-	Key      string
-	Role     string
-	Username string
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
+)
+
+func ErrPayloadFromSingleErr(err error) *models.ErrorResponse {
+	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: fmt.Sprintf("%s", err),
+	}}}
 }

@@ -33,6 +33,20 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 	return resp.Payload
 }
 
+func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func GetRolesForOwnUser(t *testing.T, key string) []*models.Role {
+	resp, err := Client(t).Authz.GetRolesForOwnUser(authz.NewGetRolesForOwnUserParams(), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
 func DeleteRole(t *testing.T, key, role string) {
 	resp, err := Client(t).Authz.DeleteRole(authz.NewDeleteRoleParams().WithID(role), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)

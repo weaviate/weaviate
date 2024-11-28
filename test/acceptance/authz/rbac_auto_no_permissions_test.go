@@ -28,7 +28,7 @@ import (
 )
 
 func TestCollectEndpoints(t *testing.T) {
-	// prinst all endpoints grouped  by method
+	// print all endpoints grouped  by method
 	col, err := newCollector()
 	require.Nil(t, err)
 	col.prettyPrint()
@@ -36,14 +36,15 @@ func TestCollectEndpoints(t *testing.T) {
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	adminKey := "admin-Key"
+	adminUser := "admin-User"
 	customKey := "custom-key"
+	customUser := "custom-user"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().
-		WithRbacUser("admin-User", adminKey, "admin-User").
-		WithRbacUser("custom-user", customKey, "custom").
-		Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -79,6 +80,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/.well-known/openid-configuration",
 		"/.well-known/ready",
 		"/meta",
+		"/authz/users/own-roles", // will return roles for own user
 	}
 
 	for _, endpoint := range endpoints {
@@ -88,7 +90,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{className}", className)
 		url = strings.ReplaceAll(url, "{tenantName}", "Tenant1")
 		url = strings.ReplaceAll(url, "{shardName}", "Shard1")
-		url = strings.ReplaceAll(url, "{id}", "someId")
+		url = strings.ReplaceAll(url, "{id}", "admin-User")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 

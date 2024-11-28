@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package authz
 
 import (
 	"fmt"
@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -25,14 +24,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestGetRoleSuccess(t *testing.T) {
+func TestGetRolesForUserSuccess(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
-	params := authz.GetRoleParams{
-		ID: "testRole",
+	params := authz.GetRolesForUserParams{
+		ID: "testUser",
 	}
 
 	policies := []authorization.Policy{
@@ -43,44 +42,52 @@ func TestGetRoleSuccess(t *testing.T) {
 		},
 	}
 
-	expectedPermissions, err := conv.PoliciesToPermission(policies...)
-	assert.Nil(t, err)
-
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles(params.ID)[0]).Return(nil)
-	controller.On("GetRoles", params.ID).Return(returnedPolices, nil)
+
+	authorizer.On("Authorize", principal, authorization.READ, authorization.Roles("testRole")[0]).Return(nil)
+	controller.On("GetRolesForUser", params.ID).Return(returnedPolices, nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
 		controller: controller,
 		logger:     logger,
 	}
-	res := h.getRole(params, principal)
-	parsed, ok := res.(*authz.GetRoleOK)
+	res := h.getRolesForUser(params, principal)
+	parsed, ok := res.(*authz.GetRolesForUserOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
-	assert.Equal(t, params.ID, *parsed.Payload.Name)
-	assert.Equal(t, expectedPermissions, parsed.Payload.Permissions)
+
+	permissions, err := conv.PoliciesToPermission(policies...)
+	assert.Nil(t, err)
+
+	roles := []*models.Role{
+		{
+			Name:        String("testRole"),
+			Permissions: permissions,
+		},
+	}
+	expectedRoles := models.RolesListResponse(roles)
+	assert.Equal(t, expectedRoles, parsed.Payload)
 }
 
-func TestGetRoleBadRequest(t *testing.T) {
+func TestGetRolesForUserBadRequest(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.GetRoleParams
+		params        authz.GetRolesForUserParams
 		principal     *models.Principal
 		expectedError string
 	}
 
 	tests := []testCase{
 		{
-			name: "role id is required",
-			params: authz.GetRoleParams{
+			name: "role name is required",
+			params: authz.GetRolesForUserParams{
 				ID: "",
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role id can not be empty",
+			expectedError: "user name is required",
 		},
 	}
 
@@ -93,8 +100,8 @@ func TestGetRoleBadRequest(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRoleBadRequest)
+			res := h.getRolesForUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetRolesForUserBadRequest)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -104,10 +111,10 @@ func TestGetRoleBadRequest(t *testing.T) {
 	}
 }
 
-func TestGetRoleForbidden(t *testing.T) {
+func TestGetRolesForUserForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.GetRoleParams
+		params        authz.GetRolesForUserParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
@@ -115,9 +122,9 @@ func TestGetRoleForbidden(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "authorization error",
-			params: authz.GetRoleParams{
-				ID: "testRole",
+			name: "authorization error no access to role",
+			params: authz.GetRolesForUserParams{
+				ID: "testUser",
 			},
 			principal:     &models.Principal{Username: "user1"},
 			authorizeErr:  fmt.Errorf("authorization error"),
@@ -131,15 +138,26 @@ func TestGetRoleForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
+			returnedPolices := map[string][]authorization.Policy{
+				"testRole": {
+					{
+						Resource: authorization.Collections("ABC")[0],
+						Verb:     authorization.READ,
+						Domain:   authorization.SchemaDomain,
+					},
+				},
+			}
+
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
+			controller.On("GetRolesForUser", tt.params.ID).Return(returnedPolices, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRoleForbidden)
+			res := h.getRolesForUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetRolesForUserForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -149,50 +167,10 @@ func TestGetRoleForbidden(t *testing.T) {
 	}
 }
 
-func TestGetRoleNotFound(t *testing.T) {
+func TestGetRolesForUserInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.GetRoleParams
-		principal     *models.Principal
-		expectedError string
-	}
-
-	tests := []testCase{
-		{
-			name: "role not found",
-			params: authz.GetRoleParams{
-				ID: "nonExistentRole",
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role not found",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
-
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Roles(tt.params.ID)[0]).Return(nil)
-			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
-
-			h := &authZHandlers{
-				authorizer: authorizer,
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.getRole(tt.params, tt.principal)
-			_, ok := res.(*authz.GetRoleNotFound)
-			assert.True(t, ok)
-		})
-	}
-}
-
-func TestGetRoleInternalServerError(t *testing.T) {
-	type testCase struct {
-		name          string
-		params        authz.GetRoleParams
+		params        authz.GetRolesForUserParams
 		principal     *models.Principal
 		getRolesErr   error
 		expectedError string
@@ -200,9 +178,9 @@ func TestGetRoleInternalServerError(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "internal server error from getting role",
-			params: authz.GetRoleParams{
-				ID: "testRole",
+			name: "internal server error",
+			params: authz.GetRolesForUserParams{
+				ID: "testUser",
 			},
 			principal:     &models.Principal{Username: "user1"},
 			getRolesErr:   fmt.Errorf("internal server error"),
@@ -216,28 +194,15 @@ func TestGetRoleInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			policies := []authorization.Policy{
-				{
-					Resource: authorization.Collections("ABC")[0],
-					Verb:     authorization.READ,
-					Domain:   authorization.SchemaDomain,
-				},
-			}
-
-			returnedPolices := map[string][]authorization.Policy{
-				"testRole": policies,
-			}
-
-			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			controller.On("GetRoles", tt.params.ID).Return(returnedPolices, tt.getRolesErr)
+			controller.On("GetRolesForUser", tt.params.ID).Return(nil, tt.getRolesErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRoleInternalServerError)
+			res := h.getRolesForUser(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetRolesForUserInternalServerError)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {

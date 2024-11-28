@@ -26,17 +26,70 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAuthzBuiltInRolesJourney(t *testing.T) {
-	existingUser := "existing-user"
-	existingKey := "existing-key"
-	adminRole := "admin"
-
-	clientAuth := helper.CreateAuth(existingKey)
+func TestAuthzGetOwnRole(t *testing.T) {
+	customUser := "custom-user"
+	customKey := "custom-key"
+	testingRole := "testingOwnRole"
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+	adminAuth := helper.CreateAuth(adminKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, adminRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(testingRole),
+		adminAuth,
+	)
+
+	t.Run("Get own roles - empty", func(t *testing.T) {
+		roles := helper.GetRolesForOwnUser(t, customKey)
+		require.Len(t, roles, 0)
+	})
+
+	_, err = helper.Client(t).Authz.CreateRole(
+		authz.NewCreateRoleParams().WithBody(&models.Role{
+			Name: &testingRole,
+			Permissions: []*models.Permission{{
+				Action:     String(authorization.CreateSchema),
+				Collection: String("*"),
+			}},
+		}),
+		adminAuth,
+	)
+	require.NoError(t, err)
+	helper.AssignRoleToUser(t, "admin-key", testingRole, customUser)
+
+	t.Run("Get own roles - existing role", func(t *testing.T) {
+		roles := helper.GetRolesForOwnUser(t, customKey)
+		require.Len(t, roles, 1)
+		require.Equal(t, testingRole, *roles[0].Name)
+	})
+}
+
+func TestAuthzBuiltInRolesJourney(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminRole := "admin"
+
+	clientAuth := helper.CreateAuth(adminKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -48,7 +101,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
-		roles := helper.GetRoles(t, existingKey)
+		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, 3, len(roles))
 	})
 
@@ -116,8 +169,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesJourney(t *testing.T) {
-	existingUser := "existing-user"
-	existingKey := "existing-key"
+	adminUser := "existing-user"
+	adminKey := "existing-key"
 	existingRole := "admin"
 
 	testRoleName := "test-role"
@@ -133,12 +186,12 @@ func TestAuthzRolesJourney(t *testing.T) {
 		}},
 	}
 
-	clientAuth := helper.CreateAuth(existingKey)
+	clientAuth := helper.CreateAuth(adminKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
@@ -150,12 +203,12 @@ func TestAuthzRolesJourney(t *testing.T) {
 	defer helper.ResetClient()
 
 	t.Run("get all roles before create", func(t *testing.T) {
-		roles := helper.GetRoles(t, existingKey)
+		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, 3, len(roles))
 	})
 
 	t.Run("create role", func(t *testing.T) {
-		helper.CreateRole(t, existingKey, testRole1)
+		helper.CreateRole(t, adminKey, testRole1)
 	})
 
 	t.Run("fail to create existing role", func(t *testing.T) {
@@ -167,12 +220,12 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
-		roles := helper.GetRoles(t, existingKey)
+		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, 4, len(roles))
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
-		role := helper.GetRoleByName(t, existingKey, testRoleName)
+		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
@@ -205,7 +258,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get role by name after removing permission", func(t *testing.T) {
-		role := helper.GetRoleByName(t, existingKey, testRoleName)
+		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
@@ -213,11 +266,11 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
-		helper.AssignRoleToUser(t, existingKey, testRoleName, existingUser)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, adminUser)
 	})
 
 	t.Run("get roles for user after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
 
@@ -237,22 +290,22 @@ func TestAuthzRolesJourney(t *testing.T) {
 		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, existingUser, res.Payload[0])
+		require.Equal(t, adminUser, res.Payload[0])
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
-		helper.DeleteRole(t, existingKey, testRoleName)
+		helper.DeleteRole(t, adminKey, testRoleName)
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(existingUser), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, existingRole, *res.Payload[0].Name)
 	})
 
 	t.Run("get all roles after delete", func(t *testing.T) {
-		roles := helper.GetRoles(t, existingKey)
+		roles := helper.GetRoles(t, adminKey)
 		require.Equal(t, 3, len(roles))
 	})
 
@@ -288,21 +341,20 @@ func TestAuthzRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
-	existingUser := "existing-user"
-	existingKey := "existing-key"
-	existingRole := "admin"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
 
 	testRole := "test-role"
 	testAction1 := authorization.CreateSchema
 	testAction2 := authorization.DeleteSchema
 	all := "*"
 
-	clientAuth := helper.CreateAuth(existingKey)
+	clientAuth := helper.CreateAuth(adminKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().WithWeaviateCluster(3).WithRBAC().WithRbacUser(existingUser, existingKey, existingRole).Start(ctx)
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -316,7 +368,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 
 	t.Run("add role while 1 node is down", func(t *testing.T) {
 		t.Run("get all roles before create", func(t *testing.T) {
-			roles := helper.GetRoles(t, existingKey)
+			roles := helper.GetRoles(t, adminKey)
 			require.Equal(t, 3, len(roles))
 		})
 
@@ -325,7 +377,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 
 		t.Run("create role", func(t *testing.T) {
-			helper.CreateRole(t, existingKey, &models.Role{
+			helper.CreateRole(t, adminKey, &models.Role{
 				Name: &testRole,
 				Permissions: []*models.Permission{{
 					Action:     &testAction1,
@@ -341,12 +393,12 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
 
 		t.Run("get all roles after create", func(t *testing.T) {
-			roles := helper.GetRoles(t, existingKey)
+			roles := helper.GetRoles(t, adminKey)
 			require.Equal(t, 4, len(roles))
 		})
 
 		t.Run("get role by name", func(t *testing.T) {
-			role := helper.GetRoleByName(t, existingKey, testRole)
+			role := helper.GetRoleByName(t, adminKey, testRole)
 			require.NotNil(t, role)
 			require.Equal(t, testRole, *role.Name)
 			require.Equal(t, 1, len(role.Permissions))
@@ -366,7 +418,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		t.Run("get role by name after adding permission Node1", func(t *testing.T) {
 			// EventuallyWithT to handle EC in RAFT reads
 			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				role := helper.GetRoleByName(t, existingKey, testRole)
+				role := helper.GetRoleByName(t, adminKey, testRole)
 				require.NotNil(t, role)
 				require.Equal(t, testRole, *role.Name)
 				require.Equal(t, 2, len(role.Permissions))
