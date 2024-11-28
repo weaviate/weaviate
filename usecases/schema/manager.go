@@ -51,7 +51,7 @@ type Manager struct {
 	SchemaReader
 }
 
-type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -81,6 +81,9 @@ type ModuleConfig interface {
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
 	GetByName(name string) modulecapabilities.Module
+	IsGenerative(string) bool
+	IsReranker(string) bool
+	IsMultiVector(string) bool
 }
 
 // State is a cached copy of the schema that can also be saved into a remote

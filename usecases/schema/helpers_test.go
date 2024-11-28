@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -215,6 +216,18 @@ func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
 
+func (f *fakeModuleConfig) IsGenerative(moduleName string) bool {
+	return strings.Contains(moduleName, "generative")
+}
+
+func (f *fakeModuleConfig) IsReranker(moduleName string) bool {
+	return strings.Contains(moduleName, "reranker")
+}
+
+func (f *fakeModuleConfig) IsMultiVector(moduleName string) bool {
+	return strings.Contains(moduleName, "colbert")
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -241,7 +254,11 @@ func (f fakeVectorConfig) DistanceName() string {
 	return common.DistanceCosine
 }
 
-func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
+func (f fakeVectorConfig) IsMultiVector() bool {
+	return false
+}
+
+func dummyParseVectorConfig(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 

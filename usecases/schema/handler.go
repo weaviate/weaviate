@@ -146,7 +146,7 @@ func NewHandler(
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
+		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator, modules: moduleConfig},
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,

@@ -50,6 +50,10 @@ func (u UserConfig) DistanceName() string {
 	return u.Distance
 }
 
+func (u UserConfig) IsMultiVector() bool {
+	return false
+}
+
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	u.PQ.Cache = DefaultVectorCache

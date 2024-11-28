@@ -100,11 +100,15 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID          common.VectorForID[float32]
-	TempVectorForIDThunk common.TempVectorForID
-	multiVectorForID     common.MultiVectorForID
-	trackDimensionsOnce  sync.Once
-	dims                 int32
+	vectorForID common.VectorForID[float32]
+	// TODO:colbert
+	// multiVecForID             common.VectorForID[[]float32]
+	TempVectorForIDThunk common.TempVectorForID[float32]
+	// TODO:colbert
+	// TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	multiVectorForID    common.MultiVectorForID
+	trackDimensionsOnce sync.Once
+	dims                int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -318,8 +322,9 @@ func New(cfg Config, uc ent.UserConfig,
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
 				cfg.AllocChecker)
 		} else {
-			index.compressor, err = compressionhelpers.NewBQMultiCompressor(index.distancerProvider,
-				uc.VectorCacheMaxObjects, cfg.Logger, store, cfg.AllocChecker)
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
 		}
 		if err != nil {
 			return nil, err
@@ -329,6 +334,7 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
+	cfg.MakeCommitLoggerThunk()
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
