@@ -95,9 +95,9 @@
             }
           }
         },
-        "schema": {
+        "collections": {
           "type": "object",
-          "description": "resources applicable for schema actions",
+          "description": "resources applicable for collection and/or tenant actions",
           "properties": {
             "collection": {
               "type": "string",
@@ -129,10 +129,11 @@
             "manage_roles",
             "read_roles",
 
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema"
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         }
       },

@@ -118,18 +118,18 @@ func (p *SchemaPermission) WithAction(action string) *SchemaPermission {
 }
 
 func (p *SchemaPermission) WithCollection(collection string) *SchemaPermission {
-	if p.Schema == nil {
-		p.Schema = &models.PermissionSchema{}
+	if p.Collections == nil {
+		p.Collections = &models.PermissionCollections{}
 	}
-	p.Schema.Collection = authorization.String(collection)
+	p.Collections.Collection = authorization.String(collection)
 	return p
 }
 
 func (p *SchemaPermission) WithTenant(tenant string) *SchemaPermission {
-	if p.Schema == nil {
-		p.Schema = &models.PermissionSchema{}
+	if p.Collections == nil {
+		p.Collections = &models.PermissionCollections{}
 	}
-	p.Schema.Tenant = authorization.String(tenant)
+	p.Collections.Tenant = authorization.String(tenant)
 	return p
 }
 

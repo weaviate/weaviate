@@ -59,8 +59,8 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 					Data:   &models.PermissionData{Collection: &all},
 				},
 				{
-					Action: &readSchemaAction,
-					Schema: &models.PermissionSchema{Collection: &all},
+					Action:      &readSchemaAction,
+					Collections: &models.PermissionCollections{Collection: &all},
 				},
 			},
 		}
@@ -86,8 +86,8 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 	})
 
 	permissionsAll := [][]*models.Permission{
-		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &all}}, {Action: &readSchemaAction, Schema: &models.PermissionSchema{Collection: &className}}},
-		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &all}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}}},
+		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 	}
 	for _, permissions := range permissionsAll {
 		t.Run("Only read data action for a single class", func(t *testing.T) {

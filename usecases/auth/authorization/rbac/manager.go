@@ -240,12 +240,12 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		res += fmt.Sprintf(" Roles.Role: %s,", *perm.Roles.Role)
 	}
 
-	if perm.Schema != nil {
-		if perm.Schema.Collection != nil && *perm.Schema.Collection != "" {
-			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Schema.Collection)
+	if perm.Collections != nil {
+		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
+			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
 		}
-		if perm.Schema.Tenant != nil && *perm.Schema.Tenant != "" {
-			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Schema.Tenant)
+		if perm.Collections.Tenant != nil && *perm.Collections.Tenant != "" {
+			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Collections.Tenant)
 		}
 	}
 

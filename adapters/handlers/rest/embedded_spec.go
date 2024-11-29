@@ -5399,10 +5399,11 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema"
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         },
         "backups": {
@@ -5419,6 +5420,22 @@ func init() {
         "cluster": {
           "description": "resources applicable for cluster actions",
           "type": "object"
+        },
+        "collections": {
+          "description": "resources applicable for collection and/or tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "data": {
           "description": "resources applicable for data actions",
@@ -5467,22 +5484,6 @@ func init() {
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            }
-          }
-        },
-        "schema": {
-          "description": "resources applicable for schema actions",
-          "type": "object",
-          "properties": {
-            "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12060,10 +12061,11 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema"
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         },
         "backups": {
@@ -12080,6 +12082,22 @@ func init() {
         "cluster": {
           "description": "resources applicable for cluster actions",
           "type": "object"
+        },
+        "collections": {
+          "description": "resources applicable for collection and/or tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "data": {
           "description": "resources applicable for data actions",
@@ -12132,22 +12150,6 @@ func init() {
               "default": "*"
             }
           }
-        },
-        "schema": {
-          "description": "resources applicable for schema actions",
-          "type": "object",
-          "properties": {
-            "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            }
-          }
         }
       }
     },
@@ -12157,6 +12159,22 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionCollections": {
+      "description": "resources applicable for collection and/or tenant actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12209,22 +12227,6 @@ func init() {
       "properties": {
         "role": {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        }
-      }
-    },
-    "PermissionSchema": {
-      "description": "resources applicable for schema actions",
-      "type": "object",
-      "properties": {
-        "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
