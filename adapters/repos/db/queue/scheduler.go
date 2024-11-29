@@ -344,17 +344,17 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 		// mark it as scheduled
 		q.MarkAsScheduled()
 
+		if q.Paused() {
+			q.MarkAsUnscheduled()
+			continue
+		}
+
 		// run the before-schedule hook if it is implemented
 		if hook, ok := q.q.(BeforeScheduleHook); ok {
 			if skip := hook.BeforeSchedule(); skip {
 				q.MarkAsUnscheduled()
 				continue
 			}
-		}
-
-		if q.Paused() {
-			q.MarkAsUnscheduled()
-			continue
 		}
 
 		if q.q.Size() == 0 {

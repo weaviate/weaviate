@@ -24,7 +24,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 const (
@@ -41,8 +40,6 @@ type VectorIndexQueue struct {
 	metrics      *VectorIndexQueueMetrics
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
-	// indicate if the index is being upgraded
-	upgrading atomic.Bool
 
 	vectorIndex VectorIndex
 }
@@ -199,13 +196,7 @@ func (iq *VectorIndexQueue) Flush() error {
 }
 
 func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
-	if iq.shard.GetStatus() != storagestate.StatusIndexing {
-		return true
-	}
-
-	iq.checkCompressionSettings()
-
-	return false
+	return iq.checkCompressionSettings()
 }
 
 // Flush the vector index after a batch is processed.
@@ -222,31 +213,31 @@ type upgradableIndexer interface {
 }
 
 // triggers compression if the index is ready to be upgraded
-func (iq *VectorIndexQueue) checkCompressionSettings() {
+func (iq *VectorIndexQueue) checkCompressionSettings() (skip bool) {
 	ci, ok := iq.vectorIndex.(upgradableIndexer)
 	if !ok {
-		return
+		return false
 	}
 
 	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
-	if !shouldUpgrade || ci.Upgraded() || iq.upgrading.Load() {
-		return
+	if !shouldUpgrade || ci.Upgraded() {
+		return false
 	}
 
 	if iq.vectorIndex.AlreadyIndexed() > uint64(shouldUpgradeAt) {
-		iq.upgrading.Store(true)
 		iq.scheduler.PauseQueue(iq.DiskQueue.ID())
 
 		err := ci.Upgrade(func() {
 			iq.scheduler.ResumeQueue(iq.DiskQueue.ID())
-			iq.upgrading.Store(false)
 		})
 		if err != nil {
 			iq.DiskQueue.Logger.WithError(err).Error("failed to upgrade vector index")
 		}
 
-		return
+		return true
 	}
+
+	return false
 }
 
 // ResetWith resets the queue with the given vector index.
