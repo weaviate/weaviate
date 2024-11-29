@@ -61,8 +61,10 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
+							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{
+								Collection: String("ABC"),
+							},
 						},
 					},
 				},
@@ -77,9 +79,11 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
-							Tenant:     String("Tenant1"),
+							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{
+								Collection: String("ABC"),
+								Tenant:     String("Tenant1"),
+							},
 						},
 					},
 				},
@@ -96,7 +100,9 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
-							Tenant: String("Tenant1"),
+							Schema: &models.PermissionSchema{
+								Tenant: String("Tenant1"),
+							},
 						},
 					},
 				},
