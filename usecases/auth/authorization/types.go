@@ -72,7 +72,7 @@ var (
 	AllRoles = &models.PermissionRoles{
 		Role: All,
 	}
-	AllSchema = &models.PermissionSchema{
+	AllSchema = &models.PermissionCollections{
 		Collection: All,
 		Tenant:     All,
 	}
@@ -397,12 +397,12 @@ func viewerPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:  &action,
-			Backups: AllBackups,
-			Data:    AllData,
-			Nodes:   AllNodes,
-			Roles:   AllRoles,
-			Schema:  AllSchema,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllSchema,
 		})
 	}
 
@@ -418,12 +418,12 @@ func editorPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action:  &action,
-			Backups: AllBackups,
-			Data:    AllData,
-			Nodes:   AllNodes,
-			Roles:   AllRoles,
-			Schema:  AllSchema,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllSchema,
 		})
 	}
 
@@ -435,12 +435,12 @@ func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
-			Action:  &action,
-			Backups: AllBackups,
-			Data:    AllData,
-			Nodes:   AllNodes,
-			Roles:   AllRoles,
-			Schema:  AllSchema,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllSchema,
 		})
 	}
 

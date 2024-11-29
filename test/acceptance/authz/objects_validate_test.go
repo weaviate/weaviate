@@ -61,8 +61,8 @@ func TestAuthZObjectValidate(t *testing.T) {
 					Data:   &models.PermissionData{Collection: &className},
 				},
 				{
-					Action: &readSchemaAction,
-					Schema: &models.PermissionSchema{Collection: &className},
+					Action:      &readSchemaAction,
+					Collections: &models.PermissionCollections{Collection: &className},
 				},
 			},
 		}
@@ -93,7 +93,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 		helper.DeleteRole(t, adminKey, roleName)
 	})
 
-	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Schema: &models.PermissionSchema{Collection: &className}}}
+	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}}}
 	for _, perm := range perms {
 		t.Run("Only rights for "+*perm.Action, func(t *testing.T) {
 			deleteRole := &models.Role{

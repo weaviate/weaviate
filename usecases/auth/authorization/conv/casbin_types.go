@@ -187,14 +187,14 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinRoles(role)
 		domain = authorization.RolesDomain
-	} else if permission.Schema != nil {
+	} else if permission.Collections != nil {
 		collection := "*"
 		tenant := "*"
-		if permission.Schema.Collection != nil {
-			collection = schema.UppercaseClassName(*permission.Schema.Collection)
+		if permission.Collections.Collection != nil {
+			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		if permission.Schema.Tenant != nil {
-			tenant = *permission.Schema.Tenant
+		if permission.Collections.Tenant != nil {
+			tenant = *permission.Collections.Tenant
 		}
 		resource = CasbinSchema(collection, tenant)
 		domain = authorization.SchemaDomain
@@ -233,7 +233,7 @@ func permission(policy []string) (*models.Permission, error) {
 
 	switch mapped.Domain {
 	case authorization.SchemaDomain:
-		permission.Schema = &models.PermissionSchema{
+		permission.Collections = &models.PermissionCollections{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
 		}
@@ -270,7 +270,7 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Data = authorization.AllData
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
-		permission.Schema = authorization.AllSchema
+		permission.Collections = authorization.AllSchema
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}

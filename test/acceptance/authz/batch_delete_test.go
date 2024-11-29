@@ -127,8 +127,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action: &readSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &classNameSource},
+			Action:      &readSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &classNameSource},
 		},
 		{
 			Action: &readDataAction,
@@ -197,16 +197,16 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action: &readSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &classNameSource},
+			Action:      &readSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &classNameSource},
 		},
 		{
 			Action: &readDataAction,
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action: &readSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &classNameTarget},
+			Action:      &readSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &classNameTarget},
 		},
 		{
 			Action: &readDataAction,

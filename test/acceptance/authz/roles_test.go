@@ -63,8 +63,8 @@ func TestAuthzGetOwnRole(t *testing.T) {
 		authz.NewCreateRoleParams().WithBody(&models.Role{
 			Name: &testingRole,
 			Permissions: []*models.Permission{{
-				Action: String(authorization.CreateSchema),
-				Schema: &models.PermissionSchema{Collection: String("*")},
+				Action:      String(authorization.CreateSchema),
+				Collections: &models.PermissionCollections{Collection: String("*")},
 			}},
 		}),
 		adminAuth,
@@ -110,8 +110,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action: String(authorization.CreateSchema),
-					Schema: &models.PermissionSchema{Collection: String("*")},
+					Action:      String(authorization.CreateSchema),
+					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
 			clientAuth,
@@ -138,8 +138,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action: String(authorization.CreateSchema),
-					Schema: &models.PermissionSchema{Collection: String("*")},
+					Action:      String(authorization.CreateSchema),
+					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
 			clientAuth,
@@ -155,8 +155,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action: String(authorization.CreateSchema),
-					Schema: &models.PermissionSchema{Collection: String("*")},
+					Action:      String(authorization.CreateSchema),
+					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
 			clientAuth,
@@ -181,8 +181,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 	testRole1 := &models.Role{
 		Name: &testRoleName,
 		Permissions: []*models.Permission{{
-			Action: &createSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &all},
+			Action:      &createSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &all},
 		}},
 	}
 
@@ -235,7 +235,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("add permission to role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name:        &testRoleName,
-			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
@@ -252,7 +252,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("remove permission from role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name:        &testRoleName,
-			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
@@ -318,7 +318,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("upsert role using add permissions", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name:        String("upsert-role"),
-			Permissions: []*models.Permission{{Action: &createSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("upsert-role"), clientAuth)
@@ -331,7 +331,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("role deletion using remove permissions", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name:        String("upsert-role"),
-			Permissions: []*models.Permission{{Action: &createSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 		_, err = helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("upsert-role"), clientAuth)
@@ -380,8 +380,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 			helper.CreateRole(t, adminKey, &models.Role{
 				Name: &testRole,
 				Permissions: []*models.Permission{{
-					Action: &createSchemaAction,
-					Schema: &models.PermissionSchema{Collection: &all},
+					Action:      &createSchemaAction,
+					Collections: &models.PermissionCollections{Collection: &all},
 				}},
 			})
 		})
@@ -408,7 +408,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		t.Run("add permission to role Node3", func(t *testing.T) {
 			_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name:        &testRole,
-				Permissions: []*models.Permission{{Action: &deleteSchemaAction, Schema: &models.PermissionSchema{Collection: &all}}},
+				Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
 			}), clientAuth)
 			require.Nil(t, err)
 		})

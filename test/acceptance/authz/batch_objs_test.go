@@ -78,8 +78,8 @@ func TestBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action: &readSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &className1},
+			Action:      &readSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &className1},
 		},
 		{
 			Action: &createDataAction,
@@ -90,8 +90,8 @@ func TestBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action: &readSchemaAction,
-			Schema: &models.PermissionSchema{Collection: &className2},
+			Action:      &readSchemaAction,
+			Collections: &models.PermissionCollections{Collection: &className2},
 		},
 	}
 	t.Run("all rights for both classes", func(t *testing.T) {
