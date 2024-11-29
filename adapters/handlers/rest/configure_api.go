@@ -698,7 +698,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
 		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
 	}
-	authz.SetupHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, existingUsersApiKeys, appState.Metrics, appState.Authorizer, appState.Logger)
+	authz.SetupHandlers(api,
+		appState.ClusterService.Raft,
+		appState.SchemaManager,
+		existingUsersApiKeys,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.Metrics,
+		appState.Authorizer,
+		appState.Logger)
+
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
