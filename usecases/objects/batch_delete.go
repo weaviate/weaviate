@@ -175,7 +175,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 func (b *BatchManager) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
-		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsDataAndMeta(name)...); err != nil {
 			return nil, err
 		}
 		class := b.schemaManager.ReadOnlyClass(name)

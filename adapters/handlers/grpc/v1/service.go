@@ -285,7 +285,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 
 func (s *Service) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsDataAndMeta(name)...); err != nil {
 			return nil, err
 		}
 		class := s.schemaManager.ReadOnlyClass(name)

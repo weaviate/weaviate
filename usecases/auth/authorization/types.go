@@ -35,13 +35,15 @@ const (
 )
 
 const (
-	UsersDomain   = "users"
-	RolesDomain   = "roles"
-	ClusterDomain = "cluster"
-	NodesDomain   = "nodes"
-	BackupsDomain = "backups"
-	SchemaDomain  = "schema"
-	DataDomain    = "data"
+	UsersDomain      = "users"
+	RolesDomain      = "roles"
+	ClusterDomain    = "cluster"
+	NodesDomain      = "nodes"
+	BackupsDomain    = "backups"
+	SchemaDomain     = "schema"
+	CollectionDomain = "collection"
+	TenantDomain     = "tenant"
+	DataDomain       = "data"
 )
 
 var Actions = map[string]string{
@@ -74,6 +76,16 @@ var (
 	UpdateSchema = "update_schema"
 	DeleteSchema = "delete_schema"
 
+	CreateCollection = "create_collection"
+	ReadCollection   = "read_collection_configuration"
+	UpdateCollection = "update_collection_configuration"
+	DeleteCollection = "delete_collection"
+
+	CreateTenant = "create_tenant"
+	ReadTenant   = "read_tenant"
+	UpdateTenant = "update_tenant_state"
+	DeleteTenant = "delete_tenant"
+
 	CreateData = "create_data"
 	ReadData   = "read_data"
 	UpdateData = "update_data"
@@ -101,6 +113,18 @@ var (
 		ReadSchema,
 		UpdateSchema,
 		DeleteSchema,
+
+		// Collection domain
+		CreateCollection,
+		ReadCollection,
+		UpdateCollection,
+		DeleteCollection,
+
+		// Tenant domain
+		CreateTenant,
+		ReadTenant,
+		UpdateTenant,
+		DeleteTenant,
 
 		// Data domain
 		CreateData,
@@ -234,15 +258,15 @@ func Roles(roles ...string) []string {
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
+		return []string{fmt.Sprintf("%s/*", CollectionDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+			resources[idx] = fmt.Sprintf("%s/*", CollectionDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+			resources[idx] = fmt.Sprintf("%s/%s", CollectionDomain, classes[idx])
 		}
 	}
 
@@ -261,7 +285,7 @@ func CollectionsData(classes ...string) []string {
 	return paths
 }
 
-func Collections(classes ...string) []string {
+func CollectionsDataAndMeta(classes ...string) []string {
 	return append(CollectionsData(classes...), CollectionsMetadata(classes...)...)
 }
 
@@ -283,15 +307,15 @@ func ShardsMetadata(class string, shards ...string) []string {
 	}
 
 	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)}
+		return []string{fmt.Sprintf("%s/collections/%s/shards/*", TenantDomain, class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", TenantDomain, class)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/%s", SchemaDomain, class, shards[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/%s", TenantDomain, class, shards[idx])
 		}
 	}
 

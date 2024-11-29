@@ -478,6 +478,7 @@ func (h *authZHandlers) userExists(user string) bool {
 	return true // dont block OICD for now
 }
 
+// TODO-1.28: this can be used for exposed endpoint validate-permissions after 1.28
 // func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
 // 	for _, perm := range permissions {
 // 		if perm == nil {
