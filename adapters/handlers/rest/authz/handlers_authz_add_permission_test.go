@@ -47,6 +47,7 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -182,6 +183,7 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -201,19 +203,19 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			expectedError: "role has to have at least 1 permission",
 		},
 		{
-			name: "invalid action",
+			name: "invalid resource",
 			params: authz.AddPermissionsParams{
 				Body: authz.AddPermissionsBody{
 					Name: String("someName"),
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_somethingelse"),
+							Action: String(authorization.CreateSchema),
 						},
 					},
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "invalid permission",
+			expectedError: "missing domain",
 		},
 		{
 			name: "update builtin role",
@@ -223,6 +225,7 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -351,6 +354,7 @@ func TestAddPermissionsForbidden(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
