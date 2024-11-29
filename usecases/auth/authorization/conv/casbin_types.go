@@ -267,7 +267,7 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Data = authorization.AllData
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
-		permission.Collections = authorization.AllSchema
+		permission.Collections = authorization.AllCollections
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}

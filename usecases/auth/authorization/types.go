@@ -72,7 +72,7 @@ var (
 	AllRoles = &models.PermissionRoles{
 		Role: All,
 	}
-	AllSchema = &models.PermissionCollections{
+	AllCollections = &models.PermissionCollections{
 		Collection: All,
 		Tenant:     All,
 	}
@@ -81,7 +81,7 @@ var (
 
 	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
 	// to be added to built in roles
-	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, schema, data
+	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
 	ManageRoles = "manage_roles"
 	ReadRoles   = "read_roles"
 	ManageUsers = "manage_users"
@@ -90,10 +90,10 @@ var (
 
 	ManageBackups = "manage_backups"
 
-	CreateSchema = "create_schema"
-	ReadSchema   = "read_schema"
-	UpdateSchema = "update_schema"
-	DeleteSchema = "delete_schema"
+	CreateCollections = "create_collections"
+	ReadCollections   = "read_collections"
+	UpdateCollections = "update_collections"
+	DeleteCollections = "delete_collections"
 
 	CreateData = "create_data"
 	ReadData   = "read_data"
@@ -118,10 +118,10 @@ var (
 		ReadNodes,
 
 		// Schema domain
-		CreateSchema,
-		ReadSchema,
-		UpdateSchema,
-		DeleteSchema,
+		CreateCollections,
+		ReadCollections,
+		UpdateCollections,
+		DeleteCollections,
 
 		// Data domain
 		CreateData,
@@ -402,7 +402,7 @@ func viewerPermissions() []*models.Permission {
 			Data:        AllData,
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
-			Collections: AllSchema,
+			Collections: AllCollections,
 		})
 	}
 
@@ -423,7 +423,7 @@ func editorPermissions() []*models.Permission {
 			Data:        AllData,
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
-			Collections: AllSchema,
+			Collections: AllCollections,
 		})
 	}
 
@@ -440,7 +440,7 @@ func adminPermissions() []*models.Permission {
 			Data:        AllData,
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
-			Collections: AllSchema,
+			Collections: AllCollections,
 		})
 	}
 

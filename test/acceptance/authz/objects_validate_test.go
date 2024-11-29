@@ -34,7 +34,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 	customAuth := helper.CreateAuth("custom-key")
 
 	readDataAction := authorization.ReadData
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 
 	helper.SetupClient("127.0.0.1:8081")
 	defer helper.ResetClient()
@@ -61,7 +61,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 					Data:   &models.PermissionData{Collection: &className},
 				},
 				{
-					Action:      &readSchemaAction,
+					Action:      &readCollectionsAction,
 					Collections: &models.PermissionCollections{Collection: &className},
 				},
 			},
@@ -93,7 +93,7 @@ func TestAuthZObjectValidate(t *testing.T) {
 		helper.DeleteRole(t, adminKey, roleName)
 	})
 
-	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}}}
+	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readCollectionsAction, Collections: &models.PermissionCollections{Collection: &className}}}
 	for _, perm := range perms {
 		t.Run("Only rights for "+*perm.Action, func(t *testing.T) {
 			deleteRole := &models.Role{

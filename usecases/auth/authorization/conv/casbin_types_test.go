@@ -56,16 +56,16 @@ var (
 		{permissionAction: authorization.ManageBackups, testDescription: manageDesc, policyVerb: manageVerb},
 	}
 	collectionsTests = []innerTest{
-		{permissionAction: authorization.CreateSchema, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: authorization.UpdateSchema, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: authorization.DeleteSchema, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateCollections, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadCollections, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateCollections, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteCollections, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	tenantsTests = []innerTest{
-		{permissionAction: authorization.CreateSchema, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: authorization.ReadSchema, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: authorization.UpdateSchema, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: authorization.DeleteSchema, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateCollections, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadCollections, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateCollections, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteCollections, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	objectsDataTests = []innerTest{
 		{permissionAction: authorization.CreateData, testDescription: createDesc, policyVerb: createVerb},
@@ -498,7 +498,7 @@ func Test_permission(t *testing.T) {
 			name:   "all collections",
 			policy: []string{"p", "/collections/*/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
-				Collections: authorization.AllSchema,
+				Collections: authorization.AllCollections,
 			},
 			tests: collectionsTests,
 		},
@@ -517,7 +517,7 @@ func Test_permission(t *testing.T) {
 			name:   "all tenants in all collections",
 			policy: []string{"p", "/collections/*/shards/*", "", authorization.SchemaDomain},
 			permission: &models.Permission{
-				Collections: authorization.AllSchema,
+				Collections: authorization.AllCollections,
 			},
 			tests: tenantsTests,
 		},

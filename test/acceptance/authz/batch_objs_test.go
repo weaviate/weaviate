@@ -31,7 +31,7 @@ func TestBatchObjREST(t *testing.T) {
 	customUser := "custom-user"
 	customAuth := helper.CreateAuth("custom-key")
 	testRoleName := "test-role"
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 	// readDataAction := authorization.ReadData
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
@@ -78,7 +78,7 @@ func TestBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:      &readSchemaAction,
+			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &className1},
 		},
 		{
@@ -90,7 +90,7 @@ func TestBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action:      &readSchemaAction,
+			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &className2},
 		},
 	}
