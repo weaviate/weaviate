@@ -39,9 +39,6 @@ type Permission struct {
 	// backups
 	Backups *PermissionBackups `json:"backups,omitempty"`
 
-	// resources applicable for cluster actions
-	Cluster interface{} `json:"cluster,omitempty"`
-
 	// collections
 	Collections *PermissionCollections `json:"collections,omitempty"`
 

@@ -38,11 +38,6 @@
             }
           }
         },
-        "cluster": {
-          "type": "object",
-          "description": "resources applicable for cluster actions",
-          "properties": {}
-        },
         "data": {
           "type": "object",
           "description": "resources applicable for data actions",

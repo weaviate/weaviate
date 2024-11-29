@@ -129,7 +129,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return nil, fmt.Errorf("missing action")
 	}
-	action, _, found := strings.Cut(*permission.Action, "_")
+	action, domain, found := strings.Cut(*permission.Action, "_")
 	if !found {
 		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
 	}
@@ -142,7 +142,6 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		return nil, fmt.Errorf("invalid verb: %s", verb)
 	}
 
-	var domain string
 	var resource string
 	if permission.Backups != nil {
 		collection := "*"
@@ -150,10 +149,6 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			collection = schema.UppercaseClassName(*permission.Backups.Collection)
 		}
 		resource = CasbinBackups(collection)
-		domain = authorization.BackupsDomain
-	} else if permission.Cluster != nil {
-		resource = CasbinClusters()
-		domain = authorization.ClusterDomain
 	} else if permission.Data != nil {
 		collection := "*"
 		tenant := "*"
@@ -198,6 +193,8 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinSchema(collection, tenant)
 		domain = authorization.SchemaDomain
+	} else if domain == authorization.ClusterDomain {
+		resource = CasbinClusters()
 	} else {
 		return nil, fmt.Errorf("missing domain")
 	}
