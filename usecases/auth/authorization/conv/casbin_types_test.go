@@ -83,8 +83,10 @@ func Test_policy(t *testing.T) {
 		tests      []innerTest
 	}{
 		{
-			name:       "all roles",
-			permission: &models.Permission{},
+			name: "all roles",
+			permission: &models.Permission{
+				Roles: &models.PermissionRoles{},
+			},
 			policy: &authorization.Policy{
 				Resource: CasbinRoles("*"),
 				Domain:   authorization.RolesDomain,
@@ -155,8 +157,10 @@ func Test_policy(t *testing.T) {
 			tests: nodesTests,
 		},
 		{
-			name:       "all backends",
-			permission: &models.Permission{},
+			name: "all backends",
+			permission: &models.Permission{
+				Backups: &models.PermissionBackups{},
+			},
 			policy: &authorization.Policy{
 				Resource: CasbinBackups("*"),
 				Domain:   authorization.BackupsDomain,
@@ -177,8 +181,10 @@ func Test_policy(t *testing.T) {
 			tests: backupsTests,
 		},
 		{
-			name:       "all collections",
-			permission: &models.Permission{},
+			name: "all collections",
+			permission: &models.Permission{
+				Schema: &models.PermissionSchema{},
+			},
 			policy: &authorization.Policy{
 				Resource: CasbinSchema("*", ""),
 				Domain:   authorization.SchemaDomain,
@@ -199,8 +205,10 @@ func Test_policy(t *testing.T) {
 			tests: collectionsTests,
 		},
 		{
-			name:       "all tenants in all collections",
-			permission: &models.Permission{},
+			name: "all tenants in all collections",
+			permission: &models.Permission{
+				Schema: &models.PermissionSchema{},
+			},
 			policy: &authorization.Policy{
 				Resource: CasbinSchema("*", "*"),
 				Domain:   authorization.SchemaDomain,
@@ -248,8 +256,10 @@ func Test_policy(t *testing.T) {
 			tests: tenantsTests,
 		},
 		{
-			name:       "all objects in all collections ST",
-			permission: &models.Permission{},
+			name: "all objects in all collections ST",
+			permission: &models.Permission{
+				Data: &models.PermissionData{},
+			},
 			policy: &authorization.Policy{
 				Resource: CasbinData("*", "*", "*"),
 				Domain:   authorization.DataDomain,
@@ -401,7 +411,7 @@ func Test_policy(t *testing.T) {
 
 				policy, err := policy(tt.permission)
 				require.Nil(t, err)
-				require.Equal(t, tt.policy, policy)
+				require.Equal(t, policy, tt.policy)
 			})
 		}
 	}
@@ -551,9 +561,9 @@ func Test_permission(t *testing.T) {
 			policy: []string{"p", "/collections/*/shards/*/objects/*", "", authorization.DataDomain},
 			permission: &models.Permission{
 				Data: &models.PermissionData{
-					Collection: foo,
-					Tenant:     bar,
-					Object:     baz,
+					Collection: authorization.All,
+					Tenant:     authorization.All,
+					Object:     authorization.All,
 				},
 			},
 			tests: objectsDataTests,
@@ -694,7 +704,7 @@ func Test_permission(t *testing.T) {
 				tt.policy[2] = ttt.policyVerb
 				permission, err := permission(tt.policy)
 				require.Nil(t, err)
-				require.Equal(t, tt.permission, permission)
+				require.Equal(t, permission, tt.permission)
 			})
 		}
 	}
