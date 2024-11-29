@@ -117,7 +117,7 @@ var (
 		// Nodes domain
 		ReadNodes,
 
-		// Schema domain
+		// Collections domain
 		CreateCollections,
 		ReadCollections,
 		UpdateCollections,
