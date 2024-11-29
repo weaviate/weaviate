@@ -30,7 +30,7 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 	customAuth := helper.CreateAuth("custom-key")
 
 	readDataAction := authorization.ReadData
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 
 	helper.SetupClient("127.0.0.1:8081")
 	defer helper.ResetClient()
@@ -59,7 +59,7 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 					Data:   &models.PermissionData{Collection: &all},
 				},
 				{
-					Action:      &readSchemaAction,
+					Action:      &readCollectionsAction,
 					Collections: &models.PermissionCollections{Collection: &all},
 				},
 			},
@@ -86,8 +86,8 @@ func TestAuthZGQLBatchValidate(t *testing.T) {
 	})
 
 	permissionsAll := [][]*models.Permission{
-		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &all}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &className}}},
-		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &all}}, {Action: &readCollectionsAction, Collections: &models.PermissionCollections{Collection: &className}}},
+		{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 	}
 	for _, permissions := range permissionsAll {
 		t.Run("Only read data action for a single class", func(t *testing.T) {

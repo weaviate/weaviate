@@ -58,14 +58,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateSchema), Collections: &models.PermissionCollections{Collection: String("*")}},
+				{Action: String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: String("*")}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 	})
 
@@ -74,14 +74,14 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateSchema), Collections: &models.PermissionCollections{Collection: String(testClass.Class)}},
+				{Action: String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: String(testClass.Class)}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, testClass.Class, *role.Permissions[0].Collections.Collection)
 		require.Equal(t, "*", *role.Permissions[0].Collections.Tenant)
 	})

@@ -41,7 +41,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 	customAuth := helper.CreateAuth("custom-key")
 	testRoleName := "test-role"
 	deleteDataAction := authorization.DeleteData
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 	readDataAction := authorization.ReadData
 
 	helper.SetupClient("127.0.0.1:8081")
@@ -127,7 +127,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action:      &readSchemaAction,
+			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &classNameSource},
 		},
 		{
@@ -197,7 +197,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action:      &readSchemaAction,
+			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &classNameSource},
 		},
 		{
@@ -205,7 +205,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
-			Action:      &readSchemaAction,
+			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &classNameTarget},
 		},
 		{

@@ -63,7 +63,7 @@ func TestAuthzGetOwnRole(t *testing.T) {
 		authz.NewCreateRoleParams().WithBody(&models.Role{
 			Name: &testingRole,
 			Permissions: []*models.Permission{{
-				Action:      String(authorization.CreateSchema),
+				Action:      String(authorization.CreateCollections),
 				Collections: &models.PermissionCollections{Collection: String("*")},
 			}},
 		}),
@@ -110,7 +110,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:      String(authorization.CreateSchema),
+					Action:      String(authorization.CreateCollections),
 					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
@@ -138,7 +138,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:      String(authorization.CreateSchema),
+					Action:      String(authorization.CreateCollections),
 					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
@@ -155,7 +155,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 				Name: &adminRole,
 				Permissions: []*models.Permission{{
-					Action:      String(authorization.CreateSchema),
+					Action:      String(authorization.CreateCollections),
 					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			}),
@@ -174,14 +174,14 @@ func TestAuthzRolesJourney(t *testing.T) {
 	existingRole := "admin"
 
 	testRoleName := "test-role"
-	createSchemaAction := authorization.CreateSchema
-	deleteSchemaAction := authorization.DeleteSchema
+	createCollectionsAction := authorization.CreateCollections
+	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
 
 	testRole1 := &models.Role{
 		Name: &testRoleName,
 		Permissions: []*models.Permission{{
-			Action:      &createSchemaAction,
+			Action:      &createCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &all},
 		}},
 	}
@@ -229,13 +229,13 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
-		require.Equal(t, createSchemaAction, *role.Permissions[0].Action)
+		require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
 	})
 
 	t.Run("add permission to role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name:        &testRoleName,
-			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &deleteCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
@@ -245,14 +245,14 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, testRoleName, *res.Payload.Name)
 		require.Equal(t, 2, len(res.Payload.Permissions))
-		require.Equal(t, createSchemaAction, *res.Payload.Permissions[0].Action)
-		require.Equal(t, deleteSchemaAction, *res.Payload.Permissions[1].Action)
+		require.Equal(t, createCollectionsAction, *res.Payload.Permissions[0].Action)
+		require.Equal(t, deleteCollectionsAction, *res.Payload.Permissions[1].Action)
 	})
 
 	t.Run("remove permission from role", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name:        &testRoleName,
-			Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &deleteCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 	})
@@ -262,7 +262,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
-		require.Equal(t, createSchemaAction, *role.Permissions[0].Action)
+		require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
@@ -318,20 +318,20 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("upsert role using add permissions", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name:        String("upsert-role"),
-			Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &createCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 		res, err := helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("upsert-role"), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, "upsert-role", *res.Payload.Name)
 		require.Equal(t, 1, len(res.Payload.Permissions))
-		require.Equal(t, createSchemaAction, *res.Payload.Permissions[0].Action)
+		require.Equal(t, createCollectionsAction, *res.Payload.Permissions[0].Action)
 	})
 
 	t.Run("role deletion using remove permissions", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name:        String("upsert-role"),
-			Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+			Permissions: []*models.Permission{{Action: &createCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
 		require.Nil(t, err)
 		_, err = helper.Client(t).Authz.GetRole(authz.NewGetRoleParams().WithID("upsert-role"), clientAuth)
@@ -345,8 +345,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	adminKey := "admin-key"
 
 	testRole := "test-role"
-	createSchemaAction := authorization.CreateSchema
-	deleteSchemaAction := authorization.DeleteSchema
+	createCollectionsAction := authorization.CreateCollections
+	deleteCollectionsAction := authorization.DeleteCollections
 	all := "*"
 
 	clientAuth := helper.CreateAuth(adminKey)
@@ -380,7 +380,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 			helper.CreateRole(t, adminKey, &models.Role{
 				Name: &testRole,
 				Permissions: []*models.Permission{{
-					Action:      &createSchemaAction,
+					Action:      &createCollectionsAction,
 					Collections: &models.PermissionCollections{Collection: &all},
 				}},
 			})
@@ -402,13 +402,13 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 			require.NotNil(t, role)
 			require.Equal(t, testRole, *role.Name)
 			require.Equal(t, 1, len(role.Permissions))
-			require.Equal(t, createSchemaAction, *role.Permissions[0].Action)
+			require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
 		})
 
 		t.Run("add permission to role Node3", func(t *testing.T) {
 			_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 				Name:        &testRole,
-				Permissions: []*models.Permission{{Action: &deleteSchemaAction, Collections: &models.PermissionCollections{Collection: &all}}},
+				Permissions: []*models.Permission{{Action: &deleteCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 			}), clientAuth)
 			require.Nil(t, err)
 		})
@@ -422,8 +422,8 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 				require.NotNil(t, role)
 				require.Equal(t, testRole, *role.Name)
 				require.Equal(t, 2, len(role.Permissions))
-				require.Equal(t, createSchemaAction, *role.Permissions[0].Action)
-				require.Equal(t, deleteSchemaAction, *role.Permissions[1].Action)
+				require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
+				require.Equal(t, deleteCollectionsAction, *role.Permissions[1].Action)
 			}, 3*time.Second, 500*time.Millisecond)
 		})
 	})
