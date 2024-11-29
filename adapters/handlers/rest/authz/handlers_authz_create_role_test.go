@@ -48,6 +48,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -172,6 +173,7 @@ func TestCreateRoleConflict(t *testing.T) {
 			Permissions: []*models.Permission{
 				{
 					Action: String(authorization.CreateSchema),
+					Schema: &models.PermissionSchema{},
 				},
 			},
 		},
@@ -210,6 +212,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -248,6 +251,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -382,6 +386,7 @@ func TestCreateRoleForbidden(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
@@ -434,6 +439,7 @@ func TestCreateRoleInternalServerError(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},

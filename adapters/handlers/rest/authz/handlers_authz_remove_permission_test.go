@@ -38,6 +38,7 @@ func TestRemovePermissionsSuccess(t *testing.T) {
 			Permissions: []*models.Permission{
 				{
 					Action: String("manage_roles"),
+					Roles:  &models.PermissionRoles{},
 				},
 			},
 		},
@@ -76,6 +77,7 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
+							Roles:  &models.PermissionRoles{},
 						},
 					},
 				},
@@ -95,13 +97,13 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 			expectedError: "role has to have at least 1 permission",
 		},
 		{
-			name: "invalid action",
+			name: "invalid permission",
 			params: authz.RemovePermissionsParams{
 				Body: authz.RemovePermissionsBody{
 					Name: String("someName"),
 					Permissions: []*models.Permission{
 						{
-							Action: String("manage_somethingelse"),
+							Action: String("manage_roles"),
 						},
 					},
 				},
@@ -164,6 +166,7 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
+							Roles:  &models.PermissionRoles{},
 						},
 					},
 				},
@@ -216,6 +219,7 @@ func TestRemovePermissionsInternalServerError(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
+							Roles:  &models.PermissionRoles{},
 						},
 					},
 				},
