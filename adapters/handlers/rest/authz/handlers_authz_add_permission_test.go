@@ -407,6 +407,7 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateSchema),
+							Schema: &models.PermissionSchema{},
 						},
 					},
 				},
