@@ -93,7 +93,7 @@ func TestAuthzNodes(t *testing.T) {
 	})
 
 	t.Run("add read_cluster to custom role", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, customRole, &models.Permission{Action: &authorization.ReadCluster, Cluster: struct{}{}})
+		helper.AddPermissions(t, adminKey, customRole, &models.Permission{Action: &authorization.ReadCluster})
 	})
 
 	t.Run("get cluster stats with read_cluster", func(t *testing.T) {

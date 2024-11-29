@@ -105,10 +105,8 @@ func Test_policy(t *testing.T) {
 			tests: rolesTests,
 		},
 		{
-			name: "cluster",
-			permission: &models.Permission{
-				Cluster: struct{}{},
-			},
+			name:       "cluster",
+			permission: &models.Permission{},
 			policy: &authorization.Policy{
 				Resource: CasbinClusters(),
 				Domain:   authorization.ClusterDomain,

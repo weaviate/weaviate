@@ -5417,10 +5417,6 @@ func init() {
             }
           }
         },
-        "cluster": {
-          "description": "resources applicable for cluster actions",
-          "type": "object"
-        },
         "collections": {
           "description": "resources applicable for collection and/or tenant actions",
           "type": "object",
@@ -12078,10 +12074,6 @@ func init() {
               "default": "*"
             }
           }
-        },
-        "cluster": {
-          "description": "resources applicable for cluster actions",
-          "type": "object"
         },
         "collections": {
           "description": "resources applicable for collection and/or tenant actions",
