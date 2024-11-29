@@ -243,7 +243,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 	var vectorCache cache.Cache[float32]
 
-	if cfg.Multivector {
+	if uc.Multivector.Enabled {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
@@ -309,7 +309,7 @@ func New(cfg Config, uc ent.UserConfig,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
-	index.multivector.Store(cfg.Multivector)
+	index.multivector.Store(uc.Multivector.Enabled)
 
 	if uc.BQ.Enabled {
 		var err error
