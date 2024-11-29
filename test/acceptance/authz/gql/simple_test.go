@@ -161,6 +161,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
 				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
