@@ -1,0 +1,32 @@
+name: Spiros Orca Container Image Scan Workflow
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  orca-container_scan:
+    name: Orca Container Image Scan
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_KEY: default # Default project in Orca is "warn only" and doesn't block builds
+      IMAGE_NAME: europe-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/wcs/${{ inputs.repo }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Run Orca Container Image Scan
+        uses: orcasecurity/shiftleft-container-image-action@v1
+        id: orcasecurity_container_image_scan
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: ${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+          format: "sarif"
+          output:
+            "results/"
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ always() && steps.orcasecurity_container_image_scan.outputs.exit_code != 1 }}
+        with:
+          sarif_file: results/image.sarif
