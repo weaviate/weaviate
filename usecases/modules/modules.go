@@ -293,12 +293,22 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 				}
 			}
 		}
+		for _, altName := range altNames {
+			if class.Vectorizer == altName {
+				return true
+			}
+		}
 		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
-		existsConfigForModule := moduleConfig[module] != nil
-		if existsConfigForModule {
+		if _, ok := moduleConfig[module]; ok {
 			return true
+		} else if len(altNames) > 0 {
+			for _, altName := range altNames {
+				if _, ok := moduleConfig[altName]; ok {
+					return true
+				}
+			}
 		}
 	}
 	// Allow Text2Text (Generative, QnA, Summarize, NER) modules to be registered to a given class
