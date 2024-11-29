@@ -181,9 +181,11 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64, lo
 	atomic.AddInt64(&s.count, 1)
 	if lock {
 		s.shardedLocks.Lock(id)
+		s.cache[id] = vec
 		s.shardedLocks.Unlock(id)
+	} else {
+		s.cache[id] = vec
 	}
-	s.cache[id] = vec
 
 	return vec, nil
 }
