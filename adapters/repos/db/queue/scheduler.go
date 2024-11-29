@@ -357,13 +357,7 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
-		size := q.q.Size()
-		s.Logger.
-			WithField("queue_id", q.q.ID()).
-			WithField("queue_size", size).
-			Debug("queue stats")
-
-		if size == 0 {
+		if q.q.Size() == 0 {
 			q.MarkAsUnscheduled()
 			continue
 		}
@@ -391,10 +385,6 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 		return 0, errors.Wrap(err, "failed to dequeue batch")
 	}
 	if batch == nil || len(batch.Tasks) == 0 {
-		s.Logger.
-			WithField("queue_id", q.q.ID()).
-			WithField("queue_size", q.q.Size()).
-			Debug("no tasks to schedule")
 		return 0, nil
 	}
 
@@ -416,12 +406,14 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 	// keep track of the number of active tasks
 	// for this chunk to remove it when all tasks are done
-	counter := len(partitions)
-
+	var counter int
 	for i, partition := range partitions {
 		if len(partition) == 0 {
 			continue
 		}
+		q.m.Lock()
+		counter++
+		q.m.Unlock()
 
 		// increment the global active tasks counter
 		s.activeTasks.Incr()
@@ -443,14 +435,19 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			Tasks: partition,
 			Ctx:   q.ctx,
 			onDone: func() {
-				defer s.activeTasks.Decr()
-				defer q.activeTasks.Decr()
 				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
+				defer q.activeTasks.Decr()
+				defer s.activeTasks.Decr()
 
 				q.m.Lock()
 				counter--
 				if counter == 0 {
 					batch.Done()
+					s.Logger.
+						WithField("queue_id", q.q.ID()).
+						WithField("queue_size", q.q.Size()).
+						WithField("tasks", taskCount).
+						Debug("tasks processed")
 				}
 				q.m.Unlock()
 			},
@@ -471,8 +468,8 @@ func (s *Scheduler) logQueueStats(q Queue, tasksDequeued int64) {
 	s.Logger.
 		WithField("queue_id", q.ID()).
 		WithField("queue_size", q.Size()).
-		WithField("tasks_dequeued", tasksDequeued).
-		Debug("queue stats")
+		WithField("tasks", tasksDequeued).
+		Debug("processing tasks")
 }
 
 func (s *Scheduler) compressTasks(tasks []Task) []Task {

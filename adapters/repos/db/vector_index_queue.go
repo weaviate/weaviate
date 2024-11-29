@@ -319,6 +319,10 @@ func (t *Task) Key() uint64 {
 }
 
 func (t *Task) Execute(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	switch t.op {
 	case vectorIndexQueueInsertOp:
 		return t.idx.Add(ctx, t.id, t.vector)
@@ -363,6 +367,10 @@ func (t *TaskGroup) Key() uint64 {
 }
 
 func (tg *TaskGroup) Execute(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	switch tg.op {
 	case vectorIndexQueueInsertOp:
 		return tg.idx.AddBatch(ctx, tg.ids, tg.vectors)
