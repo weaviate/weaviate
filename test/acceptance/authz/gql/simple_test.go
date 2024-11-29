@@ -71,8 +71,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		role := &models.Role{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}
 		helper.CreateRole(t, adminKey, role)
@@ -105,8 +105,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadSchema),
-				Collection: String("*"),
+				Action: String(authorization.ReadSchema),
+				Schema: &models.PermissionSchema{Collection: String("*")},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -133,8 +133,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -220,9 +220,11 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		role := &models.Role{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String(customUser),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String(customUser),
+				},
 			}},
 		}
 		helper.CreateRole(t, adminKey, role)
@@ -249,8 +251,8 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadSchema),
-				Collection: String("*"),
+				Action: String(authorization.ReadSchema),
+				Schema: &models.PermissionSchema{Collection: String("*")},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -270,9 +272,11 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String(customUser),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String(customUser),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -282,9 +286,11 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String("non-existent-tenant"),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String("non-existent-tenant"),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -312,9 +318,11 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String("non-existent-tenant"),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String("non-existent-tenant"),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -324,8 +332,8 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)

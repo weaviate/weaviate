@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 const (
@@ -55,6 +56,26 @@ var Actions = map[string]string{
 
 var (
 	All = String("*")
+
+	AllBackups = &models.PermissionBackups{
+		Collection: All,
+	}
+	AllData = &models.PermissionData{
+		Collection: All,
+		Tenant:     All,
+		Object:     All,
+	}
+	AllNodes = &models.PermissionNodes{
+		Verbosity:  String(verbosity.OutputVerbose),
+		Collection: All,
+	}
+	AllRoles = &models.PermissionRoles{
+		Role: All,
+	}
+	AllSchema = &models.PermissionSchema{
+		Collection: All,
+		Tenant:     All,
+	}
 
 	ComponentName = "RBAC"
 
@@ -376,14 +397,12 @@ func viewerPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:  &action,
+			Backups: AllBackups,
+			Data:    AllData,
+			Nodes:   AllNodes,
+			Roles:   AllRoles,
+			Schema:  AllSchema,
 		})
 	}
 
@@ -399,14 +418,12 @@ func editorPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:  &action,
+			Backups: AllBackups,
+			Data:    AllData,
+			Nodes:   AllNodes,
+			Roles:   AllRoles,
+			Schema:  AllSchema,
 		})
 	}
 
@@ -418,14 +435,12 @@ func adminPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:  &action,
+			Backups: AllBackups,
+			Data:    AllData,
+			Nodes:   AllNodes,
+			Roles:   AllRoles,
+			Schema:  AllSchema,
 		})
 	}
 
