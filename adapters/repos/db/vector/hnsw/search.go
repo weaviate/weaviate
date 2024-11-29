@@ -184,9 +184,6 @@ func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
 	if allowList != nil && useAcorn {
 		cacheSize := h.cacheSize()
 		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-			useAcorn = false
-		}
 		M = int(cacheSize / int64(max(1, allowListSize)))
 		M = min(M, 8)
 	}
