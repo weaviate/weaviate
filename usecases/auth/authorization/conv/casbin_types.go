@@ -138,18 +138,40 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		verb = authorization.CRUD
 	}
 
+	if domain == "collections" {
+		// TODO find better way to handle the internal vs external mapping
+		domain = authorization.SchemaDomain
+	}
+
 	if !validVerb(verb) {
 		return nil, fmt.Errorf("invalid verb: %s", verb)
 	}
 
 	var resource string
-	if permission.Backups != nil {
-		collection := "*"
-		if permission.Backups.Collection != nil {
-			collection = schema.UppercaseClassName(*permission.Backups.Collection)
+	switch domain {
+	case authorization.UsersDomain:
+		// do nothing TODO : to be deleted when deleting users domain
+		user := "*"
+		resource = CasbinUsers(user)
+	case authorization.RolesDomain:
+		role := "*"
+		if permission.Roles.Role != nil {
+			role = *permission.Roles.Role
 		}
-		resource = CasbinBackups(collection)
-	} else if permission.Data != nil {
+		resource = CasbinRoles(role)
+	case authorization.ClusterDomain:
+		resource = CasbinClusters()
+	case authorization.SchemaDomain:
+		collection := "*"
+		tenant := "*"
+		if permission.Collections.Collection != nil {
+			collection = schema.UppercaseClassName(*permission.Collections.Collection)
+		}
+		if permission.Collections.Tenant != nil {
+			tenant = *permission.Collections.Tenant
+		}
+		resource = CasbinSchema(collection, tenant)
+	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
 		object := "*"
@@ -163,42 +185,30 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Data.Object
 		}
 		resource = CasbinData(collection, tenant, object)
-		domain = authorization.DataDomain
-	} else if permission.Nodes != nil {
+	case authorization.BackupsDomain:
+		collection := "*"
+		if permission.Backups != nil {
+			if permission.Backups.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Backups.Collection)
+			}
+		}
+		resource = CasbinBackups(collection)
+	case authorization.NodesDomain:
 		collection := "*"
 		verbosity := "minimal"
-		if permission.Nodes.Collection != nil {
-			collection = schema.UppercaseClassName(*permission.Nodes.Collection)
-		}
-		if permission.Nodes.Verbosity != nil {
-			verbosity = *permission.Nodes.Verbosity
+		if permission.Nodes != nil {
+			if permission.Nodes.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Nodes.Collection)
+			}
+			if permission.Nodes.Verbosity != nil {
+				verbosity = *permission.Nodes.Verbosity
+			}
 		}
 		resource = CasbinNodes(verbosity, collection)
-		domain = authorization.NodesDomain
-	} else if permission.Roles != nil {
-		role := "*"
-		if permission.Roles.Role != nil {
-			role = *permission.Roles.Role
-		}
-		resource = CasbinRoles(role)
-		domain = authorization.RolesDomain
-	} else if permission.Collections != nil {
-		collection := "*"
-		tenant := "*"
-		if permission.Collections.Collection != nil {
-			collection = schema.UppercaseClassName(*permission.Collections.Collection)
-		}
-		if permission.Collections.Tenant != nil {
-			tenant = *permission.Collections.Tenant
-		}
-		resource = CasbinSchema(collection, tenant)
-		domain = authorization.SchemaDomain
-	} else if domain == authorization.ClusterDomain {
-		resource = CasbinClusters()
-	} else {
-		return nil, fmt.Errorf("missing domain")
-	}
+	default:
+		return nil, fmt.Errorf("invalid domain: %s", domain)
 
+	}
 	if !validResource(resource) {
 		return nil, fmt.Errorf("invalid resource: %s", resource)
 	}
@@ -217,6 +227,11 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
 	}
 
+	// TODO find better way to handle the internal vs external mapping
+	if mapped.Domain == authorization.SchemaDomain {
+		mapped.Domain = "collections"
+	}
+
 	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], mapped.Domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
@@ -229,7 +244,7 @@ func permission(policy []string) (*models.Permission, error) {
 	}
 
 	switch mapped.Domain {
-	case authorization.SchemaDomain:
+	case authorization.SchemaDomain, "collections":
 		permission.Collections = &models.PermissionCollections{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
@@ -244,8 +259,6 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
 		}
-	case authorization.ClusterDomain:
-		// do nothing
 	case authorization.NodesDomain:
 		verbosity := splits[2]
 		var collection *string
@@ -268,6 +281,8 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
+	case authorization.ClusterDomain, authorization.UsersDomain:
+		// do nothing
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
