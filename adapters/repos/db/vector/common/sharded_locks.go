@@ -42,14 +42,10 @@ func NewShardedLocks(count uint64) *ShardedLocks {
 	}
 }
 
-func NewShardedLocksWithPageSize(count uint64, pageSize uint64) *ShardedLocks {
-	if count < 2 {
-		count = 2
-	}
-
+func NewShardedLocksWithPageSize(pageSize uint64) *ShardedLocks {
 	return &ShardedLocks{
-		shards:   make([]sync.Mutex, count),
-		count:    count,
+		shards:   make([]sync.Mutex, DefaultShardedLocksCount),
+		count:    DefaultShardedLocksCount,
 		PageSize: pageSize,
 	}
 }
