@@ -44,10 +44,11 @@ import (
 )
 
 const (
-	compressionBQ   = "bq"
-	compressionPQ   = "pq"
-	compressionSQ   = "sq"
-	compressionNone = "none"
+	compressionBQ        = "bq"
+	compressionPQ        = "pq"
+	compressionSQ        = "sq"
+	compressionNone      = "none"
+	defaultCachePageSize = 32
 )
 
 type flat struct {
@@ -105,7 +106,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
-			index.getBQVector, uc.VectorCacheMaxObjects, 32, cfg.Logger, 0, cfg.AllocChecker)
+			index.getBQVector, uc.VectorCacheMaxObjects, defaultCachePageSize, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
 	if err := index.initMetadata(); err != nil {

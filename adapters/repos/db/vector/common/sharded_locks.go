@@ -112,14 +112,10 @@ func NewShardedRWLocks(count uint64) *ShardedRWLocks {
 	}
 }
 
-func NewShardedRWLocksWithPageSize(count uint64, pageSize uint64) *ShardedRWLocks {
-	if count < 2 {
-		count = 2
-	}
-
+func NewShardedRWLocksWithPageSize(pageSize uint64) *ShardedRWLocks {
 	return &ShardedRWLocks{
-		shards:   make([]sync.RWMutex, count),
-		count:    count,
+		shards:   make([]sync.RWMutex, DefaultShardedLocksCount),
+		count:    DefaultShardedLocksCount,
 		PageSize: pageSize,
 	}
 }
