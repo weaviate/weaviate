@@ -51,7 +51,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfFactor":        float64(8),
 					"distance":               "cosine",
 					"bq": map[string]interface{}{
-						"enabled": false,
+						"enabled":      false,
+						"rescoreLimit": float64(256),
 					},
 					"pq": map[string]interface{}{
 						"bitCompression": false,
@@ -63,6 +64,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						},
 						"segments":      float64(0),
 						"trainingLimit": float64(100000),
+						"rescoreLimit":  float64(256),
 					},
 					"sq": map[string]interface{}{
 						"enabled":       false,

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -83,6 +84,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.pqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+			atomic.StoreInt32(&h.rescoreLimit, int32(cfg.PQ.RescoreLimit))
 		} else if cfg.SQ.Enabled {
 			var err error
 			h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
@@ -92,15 +94,18 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+			atomic.StoreInt32(&h.rescoreLimit, int32(cfg.SQ.RescoreLimit))
 		}
 		h.compressor.PersistCompression(h.commitLog)
-	} else {
+	}
+	if cfg.BQ.Enabled {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(
 			h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
 		if err != nil {
 			return err
 		}
+		atomic.StoreInt32(&h.rescoreLimit, int32(cfg.BQ.RescoreLimit))
 	}
 	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 		func(index uint64) {

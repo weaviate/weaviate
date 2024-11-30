@@ -93,9 +93,11 @@ func (u *UserConfig) SetDefaults() {
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
+		RescoreLimit: DefaultPQRescoreLimit,
 	}
 	u.BQ = BQConfig{
-		Enabled: DefaultBQEnabled,
+		Enabled:      DefaultBQEnabled,
+		RescoreLimit: DefaultBQRescoreLimit,
 	}
 	u.SQ = SQConfig{
 		Enabled:       DefaultSQEnabled,
@@ -103,6 +105,19 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.FilterStrategy = DefaultFilterStrategy
+}
+
+func (u *UserConfig) RescoreLimit() int {
+	switch {
+	case u.PQ.Enabled:
+		return u.PQ.RescoreLimit
+	case u.BQ.Enabled:
+		return u.BQ.RescoreLimit
+	case u.SQ.Enabled:
+		return u.SQ.RescoreLimit
+	default:
+		return 0
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -243,7 +258,7 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	if enabled > 1 {
-		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
+		return fmt.Errorf("invalid hnsw config: more than a single compression method enabled")
 	}
 
 	return nil
