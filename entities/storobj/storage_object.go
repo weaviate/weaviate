@@ -1251,7 +1251,6 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	pos += 4
 	vectorWeightsLength := binary.LittleEndian.Uint32(vectorWeightsLength_byte)
 
-
 	pos += int(vectorWeightsLength)
 
 	bufLen_byte := in[pos : pos+4]
@@ -1263,8 +1262,6 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	targetVectorsSegmentLength := binary.LittleEndian.Uint32(targetVectorsSegmentLength_byte)
 	pos += 4
 	pos += int(targetVectorsSegmentLength)
-
-
 
 	// multivector
 	var multiVectors map[string][][]float32
