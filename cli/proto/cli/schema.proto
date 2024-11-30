@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package weaviate.cli;
+
+
+service SchemaService {
+    rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse) {}
+    rpc GetRaftStatus(GetRaftStatusRequest) returns (GetRaftStatusResponse) {}
+
+    rpc RaftTakeSnapshot(RaftTakeSnapshotRequest) returns (RaftTakeSnapshotResponse) {}
+}
+
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+    repeated string classes = 1;
+}
+
+message GetRaftStatusRequest{}
+message GetRaftStatusResponse{
+    RaftConfig config = 1;
+    string last_applied_index = 2;
+    string last_log_index = 3;
+    string last_snapshot_index = 4;
+    string db_index_on_startup = 5;
+}
+message RaftConfig {
+    repeated RaftNode nodes = 1;
+}
+message RaftNode {
+    string node_id =1;
+    string node_addr =2;
+    bool voter = 3;
+}
+
+message RaftTakeSnapshotRequest{}
+message RaftTakeSnapshotResponse{}
+
