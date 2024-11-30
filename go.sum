@@ -599,6 +599,8 @@ github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAh
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
 github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKysIgEmnM=
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
+github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd h1:I2WJ4TPa4ngF3a0m3XtlV4DdyJBuGJzM+9olvkDZTxM=
+github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd/go.mod h1:7IHygf+QCR1KkP64KC167pb7H4JAjcNrYDjSW7stYQ8=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa h1:yavIOSoUOUfmYlESRiyT4mqVI/thhNm10pS9LDdf62c=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa/go.mod h1:2REGzzHg/U0Olsn/1ok6QfqAE/vDuKvb/j2eLrOIP8A=
 github.com/weaviate/s5cmd/v2 v2.0.1 h1:NLsBemDEeUa1pcqVAGl5Y2quKH8EFpkz/Z8n4s620hg=

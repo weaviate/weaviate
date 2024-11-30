@@ -1,5 +1,7 @@
 module github.com/weaviate/weaviate
 
+replace github.com/rapidsai/cuvs/go => ../cuvs/go // remove once PR is merged
+
 require (
 	cloud.google.com/go/storage v1.43.0
 	github.com/bmatcuk/doublestar v1.1.3
@@ -30,6 +32,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/testcontainers/testcontainers-go v0.33.0
 	github.com/weaviate/contextionary v1.2.1
+	github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.11
 	go.opentelemetry.io/otel v1.29.0 // indirect
@@ -68,6 +71,7 @@ require (
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/prometheus/common v0.60.0
+	github.com/rapidsai/cuvs/go v0.0.0-00010101000000-000000000000
 	github.com/tailor-inc/graphql v0.4.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -80,6 +84,8 @@ require (
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
+
+require github.com/ikawaha/kagome-dict/ipa v1.2.0
 
 require (
 	cloud.google.com/go v0.115.1 // indirect
@@ -212,4 +218,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-go 1.22
+go 1.22.4
