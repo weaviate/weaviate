@@ -19,11 +19,9 @@ import (
 )
 
 type Metrics struct {
-	queriesCount       *prometheus.GaugeVec
-	queriesDurations   *prometheus.HistogramVec
-	dimensions         *prometheus.CounterVec
-	dimensionsCombined prometheus.Counter
-	groupClasses       bool
+	queriesCount     *prometheus.GaugeVec
+	queriesDurations *prometheus.HistogramVec
+	groupClasses     bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -32,11 +30,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	}
 
 	return &Metrics{
-		queriesCount:       prom.QueriesCount,
-		queriesDurations:   prom.QueriesDurations,
-		dimensions:         prom.QueryDimensions,
-		dimensionsCombined: prom.QueryDimensionsCombined,
-		groupClasses:       prom.Group,
+		queriesCount:     prom.QueriesCount,
+		queriesDurations: prom.QueriesDurations,
+		groupClasses:     prom.Group,
 	}
 }
 
@@ -115,21 +111,4 @@ func (m *Metrics) QueriesGetDec(className string) {
 		"class_name": className,
 		"query_type": "get_graphql",
 	}).Dec()
-}
-
-func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
-	if m == nil {
-		return
-	}
-
-	if m.groupClasses {
-		className = "n/a"
-	}
-
-	m.dimensions.With(prometheus.Labels{
-		"class_name": className,
-		"operation":  operation,
-		"query_type": queryType,
-	}).Add(float64(dims))
-	m.dimensionsCombined.Add(float64(dims))
 }
