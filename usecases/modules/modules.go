@@ -903,9 +903,12 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 		if c, ok := module.(modulecapabilities.MetaProvider); ok {
 			meta, err := c.MetaInfo()
 			if err != nil {
-				return nil, err
+				metaInfos[module.Name()] = map[string]interface{}{
+					"error": err.Error(),
+				}
+			} else {
+				metaInfos[module.Name()] = meta
 			}
-			metaInfos[module.Name()] = meta
 		}
 	}
 	return metaInfos, nil
