@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -111,9 +112,16 @@ func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Du
 		uriQuery = uriCommon
 	}
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("TRANSFORMERS_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	client := clients.New(uriPassage, uriQuery, timeout, logger)
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote vectorizer")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote vectorizer")
+		}
 	}
 
 	m.vectorizer = vectorizer.New(client)
