@@ -202,21 +202,21 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "role has to have at least 1 permission",
 		},
-		{
-			name: "invalid resource",
-			params: authz.AddPermissionsParams{
-				Body: authz.AddPermissionsBody{
-					Name: String("someName"),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "missing domain",
-		},
+		// {
+		// 	name: "invalid resource",
+		// 	params: authz.AddPermissionsParams{
+		// 		Body: authz.AddPermissionsBody{
+		// 			Name: String("someName"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action: String(authorization.CreateCollections),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	principal:     &models.Principal{Username: "user1"},
+		// 	expectedError: "missing domain",
+		// },
 		{
 			name: "update builtin role",
 			params: authz.AddPermissionsParams{

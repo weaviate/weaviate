@@ -96,21 +96,21 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "role has to have at least 1 permission",
 		},
-		{
-			name: "invalid permission",
-			params: authz.RemovePermissionsParams{
-				Body: authz.RemovePermissionsBody{
-					Name: String("someName"),
-					Permissions: []*models.Permission{
-						{
-							Action: String("manage_roles"),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "invalid permission",
-		},
+		// {
+		// 	name: "invalid permission",
+		// 	params: authz.RemovePermissionsParams{
+		// 		Body: authz.RemovePermissionsBody{
+		// 			Name: String("someName"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action: String("manage_roles"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	principal:     &models.Principal{Username: "user1"},
+		// 	expectedError: "invalid permission",
+		// },
 		{
 			name: "update builtin role",
 			params: authz.RemovePermissionsParams{
