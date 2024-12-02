@@ -384,6 +384,74 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 }
 
+func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	testRoleName := "test-role"
+	testUser := "test-user"
+	testKey := "test-key"
+
+	testRole := &models.Role{
+		Name: &testRoleName,
+		Permissions: []*models.Permission{{
+			Action:     &authorization.CreateSchema,
+			Collection: authorization.All,
+		}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithUserApiKey(testUser, testKey).
+		WithRBAC().
+		WithRbacAdmins(adminUser).
+		Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	t.Run("get all roles before create", func(t *testing.T) {
+		roles := helper.GetRoles(t, adminKey)
+		require.Equal(t, 3, len(roles))
+	})
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, testRole)
+	})
+
+	t.Run("assign role to user", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, testRoleName, testUser)
+	})
+
+	t.Run("get role assigned to user", func(t *testing.T) {
+		roles := helper.GetRolesForUser(t, testUser, adminKey)
+		require.Equal(t, 1, len(roles))
+	})
+
+	t.Run("get role assigned to user", func(t *testing.T) {
+		helper.DeleteRole(t, adminKey, *testRole.Name)
+	})
+
+	t.Run("create the role again", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, testRole)
+	})
+
+	t.Run("get role assigned to user expected none", func(t *testing.T) {
+		roles := helper.GetRolesForUser(t, testUser, adminKey)
+		require.Equal(t, 0, len(roles))
+	})
+}
+
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
