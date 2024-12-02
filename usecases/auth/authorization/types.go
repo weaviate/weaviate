@@ -90,11 +90,13 @@ var (
 
 	ManageBackups = "manage_backups"
 
+	ManageCollections = "manage_collections"
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
 	UpdateCollections = "update_collections"
 	DeleteCollections = "delete_collections"
 
+	ManageData = "manage_data"
 	CreateData = "create_data"
 	ReadData   = "read_data"
 	UpdateData = "update_data"
@@ -118,12 +120,14 @@ var (
 		ReadNodes,
 
 		// Collections domain
+		ManageCollections,
 		CreateCollections,
 		ReadCollections,
 		UpdateCollections,
 		DeleteCollections,
 
 		// Data domain
+		ManageData,
 		CreateData,
 		ReadData,
 		UpdateData,
@@ -412,6 +416,7 @@ func viewerPermissions() []*models.Permission {
 // editor : can create/read/update everything , roles, users, schema, data
 func editorPermissions() []*models.Permission {
 	perms := []*models.Permission{}
+	// TODO ignore CRUD if there is manage
 	for _, action := range availableWeaviateActions {
 		if strings.ToUpper(action)[0] == DELETE[0] {
 			continue
@@ -432,6 +437,7 @@ func editorPermissions() []*models.Permission {
 
 // Admin : aka basically super Admin or root
 func adminPermissions() []*models.Permission {
+	// TODO ignore CRUD if there is manage
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
