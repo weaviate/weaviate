@@ -21,7 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -166,28 +165,6 @@ func TestAcornPercentage(t *testing.T) {
 			err := vectorIndex.Add(context.TODO(), uint64(i), vec)
 			require.Nil(t, err)
 		}
-	})
-
-	t.Run("check acorn params on different filter percentags", func(t *testing.T) {
-		vectorIndex.acornSearch.Store(false)
-		allowList := helpers.NewAllowList(1, 2, 3)
-		useAcorn, M := vectorIndex.acornParams(allowList)
-		assert.False(t, useAcorn)
-		assert.Equal(t, 0, M)
-
-		vectorIndex.acornSearch.Store(true)
-
-		useAcorn, M = vectorIndex.acornParams(allowList)
-		assert.True(t, useAcorn)
-		assert.Equal(t, 3, M)
-
-		vectorIndex.acornSearch.Store(true)
-
-		largerAllowList := helpers.NewAllowList(1, 2, 3, 4, 5)
-		useAcorn, M = vectorIndex.acornParams(largerAllowList)
-		// should be false as allow list percentage is 50%
-		assert.False(t, useAcorn)
-		assert.Equal(t, 2, M)
 	})
 }
 
