@@ -38,6 +38,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	readSchemaAction := authorization.ReadSchema
 	createDataAction := authorization.CreateData
 	updateSchemaAction := authorization.UpdateSchema
+	createSchemaAction := authorization.CreateSchema
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -118,6 +119,14 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	helper.DeleteRole(t, adminKey, *updateSchemaRole.Name)
 	helper.CreateRole(t, adminKey, updateSchemaRole)
 
+	createSchemaRoleName := "createSchema"
+	createSchemaRole := &models.Role{
+		Name:        &createSchemaRoleName,
+		Permissions: []*models.Permission{{Action: &createSchemaAction, Collection: &className}},
+	}
+	helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
+	helper.CreateRole(t, adminKey, createSchemaRole)
+
 	t.Run("read and update rights for schema", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AssignRole(
 			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
@@ -127,17 +136,55 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 		// object which does NOT introduce a new prop => no failure
 		_, err = createObject(t, &models.Object{
-			ID:         UUID3,
+			ID:         UUID1,
 			Class:      className,
 			Properties: map[string]interface{}{"name": "prop"},
 			Tenant:     "",
 		}, customKey)
 		require.NoError(t, err)
 
-		// object which does introduce a new prop => failure
+		// object which does introduce a new prop => also no failure
+		_, err = createObject(t, &models.Object{
+			ID:         UUID2,
+			Class:      className,
+			Properties: map[string]interface{}{"different": "prop"},
+			Tenant:     "",
+		}, customKey)
+		require.NoError(t, err)
+
+		// object which does introduce a new class => failure
+		_, err = createObject(t, &models.Object{
+			ID:         UUID3,
+			Class:      className + "new",
+			Properties: map[string]interface{}{"different": "prop"},
+			Tenant:     "",
+		}, customKey)
+		require.Error(t, err)
+
+		var batchObjectsDeleteUnauthorized *objects.ObjectsCreateForbidden
+		require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
+	})
+
+	t.Run("create rights for schema", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AssignRole(
+			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
+			adminAuth,
+		)
+		require.NoError(t, err)
+
+		// object which does NOT introduce a new class
 		_, err = createObject(t, &models.Object{
 			ID:         UUID4,
 			Class:      className,
+			Properties: map[string]interface{}{"name": "prop"},
+			Tenant:     "",
+		}, customKey)
+		require.NoError(t, err)
+
+		// object which does introduce a new class
+		_, err = createObject(t, &models.Object{
+			ID:         UUID5,
+			Class:      className + "new",
 			Properties: map[string]interface{}{"different": "prop"},
 			Tenant:     "",
 		}, customKey)
