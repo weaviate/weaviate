@@ -48,7 +48,7 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			ID:                    "bug-2155",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewL2SquaredProvider(),
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		}, ent.UserConfig{
@@ -110,7 +110,7 @@ func TestQueryVectorDistancer(t *testing.T) {
 		ID:                    "bug-2155",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
 	}, ent.UserConfig{
@@ -150,7 +150,7 @@ func TestAcornPercentage(t *testing.T) {
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
@@ -266,7 +266,7 @@ func TestRescore(t *testing.T) {
 					rescoreConcurrency: test.concurrency,
 					logger:             logger,
 					TempVectorForIDThunk: func(
-						ctx context.Context, id uint64, container *common.VectorSlice,
+						ctx context.Context, callerId int, id uint64, container *common.VectorSlice,
 					) ([]float32, error) {
 						return vectors[id], nil
 					},

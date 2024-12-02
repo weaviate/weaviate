@@ -21,7 +21,7 @@ import (
 )
 
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
-	max int, denyList helpers.AllowList,
+	callerId, max int, denyList helpers.AllowList,
 ) error {
 	if input.Len() < max {
 		return nil
@@ -78,7 +78,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 		}
 	} else {
 
-		vecs, errs := h.multiVectorForID(context.TODO(), ids)
+		vecs, errs := h.multiVectorForID(context.TODO(), callerId, ids)
 
 		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
 

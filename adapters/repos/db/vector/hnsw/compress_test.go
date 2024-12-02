@@ -59,13 +59,13 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 		ID:                    "recallbenchmark",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		TempVectorForIDThunk: func(ctx context.Context, callerId int, id uint64, container *common.VectorSlice) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},

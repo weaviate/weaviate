@@ -27,13 +27,13 @@ import (
 )
 
 func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
-	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel, callerId int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, false)
 
-	return nfc.Do(ctx)
+	return nfc.Do(ctx, callerId)
 }
 
 func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
@@ -43,7 +43,7 @@ func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, true)
 
-	return nfc.Do(ctx)
+	return nfc.Do(ctx, -1)
 }
 
 type neighborFinderConnector struct {
@@ -79,9 +79,9 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	}
 }
 
-func (n *neighborFinderConnector) Do(ctx context.Context) error {
+func (n *neighborFinderConnector) Do(ctx context.Context, callerId int) error {
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
-		err := n.doAtLevel(ctx, level)
+		err := n.doAtLevel(ctx, level, callerId)
 		if err != nil {
 			return errors.Wrapf(err, "at level %d", level)
 		}
@@ -90,12 +90,12 @@ func (n *neighborFinderConnector) Do(ctx context.Context) error {
 	return nil
 }
 
-func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
+func (n *neighborFinderConnector) processNode(id uint64, callerId int) (float32, error) {
 	var dist float32
 	var err error
 
 	if n.distancer == nil {
-		dist, err = n.graph.distToNode(n.distancer, id, n.nodeVec)
+		dist, err = n.graph.distToNode(n.distancer, id, n.nodeVec, callerId)
 	} else {
 		dist, err = n.distancer.DistanceToNode(id)
 	}
@@ -112,7 +112,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top, callerId int) error {
 	if top <= 0 {
 		return nil
 	}
@@ -152,7 +152,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 			continue
 		}
 
-		dist, err := n.processNode(id)
+		dist, err := n.processNode(id, callerId)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -171,7 +171,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	}
 	for _, id := range pending {
 		if results.Len() >= top {
-			dist, err := n.processNode(id)
+			dist, err := n.processNode(id, callerId)
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
@@ -184,7 +184,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 				continue
 			}
 		}
-		err := n.processRecursively(id, results, visited, level, top)
+		err := n.processRecursively(id, results, visited, level, top, callerId)
 		if err != nil {
 			return err
 		}
@@ -192,7 +192,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	return nil
 }
 
-func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) error {
+func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level, callerId int) error {
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
@@ -226,7 +226,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		}
 		for _, id := range pending {
 			visited.Visit(id)
-			err := n.processRecursively(id, results, visited, level, top)
+			err := n.processRecursively(id, results, visited, level, top, callerId)
 			if err != nil {
 				n.graph.pools.visitedListsLock.RLock()
 				n.graph.pools.visitedLists.Return(visited)
@@ -240,7 +240,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
-		if err := n.pickEntrypoint(); err != nil {
+		if err := n.pickEntrypoint(callerId); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
 		eps := priorityqueue.NewMin[any](1)
@@ -248,7 +248,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		var err error
 
 		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
-			level, nil, n.distancer)
+			level, callerId, nil, n.distancer)
 		if err != nil {
 			return errors.Wrapf(err, "search layer at level %d", level)
 		}
@@ -257,7 +257,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		before = time.Now()
 	}
 
-	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristic(results, callerId, maxConnections-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
@@ -292,7 +292,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	}
 
 	for _, neighborID := range neighborsCpy {
-		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
+		if err := n.connectNeighborAtLevel(neighborID, level, callerId); err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
 	}
@@ -313,7 +313,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 }
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
-	level int,
+	level, callerId int,
 ) error {
 	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
@@ -339,7 +339,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	} else {
 		// we need to run the heuristic
 
-		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID, callerId)
 		var e storobj.ErrNotFound
 		if err != nil && errors.As(err, &e) {
 			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
@@ -355,7 +355,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
-			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID, callerId)
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
@@ -369,7 +369,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			candidates.Insert(existingConnection, dist)
 		}
 
-		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		err = n.graph.selectNeighborsHeuristic(candidates, callerId, maximumConnections, n.denyList)
 		if err != nil {
 			return errors.Wrap(err, "connect neighbors")
 		}
@@ -417,7 +417,7 @@ func (n *neighborFinderConnector) maximumConnections(level int) int {
 	return n.graph.maximumConnections
 }
 
-func (n *neighborFinderConnector) pickEntrypoint() error {
+func (n *neighborFinderConnector) pickEntrypoint(callerId int) error {
 	// the neighborFinderConnector always has a suggestion for an entrypoint that
 	// it got from the outside, most of the times we can use this, but in some
 	// cases we can't. To see if we can use it, three conditions need to be met:
@@ -434,7 +434,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	// cost of that copy can be significant. Let's first verify if the global
 	// entrypoint candidate is usable. If yes, we can return early and skip the
 	// copy.
-	success, err := n.tryEpCandidate(candidate)
+	success, err := n.tryEpCandidate(candidate, callerId)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if !errors.As(err, &e) {
@@ -470,7 +470,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return err
 		}
 
-		success, err := n.tryEpCandidate(candidate)
+		success, err := n.tryEpCandidate(candidate, callerId)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if !errors.As(err, &e) {
@@ -498,7 +498,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	}
 }
 
-func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
+func (n *neighborFinderConnector) tryEpCandidate(candidate uint64, callerId int) (bool, error) {
 	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil
@@ -511,7 +511,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	var dist float32
 	var err error
 	if n.distancer == nil {
-		dist, err = n.graph.distToNode(n.distancer, candidate, n.nodeVec)
+		dist, err = n.graph.distToNode(n.distancer, candidate, n.nodeVec, callerId)
 	} else {
 		dist, err = n.distancer.DistanceToNode(candidate)
 	}

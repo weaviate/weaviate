@@ -71,7 +71,7 @@ func TestBackup_Integration(t *testing.T) {
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(dirName, indexID, logger, noopCallback)
 		},
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
 			if vec == nil {
 				return nil, storobj.NewErrNotFoundf(id, "nil vec")

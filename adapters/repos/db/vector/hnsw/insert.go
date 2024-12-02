@@ -181,7 +181,9 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 		distancer, returnFn = h.compressor.NewDistancer(vector)
 		defer returnFn()
 	}
-	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel,
+	callerId := h.cache.GetFreeCallerId()
+	defer h.cache.ReturnCallerId(callerId)
+	entryPointID, err = h.findBestEntrypointForNode(ctx, currentMaximumLayer, targetLevel, callerId,
 		entryPointID, vector, distancer)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
@@ -192,7 +194,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 
 	// TODO: check findAndConnectNeighbors...
 	if err := h.findAndConnectNeighbors(ctx, node, entryPointID, vector, distancer,
-		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
+		targetLevel, currentMaximumLayer, callerId, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
@@ -219,6 +221,8 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	} else {
 		h.RUnlock()
 	}
+
+	h.cache.Connect(callerId, node.id, node.connections[0][0])
 
 	return nil
 }

@@ -28,7 +28,7 @@ type quantizedDistanceBag[T byte | uint64] struct {
 
 func (bag *quantizedDistanceBag[T]) Load(ctx context.Context, id uint64) error {
 	var err error
-	bag.elements[id], err = bag.compressor.cache.Get(ctx, id)
+	bag.elements[id], err = bag.compressor.cache.Get(ctx, -1, id)
 	return err
 }
 

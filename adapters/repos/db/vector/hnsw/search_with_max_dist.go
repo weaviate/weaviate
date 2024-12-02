@@ -27,12 +27,14 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 ) ([]uint64, error) {
 	entryPointID := h.entryPointID
 	var compressorDistancer compressionhelpers.CompressorDistancer
+	callerId := h.cache.GetFreeCallerId()
+	defer h.cache.ReturnCallerId(callerId)
 	if h.compressed.Load() {
 		var returnFn compressionhelpers.ReturnDistancerFn
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec, callerId)
 	var e storobj.ErrNotFound
 	if err != nil && errors.As(err, &e) {
 		h.handleDeletedNode(e.DocID, "KnnSearchByVectorMaxDist")
@@ -48,7 +50,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
-		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, callerId, nil, compressorDistancer)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -63,7 +65,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(ctx context.Context, searchVec []float32
 
 	eps := priorityqueue.NewMin[any](1)
 	eps.Insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
+	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, callerId, allowList, compressorDistancer)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}

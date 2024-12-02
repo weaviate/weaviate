@@ -89,7 +89,7 @@ func Test_DynamicEF(t *testing.T) {
 				ID:                    "dynaimc-ef-test",
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      distancer.NewCosineDistanceProvider(),
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 					return nil, errors.Errorf("not implemented")
 				},
 			}, test.config, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))

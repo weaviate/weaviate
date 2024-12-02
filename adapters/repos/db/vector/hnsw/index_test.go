@@ -77,7 +77,7 @@ func TestHnswIndex(t *testing.T) {
 func TestHnswIndexGrow(t *testing.T) {
 	ctx := context.Background()
 	vector := []float32{0.1, 0.2}
-	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+	vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 		return vector, nil
 	}
 	index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -138,7 +138,7 @@ func TestHnswIndexGrow(t *testing.T) {
 
 func TestHnswIndexGrowSafely(t *testing.T) {
 	vector := []float32{0.1, 0.2}
-	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+	vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 		return vector, nil
 	}
 	index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -199,7 +199,7 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 func TestHnswIndexContainsNode(t *testing.T) {
 	ctx := context.Background()
 	t.Run("should return false if index is empty", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			t.Fatalf("vecForID should not be called on empty index")
 			return nil, nil
 		}
@@ -208,7 +208,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 	})
 
 	t.Run("should return true if node is in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -220,7 +220,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 	})
 
 	t.Run("should return false if node is not in the index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -232,7 +232,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 	})
 
 	t.Run("should return false if node is deleted", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -249,7 +249,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 func TestHnswIndexIterate(t *testing.T) {
 	ctx := context.Background()
 	t.Run("should not run callback on empty index", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			t.Fatalf("vecForID should not be called on empty index")
 			return nil, nil
 		}
@@ -261,7 +261,7 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should iterate over all nodes", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -281,7 +281,7 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should stop iteration when callback returns false", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -305,7 +305,7 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should stop iteration when shutdownCtx is canceled", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -333,7 +333,7 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should stop iteration when resetCtx is canceled", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
@@ -360,7 +360,7 @@ func TestHnswIndexIterate(t *testing.T) {
 	})
 
 	t.Run("should skip deleted nodes", func(t *testing.T) {
-		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		vecForIDFn := func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return testVectors[id], nil
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)

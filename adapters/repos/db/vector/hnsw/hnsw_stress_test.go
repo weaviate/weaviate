@@ -44,7 +44,7 @@ const (
 	parallelSearchGoroutines = 8
 )
 
-func idVector(ctx context.Context, id uint64) ([]float32, error) {
+func idVector(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 	vector := make([]float32, vectorSize)
 	for i := 0; i < vectorSize; i++ {
 		vector[i] = float32(id)
@@ -52,8 +52,8 @@ func idVector(ctx context.Context, id uint64) ([]float32, error) {
 	return vector, nil
 }
 
-func idVectorSize(size int) func(ctx context.Context, id uint64) ([]float32, error) {
-	return func(ctx context.Context, id uint64) ([]float32, error) {
+func idVectorSize(size int) func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
+	return func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 		vector := make([]float32, size)
 		for i := 0; i < size; i++ {
 			vector[i] = float32(id)
@@ -480,7 +480,7 @@ Ex: go test -v -run TestHnswStress . -download
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),

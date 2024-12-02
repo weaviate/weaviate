@@ -525,7 +525,7 @@ func (h *hnsw) reassignNeighbor(
 	if h.compressed.Load() {
 		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 	} else {
-		neighborVec, err = h.cache.Get(context.Background(), neighbor)
+		neighborVec, err = h.cache.Get(context.Background(), -1, neighbor)
 	}
 
 	if err != nil {

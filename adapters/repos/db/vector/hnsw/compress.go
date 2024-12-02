@@ -46,7 +46,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			// request the vectors. Otherwise we would miss any vector that's currently
 			// not in the cache, for example because the cache is not hot yet after a
 			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
+			p, err := h.cache.Get(context.Background(), -1, uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {

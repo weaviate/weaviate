@@ -28,6 +28,8 @@ import (
 func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	callerId := h.cache.GetFreeCallerId()
+	defer h.cache.ReturnCallerId(callerId)
 	if !h.shouldRescore() {
 		limit = k
 	}
@@ -81,7 +83,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 					continue
 				}
 
-				dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
+				dist, err := h.distToNode(compressorDistancer, candidate, queryVector, callerId)
 				if errors.As(err, &e) {
 					h.handleDeletedNode(e.DocID, "flatSearch")
 					continue

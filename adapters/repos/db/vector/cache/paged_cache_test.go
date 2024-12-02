@@ -13,12 +13,18 @@ package cache
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"path"
+	"runtime"
+	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestFloat32Page(t *testing.T) {
@@ -98,25 +104,29 @@ func TestUint64Page(t *testing.T) {
 }
 
 func TestFloat32PagedCache(t *testing.T) {
+	logger := logrus.New()
 	t.Run("preload and get", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
 
-		vec, err := cache.Get(context.Background(), 0, 0)
+		callerId := cache.GetFreeCallerId()
+		defer cache.ReturnCallerId(callerId)
+
+		vec, err := cache.Get(context.Background(), callerId, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, []float32{0, 2, 16}, vec)
 
-		vec, err = cache.Get(context.Background(), 0, 1)
+		vec, err = cache.Get(context.Background(), callerId, 1)
 		assert.Nil(t, err)
 		assert.Equal(t, []float32{1, 12, 6}, vec)
 
-		_, err = cache.Get(context.Background(), 0, 2)
+		_, err = cache.Get(context.Background(), callerId, 2)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("preload and multiget", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
 
@@ -130,19 +140,17 @@ func TestFloat32PagedCache(t *testing.T) {
 	})
 
 	t.Run("connect", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
 
 		callerId := cache.GetFreeCallerId()
 
 		cache.Connect(callerId, 0, 0)
-		cacheId, found := cache.pageForId[0]
-		assert.True(t, found)
+		cacheId := cache.pageForId[0]
 		assert.Equal(t, int(0), cacheId)
 		cache.Connect(callerId, 1, 0)
-		cacheId, found = cache.pageForId[1]
-		assert.True(t, found)
+		cacheId = cache.pageForId[1]
 		assert.Equal(t, int(0), cacheId)
 
 		vec, err := cache.Get(context.Background(), callerId, 0)
@@ -158,7 +166,7 @@ func TestFloat32PagedCache(t *testing.T) {
 	})
 
 	t.Run("splits", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		callerId := cache.GetFreeCallerId()
 		for i := 0; i < 110; i++ {
 			cache.Preload(uint64(i), []float32{rand.Float32(), rand.Float32(), rand.Float32()})
@@ -166,8 +174,7 @@ func TestFloat32PagedCache(t *testing.T) {
 		}
 		total := 0
 		for i := 0; i < 110; i++ {
-			pageId, found := cache.pageForId[uint64(i)]
-			assert.True(t, found)
+			pageId := cache.pageForId[i]
 			assert.True(t, pageId < 10)
 			total += pageId
 		}
@@ -175,7 +182,7 @@ func TestFloat32PagedCache(t *testing.T) {
 	})
 
 	t.Run("prefetch", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
 		callerId := cache.GetFreeCallerId()
@@ -191,7 +198,7 @@ func TestFloat32PagedCache(t *testing.T) {
 	})
 
 	t.Run("clean memory", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		callerId := cache.GetFreeCallerId()
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
@@ -209,7 +216,7 @@ func TestFloat32PagedCache(t *testing.T) {
 	})
 
 	t.Run("clean memory keeps what is in use", func(t *testing.T) {
-		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider())
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewCosineDistanceProvider(), logger)
 		callerId := cache.GetFreeCallerId()
 		cache.Preload(0, []float32{0, 2, 16})
 		cache.Preload(1, []float32{1, 12, 6})
@@ -227,6 +234,35 @@ func TestFloat32PagedCache(t *testing.T) {
 		cache.CollectMemory()
 		assert.NotNil(t, cache.pages[0])
 	})
+
+	t.Run("concurrent chaos", func(t *testing.T) {
+		cache := NewFloat32PagedCache(t.TempDir(), 100, distancer.NewL2SquaredProvider(), logger)
+		n := 300
+		n64 := float64(n)
+		workerCount := runtime.GOMAXPROCS(0)
+		wg := &sync.WaitGroup{}
+		split := uint64(math.Ceil(n64 / float64(workerCount)))
+		for worker := uint64(0); worker < uint64(workerCount); worker++ {
+			workerID := worker
+
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				callerId := cache.GetFreeCallerId()
+				for i := workerID * split; i < uint64(math.Min(float64((workerID+1)*split), n64)); i++ {
+					cache.Preload(i, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
+					cache.Connect(callerId, i, 0)
+				}
+				cache.ReturnCallerId(callerId)
+			}, logger)
+		}
+		wg.Wait()
+		callerId := cache.GetFreeCallerId()
+		vec, err := cache.Get(context.Background(), callerId, 0)
+		cache.ReturnCallerId(callerId)
+		assert.Nil(t, err)
+		assert.NotNil(t, vec)
+	})
 }
 
 func TestUint64PagedCache(t *testing.T) {
@@ -234,15 +270,17 @@ func TestUint64PagedCache(t *testing.T) {
 	cache.Preload(0, []uint64{0, 2, 16})
 	cache.Preload(1, []uint64{1, 12, 6})
 
-	vec, err := cache.Get(context.Background(), 0, 0)
+	callerId := cache.GetFreeCallerId()
+	defer cache.ReturnCallerId(callerId)
+	vec, err := cache.Get(context.Background(), callerId, 0)
 	assert.Nil(t, err)
 	assert.Equal(t, []uint64{0, 2, 16}, vec)
 
-	vec, err = cache.Get(context.Background(), 0, 1)
+	vec, err = cache.Get(context.Background(), callerId, 1)
 	assert.Nil(t, err)
 	assert.Equal(t, []uint64{1, 12, 6}, vec)
 
-	_, err = cache.Get(context.Background(), 0, 2)
+	_, err = cache.Get(context.Background(), callerId, 2)
 	assert.NotNil(t, err)
 }
 
@@ -251,14 +289,16 @@ func TestBytePagedCache(t *testing.T) {
 	cache.Preload(0, []byte{0, 2, 16})
 	cache.Preload(1, []byte{1, 12, 6})
 
-	vec, err := cache.Get(context.Background(), 0, 0)
+	callerId := cache.GetFreeCallerId()
+	defer cache.ReturnCallerId(callerId)
+	vec, err := cache.Get(context.Background(), callerId, 0)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{0, 2, 16}, vec)
 
-	vec, err = cache.Get(context.Background(), 0, 1)
+	vec, err = cache.Get(context.Background(), callerId, 1)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte{1, 12, 6}, vec)
 
-	_, err = cache.Get(context.Background(), 0, 2)
+	_, err = cache.Get(context.Background(), callerId, 2)
 	assert.NotNil(t, err)
 }

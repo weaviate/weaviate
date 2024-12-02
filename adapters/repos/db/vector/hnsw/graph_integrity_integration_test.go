@@ -55,7 +55,7 @@ func TestGraphIntegrity(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "graphintegrity",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 			DistanceProvider: distancer.NewDotProductProvider(),

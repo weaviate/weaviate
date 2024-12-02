@@ -80,7 +80,7 @@ func NewVectorForIDThunk(targetVector string, fn func(ctx context.Context, id ui
 	return t.VectorForID
 }
 
-func NewTempVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error)) common.TempVectorForID {
+func NewTempVectorForIDThunk(targetVector string, fn func(ctx context.Context, callerId int, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error)) common.TempVectorForID {
 	t := common.TargetTempVectorForID{
 		TargetVector:         targetVector,
 		TempVectorForIDThunk: fn,

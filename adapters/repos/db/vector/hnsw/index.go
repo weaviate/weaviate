@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -231,13 +232,20 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger = logger
 	}
 
-	normalizeOnRead := false
+	/*normalizeOnRead := false
 	if cfg.DistanceProvider.Type() == "cosine-dot" {
 		normalizeOnRead = true
-	}
+	}*/
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	/*vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)*/
+	vectorCache := cache.NewFloat32PagedCache(cfg.RootPath, 100, cfg.DistanceProvider, cfg.Logger)
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			vectorCache.CollectMemory()
+		}
+	}()
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -423,7 +431,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 // }
 
-func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, targetLevel int,
+func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, targetLevel, callerId int,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer,
 ) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
@@ -435,7 +443,7 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 		if h.compressed.Load() {
 			dist, err = distancer.DistanceToNode(entryPointID)
 		} else {
-			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
+			dist, err = h.distToNode(distancer, entryPointID, nodeVec, callerId)
 		}
 
 		var e storobj.ErrNotFound
@@ -449,7 +457,7 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVectorWithDistancer(ctx, nodeVec, eps, 1, level, nil, distancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, nodeVec, eps, 1, level, callerId, nil, distancer)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -471,7 +479,7 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 	return entryPointID, nil
 }
 
-func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
+func (h *hnsw) distBetweenNodes(a, b uint64, callerId int) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), a, b)
 		if err != nil {
@@ -483,7 +491,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
+	vecA, err := h.vectorForID(context.Background(), callerId, a)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -499,7 +507,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.vectorForID(context.Background(), b)
+	vecB, err := h.vectorForID(context.Background(), callerId, b)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -518,7 +526,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32) (float32, error) {
+func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32, callerId int) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
@@ -530,7 +538,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
+	vecA, err := h.vectorForID(context.Background(), callerId, node)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {

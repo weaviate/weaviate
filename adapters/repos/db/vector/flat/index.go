@@ -115,7 +115,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	return index, nil
 }
 
-func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) {
+func (flat *flat) getBQVector(ctx context.Context, callerId int, id uint64) ([]uint64, error) {
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
@@ -566,7 +566,7 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	// further search can be stopped
 	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
 		if allow == nil || allow.Contains(id) {
-			vec, err := index.bqCache.Get(context.Background(), id)
+			vec, err := index.bqCache.Get(context.Background(), -1, id)
 			if err != nil {
 				return err
 			}
@@ -977,7 +977,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				if int32(nodeID) > index.bqCache.Len() {
 					return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.bqCache.Len())
 				}
-				vec, err := index.bqCache.Get(context.Background(), nodeID)
+				vec, err := index.bqCache.Get(context.Background(), -1, nodeID)
 				if err != nil {
 					return 0, err
 				}

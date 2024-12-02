@@ -25,7 +25,7 @@ type CoordinatesForID func(ctx context.Context, id uint64) (*models.GeoCoordinat
 // VectorForID transforms the geo coordinates into a "vector" of fixed length
 // two, where element 0 represents the latitude and element 1 represents the
 // longitude. This way it is usable by a generic vector index such as HNSW
-func (cfid CoordinatesForID) VectorForID(ctx context.Context, id uint64) ([]float32, error) {
+func (cfid CoordinatesForID) VectorForID(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 	coordinates, err := cfid(ctx, id)
 	if err != nil {
 		return nil, err

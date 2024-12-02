@@ -63,13 +63,13 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		ID:                    "recallbenchmark",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			if int(id) >= len(vectors) {
 				return nil, storobj.NewErrNotFoundf(id, "out of range")
 			}
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		TempVectorForIDThunk: func(ctx context.Context, callerId int, id uint64, container *common.VectorSlice) ([]float32, error) {
 			copy(container.Slice, vectors[int(id)])
 			return container.Slice, nil
 		},
@@ -136,7 +136,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
 			if vec == nil {
 				return nil, storobj.NewErrNotFoundf(id, "nil vec")

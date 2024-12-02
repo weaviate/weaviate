@@ -113,7 +113,7 @@ func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []flo
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Prefetch(id uint64) {
-	compressor.cache.Prefetch(id)
+	compressor.cache.Prefetch(-1, id)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVectors(x, y []T) (float32, error) {
@@ -121,7 +121,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 }
 
 func (compressor *quantizedVectorsCompressor[T]) compressedVectorFromID(ctx context.Context, id uint64) ([]T, error) {
-	compressedVector, err := compressor.cache.Get(ctx, id)
+	compressedVector, err := compressor.cache.Get(ctx, -1, id)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return dist, err
 }
 
-func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
+func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, callerId int, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
 	compressedVector, err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Get(idBytes)
@@ -402,7 +402,7 @@ type quantizedCompressorDistancer[T byte | uint64] struct {
 }
 
 func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, error) {
-	compressedVector, err := distancer.compressor.cache.Get(context.Background(), id)
+	compressedVector, err := distancer.compressor.cache.Get(context.Background(), -1, id)
 	if err != nil {
 		return 0, err
 	}

@@ -54,8 +54,8 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
 	vc := &shardedLockCache[float32]{
-		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
-			vec, err := vecForID(ctx, id)
+		vectorForID: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
+			vec, err := vecForID(ctx, callerId, id)
 			if err != nil {
 				return nil, err
 			}
@@ -128,7 +128,7 @@ func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }
 
-func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
+func (s *shardedLockCache[T]) Get(ctx context.Context, callerId int, id uint64) ([]T, error) {
 	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -173,7 +173,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 		}
 	}
 
-	vec, err := s.vectorForID(ctx, id)
+	vec, err := s.vectorForID(ctx, -1, id)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	return vec, nil
 }
 
-func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
+func (s *shardedLockCache[T]) MultiGet(ctx context.Context, callerId int, ids []uint64) ([][]T, []error) {
 	out := make([][]T, len(ids))
 	errs := make([]error, len(ids))
 
@@ -220,7 +220,7 @@ func (s *shardedLockCache[T]) UnlockAll() {
 	s.shardedLocks.UnlockAll()
 }
 
-func (s *shardedLockCache[T]) Prefetch(id uint64) {
+func (s *shardedLockCache[T]) Prefetch(callerId int, id uint64) {
 	s.shardedLocks.RLock(id)
 	defer s.shardedLocks.RUnlock(id)
 
@@ -340,6 +340,14 @@ func (s *shardedLockCache[T]) CopyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&s.maxSize)
 	return sizeCopy
 }
+
+func (s *shardedLockCache[T]) GetFreeCallerId() int {
+	return 0
+}
+
+func (s *shardedLockCache[T]) ReturnCallerId(id int) {}
+
+func (s *shardedLockCache[T]) Connect(callerId int, id, closest uint64) {}
 
 // noopCache can be helpful in debugging situations, where we want to
 // explicitly pass through each vectorForID call to the underlying vectorForID

@@ -50,7 +50,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 	// ensures there is no "index out of range" panic on get
 
 	logger, _ := test.NewNullLogger()
-	var vecForId common.VectorForID[float32] = func(context.Context, uint64) ([]float32, error) { return nil, nil }
+	var vecForId common.VectorForID[float32] = func(context.Context, int, uint64) ([]float32, error) { return nil, nil }
 	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Second, nil)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -65,7 +65,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 			defer wg.Done()
 
 			vectorCache.Grow(node)
-			vectorCache.Get(context.Background(), node)
+			vectorCache.Get(context.Background(), 0, node)
 		}(node)
 	}
 

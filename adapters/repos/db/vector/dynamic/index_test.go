@@ -67,7 +67,7 @@ func TestDynamic(t *testing.T) {
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			vec := vectors[int(id)]
 			if vec == nil {
 				return nil, storobj.NewErrNotFoundf(id, "nil vec")
@@ -123,7 +123,7 @@ func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+		VectorForIDThunk: func(ctx context.Context, callerId int, id uint64) ([]float32, error) {
 			return nil, nil
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(nil),
@@ -159,8 +159,8 @@ func recallAndLatency(ctx context.Context, queries [][]float32, k int, index dyn
 	return recall, latency
 }
 
-func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
-	return func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+func TempVectorForIDThunk(vectors [][]float32) func(context.Context, int, uint64, *common.VectorSlice) ([]float32, error) {
+	return func(ctx context.Context, callerId int, id uint64, container *common.VectorSlice) ([]float32, error) {
 		copy(container.Slice, vectors[int(id)])
 		return vectors[int(id)], nil
 	}

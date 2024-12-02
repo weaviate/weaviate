@@ -30,9 +30,9 @@ type VectorUint64Slice struct {
 }
 
 type (
-	VectorForID[T float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
-	TempVectorForID                        func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
-	MultiVectorForID                       func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID[T float32 | byte | uint64] func(ctx context.Context, callerId int, id uint64) ([]T, error)
+	TempVectorForID                        func(ctx context.Context, callerId int, id uint64, container *VectorSlice) ([]float32, error)
+	MultiVectorForID                       func(ctx context.Context, callerId int, ids []uint64) ([][]float32, []error)
 )
 
 type TargetVectorForID[T float32 | byte | uint64] struct {
@@ -40,17 +40,17 @@ type TargetVectorForID[T float32 | byte | uint64] struct {
 	VectorForIDThunk func(ctx context.Context, id uint64, targetVector string) ([]T, error)
 }
 
-func (t TargetVectorForID[T]) VectorForID(ctx context.Context, id uint64) ([]T, error) {
+func (t TargetVectorForID[T]) VectorForID(ctx context.Context, callerId int, id uint64) ([]T, error) {
 	return t.VectorForIDThunk(ctx, id, t.TargetVector)
 }
 
 type TargetTempVectorForID struct {
 	TargetVector         string
-	TempVectorForIDThunk func(ctx context.Context, id uint64, container *VectorSlice, targetVector string) ([]float32, error)
+	TempVectorForIDThunk func(ctx context.Context, callerId int, id uint64, container *VectorSlice, targetVector string) ([]float32, error)
 }
 
-func (t TargetTempVectorForID) TempVectorForID(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error) {
-	return t.TempVectorForIDThunk(ctx, id, container, t.TargetVector)
+func (t TargetTempVectorForID) TempVectorForID(ctx context.Context, callerId int, id uint64, container *VectorSlice) ([]float32, error) {
+	return t.TempVectorForIDThunk(ctx, callerId, id, container, t.TargetVector)
 }
 
 type TempVectorUint64Pool struct {

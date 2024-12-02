@@ -16,17 +16,18 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"os"
 	"path"
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-const maxCallerId = 10
+const maxCallerId = 20
 
 type genericDistancer[T float32 | uint64 | byte] interface {
 	SingleDist(x, y []T) (float32, error)
@@ -40,6 +41,7 @@ type page[T float32 | byte | uint64] struct {
 	typeSize       int
 	extractElement func([]byte) T
 	putElement     func([]byte, T)
+	dirty          bool
 }
 
 func newFloat32Page() *page[float32] {
@@ -86,7 +88,7 @@ func (p *page[T]) extractVector(id uint64) ([]T, error) {
 	pos, found := p.ids[id]
 	p.RUnlock()
 	if !found {
-		return nil, fmt.Errorf("no vector found on this page with id: %d", id)
+		return nil, fmt.Errorf("no vector found on page with id: %d", id)
 	}
 	rawPos := pos * p.dimensions * p.typeSize
 	result := make([]T, p.dimensions)
@@ -108,6 +110,7 @@ func (p *page[T]) add(id uint64, vector []T) {
 		p.putElement(raw[i*p.typeSize:], x)
 	}
 	p.rawVectors = append(p.rawVectors, raw...)
+	p.dirty = true
 }
 
 func (p *page[T]) len() int {
@@ -117,7 +120,6 @@ func (p *page[T]) len() int {
 func (p *page[T]) load(path string, pageSize int) error {
 	f, err := os.OpenFile(path, os.O_RDONLY, 0644)
 	if err != nil {
-		log.Fatal(err)
 		return err
 	}
 	defer f.Close()
@@ -137,6 +139,9 @@ func (p *page[T]) load(path string, pageSize int) error {
 func (p *page[T]) store(path string) error {
 	p.Lock()
 	defer p.Unlock()
+	if !p.dirty {
+		return nil
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
@@ -153,12 +158,14 @@ func (p *page[T]) store(path string) error {
 	if err != io.EOF && err != nil {
 		return err
 	}
+	p.dirty = false
 	return nil
 }
 
 type PagedCache[T float32 | byte | uint64] struct {
 	sync.RWMutex
-	pageForId         map[uint64]int
+	shardedLocks      *common.ShardedRWLocks
+	pageForId         []int
 	pages             []*page[T]
 	createPage        func() *page[T]
 	temporalVectors   map[uint64][]T
@@ -168,11 +175,13 @@ type PagedCache[T float32 | byte | uint64] struct {
 	dimensions        int
 	callerIds         []bool
 	pagesUsedByCaller []map[int]bool
+	logger            logrus.FieldLogger
 }
 
-func NewFloat32PagedCache(path string, pageSize int, distancer distancer.Provider) *PagedCache[float32] {
+func NewFloat32PagedCache(path string, pageSize int, distancer distancer.Provider, logger logrus.FieldLogger) *PagedCache[float32] {
 	return &PagedCache[float32]{
-		pageForId:         make(map[uint64]int),
+		shardedLocks:      common.NewDefaultShardedRWLocks(),
+		pageForId:         make([]int, 100000),
 		createPage:        newFloat32Page,
 		temporalVectors:   make(map[uint64][]float32),
 		pageSize:          pageSize,
@@ -180,12 +189,14 @@ func NewFloat32PagedCache(path string, pageSize int, distancer distancer.Provide
 		path:              path,
 		callerIds:         make([]bool, maxCallerId),
 		pagesUsedByCaller: make([]map[int]bool, maxCallerId),
+		logger:            logger,
 	}
 }
 
 func NewUint64PagedCache(path string, pageSize int) *PagedCache[uint64] {
 	return &PagedCache[uint64]{
-		pageForId:         make(map[uint64]int),
+		shardedLocks:      common.NewDefaultShardedRWLocks(),
+		pageForId:         make([]int, 100000),
 		createPage:        newUint64Page,
 		temporalVectors:   make(map[uint64][]uint64),
 		pageSize:          pageSize,
@@ -196,7 +207,8 @@ func NewUint64PagedCache(path string, pageSize int) *PagedCache[uint64] {
 
 func NewBytePagedCache(path string, pageSize int) *PagedCache[byte] {
 	return &PagedCache[byte]{
-		pageForId:         make(map[uint64]int),
+		shardedLocks:      common.NewDefaultShardedRWLocks(),
+		pageForId:         make([]int, 100000),
 		createPage:        newBytePage,
 		temporalVectors:   make(map[uint64][]byte),
 		pageSize:          pageSize,
@@ -244,22 +256,37 @@ func (pc *PagedCache[T]) CollectMemory() {
 }
 
 func (pc *PagedCache[T]) allocatePageAndRecordCaller(ctx context.Context, id uint64, callerId int, asyncLoad bool) (*page[T], int, error) {
-	pageId, found := pc.pageForId[id]
-	if !found {
+	if callerId == -1 {
+		return nil, 0, errors.New("invalid callerId")
+	}
+	pc.RLock()
+	if len(pc.pageForId) <= int(id) {
+		pc.RUnlock()
 		return nil, 0, fmt.Errorf("unknown vector for id: %d", id)
 	}
+	pc.shardedLocks.RLock(id)
+	pageId := pc.pageForId[id]
+	pc.shardedLocks.RUnlock(id)
 
 	if err := pc.recordCallerId(callerId, pageId); err != nil {
 		return nil, 0, errors.Wrapf(err, "getting vector %d", id)
 	}
 
-	if pageId >= len(pc.pages) {
-		return nil, 0, fmt.Errorf("unknown page for id: %d", id)
+	if len(pc.pages) <= pageId {
+		pc.RUnlock()
+		return nil, 0, errors.New("unknown page")
 	}
-
+	pc.RUnlock()
+	pc.shardedLocks.RLock(id)
 	page := pc.pages[pageId]
+	pc.shardedLocks.RUnlock(id)
 
 	if page == nil {
+		pc.shardedLocks.Lock(id)
+		defer pc.shardedLocks.Unlock(id)
+		if pc.pages[pageId] != nil {
+			return pc.pages[pageId], pageId, nil
+		}
 		page = pc.createPage()
 		page.Lock()
 		pc.pages[pageId] = page
@@ -278,11 +305,12 @@ func (pc *PagedCache[T]) allocatePageAndRecordCaller(ctx context.Context, id uin
 }
 
 func (pc *PagedCache[T]) Get(ctx context.Context, callerId int, id uint64) ([]T, error) {
-	pc.Lock()
-	defer pc.Unlock()
+	pc.RLock()
 	if vec, found := pc.temporalVectors[id]; found {
+		pc.RUnlock()
 		return vec, nil
 	}
+	pc.RUnlock()
 
 	page, _, err := pc.allocatePageAndRecordCaller(ctx, id, callerId, false)
 	if err != nil {
@@ -293,24 +321,32 @@ func (pc *PagedCache[T]) Get(ctx context.Context, callerId int, id uint64) ([]T,
 }
 
 func (pc *PagedCache[T]) Connect(callerId int, id, closest uint64) {
-	pc.Lock()
-	defer pc.Unlock()
 	page, pageId, err := pc.allocatePageAndRecordCaller(context.Background(), closest, callerId, false)
 	if err != nil {
 		page = pc.createPage()
+		pc.Lock()
 		pc.pages = append(pc.pages, page)
 		pageId = len(pc.pages) - 1
+		pc.Unlock()
 		if err := pc.recordCallerId(callerId, pageId); err != nil {
 			return
 		}
 	}
 
+	pc.Lock()
 	page.add(id, pc.temporalVectors[id])
+	if len(pc.pageForId) <= pageId {
+		old := pc.pageForId
+		pc.pageForId = make([]int, pageId+pageId/10)
+		copy(pc.pageForId, old)
+	}
+	pc.pageForId[id] = pageId
+	delete(pc.temporalVectors, id)
+
 	if page.len() > pc.pageSize {
 		pc.splitPageNoLock(pageId, page)
 	}
-	delete(pc.temporalVectors, id)
-	pc.pageForId[id] = pageId
+	pc.Unlock()
 }
 
 func (pc *PagedCache[T]) MultiGet(ctx context.Context, callerId int, ids []uint64) ([][]T, []error) {
@@ -369,11 +405,11 @@ func (pc *PagedCache[T]) All() [][]T {
 }
 
 func (pc *PagedCache[T]) LockAll() {
-	pc.Lock()
+	pc.shardedLocks.LockAll()
 }
 
 func (pc *PagedCache[T]) UnlockAll() {
-	pc.Unlock()
+	pc.shardedLocks.UnlockAll()
 }
 
 func (pc *PagedCache[T]) loadPage(ctx context.Context, pageId int) error {
@@ -398,7 +434,11 @@ func (pc *PagedCache[T]) recordCallerId(callerId, pageId int) error {
 func (pc *PagedCache[T]) splitPageNoLock(id int, page *page[T]) {
 	v := make([][]T, 2)
 	i := 0
+	ids := make([]uint64, 0, len(page.ids))
 	for id := range page.ids {
+		ids = append(ids, id)
+	}
+	for _, id := range ids {
 		v[i], _ = page.extractVector(id)
 		i++
 		if i == 2 {
@@ -407,7 +447,7 @@ func (pc *PagedCache[T]) splitPageNoLock(id int, page *page[T]) {
 	}
 	page0 := pc.createPage()
 	page1 := pc.createPage()
-	for id := range page.ids {
+	for _, id := range ids {
 		vec, _ := page.extractVector(id)
 		d0, _ := pc.distancer.SingleDist(vec, v[0])
 		d1, _ := pc.distancer.SingleDist(vec, v[1])
@@ -415,7 +455,9 @@ func (pc *PagedCache[T]) splitPageNoLock(id int, page *page[T]) {
 			page0.add(id, vec)
 		} else {
 			page1.add(id, vec)
+			pc.shardedLocks.Lock(id)
 			pc.pageForId[id] = len(pc.pages)
+			pc.shardedLocks.Unlock(id)
 		}
 	}
 	pc.pages[id] = page0
