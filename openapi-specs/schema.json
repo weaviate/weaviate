@@ -114,6 +114,7 @@
 
             "read_cluster",
 
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",

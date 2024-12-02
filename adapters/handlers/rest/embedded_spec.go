@@ -5392,6 +5392,7 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -12050,6 +12051,7 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",
