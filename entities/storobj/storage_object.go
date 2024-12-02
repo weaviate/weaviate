@@ -1197,9 +1197,20 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 }
 
 func incrementPos(in []byte, pos int, size int) int {
-	length := binary.LittleEndian.Uint32(in[pos : pos+size])
-	pos += size + int(length)
+	b := in[pos : pos+size]
+	if size == 2 {
+		length := binary.LittleEndian.Uint16(b)
+		pos += size + int(length)
+	} else if size == 4 {
+		length := binary.LittleEndian.Uint32(b)
+		pos += size + int(length)
+		return pos
+	} else if size == 8 {
+		length := binary.LittleEndian.Uint64(b)
+		pos += size + int(length)
+	}
 	return pos
+
 }
 
 func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([][]float32, error) {
