@@ -92,6 +92,8 @@ func TestQueuePush(t *testing.T) {
 			ChunkSize:    50,
 		})
 		require.NoError(t, err)
+		err = q.Init()
+		require.NoError(t, err)
 
 		pushMany(t, q, 1, 100, 200, 300)
 
@@ -107,6 +109,8 @@ func TestQueuePush(t *testing.T) {
 			StaleTimeout: 500 * time.Millisecond,
 			ChunkSize:    50,
 		})
+		require.NoError(t, err)
+		err = q.Init()
 		require.NoError(t, err)
 
 		require.Equal(t, int64(3), q.Size())
