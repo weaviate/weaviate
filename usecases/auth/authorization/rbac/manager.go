@@ -66,7 +66,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 	} else {
 		for _, name := range names {
-			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name)
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, prefixRoleName(name))
 			if err != nil {
 				return nil, err
 			}
@@ -80,9 +80,9 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	return conv.CasbinPolicies(casbinStoragePolicies...)
 }
 
-func (m *manager) RemovePermissions(role string, permissions []*authorization.Policy) error {
+func (m *manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	for _, permission := range permissions {
-		ok, err := m.casbin.RemoveNamedPolicy("p", role, permission.Resource, permission.Verb, permission.Domain)
+		ok, err := m.casbin.RemoveNamedPolicy("p", prefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return err
 		}
@@ -97,8 +97,8 @@ func (m *manager) RemovePermissions(role string, permissions []*authorization.Po
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {
-	for _, role := range roles {
-		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
+	for _, roleName := range roles {
+		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, prefixRoleName(roleName))
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func (m *manager) DeleteRoles(roles ...string) error {
 
 func (m *manager) AddRolesForUser(user string, roles []string) error {
 	for _, role := range roles {
-		if _, err := m.casbin.AddRoleForUser(user, prefixRoleName(role)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(prefixUserName(user), prefixRoleName(role)); err != nil {
 			return err
 		}
 	}
@@ -123,8 +123,8 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return m.casbin.SavePolicy()
 }
 
-func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
-	rolesNames, err := m.casbin.GetRolesForUser(user)
+func (m *manager) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
+	rolesNames, err := m.casbin.GetRolesForUser(prefixUserName(userName))
 	if err != nil {
 		return nil, err
 	}
@@ -135,13 +135,22 @@ func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Polic
 	return m.GetRoles(rolesNames...)
 }
 
-func (m *manager) GetUsersForRole(role string) ([]string, error) {
-	return m.casbin.GetUsersForRole(role)
+func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
+	pusers, err := m.casbin.GetUsersForRole(prefixRoleName(roleName))
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]string, len(pusers))
+	for idx := range pusers {
+		users[idx] = strings.Replace(pusers[idx], "user:", "", 1)
+	}
+	return users, err
 }
 
-func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
-	for _, role := range roles {
-		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
+func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
+	for _, roleName := range roles {
+		if _, err := m.casbin.DeleteRoleForUser(prefixUserName(userName), prefixRoleName(roleName)); err != nil {
 			return err
 		}
 	}
@@ -162,7 +171,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 
 	// TODO batch enforce
 	for _, resource := range resources {
-		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
+		allow, err := m.casbin.Enforce(prefixUserName(principal.Username), resource, verb)
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action":         "authorize",
@@ -245,4 +254,8 @@ func prettyStatus(value bool) string {
 
 func prefixRoleName(name string) string {
 	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
+}
+
+func prefixUserName(name string) string {
+	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
 }
