@@ -31,6 +31,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
+const (
+	defaultBlockSize   = int64(40 * 1024 * 1024)
+	defaultConcurrency = 1
+)
+
 type azureClient struct {
 	client     *azblob.Client
 	config     clientConfig
@@ -220,7 +225,7 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath s
 }
 
 func (a *azureClient) getBlockSize(ctx context.Context) int64 {
-	blockSize := int64(40 * 1024 * 1024)
+	blockSize := defaultBlockSize
 	blockSizeStr := modulecomponents.GetValueFromContext(ctx, "X-Azure-Block-Size")
 
 	if blockSizeStr == "" {
@@ -230,7 +235,7 @@ func (a *azureClient) getBlockSize(ctx context.Context) int64 {
 	if blockSizeStr != "" {
 		bs, err := strconv.ParseInt(blockSizeStr, 10, 64)
 		if err != nil {
-			return 40 * 1024 * 1024
+			return defaultBlockSize
 		}
 		blockSize = bs
 	}
@@ -238,7 +243,7 @@ func (a *azureClient) getBlockSize(ctx context.Context) int64 {
 }
 
 func (a *azureClient) getConcurrency(ctx context.Context) int {
-	concurrency := 1
+	concurrency := defaultConcurrency
 	concurrencyStr := modulecomponents.GetValueFromContext(ctx, "X-Azure-Concurrency")
 
 	if concurrencyStr == "" {
@@ -248,7 +253,7 @@ func (a *azureClient) getConcurrency(ctx context.Context) int {
 	if concurrencyStr != "" {
 		cc, err := strconv.Atoi(concurrencyStr)
 		if err != nil {
-			return 1
+			return defaultConcurrency
 		}
 		concurrency = cc
 	}
