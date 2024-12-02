@@ -11,7 +11,10 @@
 
 package queue
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 type Task interface {
 	Op() uint8
@@ -28,11 +31,12 @@ type Batch struct {
 	Ctx        context.Context
 	onDone     func()
 	onCanceled func()
+	once       sync.Once
 }
 
 func (b *Batch) Done() {
 	if b.onDone != nil {
-		b.onDone()
+		b.once.Do(b.onDone)
 	}
 }
 

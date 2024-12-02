@@ -434,9 +434,12 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 	q.rmLock.Lock()
 	defer q.rmLock.Unlock()
 
-	err := q.r.RemoveChunk(c)
+	deleted, err := q.r.RemoveChunk(c)
 	if err != nil {
 		q.Logger.WithError(err).WithField("file", c.path).Error("failed to remove chunk")
+		return
+	}
+	if !deleted {
 		return
 	}
 
@@ -913,7 +916,7 @@ func (w *chunkWriter) Promote() error {
 }
 
 type chunkReader struct {
-	m         sync.RWMutex
+	m         sync.Mutex
 	dir       string
 	cursor    int
 	chunkList []string
@@ -958,10 +961,10 @@ func newChunkReader(dir string) (*chunkReader, error) {
 }
 
 func (r *chunkReader) ReadChunk() (*chunk, error) {
-	r.m.RLock()
+	r.m.Lock()
 
 	if r.cursor >= len(r.chunkList) {
-		r.m.RUnlock()
+		r.m.Unlock()
 		return nil, nil
 	}
 
@@ -970,7 +973,7 @@ func (r *chunkReader) ReadChunk() (*chunk, error) {
 
 	r.cursor++
 
-	r.m.RUnlock()
+	r.m.Unlock()
 
 	if ok {
 		return chunkFromFile(f)
@@ -1023,7 +1026,7 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 	return nil
 }
 
-func (r *chunkReader) RemoveChunk(c *chunk) error {
+func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 	_ = c.Close()
 
 	r.m.Lock()
@@ -1034,11 +1037,11 @@ func (r *chunkReader) RemoveChunk(c *chunk) error {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// already removed
-			return nil
+			return false, nil
 		}
 
-		return err
+		return false, err
 	}
 
-	return nil
+	return true, nil
 }

@@ -40,7 +40,7 @@ type Scheduler struct {
 	activeTasks *common.SharedGauge
 
 	wg        sync.WaitGroup
-	chans     []chan Batch
+	chans     []chan *Batch
 	triggerCh chan chan struct{}
 }
 
@@ -142,7 +142,7 @@ func (s *Scheduler) Start() {
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
 
 	// run workers
-	chans := make([]chan Batch, s.Workers)
+	chans := make([]chan *Batch, s.Workers)
 
 	for i := 0; i < s.Workers; i++ {
 		worker, ch := NewWorker(s.Logger, 5*time.Second)
@@ -431,8 +431,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 			s.activeTasks.Decr()
 			q.activeTasks.Decr()
 			return taskCount, nil
-		case s.chans[i] <- Batch{
-			Tasks: partition,
+		case s.chans[i] <- &Batch{
+			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			onDone: func() {
 				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
@@ -446,7 +446,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 					s.Logger.
 						WithField("queue_id", q.q.ID()).
 						WithField("queue_size", q.q.Size()).
-						WithField("tasks", taskCount).
+						WithField("count", taskCount).
 						Debug("tasks processed")
 				}
 				q.m.Unlock()
@@ -468,7 +468,7 @@ func (s *Scheduler) logQueueStats(q Queue, tasksDequeued int64) {
 	s.Logger.
 		WithField("queue_id", q.ID()).
 		WithField("queue_size", q.Size()).
-		WithField("tasks", tasksDequeued).
+		WithField("count", tasksDequeued).
 		Debug("processing tasks")
 }
 

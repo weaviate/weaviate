@@ -22,11 +22,11 @@ import (
 type Worker struct {
 	logger        logrus.FieldLogger
 	retryInterval time.Duration
-	ch            chan Batch
+	ch            chan *Batch
 }
 
-func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker, chan Batch) {
-	ch := make(chan Batch)
+func NewWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*Worker, chan *Batch) {
+	ch := make(chan *Batch)
 
 	return &Worker{
 		logger:        logger,
@@ -41,7 +41,7 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case batch := <-w.ch:
-			stop := w.do(&batch)
+			stop := w.do(batch)
 
 			if stop {
 				return
