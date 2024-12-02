@@ -22,34 +22,72 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 func TestRevokeRoleSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
-	logger, _ := test.NewNullLogger()
-
-	principal := &models.Principal{Username: "user1"}
-	params := authz.RevokeRoleParams{
-		ID: "testUser",
-		Body: authz.RevokeRoleBody{
-			Roles: []string{"testRole"},
+	tests := []struct {
+		name              string
+		principal         *models.Principal
+		params            authz.RevokeRoleParams
+		configuredAdmins  []string
+		configuredViewers []string
+	}{
+		{
+			name:      "successful revocation",
+			principal: &models.Principal{Username: "user1"},
+			params: authz.RevokeRoleParams{
+				ID: "testUser",
+				Body: authz.RevokeRoleBody{
+					Roles: []string{"testRole"},
+				},
+			},
+		},
+		{
+			name: "revoke another user not configured admin role",
+			params: authz.RevokeRoleParams{
+				ID: "testUser2",
+				Body: authz.RevokeRoleBody{
+					Roles: []string{"admin"},
+				},
+			},
+			configuredAdmins: []string{"testUser"},
+			principal:        &models.Principal{Username: "user1"},
+		},
+		{
+			name: "revoke another user user not configured viewer role",
+			params: authz.RevokeRoleParams{
+				ID: "testUser2",
+				Body: authz.RevokeRoleBody{
+					Roles: []string{"viewer"},
+				},
+			},
+			configuredViewers: []string{"testUser"},
+			principal:         &models.Principal{Username: "user1"},
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)[0]).Return(nil)
-	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("RevokeRolesForUser", params.ID, params.Body.Roles[0]).Return(nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewAuthorizer(t)
+			controller := mocks.NewController(t)
+			logger, _ := test.NewNullLogger()
 
-	h := &authZHandlers{
-		authorizer: authorizer,
-		controller: controller,
-		logger:     logger,
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
+			controller.On("RevokeRolesForUser", tt.params.ID, tt.params.Body.Roles[0]).Return(nil)
+
+			h := &authZHandlers{
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
+			}
+			res := h.revokeRole(tt.params, tt.principal)
+			parsed, ok := res.(*authz.RevokeRoleOK)
+			assert.True(t, ok)
+			assert.NotNil(t, parsed)
+		})
 	}
-	res := h.revokeRole(params, principal)
-	parsed, ok := res.(*authz.RevokeRoleOK)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
 }
 
 func TestRevokeRoleBadRequest(t *testing.T) {
@@ -59,7 +97,10 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 		principal      *models.Principal
 		expectedError  string
 		existedRoles   map[string][]authorization.Policy
+		callAuthZ      bool
 		callToGetRoles bool
+		admins         []string
+		viewers        []string
 	}
 
 	tests := []testCase{
@@ -87,6 +128,32 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 			existedRoles:   map[string][]authorization.Policy{},
 			callToGetRoles: true,
 		},
+		{
+			name: "revoke configured admin role",
+			params: authz.RevokeRoleParams{
+				ID: "testUser",
+				Body: authz.RevokeRoleBody{
+					Roles: []string{"admin"},
+				},
+			},
+			callAuthZ:     true,
+			admins:        []string{"testUser"},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "you can not revoke configured role admin",
+		},
+		{
+			name: "revoke configured viewer role",
+			params: authz.RevokeRoleParams{
+				ID: "testUser",
+				Body: authz.RevokeRoleBody{
+					Roles: []string{"viewer"},
+				},
+			},
+			callAuthZ:     true,
+			viewers:       []string{"testUser"},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "you can not revoke configured role viewer",
+		},
 	}
 
 	for _, tt := range tests {
@@ -94,6 +161,10 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 			authorizer := mocks.NewAuthorizer(t)
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
+
+			if tt.callAuthZ {
+				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			}
 
 			if tt.callToGetRoles {
 				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -103,7 +174,11 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
-				logger:     logger,
+				rbacconfig: rbacconf.Config{
+					Admins:  tt.admins,
+					Viewers: tt.viewers,
+				},
+				logger: logger,
 			}
 			res := h.revokeRole(tt.params, tt.principal)
 			parsed, ok := res.(*authz.RevokeRoleBadRequest)
