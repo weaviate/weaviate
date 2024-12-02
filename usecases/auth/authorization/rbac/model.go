@@ -29,7 +29,10 @@ import (
 )
 
 const (
+	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
+	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	ROLE_NAME_PREFIX = "role:"
+	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	USER_NAME_PREFIX = "user:"
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
 	// docs: https://casbin.org/docs/syntax-for-models
