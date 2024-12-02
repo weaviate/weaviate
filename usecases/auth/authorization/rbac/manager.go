@@ -98,14 +98,21 @@ func (m *manager) RemovePermissions(roleName string, permissions []*authorizatio
 
 func (m *manager) DeleteRoles(roles ...string) error {
 	for _, roleName := range roles {
-		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, prefixRoleName(roleName))
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, prefixRoleName(roleName))
 		if err != nil {
 			return err
 		}
-		if !ok {
+
+		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, prefixRoleName(roleName))
+		if err != nil {
+			return err
+		}
+
+		if !roleRemoved && !roleAssignmentsRemoved {
 			return nil // deletes are idempotent
 		}
 	}
+
 	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
