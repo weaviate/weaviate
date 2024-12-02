@@ -41,15 +41,101 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	AdminConfigMaintenanceModeGet(params *AdminConfigMaintenanceModeGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminConfigMaintenanceModeGetOK, error)
+
+	AdminConfigMaintenanceModeSet(params *AdminConfigMaintenanceModeSetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminConfigMaintenanceModeSetOK, error)
+
 	AdminInvertedIndexRebuild(params *AdminInvertedIndexRebuildParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminInvertedIndexRebuildOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
 
 /*
+AdminConfigMaintenanceModeGet thes current maintenance mode status for this node
+
+Returns the current maintenance mode statuses currently on the node that receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the returned value is node-specific. This endpoint may returned all nodes or only those for which maintenance mode is enabled.
+*/
+func (a *Client) AdminConfigMaintenanceModeGet(params *AdminConfigMaintenanceModeGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminConfigMaintenanceModeGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAdminConfigMaintenanceModeGetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "admin.config.maintenance_mode.get",
+		Method:             "GET",
+		PathPattern:        "/admin/config/maintenance_mode",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AdminConfigMaintenanceModeGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AdminConfigMaintenanceModeGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for admin.config.maintenance_mode.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AdminConfigMaintenanceModeSet sets the maintenance mode status for the specified nodes on the node that receives this request
+
+Set the provided maintenance mode statuses for the node which receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. TODO setting this value via the API will not persist after a restart.
+*/
+func (a *Client) AdminConfigMaintenanceModeSet(params *AdminConfigMaintenanceModeSetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminConfigMaintenanceModeSetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAdminConfigMaintenanceModeSetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "admin.config.maintenance_mode.set",
+		Method:             "POST",
+		PathPattern:        "/admin/config/maintenance_mode",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AdminConfigMaintenanceModeSetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AdminConfigMaintenanceModeSetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for admin.config.maintenance_mode.set: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 AdminInvertedIndexRebuild triggers an inverted index rebuild
 
-Trigger an inverted index rebuild for the given index id
+Trigger inverted index rebuilds for the given classes/properties. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. If the node restarts before the reindexing completes, the operation will have been dropped.
 */
 func (a *Client) AdminInvertedIndexRebuild(params *AdminInvertedIndexRebuildParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AdminInvertedIndexRebuildOK, error) {
 	// TODO: Validate the params before sending
@@ -59,7 +145,7 @@ func (a *Client) AdminInvertedIndexRebuild(params *AdminInvertedIndexRebuildPara
 	op := &runtime.ClientOperation{
 		ID:                 "admin.inverted_index.rebuild",
 		Method:             "POST",
-		PathPattern:        "/admin/inverted_index/rebuild/{id}",
+		PathPattern:        "/admin/inverted_index/rebuild",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

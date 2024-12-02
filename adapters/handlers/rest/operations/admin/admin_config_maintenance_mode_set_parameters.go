@@ -27,42 +27,42 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewAdminInvertedIndexRebuildParams creates a new AdminInvertedIndexRebuildParams object
+// NewAdminConfigMaintenanceModeSetParams creates a new AdminConfigMaintenanceModeSetParams object
 //
 // There are no default values defined in the spec.
-func NewAdminInvertedIndexRebuildParams() AdminInvertedIndexRebuildParams {
+func NewAdminConfigMaintenanceModeSetParams() AdminConfigMaintenanceModeSetParams {
 
-	return AdminInvertedIndexRebuildParams{}
+	return AdminConfigMaintenanceModeSetParams{}
 }
 
-// AdminInvertedIndexRebuildParams contains all the bound params for the admin inverted index rebuild operation
+// AdminConfigMaintenanceModeSetParams contains all the bound params for the admin config maintenance mode set operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters admin.inverted_index.rebuild
-type AdminInvertedIndexRebuildParams struct {
+// swagger:parameters admin.config.maintenance_mode.set
+type AdminConfigMaintenanceModeSetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The classes/properties to rebuild the inverted indexes for
+	/*Set maintenance mode for the given nodes
 	  Required: true
 	  In: body
 	*/
-	Body []*models.ClassProperties
+	Body []*models.NodeMaintenanceMode
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewAdminInvertedIndexRebuildParams() beforehand.
-func (o *AdminInvertedIndexRebuildParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewAdminConfigMaintenanceModeSetParams() beforehand.
+func (o *AdminConfigMaintenanceModeSetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body []*models.ClassProperties
+		var body []*models.NodeMaintenanceMode
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))

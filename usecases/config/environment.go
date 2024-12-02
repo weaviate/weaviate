@@ -745,7 +745,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 }
 
 func parseClusterConfig() (cluster.Config, error) {
-	cfg := cluster.Config{}
+	cfg := cluster.NewConfig()
 
 	// by default memberlist assigns hostname to os.Hostname() incase hostname is empty
 	// ref: https://github.com/hashicorp/memberlist/blob/3f82dc10a89f82efe300228752f7077d0d9f87e4/config.go#L303
@@ -829,10 +829,11 @@ func parseClusterConfig() (cluster.Config, error) {
 	// avoid the case where strings.Split creates a slice with only the empty string as I think
 	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
 	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
-	cfg.MaintenanceNodes = []string{}
+	maintenanceNodes := []string{}
 	if m := os.Getenv("MAINTENANCE_NODES"); m != "" {
-		cfg.MaintenanceNodes = strings.Split(m, ",")
+		maintenanceNodes = strings.Split(m, ",")
 	}
+	cfg.SetMaintenanceNodes(maintenanceNodes)
 
 	return cfg, nil
 }

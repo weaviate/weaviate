@@ -22,15 +22,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// AdminInvertedIndexRebuildURL generates an URL for the admin inverted index rebuild operation
-type AdminInvertedIndexRebuildURL struct {
+// AdminConfigMaintenanceModeGetURL generates an URL for the admin config maintenance mode get operation
+type AdminConfigMaintenanceModeGetURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AdminInvertedIndexRebuildURL) WithBasePath(bp string) *AdminInvertedIndexRebuildURL {
+func (o *AdminConfigMaintenanceModeGetURL) WithBasePath(bp string) *AdminConfigMaintenanceModeGetURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -38,15 +38,15 @@ func (o *AdminInvertedIndexRebuildURL) WithBasePath(bp string) *AdminInvertedInd
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AdminInvertedIndexRebuildURL) SetBasePath(bp string) {
+func (o *AdminConfigMaintenanceModeGetURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *AdminInvertedIndexRebuildURL) Build() (*url.URL, error) {
+func (o *AdminConfigMaintenanceModeGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/admin/inverted_index/rebuild"
+	var _path = "/admin/config/maintenance_mode"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -58,7 +58,7 @@ func (o *AdminInvertedIndexRebuildURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *AdminInvertedIndexRebuildURL) Must(u *url.URL, err error) *url.URL {
+func (o *AdminConfigMaintenanceModeGetURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -69,17 +69,17 @@ func (o *AdminInvertedIndexRebuildURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *AdminInvertedIndexRebuildURL) String() string {
+func (o *AdminConfigMaintenanceModeGetURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *AdminInvertedIndexRebuildURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *AdminConfigMaintenanceModeGetURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on AdminInvertedIndexRebuildURL")
+		return nil, errors.New("scheme is required for a full url on AdminConfigMaintenanceModeGetURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on AdminInvertedIndexRebuildURL")
+		return nil, errors.New("host is required for a full url on AdminConfigMaintenanceModeGetURL")
 	}
 
 	base, err := o.Build()
@@ -93,6 +93,6 @@ func (o *AdminInvertedIndexRebuildURL) BuildFull(scheme, host string) (*url.URL,
 }
 
 // StringFull returns the string representation of a complete url
-func (o *AdminInvertedIndexRebuildURL) StringFull(scheme, host string) string {
+func (o *AdminConfigMaintenanceModeGetURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

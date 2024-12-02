@@ -43,11 +43,11 @@ func NewAdminInvertedIndexRebuild(ctx *middleware.Context, handler AdminInverted
 }
 
 /*
-	AdminInvertedIndexRebuild swagger:route POST /admin/inverted_index/rebuild/{id} admin inverted_index adminInvertedIndexRebuild
+	AdminInvertedIndexRebuild swagger:route POST /admin/inverted_index/rebuild admin inverted_index adminInvertedIndexRebuild
 
 # Trigger an inverted index rebuild
 
-Trigger an inverted index rebuild for the given index id
+Trigger inverted index rebuilds for the given classes/properties. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. If the node restarts before the reindexing completes, the operation will have been dropped.
 */
 type AdminInvertedIndexRebuild struct {
 	Context *middleware.Context

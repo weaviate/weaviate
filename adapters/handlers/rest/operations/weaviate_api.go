@@ -71,6 +71,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
+		AdminAdminConfigMaintenanceModeGetHandler: admin.AdminConfigMaintenanceModeGetHandlerFunc(func(params admin.AdminConfigMaintenanceModeGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation admin.AdminConfigMaintenanceModeGet has not yet been implemented")
+		}),
+		AdminAdminConfigMaintenanceModeSetHandler: admin.AdminConfigMaintenanceModeSetHandlerFunc(func(params admin.AdminConfigMaintenanceModeSetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation admin.AdminConfigMaintenanceModeSet has not yet been implemented")
+		}),
 		AdminAdminInvertedIndexRebuildHandler: admin.AdminInvertedIndexRebuildHandlerFunc(func(params admin.AdminInvertedIndexRebuildParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation admin.AdminInvertedIndexRebuild has not yet been implemented")
 		}),
@@ -284,6 +290,10 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// AdminAdminConfigMaintenanceModeGetHandler sets the operation handler for the admin config maintenance mode get operation
+	AdminAdminConfigMaintenanceModeGetHandler admin.AdminConfigMaintenanceModeGetHandler
+	// AdminAdminConfigMaintenanceModeSetHandler sets the operation handler for the admin config maintenance mode set operation
+	AdminAdminConfigMaintenanceModeSetHandler admin.AdminConfigMaintenanceModeSetHandler
 	// AdminAdminInvertedIndexRebuildHandler sets the operation handler for the admin inverted index rebuild operation
 	AdminAdminInvertedIndexRebuildHandler admin.AdminInvertedIndexRebuildHandler
 	// BackupsBackupsCancelHandler sets the operation handler for the backups cancel operation
@@ -476,6 +486,12 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
+	}
+	if o.AdminAdminConfigMaintenanceModeGetHandler == nil {
+		unregistered = append(unregistered, "admin.AdminConfigMaintenanceModeGetHandler")
+	}
+	if o.AdminAdminConfigMaintenanceModeSetHandler == nil {
+		unregistered = append(unregistered, "admin.AdminConfigMaintenanceModeSetHandler")
 	}
 	if o.AdminAdminInvertedIndexRebuildHandler == nil {
 		unregistered = append(unregistered, "admin.AdminInvertedIndexRebuildHandler")
@@ -740,10 +756,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/admin/config/maintenance_mode"] = admin.NewAdminConfigMaintenanceModeGet(o.context, o.AdminAdminConfigMaintenanceModeGetHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/admin/inverted_index/rebuild/{id}"] = admin.NewAdminInvertedIndexRebuild(o.context, o.AdminAdminInvertedIndexRebuildHandler)
+	o.handlers["POST"]["/admin/config/maintenance_mode"] = admin.NewAdminConfigMaintenanceModeSet(o.context, o.AdminAdminConfigMaintenanceModeSetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/admin/inverted_index/rebuild"] = admin.NewAdminInvertedIndexRebuild(o.context, o.AdminAdminInvertedIndexRebuildHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}

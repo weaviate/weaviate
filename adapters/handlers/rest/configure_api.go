@@ -94,6 +94,7 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	"github.com/weaviate/weaviate/usecases/admin"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -537,6 +538,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
 	}
+	appState.AdminManager = &admin.Manager{
+		Migrator: migrator,
+	}
 
 	return appState
 }
@@ -596,7 +600,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	setupAdminHandlers(api, appState.Metrics, appState.Logger)
+	setupAdminHandlers(api, appState.Metrics, appState.Logger, appState.Cluster, appState.AdminManager)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,

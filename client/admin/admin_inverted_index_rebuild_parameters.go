@@ -25,6 +25,8 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewAdminInvertedIndexRebuildParams creates a new AdminInvertedIndexRebuildParams object,
@@ -72,13 +74,11 @@ AdminInvertedIndexRebuildParams contains all the parameters to send to the API e
 */
 type AdminInvertedIndexRebuildParams struct {
 
-	/* ID.
+	/* Body.
 
-	   Inverted index ID
-
-	   Format: uuid
+	   The classes/properties to rebuild the inverted indexes for
 	*/
-	ID strfmt.UUID
+	Body []*models.ClassProperties
 
 	timeout    time.Duration
 	Context    context.Context
@@ -133,15 +133,15 @@ func (o *AdminInvertedIndexRebuildParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithID adds the id to the admin inverted index rebuild params
-func (o *AdminInvertedIndexRebuildParams) WithID(id strfmt.UUID) *AdminInvertedIndexRebuildParams {
-	o.SetID(id)
+// WithBody adds the body to the admin inverted index rebuild params
+func (o *AdminInvertedIndexRebuildParams) WithBody(body []*models.ClassProperties) *AdminInvertedIndexRebuildParams {
+	o.SetBody(body)
 	return o
 }
 
-// SetID adds the id to the admin inverted index rebuild params
-func (o *AdminInvertedIndexRebuildParams) SetID(id strfmt.UUID) {
-	o.ID = id
+// SetBody adds the body to the admin inverted index rebuild params
+func (o *AdminInvertedIndexRebuildParams) SetBody(body []*models.ClassProperties) {
+	o.Body = body
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -151,10 +151,10 @@ func (o *AdminInvertedIndexRebuildParams) WriteToRequest(r runtime.ClientRequest
 		return err
 	}
 	var res []error
-
-	// path param id
-	if err := r.SetPathParam("id", o.ID.String()); err != nil {
-		return err
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
 	}
 
 	if len(res) > 0 {

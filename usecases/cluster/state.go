@@ -68,7 +68,9 @@ type Config struct {
 	// (eg return an error for all data requests). We use a list here instead of a bool because it
 	// allows us to set the same config/env vars on all nodes to put a subset of them in maintenance
 	// mode. In addition, we may want to have the cluster nodes not in maintenance mode be aware of
-	// which nodes are in maintenance mode in the future.
+	// which nodes are in maintenance mode in the future. You should use the getter/setter methods on
+	// the Config/State to interact with this field. It's a public slice to make the config
+	// deserialization simple.
 	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
@@ -297,6 +299,25 @@ func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
 }
 
+func (s *State) AddMaintenanceNode(newMaintenanceNode string) {
+	// TODO mutex or atomic value, ignore if already exists?
+	s.config.MaintenanceNodes = append(s.config.MaintenanceNodes, newMaintenanceNode)
+}
+
+func (s *State) RemoveMaintenanceNode(maintenanceNodeToRemove string) {
+	// TODO mutex or atomic value, ignore if already exists?
+	if slices.Contains(s.config.MaintenanceNodes, maintenanceNodeToRemove) {
+		s.config.MaintenanceNodes = slices.DeleteFunc(s.config.MaintenanceNodes, func(nodeName string) bool {
+			return nodeName == maintenanceNodeToRemove
+		})
+	}
+}
+
+func (s *State) GetNodesInMaintenanceMode() []string {
+	// TODO copy
+	return s.config.MaintenanceNodes
+}
+
 // MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
 // maintenance mode (which means it should return an error for all data requests).
 func (s *State) MaintenanceModeEnabled() bool {
@@ -305,4 +326,24 @@ func (s *State) MaintenanceModeEnabled() bool {
 
 func (s *State) nodeInMaintenanceMode(node string) bool {
 	return slices.Contains(s.config.MaintenanceNodes, node)
+}
+
+func NewConfig() Config {
+	return NewConfigWithNetwork("", "", 0, 0, 0)
+}
+
+func NewConfigWithNetwork(hostname, advertiseAddr string, gossipBindPort, dataBindPort, advertisePort int) Config {
+	c := Config{
+		Hostname:       hostname,
+		AdvertiseAddr:  advertiseAddr,
+		GossipBindPort: gossipBindPort,
+		DataBindPort:   dataBindPort,
+		AdvertisePort:  advertisePort,
+	}
+	c.SetMaintenanceNodes([]string{})
+	return c
+}
+
+func (c *Config) SetMaintenanceNodes(newMaintenanceNodes []string) {
+	c.MaintenanceNodes = newMaintenanceNodes
 }

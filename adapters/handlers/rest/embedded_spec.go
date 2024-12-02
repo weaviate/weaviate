@@ -147,9 +147,113 @@ func init() {
         }
       }
     },
-    "/admin/inverted_index/rebuild/{id}": {
+    "/admin/config/maintenance_mode": {
+      "get": {
+        "description": "Returns the current maintenance mode statuses currently on the node that receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the returned value is node-specific. This endpoint may returned all nodes or only those for which maintenance mode is enabled.",
+        "tags": [
+          "admin",
+          "config"
+        ],
+        "summary": "The current maintenance mode status for this node",
+        "operationId": "admin.config.maintenance_mode.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
-        "description": "Trigger an inverted index rebuild for the given index id",
+        "description": "Set the provided maintenance mode statuses for the node which receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. TODO setting this value via the API will not persist after a restart.",
+        "tags": [
+          "admin",
+          "config"
+        ],
+        "summary": "Set the maintenance mode status for the specified nodes on the node that receives this request",
+        "operationId": "admin.config.maintenance_mode.set",
+        "parameters": [
+          {
+            "description": "Set maintenance mode for the given nodes",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. This response does not return all nodes for which maintenance mode is enabled, only the nodes for which the mode was set.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/admin/inverted_index/rebuild": {
+      "post": {
+        "description": "Trigger inverted index rebuilds for the given classes/properties. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. If the node restarts before the reindexing completes, the operation will have been dropped.",
         "tags": [
           "admin",
           "inverted_index"
@@ -158,17 +262,21 @@ func init() {
         "operationId": "admin.inverted_index.rebuild",
         "parameters": [
           {
-            "type": "string",
-            "format": "uuid",
-            "description": "Inverted index ID",
-            "name": "id",
-            "in": "path",
-            "required": true
+            "description": "The classes/properties to rebuild the inverted indexes for",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ClassProperties"
+              }
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response."
+            "description": "Started reindexing for the given classes/properties."
           },
           "400": {
             "description": "Malformed request.",
@@ -3903,6 +4011,23 @@ func init() {
         }
       }
     },
+    "ClassProperties": {
+      "description": "A class with the specified properties",
+      "type": "object",
+      "properties": {
+        "className": {
+          "description": "name of the class",
+          "type": "string"
+        },
+        "propertyNames": {
+          "description": "property names for the specified className",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "Classification": {
       "description": "Manage classifications, trigger them and view status of past classifications.",
       "type": "object",
@@ -4347,6 +4472,20 @@ func init() {
             "whitespace",
             "field"
           ]
+        }
+      }
+    },
+    "NodeMaintenanceMode": {
+      "description": "Maintenance mode configuration",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether maintenance mode is enabled for the node with the specified nodeHostname",
+          "type": "boolean"
+        },
+        "nodeHostname": {
+          "description": "The hostname of the node",
+          "type": "string"
         }
       }
     },
@@ -5611,9 +5750,113 @@ func init() {
         }
       }
     },
-    "/admin/inverted_index/rebuild/{id}": {
+    "/admin/config/maintenance_mode": {
+      "get": {
+        "description": "Returns the current maintenance mode statuses currently on the node that receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the returned value is node-specific. This endpoint may returned all nodes or only those for which maintenance mode is enabled.",
+        "tags": [
+          "admin",
+          "config"
+        ],
+        "summary": "The current maintenance mode status for this node",
+        "operationId": "admin.config.maintenance_mode.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
-        "description": "Trigger an inverted index rebuild for the given index id",
+        "description": "Set the provided maintenance mode statuses for the node which receives this request. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. TODO setting this value via the API will not persist after a restart.",
+        "tags": [
+          "admin",
+          "config"
+        ],
+        "summary": "Set the maintenance mode status for the specified nodes on the node that receives this request",
+        "operationId": "admin.config.maintenance_mode.set",
+        "parameters": [
+          {
+            "description": "Set maintenance mode for the given nodes",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response. This response does not return all nodes for which maintenance mode is enabled, only the nodes for which the mode was set.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/NodeMaintenanceMode"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/admin/inverted_index/rebuild": {
+      "post": {
+        "description": "Trigger inverted index rebuilds for the given classes/properties. Note that this operation should generally be called directly on the relevant node (eg do not call through a round robin k8s service or load balancer) as the effect is node-specific. If the node restarts before the reindexing completes, the operation will have been dropped.",
         "tags": [
           "admin",
           "inverted_index"
@@ -5622,17 +5865,21 @@ func init() {
         "operationId": "admin.inverted_index.rebuild",
         "parameters": [
           {
-            "type": "string",
-            "format": "uuid",
-            "description": "Inverted index ID",
-            "name": "id",
-            "in": "path",
-            "required": true
+            "description": "The classes/properties to rebuild the inverted indexes for",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ClassProperties"
+              }
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response."
+            "description": "Started reindexing for the given classes/properties."
           },
           "400": {
             "description": "Malformed request.",
@@ -9625,6 +9872,23 @@ func init() {
         }
       }
     },
+    "ClassProperties": {
+      "description": "A class with the specified properties",
+      "type": "object",
+      "properties": {
+        "className": {
+          "description": "name of the class",
+          "type": "string"
+        },
+        "propertyNames": {
+          "description": "property names for the specified className",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "Classification": {
       "description": "Manage classifications, trigger them and view status of past classifications.",
       "type": "object",
@@ -10095,6 +10359,20 @@ func init() {
             "whitespace",
             "field"
           ]
+        }
+      }
+    },
+    "NodeMaintenanceMode": {
+      "description": "Maintenance mode configuration",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether maintenance mode is enabled for the node with the specified nodeHostname",
+          "type": "boolean"
+        },
+        "nodeHostname": {
+          "description": "The hostname of the node",
+          "type": "string"
         }
       }
     },

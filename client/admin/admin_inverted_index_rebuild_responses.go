@@ -83,7 +83,7 @@ func NewAdminInvertedIndexRebuildOK() *AdminInvertedIndexRebuildOK {
 /*
 AdminInvertedIndexRebuildOK describes a response with status code 200, with default header values.
 
-Successful response.
+Started reindexing for the given classes/properties.
 */
 type AdminInvertedIndexRebuildOK struct {
 }
@@ -119,11 +119,11 @@ func (o *AdminInvertedIndexRebuildOK) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildOK) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildOK ", 200)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildOK ", 200)
 }
 
 func (o *AdminInvertedIndexRebuildOK) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildOK ", 200)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildOK ", 200)
 }
 
 func (o *AdminInvertedIndexRebuildOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -176,11 +176,11 @@ func (o *AdminInvertedIndexRebuildBadRequest) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildBadRequest) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildBadRequest) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildBadRequest) GetPayload() *models.ErrorResponse {
@@ -243,11 +243,11 @@ func (o *AdminInvertedIndexRebuildUnauthorized) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildUnauthorized ", 401)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildUnauthorized ", 401)
 }
 
 func (o *AdminInvertedIndexRebuildUnauthorized) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildUnauthorized ", 401)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildUnauthorized ", 401)
 }
 
 func (o *AdminInvertedIndexRebuildUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -300,11 +300,11 @@ func (o *AdminInvertedIndexRebuildForbidden) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildForbidden) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildForbidden) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildForbidden) GetPayload() *models.ErrorResponse {
@@ -367,11 +367,11 @@ func (o *AdminInvertedIndexRebuildNotFound) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildNotFound) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildNotFound ", 404)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildNotFound ", 404)
 }
 
 func (o *AdminInvertedIndexRebuildNotFound) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildNotFound ", 404)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildNotFound ", 404)
 }
 
 func (o *AdminInvertedIndexRebuildNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -424,11 +424,11 @@ func (o *AdminInvertedIndexRebuildInternalServerError) Code() int {
 }
 
 func (o *AdminInvertedIndexRebuildInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildInternalServerError) String() string {
-	return fmt.Sprintf("[POST /admin/inverted_index/rebuild/{id}][%d] adminInvertedIndexRebuildInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /admin/inverted_index/rebuild][%d] adminInvertedIndexRebuildInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AdminInvertedIndexRebuildInternalServerError) GetPayload() *models.ErrorResponse {

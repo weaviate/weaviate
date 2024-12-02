@@ -28,7 +28,7 @@ import (
 const AdminInvertedIndexRebuildOKCode int = 200
 
 /*
-AdminInvertedIndexRebuildOK Successful response.
+AdminInvertedIndexRebuildOK Started reindexing for the given classes/properties.
 
 swagger:response adminInvertedIndexRebuildOK
 */
