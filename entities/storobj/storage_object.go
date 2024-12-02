@@ -1196,6 +1196,12 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	return out, nil
 }
 
+func incrementPos(in []byte, pos int, size int) int {
+	length := binary.LittleEndian.Uint32(in[pos : pos+size])
+	pos += size + int(length)
+	return pos
+}
+
 func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([][]float32, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -1230,38 +1236,12 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 
 	pos := vecEnd
 
-	classNameLength_byte := in[pos : pos+2]
-	pos += 2
-	classNameLength := binary.LittleEndian.Uint16(classNameLength_byte)
-	pos += int(classNameLength)
-
-	schemaLength_byte := in[pos : pos+4]
-	pos += 4
-	schemaLength := binary.LittleEndian.Uint32(schemaLength_byte)
-
-	pos += int(schemaLength)
-
-	metaLength_byte := in[pos : pos+4]
-	pos += 4
-	metaLength := binary.LittleEndian.Uint32(metaLength_byte)
-
-	pos += int(metaLength)
-
-	vectorWeightsLength_byte := in[pos : pos+4]
-	pos += 4
-	vectorWeightsLength := binary.LittleEndian.Uint32(vectorWeightsLength_byte)
-
-	pos += int(vectorWeightsLength)
-
-	bufLen_byte := in[pos : pos+4]
-	bufLen := binary.LittleEndian.Uint32(bufLen_byte)
-	pos += 4
-	pos += int(bufLen)
-
-	targetVectorsSegmentLength_byte := in[pos : pos+4]
-	targetVectorsSegmentLength := binary.LittleEndian.Uint32(targetVectorsSegmentLength_byte)
-	pos += 4
-	pos += int(targetVectorsSegmentLength)
+	pos = incrementPos(in, pos, 2) // classNameLength
+	pos = incrementPos(in, pos, 4) // schemaLength
+	pos = incrementPos(in, pos, 4) // metaLength
+	pos = incrementPos(in, pos, 4) // vectorWeightsLength
+	pos = incrementPos(in, pos, 4) // bufLen
+	pos = incrementPos(in, pos, 4) // targetVectorsSegmentLength
 
 	// multivector
 	var multiVectors map[string][][]float32
