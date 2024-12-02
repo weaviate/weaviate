@@ -143,7 +143,7 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 
 	users := make([]string, len(pusers))
 	for idx := range pusers {
-		users[idx] = strings.Replace(pusers[idx], "user:", "", 1)
+		users[idx] = strings.TrimPrefix(pusers[idx], USER_NAME_PREFIX)
 	}
 	return users, err
 }
@@ -253,9 +253,15 @@ func prettyStatus(value bool) string {
 }
 
 func prefixRoleName(name string) string {
+	if strings.HasPrefix(name, ROLE_NAME_PREFIX) {
+		return name
+	}
 	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
 }
 
 func prefixUserName(name string) string {
+	if strings.HasPrefix(name, USER_NAME_PREFIX) {
+		return name
+	}
 	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
 }

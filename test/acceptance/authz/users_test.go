@@ -107,7 +107,7 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		})
 	})
 
-	t.Run("create role with the same name of the user", func(t *testing.T) {
+	t.Run("assign role to user", func(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, similar, similar)
 	})
 
