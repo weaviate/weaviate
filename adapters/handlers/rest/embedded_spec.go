@@ -147,6 +147,56 @@ func init() {
         }
       }
     },
+    "/admin/inverted_index/rebuild/{id}": {
+      "post": {
+        "description": "Trigger an inverted index rebuild for the given index id",
+        "tags": [
+          "admin",
+          "inverted_index"
+        ],
+        "summary": "Trigger an inverted index rebuild",
+        "operationId": "admin.inverted_index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Inverted index ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/backups/{backend}": {
       "get": {
         "description": "[Coming soon] List all backups in progress not implemented yet.",
@@ -5557,6 +5607,56 @@ func init() {
           },
           "503": {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+          }
+        }
+      }
+    },
+    "/admin/inverted_index/rebuild/{id}": {
+      "post": {
+        "description": "Trigger an inverted index rebuild for the given index id",
+        "tags": [
+          "admin",
+          "inverted_index"
+        ],
+        "summary": "Trigger an inverted index rebuild",
+        "operationId": "admin.inverted_index.rebuild",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Inverted index ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
