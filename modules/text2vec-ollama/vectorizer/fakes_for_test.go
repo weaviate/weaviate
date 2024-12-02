@@ -14,23 +14,32 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type fakeClient struct {
-	lastInput  string
-	lastConfig ent.VectorizationConfig
+	lastInput string
 }
 
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		Vector:     []float32{0, 1, 2, 3},
+func (c *fakeClient) Vectorize(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+	c.lastInput = input[0]
+	return &modulecomponents.VectorizationResult{
+		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Text:       text,
+		Text:       input,
+	}, nil, 0, nil
+}
+
+func (c *fakeClient) VectorizeQuery(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	return &modulecomponents.VectorizationResult{
+		Vector:     [][]float32{{0, 1, 2, 3}},
+		Dimensions: 4,
+		Text:       input,
 	}, nil
 }
 

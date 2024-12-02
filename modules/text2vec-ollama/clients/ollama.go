@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,11 +23,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func buildURL(apiEndoint string) string {
-	return fmt.Sprintf("%s/api/embeddings", apiEndoint)
+	return fmt.Sprintf("%s/api/embed", apiEndoint)
 }
 
 type ollama struct {
@@ -45,24 +48,41 @@ func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	}
 }
 
-func (v *ollama) Vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config)
+func (v *ollama) Vectorize(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+	res, err := v.vectorize(ctx, input, cfg)
+	return res, nil, 0, err
 }
 
-func (v *ollama) vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+func (v *ollama) VectorizeQuery(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	return v.vectorize(ctx, input, cfg)
+}
+
+func (v *ollama) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	return sha256.Sum256([]byte("ollama"))
+}
+
+func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	// TODO: What to put here as rate limits?
+	return &modulecomponents.RateLimits{}
+}
+
+func (v *ollama) vectorize(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	settings := vectorizer.NewClassSettings(cfg)
 	body, err := json.Marshal(embeddingsRequest{
-		Model:  v.getModel(config),
-		Prompt: input,
+		Model: settings.Model(),
+		Input: input,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	endpointURL := v.urlBuilderFn(v.getApiEndpoint(config))
+	endpointURL := v.urlBuilderFn(settings.ApiEndpoint())
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
@@ -85,11 +105,11 @@ func (v *ollama) vectorize(ctx context.Context, input string,
 }
 
 func (v *ollama) parseEmbeddingsResponse(statusCode int,
-	bodyBytes []byte, input string,
-) (*ent.VectorizationResult, error) {
+	bodyBytes []byte, input []string,
+) (*modulecomponents.VectorizationResult, error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("unmarshal response body. Got: %v: %w", string(bodyBytes), err)
 	}
 
 	if resBody.Error != "" {
@@ -100,31 +120,24 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 		return nil, fmt.Errorf("connection to Ollama API failed with status: %d", statusCode)
 	}
 
-	if len(resBody.Embedding) == 0 {
+	if len(resBody.Embeddings) == 0 {
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       input,
-		Dimensions: len(resBody.Embedding),
-		Vector:     resBody.Embedding,
+		Vector:     resBody.Embeddings,
+		Dimensions: len(resBody.Embeddings[0]),
 	}, nil
 }
 
-func (v *ollama) getApiEndpoint(config ent.VectorizationConfig) string {
-	return config.ApiEndpoint
-}
-
-func (v *ollama) getModel(config ent.VectorizationConfig) string {
-	return config.Model
-}
-
 type embeddingsRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 type embeddingsResponse struct {
-	Embedding []float32 `json:"embedding,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	Model      string      `json:"model"`
+	Embeddings [][]float32 `json:"embeddings,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
