@@ -164,10 +164,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	case authorization.SchemaDomain:
 		collection := "*"
 		tenant := "*"
-		if permission.Collections.Collection != nil {
+		if permission.Collections != nil && permission.Collections.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		if permission.Collections.Tenant != nil {
+		if permission.Collections != nil && permission.Collections.Tenant != nil {
 			tenant = *permission.Collections.Tenant
 		}
 		resource = CasbinSchema(collection, tenant)
@@ -175,13 +175,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		collection := "*"
 		tenant := "*"
 		object := "*"
-		if permission.Data.Collection != nil {
+		if permission.Data != nil && permission.Data.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Data.Collection)
 		}
-		if permission.Data.Tenant != nil {
+		if permission.Data != nil && permission.Data.Tenant != nil {
 			tenant = *permission.Data.Tenant
 		}
-		if permission.Data.Object != nil {
+		if permission.Data != nil && permission.Data.Object != nil {
 			object = *permission.Data.Object
 		}
 		resource = CasbinData(collection, tenant, object)
