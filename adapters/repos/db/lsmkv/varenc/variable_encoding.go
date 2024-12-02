@@ -33,3 +33,16 @@ type VarEncEncoder[T any] interface {
 	EncodeReusable(values []T, buf []byte)
 	DecodeReusable(data []byte, values []T)
 }
+
+func GetVarEncEncoder64(t VarEncDataType) VarEncEncoder[uint64] {
+	switch t {
+	case SimpleUint64:
+		return &SimpleEncoder[uint64]{}
+	case VarIntUint64:
+		return &VarIntEncoder{}
+	case DeltaVarIntUint64:
+		return &VarIntDeltaEncoder{}
+	default:
+		return nil
+	}
+}
