@@ -184,9 +184,6 @@ func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
 	if allowList != nil && useAcorn {
 		cacheSize := h.cacheSize()
 		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-			useAcorn = false
-		}
 		M = int(cacheSize / int64(max(1, allowListSize)))
 		M = min(M, 8)
 	}
@@ -390,9 +387,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				}
 				hop++
 			}
-			if hits/explored > 0.5 {
-				useAcorn = false
-			}
 			slicePendingNextRound.Slice = pendingNextRound
 			connectionsReusable = connectionsReusable[:realLen]
 		}
@@ -463,9 +457,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		}
 		if allowList != nil && originalUseAcorn {
 			if !useAcorn && hits/explored < defaultAcornMaxFilterPercentage {
+				helpers.AnnotateSlowQueryLog(ctx, "dynmic_acorn", map[string]any{"enabled": true, "rate": hits / explored})
 				useAcorn = true
 			} else if useAcorn && hits/explored > defaultAcornMaxFilterPercentage {
-				useAcorn = true
+				helpers.AnnotateSlowQueryLog(ctx, "dynmic_acorn", map[string]any{"enabled": false, "rate": hits / explored})
+				useAcorn = false
 			}
 		}
 	}
