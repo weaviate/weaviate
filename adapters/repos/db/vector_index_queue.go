@@ -81,10 +81,16 @@ func NewVectorIndexQueue(
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create vector index queue")
 	}
-
 	viq.DiskQueue = q
 
-	shard.scheduler.RegisterQueue(&viq)
+	if viq.asyncEnabled {
+		err = q.Init()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize vector index queue")
+		}
+
+		shard.scheduler.RegisterQueue(&viq)
+	}
 
 	return &viq, nil
 }

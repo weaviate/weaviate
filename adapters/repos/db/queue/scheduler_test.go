@@ -251,6 +251,9 @@ func makeQueueSize(t *testing.T, s *Scheduler, decoder TaskDecoder, chunkSize ui
 	})
 	require.NoError(t, err)
 
+	err = q.Init()
+	require.NoError(t, err)
+
 	s.RegisterQueue(q)
 
 	return q

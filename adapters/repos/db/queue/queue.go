@@ -65,6 +65,7 @@ type DiskQueue struct {
 	dir              string
 	onBatchProcessed func()
 	metrics          *Metrics
+	chunkSize        uint64
 
 	// m protects the disk operations
 	m            sync.RWMutex
@@ -121,24 +122,6 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		opt.ChunkSize = defaultChunkSize
 	}
 
-	// create the directory if it doesn't exist
-	err := os.MkdirAll(opt.Dir, 0o755)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create directory")
-	}
-
-	// create chunk reader
-	r, err := newChunkReader(opt.Dir)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create chunk reader")
-	}
-
-	// create chunk writer
-	w, err := newChunkWriter(opt.Dir, r, opt.Logger, opt.ChunkSize)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create chunk writer")
-	}
-
 	q := DiskQueue{
 		id:               opt.ID,
 		scheduler:        opt.Scheduler,
@@ -148,21 +131,42 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
-		r:                r,
-		w:                w,
+		chunkSize:        opt.ChunkSize,
+	}
+
+	return &q, nil
+}
+
+func (q *DiskQueue) Init() error {
+	// create the directory if it doesn't exist
+	err := os.MkdirAll(q.dir, 0o755)
+	if err != nil {
+		return errors.Wrap(err, "failed to create directory")
+	}
+
+	// create chunk reader
+	q.r, err = newChunkReader(q.dir)
+	if err != nil {
+		return errors.Wrap(err, "failed to create chunk reader")
+	}
+
+	// create chunk writer
+	q.w, err = newChunkWriter(q.dir, q.r, q.Logger, q.chunkSize)
+	if err != nil {
+		return errors.Wrap(err, "failed to create chunk writer")
 	}
 
 	// determine the number of records stored on disk
 	// and the disk usage
 	err = q.analyzeDisk()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// set the last push time to now
 	q.lastPushTime = time.Now()
 
-	return &q, nil
+	return nil
 }
 
 // Close the queue, prevent further pushes and unregister it from the scheduler.
@@ -184,14 +188,18 @@ func (q *DiskQueue) Close() error {
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	err := q.w.Close()
-	if err != nil {
-		return errors.Wrap(err, "failed to close chunk writer")
+	if q.w != nil {
+		err := q.w.Close()
+		if err != nil {
+			return errors.Wrap(err, "failed to close chunk writer")
+		}
 	}
 
-	err = q.r.Close()
-	if err != nil {
-		return errors.Wrap(err, "failed to close chunk reader")
+	if q.r != nil {
+		err := q.r.Close()
+		if err != nil {
+			return errors.Wrap(err, "failed to close chunk reader")
+		}
 	}
 
 	return nil
@@ -390,6 +398,10 @@ func (q *DiskQueue) checkIfStale() (*chunk, error) {
 }
 
 func (q *DiskQueue) Size() int64 {
+	if q == nil {
+		return 0
+	}
+
 	q.m.RLock()
 	defer q.m.RUnlock()
 
@@ -413,6 +425,10 @@ func (q *DiskQueue) Wait() {
 }
 
 func (q *DiskQueue) Drop() error {
+	if q == nil {
+		return nil
+	}
+
 	err := q.Close()
 	if err != nil {
 		q.Logger.WithError(err).Error("failed to close queue")
@@ -656,7 +672,7 @@ func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, 
 		reader:  reader,
 		logger:  logger,
 		maxSize: maxSize,
-		w:       bufio.NewWriterSize(nil, 10*1024*1024),
+		w:       bufio.NewWriterSize(nil, 1024*1024),
 	}
 
 	err := ch.Open()
