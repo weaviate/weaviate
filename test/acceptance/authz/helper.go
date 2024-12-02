@@ -29,6 +29,8 @@ const (
 	UUID2 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168242")
 	UUID3 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168243")
 	UUID4 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168244")
+	UUID5 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168245")
+	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {

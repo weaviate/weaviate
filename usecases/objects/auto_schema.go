@@ -98,7 +98,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		vclass := vclasses[schema.UppercaseClassName(object.Class)]
+		vclass := vclasses[object.Class]
 
 		schemaClass := vclass.Class
 		schemaVersion := vclass.Version
@@ -112,6 +112,11 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
+			err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
+			if err != nil {
+				return 0, err
+			}
+
 			// it returns the newly created class and version
 			schemaClass, schemaVersion, err = m.createClass(ctx, principal, object.Class, properties)
 			if err != nil {
