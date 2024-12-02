@@ -42,7 +42,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		for _, policy := range policies {
-			if _, err := m.casbin.AddNamedPolicy("p", roleName, policy.Resource, policy.Verb, policy.Domain); err != nil {
+			if _, err := m.casbin.AddNamedPolicy("p", prefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
 				return err
 			}
 		}
@@ -114,10 +114,8 @@ func (m *manager) DeleteRoles(roles ...string) error {
 }
 
 func (m *manager) AddRolesForUser(user string, roles []string) error {
-	// userName := fmt.Sprintf("%s%s", userPrefix, user)
 	for _, role := range roles {
-		// roleName := fmt.Sprintf("%s%s", rolePrefix, role)
-		if _, err := m.casbin.AddRoleForUser(user, role); err != nil {
+		if _, err := m.casbin.AddRoleForUser(user, prefixRoleName(role)); err != nil {
 			return err
 		}
 	}
@@ -243,4 +241,8 @@ func prettyStatus(value bool) string {
 		return "success"
 	}
 	return "failed"
+}
+
+func prefixRoleName(name string) string {
+	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
 }

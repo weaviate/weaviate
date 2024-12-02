@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -28,6 +29,7 @@ import (
 )
 
 const (
+	ROLE_NAME_PREFIX = "role:"
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
 	// docs: https://casbin.org/docs/syntax-for-models
 	MODEL = `
@@ -85,6 +87,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
 	enforcer.EnableCache(false)
+	enforcer.EnableLog(true)
 
 	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
@@ -107,19 +110,25 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		if verb == "" {
 			continue
 		}
-		if _, err := enforcer.AddNamedPolicy("p", name, "*", verb, "*"); err != nil {
+		if _, err := enforcer.AddNamedPolicy("p", prefixRoleName(name), "*", verb, "*"); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
 	}
 
 	for i := range conf.Admins {
-		if _, err := enforcer.AddRoleForUser(conf.Admins[i], authorization.Admin); err != nil {
+		if strings.TrimSpace(conf.Admins[i]) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conf.Admins[i], prefixRoleName(authorization.Admin)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
 	for i := range conf.Viewers {
-		if _, err := enforcer.AddRoleForUser(conf.Viewers[i], authorization.Viewer); err != nil {
+		if strings.TrimSpace(conf.Viewers[i]) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conf.Viewers[i], prefixRoleName(authorization.Viewer)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
