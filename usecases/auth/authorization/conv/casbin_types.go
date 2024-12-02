@@ -155,7 +155,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
 		role := "*"
-		if permission.Roles.Role != nil {
+		if permission.Roles != nil && permission.Roles.Role != nil {
 			role = *permission.Roles.Role
 		}
 		resource = CasbinRoles(role)
