@@ -144,8 +144,8 @@ type SegmentBlockMax struct {
 	tombstones         *sroar.Bitmap
 	filterDocIds       helpers.AllowList
 
-	docIdDecoder    varenc.VarIntDeltaEncoder
-	termFreqDecoder varenc.VarIntEncoder
+	// at position 0 we have the doc ids decoder, at position 1 is the tfs decoder
+	decoders []varenc.VarEncEncoder[uint64]
 
 	propLengths    map[uint64]uint32
 	blockDatasTest []*terms.BlockData
@@ -156,6 +156,14 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	if err != nil {
 		return nil
 	}
+
+	codecs := s.invertedHeader.DataFields
+	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
+
+	for i, codec := range codecs {
+		decoders[i] = varenc.GetVarEncEncoder64(codec)
+	}
+
 	output := &SegmentBlockMax{
 		segment:           s,
 		node:              node,
@@ -164,8 +172,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 		averagePropLength: float32(averagePropLength),
 		b:                 float32(config.B),
 		k1:                float32(config.K1),
-		docIdDecoder:      varenc.VarIntDeltaEncoder{},
-		termFreqDecoder:   varenc.VarIntEncoder{},
+		decoders:          decoders,
 		propertyBoost:     propertyBoost,
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
@@ -182,7 +189,13 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	return output
 }
 
-func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, propLengths map[uint64]uint32, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config) *SegmentBlockMax {
+func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, propLengths map[uint64]uint32, key []byte, queryTermIndex int, idf float64, propertyBoost float32, tombstones *sroar.Bitmap, filterDocIds helpers.AllowList, averagePropLength float64, config schema.BM25Config, codecs []varenc.VarEncDataType) *SegmentBlockMax {
+	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
+
+	for i, codec := range codecs {
+		decoders[i] = varenc.GetVarEncEncoder64(codec)
+	}
+
 	output := &SegmentBlockMax{
 		blockEntries:      blockEntries,
 		idf:               idf,
@@ -190,8 +203,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		averagePropLength: float32(averagePropLength),
 		b:                 float32(config.B),
 		k1:                float32(config.K1),
-		docIdDecoder:      varenc.VarIntDeltaEncoder{},
-		termFreqDecoder:   varenc.VarIntEncoder{},
+		decoders:          decoders,
 		propertyBoost:     propertyBoost,
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
@@ -311,7 +323,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		s.blockDataSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
 
-	s.docIdDecoder.DecodeReusable(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
+	s.decoders[0].DecodeReusable(s.blockDataEncoded.DocIds, s.blockDataDecoded.DocIds[:s.blockDataSize])
 	s.Metrics.BlockCountDecodedDocIds++
 	s.Metrics.DocCountDecodedDocIds += uint64(s.blockDataSize)
 	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
@@ -420,7 +432,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	var doc *terms.DocPointerWithScore
 
 	if !s.freqDecoded {
-		s.termFreqDecoder.DecodeReusable(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
+		s.decoders[1].DecodeReusable(s.blockDataEncoded.Tfs, s.blockDataDecoded.Tfs[:s.blockDataSize])
 		s.freqDecoded = true
 	}
 
