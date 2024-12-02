@@ -13,10 +13,11 @@ package vectorizer
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
@@ -33,8 +34,12 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input []string,
+		cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error)
+	VectorizeQuery(ctx context.Context, input []string,
+		cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -58,13 +63,12 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 	text := v.objectVectorizer.Texts(ctx, object, icheck)
-	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		ApiEndpoint: icheck.ApiEndpoint(),
-		Model:       icheck.Model(),
-	})
+	res, _, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	return res.Vector, nil
+	if len(res.Vector) != 1 {
+		return nil, fmt.Errorf("got %d embeddings back but should get only 1", len(res.Vector))
+	}
+	return res.Vector[0], nil
 }
