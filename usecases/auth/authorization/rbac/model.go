@@ -30,6 +30,7 @@ import (
 
 const (
 	ROLE_NAME_PREFIX = "role:"
+	USER_NAME_PREFIX = "user:"
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
 	// docs: https://casbin.org/docs/syntax-for-models
 	MODEL = `
@@ -119,7 +120,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		if strings.TrimSpace(conf.Admins[i]) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conf.Admins[i], prefixRoleName(authorization.Admin)); err != nil {
+		if _, err := enforcer.AddRoleForUser(prefixUserName(conf.Admins[i]), prefixRoleName(authorization.Admin)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
@@ -128,7 +129,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		if strings.TrimSpace(conf.Viewers[i]) == "" {
 			continue
 		}
-		if _, err := enforcer.AddRoleForUser(conf.Viewers[i], prefixRoleName(authorization.Viewer)); err != nil {
+		if _, err := enforcer.AddRoleForUser(prefixUserName(conf.Viewers[i]), prefixRoleName(authorization.Viewer)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
