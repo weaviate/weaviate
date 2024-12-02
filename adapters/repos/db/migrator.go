@@ -793,6 +793,9 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
 			return &ShardInvertedReindexTaskSetToRoaringSet{}
 		},
+		"ShardInvertedReindexTask_BrokenIndex": func() ShardInvertedReindexTask {
+			return &ShardInvertedReindexTask_BrokenIndex{}
+		},
 	}
 
 	tasks := map[string]ShardInvertedReindexTask{}
@@ -801,6 +804,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 			tasks[taskName] = taskProvider()
 		}
 	}
+
+	fmt.Printf("  ==> InvertedReindex tasks %v\n\n", tasks)
 
 	if len(tasks) == 0 {
 		return nil

@@ -248,6 +248,8 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 
 	i := 0
 	if err := objectsBucket.IterateObjects(ctx, func(object *storobj.Object) error {
+		fmt.Printf("  ==> iterating objects: object id [%s]\n", object.ID())
+
 		// check context expired every 100k objects
 		if i%100_000 == 0 && i != 0 {
 			if err := r.checkContextExpired(ctx, "iterating through objects stopped due to context canceled"); err != nil {
@@ -265,15 +267,18 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 		}
 
 		for _, property := range properties {
+			fmt.Printf("  ==> iterating objects: property [%s]\n", property.Name)
 			if err := r.handleProperty(ctx, checker, docID, property); err != nil {
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", property.Name, docID)
 			}
 		}
 		for _, nilProperty := range nilProperties {
+			fmt.Printf("  ==> iterating objects: nilProperty [%s]\n", nilProperty.Name)
 			if err := r.handleNilProperty(ctx, checker, docID, nilProperty); err != nil {
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", nilProperty.Name, docID)
 			}
 		}
+		fmt.Println()
 
 		i++
 		return nil

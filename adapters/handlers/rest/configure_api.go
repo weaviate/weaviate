@@ -506,6 +506,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	storeReadyCtx, storeReadyCancel := context.WithCancel(context.Background())
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
@@ -513,6 +514,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				WithError(err).
 				Fatal("could not open cloud meta store")
 		}
+		storeReadyCancel()
 	}, appState.Logger)
 
 	// TODO-RAFT: refactor remove this sleep
@@ -545,7 +547,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
 		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
 	}
+	reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_BrokenIndex")
 	if len(reindexTaskNames) > 0 {
+		// wait until meta store is ready, as reindex tasks needs schema
+		<-storeReadyCtx.Done()
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {

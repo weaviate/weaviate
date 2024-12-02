@@ -38,6 +38,10 @@ func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyI
 			IndexTypePropSearchableValue,
 			helpers.BucketSearchableFromPropNameLSM,
 		},
+		// {
+		// 	IndexTypePropMetaCount,
+		// 	helpers.BucketFromPropNameMetaCountLSM,
+		// },
 		{
 			IndexTypePropValue,
 			helpers.BucketFromPropNameLSM,
