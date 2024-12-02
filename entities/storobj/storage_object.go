@@ -1210,7 +1210,6 @@ func incrementPos(in []byte, pos int, size int) int {
 		pos += size + int(length)
 	}
 	return pos
-
 }
 
 func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([][]float32, error) {
