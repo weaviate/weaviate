@@ -387,9 +387,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				}
 				hop++
 			}
-			if hits/explored > 0.5 {
-				useAcorn = false
-			}
 			slicePendingNextRound.Slice = pendingNextRound
 			connectionsReusable = connectionsReusable[:realLen]
 		}
@@ -460,9 +457,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		}
 		if allowList != nil && originalUseAcorn {
 			if !useAcorn && hits/explored < defaultAcornMaxFilterPercentage {
+				helpers.AnnotateSlowQueryLog(ctx, "dynmic_acorn", map[string]any{"enabled": true, "rate": hits / explored})
 				useAcorn = true
 			} else if useAcorn && hits/explored > defaultAcornMaxFilterPercentage {
-				useAcorn = true
+				helpers.AnnotateSlowQueryLog(ctx, "dynmic_acorn", map[string]any{"enabled": false, "rate": hits / explored})
+				useAcorn = false
 			}
 		}
 	}
