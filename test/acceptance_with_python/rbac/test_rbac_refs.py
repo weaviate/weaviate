@@ -41,8 +41,8 @@ def test_rbac_refs(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=target.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=target.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
@@ -142,8 +142,8 @@ def test_batch_delete_with_filter(
     )
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=target.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=target.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.delete(collection=source.name),
         RBAC.permissions.data.read(collection=target.name),
         RBAC.permissions.data.read(collection=source.name),
@@ -221,8 +221,8 @@ def test_search_with_filter_and_return(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=target.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=target.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.read(collection=source.name),
         RBAC.permissions.data.read(collection=target.name),
     ]
@@ -317,7 +317,7 @@ def test_batch_ref(
 
     # self reference
     required_permissions = [
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
         RBAC.permissions.data.read(collection=source.name),
     ]
@@ -353,11 +353,11 @@ def test_batch_ref(
 
     # ref to one target
     required_permissions = [
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
         RBAC.permissions.data.read(collection=source.name),
         RBAC.permissions.data.read(collection=target1.name),
-        RBAC.permissions.config.read(collection=target1.name),
+        RBAC.permissions.collections.read(collection=target1.name),
     ]
 
     with role_wrapper(admin_client, request, required_permissions):
@@ -391,13 +391,13 @@ def test_batch_ref(
 
     # ref to two targets
     ref2_required_permissions = [
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
         RBAC.permissions.data.update(collection=source.name),
         RBAC.permissions.data.read(collection=source.name),
         RBAC.permissions.data.read(collection=target1.name),
         RBAC.permissions.data.read(collection=target2.name),
-        RBAC.permissions.config.read(collection=target1.name),
-        RBAC.permissions.config.read(collection=target2.name),
+        RBAC.permissions.collections.read(collection=target1.name),
+        RBAC.permissions.collections.read(collection=target2.name),
     ]
     with role_wrapper(admin_client, request, ref2_required_permissions):
         source_no_rights = custom_client.collections.get(source.name)

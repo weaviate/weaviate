@@ -102,7 +102,7 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(similar),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateSchema), Collection: String("*")},
+				{Action: String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: String("*")}},
 			},
 		})
 	})
@@ -116,15 +116,15 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		require.NotNil(t, role)
 		require.Equal(t, similar, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
-		require.Equal(t, "*", *role.Permissions[0].Collection)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
+		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 
 		roles := helper.GetRolesForUser(t, similar, adminKey)
 		require.Equal(t, 1, len(roles))
 		require.NotNil(t, role)
 		require.Equal(t, similar, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
-		require.Equal(t, "*", *role.Permissions[0].Collection)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
+		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 	})
 }

@@ -5390,23 +5390,24 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
-            "manage_users",
-            "manage_roles",
-            "read_roles",
-            "read_nodes",
-            "read_cluster",
             "manage_backups",
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema",
+            "read_cluster",
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",
-            "delete_data"
+            "delete_data",
+            "read_nodes",
+            "manage_roles",
+            "read_roles",
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         },
-        "backup": {
+        "backups": {
           "description": "resources applicable for backup actions",
           "type": "object",
           "properties": {
@@ -5417,10 +5418,42 @@ func init() {
             }
           }
         },
-        "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
+        "collections": {
+          "description": "resources applicable for collection and/or tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "data": {
+          "description": "resources applicable for data actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "object": {
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "nodes": {
           "description": "resources applicable for cluster actions",
@@ -5442,25 +5475,16 @@ func init() {
             }
           }
         },
-        "object": {
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "role": {
-          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "user": {
-          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
+        "roles": {
+          "description": "resources applicable for role actions",
+          "type": "object",
+          "properties": {
+            "role": {
+              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         }
       }
     },
@@ -12025,23 +12049,24 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
-            "manage_users",
-            "manage_roles",
-            "read_roles",
-            "read_nodes",
-            "read_cluster",
             "manage_backups",
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema",
+            "read_cluster",
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",
-            "delete_data"
+            "delete_data",
+            "read_nodes",
+            "manage_roles",
+            "read_roles",
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         },
-        "backup": {
+        "backups": {
           "description": "resources applicable for backup actions",
           "type": "object",
           "properties": {
@@ -12052,10 +12077,42 @@ func init() {
             }
           }
         },
-        "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
+        "collections": {
+          "description": "resources applicable for collection and/or tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "data": {
+          "description": "resources applicable for data actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "object": {
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "nodes": {
           "description": "resources applicable for cluster actions",
@@ -12077,13 +12134,36 @@ func init() {
             }
           }
         },
-        "object": {
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+        "roles": {
+          "description": "resources applicable for role actions",
+          "type": "object",
+          "properties": {
+            "role": {
+              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        }
+      }
+    },
+    "PermissionBackups": {
+      "description": "resources applicable for backup actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
-        },
-        "role": {
-          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+        }
+      }
+    },
+    "PermissionCollections": {
+      "description": "resources applicable for collection and/or tenant actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         },
@@ -12091,20 +12171,25 @@ func init() {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
-        },
-        "user": {
-          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
         }
       }
     },
-    "PermissionBackup": {
-      "description": "resources applicable for backup actions",
+    "PermissionData": {
+      "description": "resources applicable for data actions",
       "type": "object",
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "object": {
+          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12127,6 +12212,17 @@ func init() {
             "verbose",
             "minimal"
           ]
+        }
+      }
+    },
+    "PermissionRoles": {
+      "description": "resources applicable for role actions",
+      "type": "object",
+      "properties": {
+        "role": {
+          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
