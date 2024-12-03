@@ -21,7 +21,7 @@ def test_rbac_viewer_assign(
         viewer_client.collections.delete(name)
 
     # with extra role that has those permissions it works
-    with role_wrapper(admin_client, request, RBAC.permissions.config.delete(collection=name)):
+    with role_wrapper(admin_client, request, RBAC.permissions.collections.delete(collection=name)):
         viewer_client.collections.delete(name)
 
 
@@ -43,8 +43,8 @@ def test_rbac_with_regexp(
 
     # can delete everything starting with "python_" but nothing else
     required_permissions = [
-        RBAC.permissions.config.read(),
-        RBAC.permissions.config.delete(collection=base + "*"),
+        RBAC.permissions.collections.read(),
+        RBAC.permissions.collections.delete(collection=base + "*"),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         custom_client.collections.delete(python_name)

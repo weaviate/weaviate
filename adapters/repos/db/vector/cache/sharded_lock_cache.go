@@ -47,9 +47,10 @@ const (
 	InitialSize             = 1000
 	MinimumIndexGrowthDelta = 2000
 	indexGrowthRate         = 1.25
+	defaultCacheMaxSize     = 1e12
 )
 
-func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
+func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
@@ -70,7 +71,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedRWLocks(),
+		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -80,7 +81,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 	return vc
 }
 
-func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
+func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[byte] {
@@ -92,7 +93,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedRWLocks(),
+		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -102,7 +103,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	return vc
 }
 
-func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
+func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int, pageSize uint64,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[uint64] {
@@ -114,7 +115,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedRWLocks(),
+		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
@@ -179,9 +180,12 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.shardedLocks.Lock(id)
-	s.cache[id] = vec
-	s.shardedLocks.Unlock(id)
+
+	if vec != nil {
+		s.shardedLocks.Lock(id)
+		s.cache[id] = vec
+		s.shardedLocks.Unlock(id)
+	}
 
 	return vec, nil
 }
@@ -205,6 +209,45 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	}
 
 	return out, errs
+}
+
+func (s *shardedLockCache[T]) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]T, errs []error) ([][]T, []error, uint64, uint64) {
+	start := (id / s.shardedLocks.PageSize) * s.shardedLocks.PageSize
+	end := start + s.shardedLocks.PageSize
+	cacheMiss := false
+
+	if end > uint64(len(s.cache)) {
+		end = uint64(len(s.cache))
+	}
+
+	s.shardedLocks.RLock(start)
+	for i := start; i < end; i++ {
+		vec := s.cache[i]
+		if vec == nil {
+			cacheMiss = true
+		}
+		out[i-start] = vec
+	}
+	s.shardedLocks.RUnlock(start)
+
+	// We don't expect cache misses in general as the default cache size is very large (1e12).
+	// Until the vector index cache is improved to handle nil vectors better, it makes sense here
+	// to exclude handling cache misses unless the cache size has been altered.
+	if cacheMiss && atomic.LoadInt64(&s.maxSize) != defaultCacheMaxSize {
+		for i := start; i < end; i++ {
+			if out[i-start] == nil {
+				vecFromDisk, err := s.handleCacheMiss(ctx, i)
+				errs[i-start] = err
+				out[i-start] = vecFromDisk
+			}
+		}
+	}
+
+	return out, errs, start, end
+}
+
+func (s *shardedLockCache[T]) PageSize() uint64 {
+	return s.shardedLocks.PageSize
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {

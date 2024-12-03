@@ -218,24 +218,42 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		return ""
 	}
 
-	if perm.Collection != nil && *perm.Collection != "" {
-		res += fmt.Sprintf("Collection: %s,", *perm.Collection)
+	if perm.Backups != nil && perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
+		res += fmt.Sprintf("Backups.Collection: %s,", *perm.Backups.Collection)
 	}
 
-	if perm.Tenant != nil && *perm.Tenant != "" {
-		res += fmt.Sprintf(" Tenant: %s,", *perm.Tenant)
+	if perm.Data != nil {
+		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
+			res += fmt.Sprintf(" Data.Collection: %s,", *perm.Data.Collection)
+		}
+		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
+			res += fmt.Sprintf(" Data.Tenant: %s,", *perm.Data.Tenant)
+		}
+		if perm.Data.Object != nil && *perm.Data.Object != "" {
+			res += fmt.Sprintf(" Data.Object: %s,", *perm.Data.Object)
+		}
 	}
 
-	if perm.Object != nil && *perm.Object != "" {
-		res += fmt.Sprintf(" Object: %s,", *perm.Object)
+	if perm.Nodes != nil {
+		if perm.Nodes.Verbosity != nil && *perm.Nodes.Verbosity != "" {
+			res += fmt.Sprintf(" Nodes.Verbosity: %s,", *perm.Nodes.Verbosity)
+		}
+		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
+			res += fmt.Sprintf(" Nodes.Collection: %s,", *perm.Nodes.Collection)
+		}
 	}
 
-	if perm.Role != nil && *perm.Role != "" {
-		res += fmt.Sprintf(" Role: %s,", *perm.Role)
+	if perm.Roles != nil && perm.Roles.Role != nil && *perm.Roles.Role != "" {
+		res += fmt.Sprintf(" Roles.Role: %s,", *perm.Roles.Role)
 	}
 
-	if perm.User != nil && *perm.User != "" {
-		res += fmt.Sprintf(" User: %s,", *perm.User)
+	if perm.Collections != nil {
+		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
+			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
+		}
+		if perm.Collections.Tenant != nil && *perm.Collections.Tenant != "" {
+			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Collections.Tenant)
+		}
 	}
 
 	if many := strings.Count(res, ","); many == 1 {

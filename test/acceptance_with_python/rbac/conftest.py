@@ -6,7 +6,7 @@ import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from contextlib import contextmanager, _GeneratorContextManager
 
-from weaviate.rbac.models import _ConfigPermission
+from weaviate.rbac.models import _CollectionsPermission
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -32,7 +32,7 @@ Role_Wrapper_Type = Callable[
     [
         Any,
         SubRequest,
-        Union[_ConfigPermission, List[_ConfigPermission]],
+        Union[_CollectionsPermission, List[_CollectionsPermission]],
     ],
     ContextManager[Any],
 ]
@@ -44,7 +44,7 @@ def role_wrapper() -> Role_Wrapper_Type:
     def wrapper(
         admin_client,
         request: SubRequest,
-        permissions: Union[_ConfigPermission, List[_ConfigPermission]],
+        permissions: Union[_CollectionsPermission, List[_CollectionsPermission]],
     ) -> ContextManager[Any]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)

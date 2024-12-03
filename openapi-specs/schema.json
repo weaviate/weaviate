@@ -27,7 +27,7 @@
       "type": "object",
       "description": "permissions attached to a role.",
       "properties": {
-        "backup": {
+        "backups": {
           "type": "object",
           "description": "resources applicable for backup actions",
           "properties": {
@@ -35,6 +35,27 @@
               "type": "string",
               "default": "*",
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "description": "resources applicable for data actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            },
+            "tenant": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
+            },
+            "object": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *"
             }
           }
         },
@@ -58,54 +79,57 @@
             }
           }
         },
-        "object": {
-          "type": "string",
-          "default": "*",
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *"
+        "roles": {
+          "type": "object",
+          "description": "resources applicable for role actions",
+          "properties": {
+            "role": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
+            }
+          }
         },
-        "tenant": {
-          "type": "string",
-          "default": "*",
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
-        },
-        "collection": {
-          "type": "string",
-          "default": "*",
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
-        },
-        "role": {
-          "type": "string",
-          "default": "*",
-          "description": "string or regex. if a specific role name, if left empty it will be ALL or *"
-        },
-        "user": {
-          "type": "string",
-          "default": "*",
-          "description": "string or regex. if a specific user name, if left empty it will be ALL or *"
+        "collections": {
+          "type": "object",
+          "description": "resources applicable for collection and/or tenant actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            },
+            "tenant": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
+            }
+          }
         },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
-          "enum": [
-            "manage_users",
-
-            "manage_roles",
-            "read_roles",
-            
-            "read_nodes",
-            "read_cluster",
-            
+          "enum": [            
             "manage_backups",
 
-            "create_schema",
-            "read_schema",
-            "update_schema",
-            "delete_schema",
+            "read_cluster",
 
+            "manage_data",
             "create_data",
             "read_data",
             "update_data",
-            "delete_data"
+            "delete_data",
+  
+            "read_nodes",
+          
+            "manage_roles",
+            "read_roles",
+
+            "manage_collections",
+            "create_collections",
+            "read_collections",
+            "update_collections",
+            "delete_collections"
           ]
         }
       },
