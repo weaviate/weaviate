@@ -29,6 +29,7 @@ func Serve(appState *state.State) {
 		Debugf("serving cluster api on port %d", port)
 
 	maintenanceModeEnabled := appState.Cluster.MaintenanceModeEnabled()
+  fmt.Println("maintenanceModeEnabled: ", maintenanceModeEnabled)
 	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, maintenanceModeEnabled, appState.Logger)
 	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, maintenanceModeEnabled)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
@@ -42,6 +43,7 @@ func Serve(appState *state.State) {
 
 	mux.Handle("/nodes/", nodes.Nodes())
 	mux.Handle("/indices/", indices.Indices())
+  mux.Handle("/indices/maintainance-mode", indices.MaintainanceMode())
 	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
