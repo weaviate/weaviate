@@ -70,6 +70,9 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	seedCount := cpi.parallel - 1
 	seeds := cpi.bucket.QuantileKeys(seedCount)
 	if len(seeds) == 0 {
+		// no seeds likely means an empty index. If we exit early, we also need to
+		// stop the progress tracking.
+		stopTracking()
 		return nil
 	}
 
