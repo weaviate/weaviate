@@ -32,10 +32,10 @@ def test_batch_grpc(
     required_permissions = [
         RBAC.permissions.data.create(collection=col1.name),
         RBAC.permissions.data.update(collection=col1.name),
-        RBAC.permissions.config.read(collection=col1.name),
+        RBAC.permissions.collections.read(collection=col1.name),
         RBAC.permissions.data.create(collection=col2.name),
         RBAC.permissions.data.update(collection=col2.name),
-        RBAC.permissions.config.read(collection=col2.name),
+        RBAC.permissions.collections.read(collection=col2.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:

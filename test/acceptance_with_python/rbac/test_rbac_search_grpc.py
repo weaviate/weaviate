@@ -36,7 +36,7 @@ def test_rbac_search(
 
     # with correct rights
     required_permissions = [
-        RBAC.permissions.config.read(collection=col1.name),
+        RBAC.permissions.collections.read(collection=col1.name),
         RBAC.permissions.data.read(collection=col1.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
@@ -59,7 +59,7 @@ def test_rbac_search(
             assert "forbidden" in e.value.args[0]
 
     # rights for wrong collection
-    wrong_collection = RBAC.permissions.config.read(collection=col2.name)
+    wrong_collection = RBAC.permissions.collections.read(collection=col2.name)
     with role_wrapper(admin_client, request, wrong_collection):
         col_no_rights = custom_client.collections.get(col1.name)  # no network call => no RBAC check
         if mt:
