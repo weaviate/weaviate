@@ -30,12 +30,10 @@ def test_batch_grpc(
     admin_client.roles.delete(name)
 
     required_permissions = [
-        RBAC.permissions.data.create(collection=col1.name),
-        RBAC.permissions.data.update(collection=col1.name),
-        RBAC.permissions.collections.read(collection=col1.name),
-        RBAC.permissions.data.create(collection=col2.name),
-        RBAC.permissions.data.update(collection=col2.name),
-        RBAC.permissions.collections.read(collection=col2.name),
+        RBAC.permissions.data(collection=col1.name, create=True, update=True),
+        RBAC.permissions.collection_config(collection=col1.name, read_config=True),
+        RBAC.permissions.data(collection=col2.name, create=True, update=True),
+        RBAC.permissions.collection_config(collection=col2.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:
