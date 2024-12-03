@@ -23,7 +23,7 @@ def test_obj_insert(
 
     required_permissions = [
         RBAC.permissions.data.create(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        RBAC.permissions.collections.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -69,7 +69,7 @@ def test_obj_insert_ref(
 
     required_permissions = [
         RBAC.permissions.data.create(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -110,7 +110,7 @@ def test_obj_replace(
 
     required_permissions = [
         RBAC.permissions.data.update(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        RBAC.permissions.collections.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -159,7 +159,7 @@ def test_obj_replace_ref(
 
     required_permissions = [
         RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -204,7 +204,7 @@ def test_obj_update(
 
     required_permissions = [
         RBAC.permissions.data.update(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        RBAC.permissions.collections.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -252,7 +252,7 @@ def test_obj_update_ref(
 
     required_permissions = [
         RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        RBAC.permissions.collections.read(collection=source.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -297,7 +297,7 @@ def test_obj_delete(
 
     required_permissions = [
         RBAC.permissions.data.delete(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        RBAC.permissions.collections.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -340,7 +340,7 @@ def test_obj_exists(
 
     required_permissions = [
         RBAC.permissions.data.read(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        RBAC.permissions.collections.read(collection=col.name),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
