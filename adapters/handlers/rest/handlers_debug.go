@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -26,6 +27,46 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		logger := logger.WithField("action", "rebuild inverted index")
+		colName := r.URL.Query().Get("collection")
+		propertyName := r.URL.Query().Get("property")
+		shardName := r.URL.Query().Get("shard")
+
+		// TODO is shardName required? or should we default to all shards if not provided? what about propertyName?
+		if colName == "" || propertyName == "" || shardName == "" {
+			http.Error(w, "collection and property are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		shard, release, err := idx.GetShard(ctx, shardName)
+		if err != nil {
+			logger.WithField("shard", shardName).Errorf("", err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if shard == nil {
+			logger.WithField("shard", shardName).Error("shard not found")
+			http.Error(w, "shard not found", http.StatusNotFound)
+			return
+		}
+		defer release()
+		fmt.Println("shard", shard)
+		// appState.Migrator.InvertedReindex(ctx, "ShardInvertedReindexTask_BrokenIndex")
+
+		logger.WithField("shard", shardName).Info("reindexing started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -182,4 +223,33 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
+
+	http.HandleFunc("/debug/config/maintenance_mode", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			jsonBytes, err := json.Marshal(MaintenanceMode{Enabled: appState.Cluster.MaintenanceModeEnabled()})
+			if err != nil {
+				logger.WithError(err).Error("marshal failed on stats")
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			w.Write(jsonBytes)
+			return
+		case http.MethodPost:
+			appState.Cluster.AddMaintenanceNode(appState.ServerConfig.Hostname)
+			w.WriteHeader(http.StatusOK)
+			return
+		case http.MethodDelete:
+			appState.Cluster.RemoveMaintenanceNode(appState.ServerConfig.Hostname)
+			w.WriteHeader(http.StatusOK)
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+}
+
+type MaintenanceMode struct {
+	Enabled bool `json:"enabled"`
 }
