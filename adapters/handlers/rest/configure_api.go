@@ -956,6 +956,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modmulti2vecvoyageai.Name]; ok {
+		appState.Modules.Register(modmulti2vecvoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecvoyageai.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["text2vec-openai"]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
