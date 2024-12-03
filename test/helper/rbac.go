@@ -94,10 +94,10 @@ func (p *BackupPermission) WithAction(action string) *BackupPermission {
 }
 
 func (p *BackupPermission) WithCollection(collection string) *BackupPermission {
-	if p.Backup == nil {
-		p.Backup = &models.PermissionBackup{}
+	if p.Backups == nil {
+		p.Backups = &models.PermissionBackups{}
 	}
-	p.Backup.Collection = authorization.String(collection)
+	p.Backups.Collection = authorization.String(collection)
 	return p
 }
 
@@ -118,12 +118,18 @@ func (p *SchemaPermission) WithAction(action string) *SchemaPermission {
 }
 
 func (p *SchemaPermission) WithCollection(collection string) *SchemaPermission {
-	p.Collection = authorization.String(collection)
+	if p.Collections == nil {
+		p.Collections = &models.PermissionCollections{}
+	}
+	p.Collections.Collection = authorization.String(collection)
 	return p
 }
 
 func (p *SchemaPermission) WithTenant(tenant string) *SchemaPermission {
-	p.Tenant = authorization.String(tenant)
+	if p.Collections == nil {
+		p.Collections = &models.PermissionCollections{}
+	}
+	p.Collections.Tenant = authorization.String(tenant)
 	return p
 }
 
@@ -144,17 +150,26 @@ func (p *DataPermission) WithAction(action string) *DataPermission {
 }
 
 func (p *DataPermission) WithCollection(collection string) *DataPermission {
-	p.Collection = authorization.String(collection)
+	if p.Data == nil {
+		p.Data = &models.PermissionData{}
+	}
+	p.Data.Collection = authorization.String(collection)
 	return p
 }
 
 func (p *DataPermission) WithTenant(tenant string) *DataPermission {
-	p.Tenant = authorization.String(tenant)
+	if p.Data == nil {
+		p.Data = &models.PermissionData{}
+	}
+	p.Data.Tenant = authorization.String(tenant)
 	return p
 }
 
 func (p *DataPermission) WithObject(object string) *DataPermission {
-	p.Object = authorization.String(object)
+	if p.Data == nil {
+		p.Data = &models.PermissionData{}
+	}
+	p.Data.Object = authorization.String(object)
 	return p
 }
 
