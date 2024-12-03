@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
@@ -70,9 +71,16 @@ func (m *ReRankerModule) initAdditional(ctx context.Context, timeout time.Durati
 
 	client := client.New(uri, timeout, logger)
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("RERANKER_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	m.reranker = client
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote sum module")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote sum module")
+		}
 	}
 
 	m.additionalPropertiesProvider = additionalprovider.NewRankerProvider(client)
