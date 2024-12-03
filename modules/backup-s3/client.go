@@ -110,7 +110,7 @@ func (s *s3Client) AllBackups(ctx context.Context,
 		s.config.Bucket,
 		minio.ListObjectsOptions{
 			Recursive: true,
-			Prefix:   s.config.BackupPath,
+			Prefix:    s.config.BackupPath,
 		},
 	)
 	for info := range objectsInfo {
