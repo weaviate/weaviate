@@ -639,18 +639,18 @@ func TestBM25FCompareBlock(t *testing.T) {
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
 				require.Equal(t, uint64(4), objs[0].DocID)
-				require.Equal(t, uint64(5), objs[1].DocID)
-				require.Equal(t, uint64(6), objs[2].DocID)
+				require.Equal(t, uint64(6), objs[1].DocID)
+				require.Equal(t, uint64(5), objs[2].DocID)
 				require.Equal(t, uint64(1), objs[3].DocID)
-				require.Equal(t, uint64(0), objs[4].DocID)
-				require.Equal(t, uint64(2), objs[5].DocID)
+				require.Equal(t, uint64(2), objs[4].DocID)
+				require.Equal(t, uint64(0), objs[5].DocID)
 
 				require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
-				require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
-				require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+				require.Equal(t, uint64(6), withBM25Fobjs[1].DocID)
+				require.Equal(t, uint64(5), withBM25Fobjs[2].DocID)
 				require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
-				require.Equal(t, uint64(0), withBM25Fobjs[4].DocID)
-				require.Equal(t, uint64(2), withBM25Fobjs[5].DocID)
+				require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
+				require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)
 
 			}
 		})
