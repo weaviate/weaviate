@@ -205,7 +205,7 @@ func (i *indices) maintenanceModeHandler() http.HandlerFunc {
 			i.maintenanceModeEnabled = false
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("maintainance mode set"))
+		w.Write([]byte("maintenance mode set"))
 	}
 }
 
