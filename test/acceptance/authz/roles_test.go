@@ -114,8 +114,10 @@ func TestUserWithBuildInName(t *testing.T) {
 				Name: &testingRole,
 				Permissions: []*models.Permission{
 					{
-						Action:      String(authorization.CreateCollections),
-						Collections: &models.PermissionCollections{},
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("*"),
+						},
 					},
 				},
 			}),
