@@ -92,15 +92,15 @@ func (t *ShardInvertedReindexTask_BrokenIndex) GetPropertiesToReindex(ctx contex
 					BucketOptions:   bucketOptions,
 				},
 			)
-		// case IndexTypePropMetaCount:
-		// 	reindexableProperties = append(reindexableProperties,
-		// 		ReindexableProperty{
-		// 			PropertyName:    propName,
-		// 			IndexType:       IndexTypePropMetaCount,
-		// 			DesiredStrategy: lsmkv.StrategyRoaringSet,
-		// 			BucketOptions:   bucketOptions,
-		// 		},
-		// 	)
+		case IndexTypePropMetaCount:
+			reindexableProperties = append(reindexableProperties,
+				ReindexableProperty{
+					PropertyName:    propName,
+					IndexType:       IndexTypePropMetaCount,
+					DesiredStrategy: lsmkv.StrategyRoaringSet,
+					BucketOptions:   bucketOptions,
+				},
+			)
 		default:
 			// skip remaining
 		}

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -88,7 +89,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	}
 	if len(reindexProperties) == 0 {
 		r.logger.
-			WithField("action", "inverted reindex").
+			WithField("action", "inverted_reindex").
 			WithField("index", r.shard.Index().ID()).
 			WithField("shard", r.shard.ID()).
 			Debug("no properties to reindex")
@@ -126,7 +127,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			return err
 		}
 		r.logger.
-			WithField("action", "inverted reindex").
+			WithField("action", "inverted_reindex").
 			WithField("shard", r.shard.Name()).
 			WithField("property", reindexProperty.PropertyName).
 			WithField("strategy", reindexProperty.DesiredStrategy).
@@ -155,7 +156,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			}
 
 			r.logger.
-				WithField("action", "inverted reindex").
+				WithField("action", "inverted_reindex").
 				WithField("shard", r.shard.Name()).
 				WithField("bucket", bucketsToReindex[i]).
 				WithField("temp_bucket", tempBucketName).
@@ -167,7 +168,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			}
 
 			r.logger.
-				WithField("action", "inverted reindex").
+				WithField("action", "inverted_reindex").
 				WithField("shard", r.shard.Name()).
 				WithField("bucket", bucketsToReindex[i]).
 				WithField("temp_bucket", tempBucketName).
@@ -199,7 +200,7 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 	}
 
 	r.logger.
-		WithField("action", "inverted reindex").
+		WithField("action", "inverted_reindex").
 		WithField("shard", r.shard.Name()).
 		Debug("paused store activity")
 
@@ -218,7 +219,7 @@ func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task S
 	}
 
 	r.logger.
-		WithField("action", "inverted reindex").
+		WithField("action", "inverted_reindex").
 		WithField("shard", r.shard.Name()).
 		Debug("resumed store activity")
 
@@ -242,7 +243,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 	objectsBucket := r.shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
 	r.logger.
-		WithField("action", "inverted reindex").
+		WithField("action", "inverted_reindex").
 		WithField("shard", r.shard.Name()).
 		Debug("starting populating indexes")
 
@@ -250,13 +251,13 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 	if err := objectsBucket.IterateObjects(ctx, func(object *storobj.Object) error {
 		fmt.Printf("  ==> iterating objects: object id [%s]\n", object.ID())
 
-		// check context expired every 100k objects
-		if i%100_000 == 0 && i != 0 {
+		// check context expired every 1k objects
+		if i%1_000 == 0 && i != 0 {
 			if err := r.checkContextExpired(ctx, "iterating through objects stopped due to context canceled"); err != nil {
 				return err
 			}
 			r.logger.
-				WithField("action", "inverted reindex").
+				WithField("action", "inverted_reindex").
 				WithField("shard", r.shard.Name()).
 				Debugf("iterating through objects: %d done", i)
 		}
@@ -287,7 +288,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 	}
 
 	r.logger.
-		WithField("action", "inverted reindex").
+		WithField("action", "inverted_reindex").
 		WithField("shard", r.shard.Name()).
 		Debugf("iterating through objects: %d done", i)
 
@@ -337,8 +338,27 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 
 	// add non-nil properties to the null-state inverted index,
 	// but skip internal properties (__meta_count, _id etc)
-	if isMetaCountProperty(property) || isInternalProperty(property) {
+	if isInternalProperty(property) {
 		return nil
+	}
+
+	if isMetaCountProperty(property) {
+		propName := strings.TrimSuffix(property.Name, "__meta_count")
+		if checker.isReindexable(propName, IndexTypePropMetaCount) {
+			schemaProp := checker.getSchemaProp(propName)
+			if inverted.HasFilterableIndex(schemaProp) {
+				bucketMeta := r.tempBucket(propName, IndexTypePropMetaCount)
+				if bucketMeta == nil {
+					return fmt.Errorf("no bucket for prop '%s' meta found", propName)
+				}
+				for _, item := range property.Items {
+					key := item.Data
+					if err := r.shard.addToPropertySetBucket(bucketMeta, docID, key); err != nil {
+						return errors.Wrapf(err, "failed adding to prop '%s' meta bucket", property.Name)
+					}
+				}
+			}
+		}
 	}
 
 	// properties where defining a length does not make sense (floats etc.) have a negative entry as length
@@ -427,6 +447,8 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 		return helpers.BucketFromPropNameLengthLSM(propName)
 	case IndexTypePropNull:
 		return helpers.BucketFromPropNameNullLSM(propName)
+	case IndexTypePropMetaCount:
+		return helpers.BucketFromPropNameMetaCountLSM(propName)
 	default:
 		return ""
 	}
@@ -447,7 +469,7 @@ func (r *ShardInvertedReindexer) checkContextExpired(ctx context.Context, msg st
 
 func (r *ShardInvertedReindexer) logError(err error, msg string, args ...interface{}) {
 	r.logger.
-		WithField("action", "inverted reindex").
+		WithField("action", "inverted_reindex").
 		WithField("shard", r.shard.Name()).
 		WithError(err).
 		Errorf(msg, args...)

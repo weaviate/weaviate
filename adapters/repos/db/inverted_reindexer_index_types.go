@@ -20,7 +20,7 @@ const (
 	IndexTypePropLength
 	IndexTypePropNull
 	IndexTypePropSearchableValue
-	// IndexTypePropMetaCount
+	IndexTypePropMetaCount
 )
 
 func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
@@ -28,7 +28,7 @@ func isSupportedPropertyIndexType(indexType PropertyIndexType) bool {
 	case IndexTypePropValue,
 		IndexTypePropLength,
 		IndexTypePropNull,
-		// IndexTypePropMetaCount,
+		IndexTypePropMetaCount,
 		IndexTypePropSearchableValue:
 		return true
 	default:
@@ -48,7 +48,7 @@ func isIndexTypeSupportedByStrategy(indexType PropertyIndexType, strategy string
 	switch indexType {
 	case IndexTypePropLength,
 		IndexTypePropNull,
-		// IndexTypePropMetaCount,
+		IndexTypePropMetaCount,
 		IndexTypePropValue:
 		return lsmkv.IsExpectedStrategy(strategy, lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 	case IndexTypePropSearchableValue:
