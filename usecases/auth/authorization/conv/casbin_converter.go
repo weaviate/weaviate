@@ -78,7 +78,7 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 	rolesPermissions := make(map[string][]authorization.Policy)
 	for _, p := range casbinPolicies {
 		for _, policyParts := range p {
-			name := policyParts[0]
+			name := strings.TrimPrefix(policyParts[0], "role:")
 			if slices.Contains(authorization.BuiltInRoles, name) {
 				perms := authorization.BuiltInPermissions[name]
 				for _, p := range perms {
