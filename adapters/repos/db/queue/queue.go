@@ -33,6 +33,11 @@ const (
 	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
 	defaultChunkSize = 100 * 1024 * 1024
 
+	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
+	// It should be large enough to hold a few records, but not too large to avoid
+	// taking up too much memory when the number of queues is large.
+	chunkWriterBufferSize = 256 * 1024
+
 	// chunkFileFmt is the format string for the chunk files,
 	chunkFileFmt = "chunk-%d.bin"
 
@@ -52,8 +57,6 @@ type Queue interface {
 type BeforeScheduleHook interface {
 	BeforeSchedule() bool
 }
-
-var _ Queue = &DiskQueue{}
 
 type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
@@ -326,7 +329,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		}
 		_, err = io.ReadFull(c.r, buf)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to read record:")
+			return nil, errors.Wrap(err, "failed to read record")
 		}
 
 		// decode the task
@@ -672,7 +675,7 @@ func newChunkWriter(dir string, reader *chunkReader, logger logrus.FieldLogger, 
 		reader:  reader,
 		logger:  logger,
 		maxSize: maxSize,
-		w:       bufio.NewWriterSize(nil, 1024*1024),
+		w:       bufio.NewWriterSize(nil, chunkWriterBufferSize),
 	}
 
 	err := ch.Open()
@@ -1061,3 +1064,6 @@ func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 
 	return true, nil
 }
+
+// compile time check for Queue interface
+var _ = Queue(new(DiskQueue))

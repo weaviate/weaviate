@@ -62,8 +62,6 @@ func testGraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 
-	waitForIndexing()
-
 	t.Run("running Get nearObject against shadowed objects", runningGetNearObjectWithShadowedObjects)
 	t.Run("running Aggregate nearObject against shadowed objects", runningAggregateNearObjectWithShadowedObjects)
 	t.Run("running Explore nearObject against shadowed objects", runningExploreNearObjectWithShadowedObjects)
@@ -85,8 +83,6 @@ func testGraphQL(t *testing.T) {
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
 	t.Run("import test data (cursor api)", addTestDataCursorSearch)
-
-	waitForIndexing()
 
 	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 
@@ -1113,20 +1109,7 @@ func addTestDataRansomNotes(t *testing.T) {
 
 	t.Run("wait for all objects to be indexed", func(t *testing.T) {
 		// wait for all of the objects to get indexed
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			verbose := verbosity.OutputVerbose
-			params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className)
-			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			resp, err := body.Payload, clientErr
-			require.NoError(ct, err)
-			require.NotEmpty(ct, resp.Nodes)
-			for _, n := range resp.Nodes {
-				require.NotEmpty(ct, n.Shards)
-				for _, s := range n.Shards {
-					assert.Equal(ct, "READY", s.VectorIndexingStatus)
-				}
-			}
-		}, 15*time.Second, 500*time.Millisecond)
+		waitForIndexing(t, className)
 	})
 }
 
@@ -1207,6 +1190,9 @@ func addTestDataNearObjectSearch(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
+
+	waitForIndexing(t, classNames[0])
+	waitForIndexing(t, classNames[1])
 }
 
 const (
@@ -1266,6 +1252,8 @@ func addTestDataCursorSearch(t *testing.T) {
 		})
 		assertGetObjectEventually(t, id)
 	}
+
+	waitForIndexing(t, className)
 }
 
 func addDateFieldClass(t *testing.T) {
@@ -1303,9 +1291,19 @@ func mustParseYear(year string) time.Time {
 	return asTime
 }
 
-func waitForIndexing() {
-	// wait for the objects to be indexed
-	// TODO: remove this sleep when we have a better way
-	// to determine when the objects are indexed
-	time.Sleep(3 * time.Second)
+func waitForIndexing(t *testing.T, className string) {
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verbose := verbosity.OutputVerbose
+		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		resp, err := body.Payload, clientErr
+		require.NoError(ct, err)
+		require.NotEmpty(ct, resp.Nodes)
+		for _, n := range resp.Nodes {
+			require.NotEmpty(ct, n.Shards)
+			for _, s := range n.Shards {
+				assert.Equal(ct, "READY", s.VectorIndexingStatus)
+			}
+		}
+	}, 15*time.Second, 500*time.Millisecond)
 }

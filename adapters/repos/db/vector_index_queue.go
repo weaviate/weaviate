@@ -298,8 +298,6 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-var _ queue.TaskGrouper = &Task{}
-
 type Task struct {
 	op     uint8
 	id     uint64
@@ -377,3 +375,6 @@ func (tg *TaskGroup) Execute(ctx context.Context) error {
 
 	return errors.Errorf("unknown operation: %d", tg.Op())
 }
+
+// compile time check for TaskGrouper interface
+var _ = queue.TaskGrouper(new(Task))

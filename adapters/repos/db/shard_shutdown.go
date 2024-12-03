@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -104,7 +103,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 	} else {
 		err = s.queue.Flush()
-		ec.AddWrap(errors.Wrap(err, "flush vector index queue commitlog"))
+		ec.AddWrap(err, "flush vector index queue commitlog")
 		err = s.queue.Close()
 		ec.AddWrap(err, "shut down vector index queue")
 

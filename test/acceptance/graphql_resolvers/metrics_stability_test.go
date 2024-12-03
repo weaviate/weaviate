@@ -152,6 +152,8 @@ func importMetricsClass(t *testing.T, classIndex int) {
 
 		createObjectsBatch(t, batch)
 	}
+
+	waitForIndexing(t, metricsClassName(classIndex))
 }
 
 func cleanupMetricsClasses(t *testing.T, start, end int) {
