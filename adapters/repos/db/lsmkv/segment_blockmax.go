@@ -221,7 +221,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	output.decodeBlock()
 	output.decoded = true
 
-	output.advanceToStart()
+	output.advanceOnTombstoneOrFilter()
 
 	output.Metrics.BlockCountTotal += uint64(len(output.blockEntries))
 	output.Metrics.DocCountTotal += output.docCount
@@ -230,7 +230,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	return output
 }
 
-func (s *SegmentBlockMax) advanceToStart() {
+func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
 		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
 		s.blockDataIdx++
@@ -278,7 +278,7 @@ func (s *SegmentBlockMax) reset() error {
 	s.decodeBlock()
 	s.decoded = true
 
-	s.advanceToStart()
+	s.advanceOnTombstoneOrFilter()
 
 	return nil
 }
@@ -366,21 +366,7 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
 	}
 
-	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
-		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
-		s.blockDataIdx++
-		if s.blockDataIdx > s.blockDataSize-1 {
-			if s.blockEntryIdx >= len(s.blockEntries)-1 {
-				s.idPointer = math.MaxUint64
-				s.exhausted = true
-				return
-			}
-			s.blockEntryIdx++
-			s.blockDataIdx = 0
-			s.decodeBlock()
-		}
-		s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
-	}
+	s.advanceOnTombstoneOrFilter()
 }
 
 func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
@@ -479,22 +465,7 @@ func (s *SegmentBlockMax) Advance() {
 		}
 	}
 
-	for (s.filterDocIds != nil && !s.filterDocIds.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) ||
-		(s.tombstones != nil && s.tombstones.Contains(s.blockDataDecoded.DocIds[s.blockDataIdx])) {
-		s.blockDataIdx++
-		if s.blockDataIdx > s.blockDataSize-1 {
-			if s.blockEntryIdx >= len(s.blockEntries)-1 {
-				s.idPointer = math.MaxUint64
-				s.exhausted = true
-				return
-			}
-			s.blockEntryIdx++
-			s.blockDataIdx = 0
-			s.decodeBlock()
-		}
-	}
-
-	s.idPointer = s.blockDataDecoded.DocIds[s.blockDataIdx]
+	s.advanceOnTombstoneOrFilter()
 }
 
 func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
