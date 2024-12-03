@@ -438,7 +438,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 		require.Equal(t, 1, len(roles))
 	})
 
-	t.Run("get role assigned to user", func(t *testing.T) {
+	t.Run("delete role", func(t *testing.T) {
 		helper.DeleteRole(t, adminKey, *testRole.Name)
 	})
 
