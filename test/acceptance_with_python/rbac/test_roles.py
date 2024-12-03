@@ -21,7 +21,7 @@ def test_rbac_viewer_assign(
         viewer_client.collections.delete(name)
 
     # with extra role that has those permissions it works
-    with role_wrapper(admin_client, request, RBAC.permissions.collections.delete(collection=name)):
+    with role_wrapper(admin_client, request, RBAC.permissions.collections.delete(collection=name), "viewer-user"):
         viewer_client.collections.delete(name)
 
     admin_client.collections.delete(name)
