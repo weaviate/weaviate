@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetRolesForUserHandlerFunc turns a function with the right signature into a get roles for user handler
-type GetRolesForUserHandlerFunc func(GetRolesForUserParams, *models.Principal) middleware.Responder
+// GetRolesForOwnUserHandlerFunc turns a function with the right signature into a get roles for own user handler
+type GetRolesForOwnUserHandlerFunc func(GetRolesForOwnUserParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetRolesForUserHandlerFunc) Handle(params GetRolesForUserParams, principal *models.Principal) middleware.Responder {
+func (fn GetRolesForOwnUserHandlerFunc) Handle(params GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetRolesForUserHandler interface for that can handle valid get roles for user params
-type GetRolesForUserHandler interface {
-	Handle(GetRolesForUserParams, *models.Principal) middleware.Responder
+// GetRolesForOwnUserHandler interface for that can handle valid get roles for own user params
+type GetRolesForOwnUserHandler interface {
+	Handle(GetRolesForOwnUserParams, *models.Principal) middleware.Responder
 }
 
-// NewGetRolesForUser creates a new http.Handler for the get roles for user operation
-func NewGetRolesForUser(ctx *middleware.Context, handler GetRolesForUserHandler) *GetRolesForUser {
-	return &GetRolesForUser{Context: ctx, Handler: handler}
+// NewGetRolesForOwnUser creates a new http.Handler for the get roles for own user operation
+func NewGetRolesForOwnUser(ctx *middleware.Context, handler GetRolesForOwnUserHandler) *GetRolesForOwnUser {
+	return &GetRolesForOwnUser{Context: ctx, Handler: handler}
 }
 
 /*
-	GetRolesForUser swagger:route GET /authz/users/{id}/roles authz getRolesForUser
+	GetRolesForOwnUser swagger:route GET /authz/users/own-roles authz getRolesForOwnUser
 
-get roles assigned to user
+get roles assigned to own user
 */
-type GetRolesForUser struct {
+type GetRolesForOwnUser struct {
 	Context *middleware.Context
-	Handler GetRolesForUserHandler
+	Handler GetRolesForOwnUserHandler
 }
 
-func (o *GetRolesForUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetRolesForOwnUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetRolesForUserParams()
+	var Params = NewGetRolesForOwnUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
