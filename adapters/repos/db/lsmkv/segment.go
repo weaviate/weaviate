@@ -19,6 +19,7 @@ import (
 	"os"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -53,6 +54,9 @@ type segment struct {
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
 	countNetAdditions     int
+
+	invertedHeader *segmentindex.HeaderInverted
+	invertedData   *segmentInvertedData
 }
 
 type diskIndex interface {
@@ -119,6 +123,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
+
+	var invertedHeader *segmentindex.HeaderInverted
+	if header.Strategy == segmentindex.StrategyInverted {
+		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+		dataStartPos = invertedHeader.KeysOffset
+		dataEndPos = invertedHeader.TombstoneOffset
+	}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -128,8 +145,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataStartPos:          dataStartPos,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		metrics:               metrics,
@@ -137,6 +154,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:          mmapContents,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		invertedHeader:        invertedHeader,
+		invertedData:          &segmentInvertedData{},
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
