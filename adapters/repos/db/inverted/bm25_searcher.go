@@ -114,9 +114,7 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
-func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
-) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params searchparams.KeywordRanking) (float64, map[string][]string, map[string][]string, map[string][]int, map[string]float32, float64, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
 	var stopWordDetector *stopwords.Detector
@@ -124,7 +122,7 @@ func (b *BM25Searcher) wand(
 		var err error
 		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, nil, nil, nil, 0, err
 		}
 	}
 
@@ -132,7 +130,6 @@ func (b *BM25Searcher) wand(
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
-
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
@@ -168,8 +165,9 @@ func (b *BM25Searcher) wand(
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, nil, nil, nil, 0, err
 		}
+
 		// A NaN here is the results of a corrupted prop length tracker.
 		// This is a workaround to try and avoid 0 or NaN scores.
 		// There is an extra check below in case all prop lengths are NaN or 0.
@@ -181,18 +179,18 @@ func (b *BM25Searcher) wand(
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, nil, nil, nil, 0, err
 		}
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return nil, nil, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+				return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return nil, nil, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return 0, nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
 		}
 	}
 
@@ -201,8 +199,19 @@ func (b *BM25Searcher) wand(
 	// If this value is zero or NaN, the prop length tracker is fully corrupted.
 	// This is a workaround to avoid 0 or NaN scores.
 	// Related issue https://github.com/weaviate/weaviate/issues/6247
+	// sane default, if all prop lengths are NaN or 0
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
-		averagePropLength = 40.0 // sane default, if all prop lengths are NaN or 0
+		averagePropLength = 40.0
+	}
+	return N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, nil
+}
+
+func (b *BM25Searcher) wand(
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
+	N, propNamesByTokenization, queryTermsByTokenization, duplicateBoostsByTokenization, propertyBoosts, averagePropLength, err := b.generateQueryTermsAndStats(class, params)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	allRequests := make([]termListRequest, 0, 1000)
@@ -211,13 +220,7 @@ func (b *BM25Searcher) wand(
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
-			queryTerms, duplicateBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
-
-			// stopword filtering for word tokenization
-			if tokenization == models.PropertyTokenizationWord {
-				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
-					queryTerms, duplicateBoosts, stopWordDetector)
-			}
+			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
 			for queryTermIndex, queryTerm := range queryTerms {
 				allRequests = append(allRequests, termListRequest{
 					term:               queryTerm,
