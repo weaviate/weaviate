@@ -36,22 +36,22 @@ type segmentInvertedData struct {
 	avgPropertyLengthsCount uint64
 }
 
-func (s *segment) loadTombstones() error {
+func (s *segment) loadTombstones() (*sroar.Bitmap, error) {
 	s.invertedData.lockInvertedData.Lock()
 	defer s.invertedData.lockInvertedData.Unlock()
 	if s.strategy != segmentindex.StrategyInverted {
-		return fmt.Errorf("property only supported for inverted strategy")
+		return nil, fmt.Errorf("property only supported for inverted strategy")
 	}
 
 	if s.invertedData.tombstonesLoaded {
-		return nil
+		return s.invertedData.tombstones, nil
 	}
 
 	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.invertedHeader.TombstoneOffset : s.invertedHeader.TombstoneOffset+8])
 
 	if bitmapSize == 0 {
 		s.invertedData.tombstonesLoaded = true
-		return nil
+		return s.invertedData.tombstones, nil
 	}
 
 	bitmapStart := s.invertedHeader.TombstoneOffset + 8
@@ -61,7 +61,7 @@ func (s *segment) loadTombstones() error {
 
 	s.invertedData.tombstones = bitmap
 	s.invertedData.tombstonesLoaded = true
-	return nil
+	return bitmap, nil
 }
 
 func (s *segment) loadPropertyLengths() error {
@@ -107,8 +107,11 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
 
-	if !s.invertedData.tombstonesLoaded {
-		s.loadTombstones()
+	s.invertedData.lockInvertedData.RLock()
+	loaded := false
+	s.invertedData.lockInvertedData.RUnlock()
+	if !loaded {
+		return s.loadTombstones()
 	}
 
 	s.invertedData.lockInvertedData.RLock()
