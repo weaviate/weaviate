@@ -765,34 +765,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		return nil, err
 	}
 
-	hasTombstones := false
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
-	for i, segment := range segmentsDisk {
-		if segment.strategy == segmentindex.StrategyInverted {
-			tombstones, err := segment.GetTombstones()
-			if err != nil {
-				return nil, err
-			}
-			allTombstones[i] = tombstones
-			hasTombstones = true
-		}
-	}
-	if hasTombstones {
-		// check if there are any tombstones in the flushing memtable
-		if b.flushing != nil {
-			tombstones, err := b.flushing.GetTombstones()
-			if err != nil {
-				return nil, err
-			}
-			allTombstones[len(segmentsDisk)] = tombstones
-		}
-
-		// check if there are any tombstones in the active memtable
-		tombstones, err := b.active.GetTombstones()
-		if err != nil {
-			return nil, err
-		}
-		allTombstones[len(segmentsDisk)+1] = tombstones
+	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	if err != nil {
+		return nil, err
 	}
 
 	for i := range disk {
@@ -800,16 +775,19 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 			return nil, ctx.Err()
 		}
 
+		propLengths := make(map[uint64]uint32)
+		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			// Inverted segments have a slightly different internal format
 			// and separate property lengths that need to be read.
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-				propLengths, err := segmentsDisk[i].GetPropertyLengths()
-				if err != nil {
-					return nil, err
-				}
-
 				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
@@ -879,6 +857,38 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	return newSortedMapMerger().do(ctx, segments)
+}
+
+func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, error) {
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	for i, segment := range segmentsDisk {
+		if segment.strategy == segmentindex.StrategyInverted {
+			tombstones, err := segment.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[i] = tombstones
+			hasTombstones = true
+		}
+	}
+	if hasTombstones {
+
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
+	}
+	return allTombstones, nil
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is
@@ -1340,61 +1350,28 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		return nil, err
 	}
 
-	hasTombstones := false
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
-	allPropLengths := make([]map[uint64]uint32, len(segmentsDisk))
-
-	for i, segment := range segmentsDisk {
-		// only inverted segments have tombstones, so we only need to load
-		// tombstones for use later if the segment is inverted.
-		// Supporing inverted segments here enables using WAND in-memory search
-		// for inverted indexes.
-		if segment.strategy == segmentindex.StrategyInverted {
-			tombstones, err := segment.GetTombstones()
-			if err != nil {
-				return nil, err
-			}
-			propLengths, err := segment.GetPropertyLengths()
-			if err != nil {
-				return nil, err
-			}
-
-			allTombstones[i] = tombstones
-			allPropLengths[i] = propLengths
-			hasTombstones = true
-		}
-	}
-
-	// If we are dealing with inverted segments, we also need to check the
-	// active and flushing memtables for tombstones.
-	if hasTombstones {
-		// check if there are any tombstones in the flushing memtable
-		if b.flushing != nil {
-			tombstones, err := b.flushing.GetTombstones()
-			if err != nil {
-				return nil, err
-			}
-			allTombstones[len(segmentsDisk)] = tombstones
-		}
-
-		// check if there are any tombstones in the active memtable
-		tombstones, err := b.active.GetTombstones()
-		if err != nil {
-			return nil, err
-		}
-		allTombstones[len(segmentsDisk)+1] = tombstones
+	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	if err != nil {
+		return nil, err
 	}
 
 	for i := range disk {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		propLengths := make(map[uint64]uint32)
+		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+			if err != nil {
+				return nil, err
+			}
+		}
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
-				propLen := allPropLengths[i][docId]
+				propLen := propLengths[docId]
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
 					return nil, err
 				}
