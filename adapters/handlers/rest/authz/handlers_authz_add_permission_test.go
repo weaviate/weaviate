@@ -32,9 +32,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 		name      string
 		principal *models.Principal
 		params    authz.AddPermissionsParams
-		// readCollection              bool
-		// readTenant                  bool
-		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
@@ -67,7 +64,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					},
 				},
 			},
-			// readCollection: true,
 		},
 		{
 			name:      "collection and tenant checks",
@@ -86,8 +82,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					},
 				},
 			},
-			// readCollection: true,
-			// readTenant:     true,
 		},
 		{
 			name:      "* collections and tenant checks",
@@ -105,7 +99,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 					},
 				},
 			},
-			// readTenantWithoutCollection: true,
 		},
 	}
 
@@ -124,30 +117,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 
 			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
 			controller.On("UpsertRolesPermissions", policies).Return(nil)
-
-			// if tt.readCollection {
-			// 	schemaReader.On("ReadOnlyClass",
-			// 		*tt.params.Body.Permissions[0].Collection).
-			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
-			// }
-
-			// if tt.readTenant {
-			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-			// 		*tt.params.Body.Permissions[0].Tenant).
-			// 		Return(map[string]string{*tt.params.Body.Permissions[0].Tenant: "ACTIVE"}, nil)
-			// }
-
-			// if tt.readTenantWithoutCollection {
-			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-			// 		Objects: &models.Schema{
-			// 			Classes: []*models.Class{{Class: "ABC"}},
-			// 		},
-			// 	})
-
-			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-			// 		Physical: map[string]sharding.Physical{*tt.params.Body.Permissions[0].Tenant: {Name: "anything"}},
-			// 	})
-			// }
 
 			h := &authZHandlers{
 				authorizer:   authorizer,
@@ -169,9 +138,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 		params        authz.AddPermissionsParams
 		principal     *models.Principal
 		expectedError string
-		// readCollection              bool
-		// readTenant                  bool
-		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
@@ -202,21 +168,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "role has to have at least 1 permission",
 		},
-		// {
-		// 	name: "invalid resource",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("someName"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action: String(authorization.CreateCollections),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	principal:     &models.Principal{Username: "user1"},
-		// 	expectedError: "missing domain",
-		// },
 		{
 			name: "update builtin role",
 			params: authz.AddPermissionsParams{
@@ -233,55 +184,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "you can not update builtin role",
 		},
-		// {
-		// 	name: "collection doesn't exist",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action:     String("manage_roles"),
-		// 					Collection: String("ABC"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readCollection: true,
-		// 	expectedError:  "collection ABC doesn't exists",
-		// },
-		// {
-		// 	name: "tenant doesn't exist",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action:     String("manage_roles"),
-		// 					Collection: String("ABC"),
-		// 					Tenant:     String("Tenant1"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readTenant:    true,
-		// 	expectedError: "tenant Tenant1 doesn't exist",
-		// },
-		// {
-		// 	name: "tenant doesn't exist with * collection",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action: String(authorization.CreateCollections),
-		// 					Tenant: String("Tenant1"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readTenantWithoutCollection: true,
-		// 	expectedError:               "tenant Tenant1 doesn't exist",
-		// },
 	}
 
 	for _, tt := range tests {
@@ -290,35 +192,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			authorizer := mocks.NewAuthorizer(t)
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
-
-			// if tt.readCollection {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
-			// }
-
-			// if tt.readTenant {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("ReadOnlyClass",
-			// 		*tt.params.Body.Permissions[0].Collection).
-			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
-
-			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-			// 		*tt.params.Body.Permissions[0].Tenant).
-			// 		Return(map[string]string{}, nil)
-			// }
-
-			// if tt.readTenantWithoutCollection {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-			// 		Objects: &models.Schema{
-			// 			Classes: []*models.Class{{Class: "ABC"}},
-			// 		},
-			// 	})
-
-			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-			// 		Physical: map[string]sharding.Physical{},
-			// 	})
-			// }
 			h := &authZHandlers{
 				controller:   controller,
 				authorizer:   authorizer,
