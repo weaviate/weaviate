@@ -395,7 +395,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8629, 8629)
+				compactionInvertedStrategy(ctx, t, opts, 8627, 8627)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),
@@ -404,7 +404,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionInvertedStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionInvertedStrategy(ctx, t, opts, 8933, 8933)
+				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyInverted),
