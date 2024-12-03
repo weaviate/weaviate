@@ -49,6 +49,51 @@ func (o *CreateRoleCreated) WriteResponse(rw http.ResponseWriter, producer runti
 	rw.WriteHeader(201)
 }
 
+// CreateRoleBadRequestCode is the HTTP code returned for type CreateRoleBadRequest
+const CreateRoleBadRequestCode int = 400
+
+/*
+CreateRoleBadRequest Malformed request.
+
+swagger:response createRoleBadRequest
+*/
+type CreateRoleBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCreateRoleBadRequest creates CreateRoleBadRequest with default headers values
+func NewCreateRoleBadRequest() *CreateRoleBadRequest {
+
+	return &CreateRoleBadRequest{}
+}
+
+// WithPayload adds the payload to the create role bad request response
+func (o *CreateRoleBadRequest) WithPayload(payload *models.ErrorResponse) *CreateRoleBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the create role bad request response
+func (o *CreateRoleBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CreateRoleBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // CreateRoleUnauthorizedCode is the HTTP code returned for type CreateRoleUnauthorized
 const CreateRoleUnauthorizedCode int = 401
 
@@ -111,6 +156,51 @@ func (o *CreateRoleForbidden) SetPayload(payload *models.ErrorResponse) {
 func (o *CreateRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// CreateRoleConflictCode is the HTTP code returned for type CreateRoleConflict
+const CreateRoleConflictCode int = 409
+
+/*
+CreateRoleConflict Role already exists
+
+swagger:response createRoleConflict
+*/
+type CreateRoleConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCreateRoleConflict creates CreateRoleConflict with default headers values
+func NewCreateRoleConflict() *CreateRoleConflict {
+
+	return &CreateRoleConflict{}
+}
+
+// WithPayload adds the payload to the create role conflict response
+func (o *CreateRoleConflict) WithPayload(payload *models.ErrorResponse) *CreateRoleConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the create role conflict response
+func (o *CreateRoleConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CreateRoleConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {
