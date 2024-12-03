@@ -21,6 +21,36 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
 
+func TestDynamicMaintainanceModeUpdate(t *testing.T) {
+  noopAuth := clusterapi.NewNoopAuthHandler()
+  indices := clusterapi.NewIndices(nil, nil, noopAuth, true, nil)
+  mux := http.NewServeMux()
+  mux.Handle("/indices/maintainance-mode", indices.MaintainanceMode())
+  server := httptest.NewServer(mux)
+  defer server.Close()
+
+  dynamicMaintainanceModeTestRequests := []indicesTestRequest{
+    {"POST", "maintainanceMode=true"},
+    {"POST", "maintainanceMode=false"},
+  }
+
+	requestURL := func(suffix string) string {
+    fmt.Println(fmt.Sprintf("%s/indices/maintainance-mode?%s", server.URL, suffix))
+		return fmt.Sprintf("%s/indices/maintainance-mode?%s", server.URL, suffix)
+	}
+
+  for _, testRequest := range dynamicMaintainanceModeTestRequests {
+    t.Run(fmt.Sprintf("maintainance mode test with query %s", testRequest.suffix), func(t *testing.T) {
+			req, err := http.NewRequest(testRequest.method, requestURL(testRequest.suffix), nil)
+			assert.Nil(t, err)
+			res, err := http.DefaultClient.Do(req)
+			assert.Nil(t, err)
+			defer res.Body.Close()
+      assert.True(t, res.StatusCode == http.StatusOK, "expected %d, got %d", http.StatusOK, res.StatusCode)
+    })
+  }
+}
+
 func TestMaintenanceModeIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// NOTE leaving shards, db, and logger nil for now, fill in when needed
