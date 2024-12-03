@@ -184,11 +184,11 @@ func (b *BM25Searcher) wandBlock(
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	internalLimit := limit
 	if limit == 0 {
-		for _, res := range allResults {
-			for _, res2 := range res {
-				for _, res3 := range res2 {
-					if res3 != nil {
-						limit += res3.Count()
+		for _, perProperty := range allResults {
+			for _, perSegment := range perProperty {
+				for _, perTerm := range perSegment {
+					if perTerm != nil {
+						limit += perTerm.Count()
 					}
 				}
 			}
@@ -206,10 +206,11 @@ func (b *BM25Searcher) wandBlock(
 
 	allObjects := make([][][]*storobj.Object, len(allResults))
 	allScores := make([][][]float32, len(allResults))
-	for i, result1 := range allResults {
-		allObjects[i] = make([][]*storobj.Object, len(result1))
-		allScores[i] = make([][]float32, len(result1))
-		for j := range result1 {
+	for i, perProperty := range allResults {
+		allObjects[i] = make([][]*storobj.Object, len(perProperty))
+		allScores[i] = make([][]float32, len(perProperty))
+		// per segment
+		for j := range perProperty {
 
 			i := i
 			j := j
@@ -241,36 +242,6 @@ func (b *BM25Searcher) wandBlock(
 		return nil, nil, err
 	}
 
-	/*
-		metrics.QueryCount++
-		for _, result := range allResults {
-			for _, result2 := range result {
-				for _, result3 := range result2 {
-					if result3 != nil {
-						m, ok := result3.(*lsmkv.SegmentBlockMax)
-						if !ok {
-							continue
-						}
-
-						metrics.BlockCountAdded += m.Metrics.BlockCountAdded
-						metrics.BlockCountTotal += m.Metrics.BlockCountTotal
-						metrics.BlockCountExamined += m.Metrics.BlockCountExamined
-						metrics.DocCountAdded += m.Metrics.DocCountAdded
-						metrics.DocCountTotal += m.Metrics.DocCountTotal
-						metrics.DocCountExamined += m.Metrics.DocCountExamined
-						metrics.LastAddedBlock = m.Metrics.LastAddedBlock
-
-					}
-				}
-			}
-		}
-
-		if metrics.QueryCount%100 == 0 {
-			b.logger.Error("BlockMax metrics", "BlockCountTotal ", metrics.BlockCountTotal/metrics.QueryCount, " BlockCountExamined ", metrics.BlockCountExamined/metrics.QueryCount, " BlockCountAdded ", metrics.BlockCountAdded/metrics.QueryCount, " DocCountTotal ", metrics.DocCountTotal/metrics.QueryCount, " DocCountExamined ", metrics.DocCountExamined/metrics.QueryCount, " DocCountAdded ", metrics.DocCountAdded/metrics.QueryCount)
-			metrics = lsmkv.BlockMetrics{}
-		}
-	*/
-
 	objects, scores := b.combineResults(allObjects, allScores, limit)
 
 	return objects, scores, nil
@@ -285,11 +256,13 @@ func (b *BM25Searcher) combineResults(allObjects [][][]*storobj.Object, allScore
 	for i := range allObjects {
 		singlePropObjects := slices.Concat(allObjects[i]...)
 		singlePropScores := slices.Concat(allScores[i]...)
+		// Choose the highest score for each object if it appears in multiple segments
 		combinedObjectsProp, combinedScoresProp := b.combineResultsForMultiProp(singlePropObjects, singlePropScores, func(a, b float32) float32 { return b })
 		combinedObjects = append(combinedObjects, combinedObjectsProp...)
 		combinedScores = append(combinedScores, combinedScoresProp...)
 	}
 
+	// Choose the sum of the scores for each object if it appears in multiple properties
 	combinedObjects, combinedScores = b.combineResultsForMultiProp(combinedObjects, combinedScores, func(a, b float32) float32 { return a + b })
 
 	combinedObjects, combinedScores = b.sortResultsByScore(combinedObjects, combinedScores)
