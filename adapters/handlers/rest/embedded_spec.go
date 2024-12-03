@@ -210,11 +210,23 @@ func init() {
           "201": {
             "description": "Role created successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Role already exists",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -237,13 +249,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permission": {
+    "/authz/roles/add-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
-        "operationId": "addPermission",
+        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "operationId": "addPermissions",
         "parameters": [
           {
             "name": "body",
@@ -251,9 +263,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to be added to the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -264,8 +284,14 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission added successfully"
+          "200": {
+            "description": "Permissions added successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -290,17 +316,17 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.add.role.permission"
+          "weaviate.authz.add.role.permissions"
         ]
       }
     },
-    "/authz/roles/remove-permission": {
+    "/authz/roles/remove-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "remove permission from a role",
-        "operationId": "removedPermission",
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
         "parameters": [
           {
             "name": "body",
@@ -308,9 +334,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to remove from the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -321,8 +355,14 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission removed successfully"
+          "200": {
+            "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -347,7 +387,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.remove.role.permission"
+          "weaviate.authz.remove.role.permissions"
         ]
       }
     },
@@ -491,7 +531,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -505,17 +545,46 @@ func init() {
         ]
       }
     },
+    "/authz/users/own-roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
+        ]
+      }
+    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user or key",
+        "summary": "Assign a role to a user",
         "operationId": "assignRole",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -527,7 +596,7 @@ func init() {
             "schema": {
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to the key or user",
+                  "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -581,7 +650,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -639,12 +708,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user or a key",
+        "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -673,7 +742,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -5321,31 +5390,57 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
+            "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
-            "create_collections",
-            "read_collections",
-            "update_collections",
-            "delete_collections",
-            "create_tenants",
-            "read_tenants",
-            "update_tenants",
-            "delete_tenants",
-            "create_objects_collection",
-            "read_objects_collection",
-            "update_objects_collection",
-            "delete_objects_collection",
-            "create_objects_tenant",
-            "read_objects_tenant",
-            "update_objects_tenant",
-            "delete_objects_tenant"
+            "read_nodes",
+            "read_cluster",
+            "manage_backups",
+            "create_schema",
+            "read_schema",
+            "update_schema",
+            "delete_schema",
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -5359,6 +5454,11 @@ func init() {
         },
         "tenant": {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "user": {
+          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -6445,11 +6545,23 @@ func init() {
           "201": {
             "description": "Role created successfully"
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Role already exists",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6472,13 +6584,13 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permission": {
+    "/authz/roles/add-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a role, it will be upsert if the role doesn't exists it will be created.",
-        "operationId": "addPermission",
+        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "operationId": "addPermissions",
         "parameters": [
           {
             "name": "body",
@@ -6486,9 +6598,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to be added to the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -6499,8 +6619,14 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission added successfully"
+          "200": {
+            "description": "Permissions added successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6525,17 +6651,17 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.add.role.permission"
+          "weaviate.authz.add.role.permissions"
         ]
       }
     },
-    "/authz/roles/remove-permission": {
+    "/authz/roles/remove-permissions": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "remove permission from a role",
-        "operationId": "removedPermission",
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
         "parameters": [
           {
             "name": "body",
@@ -6543,9 +6669,17 @@ func init() {
             "required": true,
             "schema": {
               "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
               "properties": {
-                "name": {},
+                "name": {
+                  "description": "role name",
+                  "type": "string"
+                },
                 "permissions": {
+                  "description": "permissions to remove from the role",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -6556,8 +6690,14 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Permission removed successfully"
+          "200": {
+            "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6582,7 +6722,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.remove.role.permission"
+          "weaviate.authz.remove.role.permissions"
         ]
       }
     },
@@ -6726,7 +6866,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6740,17 +6880,46 @@ func init() {
         ]
       }
     },
+    "/authz/users/own-roles": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to own user",
+        "operationId": "getRolesForOwnUser",
+        "responses": {
+          "200": {
+            "description": "Role assigned to own users",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.users.own-roles"
+        ]
+      }
+    },
     "/authz/users/{id}/assign": {
       "post": {
         "tags": [
           "authz"
         ],
-        "summary": "Assign a role to a user or key",
+        "summary": "Assign a role to a user",
         "operationId": "assignRole",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6762,7 +6931,7 @@ func init() {
             "schema": {
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to the key or user",
+                  "description": "the roles that assigned to user",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -6816,7 +6985,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6874,12 +7043,12 @@ func init() {
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user or a key",
+        "summary": "get roles assigned to user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user or key ID",
+            "description": "user name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6908,7 +7077,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user/key"
+            "description": "no role found for user"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11856,31 +12025,57 @@ func init() {
           "description": "allowed actions in weaviate.",
           "type": "string",
           "enum": [
+            "manage_users",
             "manage_roles",
             "read_roles",
-            "manage_cluster",
-            "create_collections",
-            "read_collections",
-            "update_collections",
-            "delete_collections",
-            "create_tenants",
-            "read_tenants",
-            "update_tenants",
-            "delete_tenants",
-            "create_objects_collection",
-            "read_objects_collection",
-            "update_objects_collection",
-            "delete_objects_collection",
-            "create_objects_tenant",
-            "read_objects_tenant",
-            "update_objects_tenant",
-            "delete_objects_tenant"
+            "read_nodes",
+            "read_cluster",
+            "manage_backups",
+            "create_schema",
+            "read_schema",
+            "update_schema",
+            "delete_schema",
+            "create_data",
+            "read_data",
+            "update_data",
+            "delete_data"
           ]
+        },
+        "backup": {
+          "description": "resources applicable for backup actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "nodes": {
+          "description": "resources applicable for cluster actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "verbosity": {
+              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "type": "string",
+              "default": "minimal",
+              "enum": [
+                "verbose",
+                "minimal"
+              ]
+            }
+          }
         },
         "object": {
           "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
@@ -11896,6 +12091,42 @@ func init() {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        },
+        "user": {
+          "description": "string or regex. if a specific user name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionBackup": {
+      "description": "resources applicable for backup actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionNodes": {
+      "description": "resources applicable for cluster actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "verbosity": {
+          "description": "whether to allow (verbose) returning shards and stats data in the response",
+          "type": "string",
+          "default": "minimal",
+          "enum": [
+            "verbose",
+            "minimal"
+          ]
         }
       }
     },

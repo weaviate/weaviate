@@ -25,44 +25,45 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AddPermissionHandlerFunc turns a function with the right signature into a add permission handler
-type AddPermissionHandlerFunc func(AddPermissionParams, *models.Principal) middleware.Responder
+// AddPermissionsHandlerFunc turns a function with the right signature into a add permissions handler
+type AddPermissionsHandlerFunc func(AddPermissionsParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn AddPermissionHandlerFunc) Handle(params AddPermissionParams, principal *models.Principal) middleware.Responder {
+func (fn AddPermissionsHandlerFunc) Handle(params AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// AddPermissionHandler interface for that can handle valid add permission params
-type AddPermissionHandler interface {
-	Handle(AddPermissionParams, *models.Principal) middleware.Responder
+// AddPermissionsHandler interface for that can handle valid add permissions params
+type AddPermissionsHandler interface {
+	Handle(AddPermissionsParams, *models.Principal) middleware.Responder
 }
 
-// NewAddPermission creates a new http.Handler for the add permission operation
-func NewAddPermission(ctx *middleware.Context, handler AddPermissionHandler) *AddPermission {
-	return &AddPermission{Context: ctx, Handler: handler}
+// NewAddPermissions creates a new http.Handler for the add permissions operation
+func NewAddPermissions(ctx *middleware.Context, handler AddPermissionsHandler) *AddPermissions {
+	return &AddPermissions{Context: ctx, Handler: handler}
 }
 
 /*
-	AddPermission swagger:route POST /authz/roles/add-permission authz addPermission
+	AddPermissions swagger:route POST /authz/roles/add-permissions authz addPermissions
 
-Add permission to a role, it will be upsert if the role doesn't exists it will be created.
+Add permission to a role as an upsert. If the role doesn't exist then it will be created.
 */
-type AddPermission struct {
+type AddPermissions struct {
 	Context *middleware.Context
-	Handler AddPermissionHandler
+	Handler AddPermissionsHandler
 }
 
-func (o *AddPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *AddPermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewAddPermissionParams()
+	var Params = NewAddPermissionsParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -86,21 +87,27 @@ func (o *AddPermission) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// AddPermissionBody add permission body
+// AddPermissionsBody add permissions body
 //
-// swagger:model AddPermissionBody
-type AddPermissionBody struct {
+// swagger:model AddPermissionsBody
+type AddPermissionsBody struct {
 
-	// name
-	Name interface{} `json:"name,omitempty" yaml:"name,omitempty"`
+	// role name
+	// Required: true
+	Name *string `json:"name" yaml:"name"`
 
-	// permissions
+	// permissions to be added to the role
+	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
 }
 
-// Validate validates this add permission body
-func (o *AddPermissionBody) Validate(formats strfmt.Registry) error {
+// Validate validates this add permissions body
+func (o *AddPermissionsBody) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := o.validateName(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := o.validatePermissions(formats); err != nil {
 		res = append(res, err)
@@ -112,9 +119,19 @@ func (o *AddPermissionBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (o *AddPermissionBody) validatePermissions(formats strfmt.Registry) error {
-	if swag.IsZero(o.Permissions) { // not required
-		return nil
+func (o *AddPermissionsBody) validateName(formats strfmt.Registry) error {
+
+	if err := validate.Required("body"+"."+"name", "body", o.Name); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *AddPermissionsBody) validatePermissions(formats strfmt.Registry) error {
+
+	if err := validate.Required("body"+"."+"permissions", "body", o.Permissions); err != nil {
+		return err
 	}
 
 	for i := 0; i < len(o.Permissions); i++ {
@@ -138,8 +155,8 @@ func (o *AddPermissionBody) validatePermissions(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validate this add permission body based on the context it is used
-func (o *AddPermissionBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validate this add permissions body based on the context it is used
+func (o *AddPermissionsBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
 	if err := o.contextValidatePermissions(ctx, formats); err != nil {
@@ -152,7 +169,7 @@ func (o *AddPermissionBody) ContextValidate(ctx context.Context, formats strfmt.
 	return nil
 }
 
-func (o *AddPermissionBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
+func (o *AddPermissionsBody) contextValidatePermissions(ctx context.Context, formats strfmt.Registry) error {
 
 	for i := 0; i < len(o.Permissions); i++ {
 
@@ -173,7 +190,7 @@ func (o *AddPermissionBody) contextValidatePermissions(ctx context.Context, form
 }
 
 // MarshalBinary interface implementation
-func (o *AddPermissionBody) MarshalBinary() ([]byte, error) {
+func (o *AddPermissionsBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -181,8 +198,8 @@ func (o *AddPermissionBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *AddPermissionBody) UnmarshalBinary(b []byte) error {
-	var res AddPermissionBody
+func (o *AddPermissionsBody) UnmarshalBinary(b []byte) error {
+	var res AddPermissionsBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

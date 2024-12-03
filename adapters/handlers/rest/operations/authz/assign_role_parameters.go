@@ -49,7 +49,7 @@ type AssignRoleParams struct {
 	  In: body
 	*/
 	Body AssignRoleBody
-	/*user or key ID
+	/*user name
 	  Required: true
 	  In: path
 	*/
