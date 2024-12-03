@@ -122,7 +122,7 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 		return nil, nil
 	}
 
-	iter := bucket.Objects(ctx, nil)
+	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath})
 	for {
 		next, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
