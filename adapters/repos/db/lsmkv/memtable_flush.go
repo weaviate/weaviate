@@ -52,7 +52,7 @@ func (m *Memtable) flush() error {
 	var keys []segmentindex.Key
 	skipIndices := false
 
-	switch m.strategy {
+	switch m.flushStrategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(w); err != nil {
 			return err
@@ -78,7 +78,10 @@ func (m *Memtable) flush() error {
 		if keys, err = m.flushDataMap(w); err != nil {
 			return err
 		}
-
+	case StrategyInverted:
+		if keys, _, err = m.flushDataInverted(w, f); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
