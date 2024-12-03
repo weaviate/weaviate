@@ -399,8 +399,10 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	testRole := &models.Role{
 		Name: &testRoleName,
 		Permissions: []*models.Permission{{
-			Action:     &authorization.CreateSchema,
-			Collection: authorization.All,
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
 		}},
 	}
 
