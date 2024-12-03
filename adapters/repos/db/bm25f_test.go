@@ -263,8 +263,8 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[0].DocID)
 		require.Equal(t, uint64(5), res[1].DocID)
 		require.Equal(t, uint64(6), res[2].DocID)
-		require.Equal(t, uint64(0), res[3].DocID)
-		require.Equal(t, uint64(3), res[4].DocID)
+		require.Equal(t, uint64(3), res[3].DocID)
+		require.Equal(t, uint64(0), res[4].DocID)
 		require.Equal(t, uint64(2), res[5].DocID)
 
 		// vectors should be returned
@@ -326,8 +326,8 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(5), res[1].DocID)
 		require.Equal(t, uint64(6), res[2].DocID)
 		require.Equal(t, uint64(2), res[3].DocID)
-		require.Equal(t, uint64(0), res[4].DocID)
-		require.Equal(t, uint64(3), res[5].DocID)
+		require.Equal(t, uint64(3), res[4].DocID)
+		require.Equal(t, uint64(0), res[5].DocID)
 		require.Equal(t, uint64(1), res[6].DocID)
 	})
 
