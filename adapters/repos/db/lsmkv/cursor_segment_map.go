@@ -45,6 +45,23 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 	return out, sg.maintenanceLock.RUnlock
 }
 
+func (s *segmentCursorMap) decode(parsed segmentCollectionNode) ([]MapPair, error) {
+	pairs := make([]MapPair, len(parsed.values))
+	for i := range pairs {
+		if s.segment.strategy == segmentindex.StrategyInverted {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
+				return nil, err
+			}
+		}
+		pairs[i].Tombstone = parsed.values[i].tombstone
+	}
+	return pairs, nil
+}
+
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
@@ -66,21 +83,8 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		}
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
@@ -104,21 +108,8 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		}
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
@@ -145,22 +136,8 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 		return parsed.primaryKey, nil, err
 	}
 
-	pairs := make([]MapPair, len(parsed.values))
-	for i := range pairs {
-		if s.segment.strategy == segmentindex.StrategyInverted {
-			if err := pairs[i].FromBytesInverted(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-				return nil, nil, err
-			}
-		}
-
-		pairs[i].Tombstone = parsed.values[i].tombstone
-	}
-
-	return parsed.primaryKey, pairs, nil
+	pairs, err := s.decode(parsed)
+	return parsed.primaryKey, pairs, err
 }
 
 func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
