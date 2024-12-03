@@ -23,8 +23,11 @@ import (
 )
 
 const (
-// rolePrefix = "r_"
-// userPrefix = "u_"
+	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
+	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	ROLE_NAME_PREFIX = "role:"
+	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
+	USER_NAME_PREFIX = "user:"
 )
 
 var resourcePatterns = []string{
@@ -139,7 +142,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}
 
 	if domain == "collections" {
-		// TODO find better way to handle the internal vs external mapping
+		// TODO-RBAC find better way to handle the internal vs external mapping
 		domain = authorization.SchemaDomain
 	}
 
@@ -150,7 +153,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	var resource string
 	switch domain {
 	case authorization.UsersDomain:
-		// do nothing TODO : to be deleted when deleting users domain
+		// do nothing TODO-RBAC: to be handled when dynamic users management gets added
 		user := "*"
 		resource = CasbinUsers(user)
 	case authorization.RolesDomain:
@@ -306,4 +309,26 @@ func validResource(input string) bool {
 
 func validVerb(input string) bool {
 	return regexp.MustCompile(authorization.CRUD).MatchString(input)
+}
+
+func PrefixRoleName(name string) string {
+	if strings.HasPrefix(name, ROLE_NAME_PREFIX) {
+		return name
+	}
+	return fmt.Sprintf("%s%s", ROLE_NAME_PREFIX, name)
+}
+
+func PrefixUserName(name string) string {
+	if strings.HasPrefix(name, USER_NAME_PREFIX) {
+		return name
+	}
+	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
+}
+
+func TrimRoleNamePrefix(name string) string {
+	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
+}
+
+func TrimUserNamePrefix(name string) string {
+	return strings.TrimPrefix(name, USER_NAME_PREFIX)
 }
