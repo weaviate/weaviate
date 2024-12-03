@@ -759,72 +759,6 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	segments := [][]MapPair{}
-	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
-		return nil, err
-	}
-
-	for i := range disk {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		segmentDecoded := make([]MapPair, len(disk[i]))
-		for j, v := range disk[i] {
-			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
-					return nil, err
-				}
-			} else {
-				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
-					return nil, err
-				}
-				// Read "broken" tombstones with length 12 but a non-tombstone value
-				// Related to Issue #4125
-				// TODO: Remove the extra check, as it may interfere future in-disk format changes
-				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
-			}
-		}
-		segments = append(segments, segmentDecoded)
-	}
-
-	if b.flushing != nil {
-		v, err := b.flushing.getMap(key)
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
-
-		segments = append(segments, v)
-	}
-
-	v, err := b.active.getMap(key)
-	if err != nil && !errors.Is(err, lsmkv.NotFound) {
-		return nil, err
-	}
-	segments = append(segments, v)
-
-	if c.legacyRequireManualSorting {
-		// Sort to support segments which were stored in an unsorted fashion
-		for i := range segments {
-			sort.Slice(segments[i], func(a, b int) bool {
-				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
-			})
-		}
-	}
-
-	return newSortedMapMerger().do(ctx, segments)
-}
-
-func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
-	c := MapListOptionConfig{}
-	for _, cfg := range cfgs {
-		cfg(&c)
-	}
-
-	segments := [][]MapPair{}
 	// before := time.Now()
 	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
@@ -868,6 +802,8 @@ func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
+			// Inverted segments have a slightly different internal format
+			// and separate property lengths that need to be read.
 			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
 				propLengths, err := segmentsDisk[i].GetPropertyLengths()
 				if err != nil {
@@ -885,6 +821,7 @@ func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption)
 						break
 					}
 				}
+				// put the property length in the value from the "external" property lengths
 				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
 
 			} else {
@@ -1408,6 +1345,10 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	allPropLengths := make([]map[uint64]uint32, len(segmentsDisk))
 
 	for i, segment := range segmentsDisk {
+		// only inverted segments have tombstones, so we only need to load
+		// tombstones for use later if the segment is inverted.
+		// Supporing inverted segments here enables using WAND in-memory search
+		// for inverted indexes.
 		if segment.strategy == segmentindex.StrategyInverted {
 			tombstones, err := segment.GetTombstones()
 			if err != nil {
@@ -1424,6 +1365,8 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		}
 	}
 
+	// If we are dealing with inverted segments, we also need to check the
+	// active and flushing memtables for tombstones.
 	if hasTombstones {
 		// check if there are any tombstones in the flushing memtable
 		if b.flushing != nil {
