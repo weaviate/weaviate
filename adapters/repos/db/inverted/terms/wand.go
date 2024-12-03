@@ -11,7 +11,11 @@
 
 package terms
 
-import "github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+import (
+	"math"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+)
 
 func DoWand(limit int, results *Terms, averagePropLength float64, additionalExplanations bool,
 ) *priorityqueue.Queue[[]*DocPointerWithScore] {
@@ -20,7 +24,7 @@ func DoWand(limit int, results *Terms, averagePropLength float64, additionalExpl
 	results.SortFull()
 	for {
 
-		if results.CompletelyExhausted() || results.PivotWand(worstDist) {
+		if results.CompletelyExhausted() || results.Pivot(worstDist) {
 			return topKHeap
 		}
 
@@ -104,7 +108,8 @@ func DoBlockMaxWand(limit int, results *Terms, averagePropLength float64, additi
 				}
 			}
 
-			next := uint64(999999999999999)
+			// max uint value
+			next := uint64(math.MaxUint64)
 
 			for i := 0; i <= pivotPoint; i++ {
 				if results.T[i].CurrentBlockMaxId() < next {
