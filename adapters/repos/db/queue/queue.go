@@ -33,6 +33,10 @@ const (
 	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
 	defaultChunkSize = 100 * 1024 * 1024
 
+	// defaultStaleTimeout is the duration after which a partial chunk is considered stale.
+	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
+	defaultStaleTimeout = 100 * time.Millisecond
+
 	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
 	// It should be large enough to hold a few records, but not too large to avoid
 	// taking up too much memory when the number of queues is large.
@@ -119,7 +123,7 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		opt.Metrics = NewMetrics(opt.Logger, nil, nil)
 	}
 	if opt.StaleTimeout <= 0 {
-		opt.StaleTimeout = 5 * time.Second
+		opt.StaleTimeout = defaultStaleTimeout
 	}
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
