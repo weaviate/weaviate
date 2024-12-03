@@ -35,7 +35,6 @@ func TestDynamicMaintainanceModeUpdate(t *testing.T) {
   }
 
 	requestURL := func(suffix string) string {
-    fmt.Println(fmt.Sprintf("%s/indices/maintainance-mode?%s", server.URL, suffix))
 		return fmt.Sprintf("%s/indices/maintainance-mode?%s", server.URL, suffix)
 	}
 
