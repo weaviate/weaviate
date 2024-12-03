@@ -18,6 +18,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type ShardInvertedReindexTask_BrokenIndex struct{}
@@ -32,7 +34,9 @@ func (t *ShardInvertedReindexTask_BrokenIndex) GetPropertiesToReindex(ctx contex
 	}()
 
 	// shard of selected class
-	if _, ok := t.getClassNames()[shard.Index().Config.ClassName.String()]; !ok {
+	classesWithProps := t.getClassesWithProps()
+	props, ok := classesWithProps[shard.Index().Config.ClassName.String()]
+	if !ok {
 		return reindexableProperties, nil
 	}
 
@@ -51,7 +55,7 @@ func (t *ShardInvertedReindexTask_BrokenIndex) GetPropertiesToReindex(ctx contex
 		}
 
 		propName, indexType := GetPropNameAndIndexTypeFromBucketName(name)
-		if _, ok := t.getPropertyNames()[propName]; !ok {
+		if _, ok := props[propName]; !ok {
 			continue
 		}
 
@@ -114,10 +118,50 @@ func (t *ShardInvertedReindexTask_BrokenIndex) OnPostResumeStore(ctx context.Con
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_BrokenIndex) getClassNames() map[string]struct{} {
-	return map[string]struct{}{"City": {}}
+func (t *ShardInvertedReindexTask_BrokenIndex) ObjectsIterator(shard ShardLike) objectsIterator {
+	class := shard.Index().Config.ClassName.String()
+	props, ok := t.getClassesWithProps()[class]
+	if !ok || len(props) == 0 {
+		return nil
+	}
+
+	propStrings := make([]string, 0, len(props))
+	propStringsList := make([][]string, 0, len(props))
+	for prop := range props {
+		propStrings = append(propStrings, prop)
+		propStringsList = append(propStringsList, []string{prop})
+	}
+
+	propsExtraction := &storobj.PropertyExtraction{
+		PropStrings:     propStrings,
+		PropStringsList: propStringsList,
+	}
+
+	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
+		cursor := objectsBucket.Cursor()
+		defer cursor.Close()
+
+		i := 0
+		for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+			obj, err := storobj.FromBinaryOptional(v, additional.Properties{}, propsExtraction)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+			}
+			if err := fn(obj); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			}
+			i++
+		}
+		return nil
+	}
 }
 
-func (t *ShardInvertedReindexTask_BrokenIndex) getPropertyNames() map[string]struct{} {
-	return map[string]struct{}{"inCountry": {}}
+func (t *ShardInvertedReindexTask_BrokenIndex) getClassesWithProps() map[string]map[string]struct{} {
+	// TODO configurable
+	return map[string]map[string]struct{}{
+		"City": {
+			"inCountry": {},
+		},
+	}
 }

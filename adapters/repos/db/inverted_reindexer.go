@@ -33,7 +33,10 @@ type ShardInvertedReindexTask interface {
 	// callbacks could be added
 	// (like OnPrePauseStore, OnPostPauseStore, OnPreResumeStore, etc)
 	OnPostResumeStore(ctx context.Context, shard ShardLike) error
+	ObjectsIterator(shard ShardLike) objectsIterator
 }
+
+type objectsIterator func(ctx context.Context, fn func(object *storobj.Object) error) error
 
 type ReindexableProperty struct {
 	PropertyName    string
@@ -135,7 +138,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 			Debug("created temporary bucket")
 	}
 
-	if err := r.reindexProperties(ctx, reindexProperties); err != nil {
+	if err := r.reindexProperties(ctx, reindexProperties, task.ObjectsIterator(r.shard)); err != nil {
 		r.logError(err, "failed reindexing properties")
 		return errors.Wrapf(err, "failed reindexing properties on shard '%s'", r.shard.Name())
 	}
@@ -238,9 +241,10 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	return nil
 }
 
-func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexableProperties []ReindexableProperty) error {
+func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexableProperties []ReindexableProperty,
+	objectsIterator objectsIterator,
+) error {
 	checker := newReindexablePropertyChecker(reindexableProperties, r.class)
-	objectsBucket := r.shard.Store().Bucket(helpers.ObjectsBucketLSM)
 
 	r.logger.
 		WithField("action", "inverted_reindex").
@@ -248,7 +252,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 		Debug("starting populating indexes")
 
 	i := 0
-	if err := objectsBucket.IterateObjects(ctx, func(object *storobj.Object) error {
+	if err := objectsIterator(ctx, func(object *storobj.Object) error {
 		fmt.Printf("  ==> iterating objects: object id [%s]\n", object.ID())
 
 		// check context expired every 1k objects
