@@ -220,8 +220,8 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 }
 
 // FindPropertyDataTypeWithRefs is a no auth wrapper for FindPropertyDataTypeWithRefsAndAuth
-func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
-	wrapperFunc := func(name string) (*models.Class, error) { return fn(name), nil }
+func FindPropertyDataTypeWithRefs(authorizedGetClass func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+	wrapperFunc := func(name string) (*models.Class, error) { return authorizedGetClass(name), nil }
 	return FindPropertyDataTypeWithRefsAndAuth(wrapperFunc, dataType, relaxCrossRefValidation, beloningToClass)
 }
 
@@ -233,7 +233,7 @@ func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []stri
 // exists in the schema is skipped. This is done to allow creating class schema with
 // properties referencing to itself. Previously such properties had to be created separately
 // only after creation of class schema
-func FindPropertyDataTypeWithRefsAndAuth(fn func(string) (*models.Class, error), dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*models.Class, error), dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
 	}
@@ -273,7 +273,7 @@ func FindPropertyDataTypeWithRefsAndAuth(fn func(string) (*models.Class, error),
 		}
 
 		if beloningToClass != className && !relaxCrossRefValidation {
-			class, err := fn(className.String())
+			class, err := authorizedGetClass(className.String())
 			if err != nil {
 				return nil, err
 			}
