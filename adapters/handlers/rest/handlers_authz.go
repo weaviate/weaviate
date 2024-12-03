@@ -35,8 +35,8 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, metrics *monitoring.Prometh
 	api.AuthzGetRolesHandler = authz.GetRolesHandlerFunc(h.getRoles)
 	api.AuthzGetRoleHandler = authz.GetRoleHandlerFunc(h.getRole)
 	api.AuthzDeleteRoleHandler = authz.DeleteRoleHandlerFunc(h.deleteRole)
-	api.AuthzAddPermissionHandler = authz.AddPermissionHandlerFunc(h.addPermission)
-	api.AuthzRemovedPermissionHandler = authz.RemovedPermissionHandlerFunc(h.removePermission)
+	api.AuthzAddPermissionsHandler = authz.AddPermissionsHandlerFunc(h.addPermission)
+	api.AuthzRemovePermissionsHandler = authz.RemovePermissionsHandlerFunc(h.removePermission)
 
 	// rbac users handlers
 	api.AuthzGetRolesForUserHandler = authz.GetRolesForUserHandlerFunc(h.getRolesForUser)
@@ -49,11 +49,11 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 	panic("not implemented")
 }
 
-func (h *authZHandlers) addPermission(params authz.AddPermissionParams, principal *models.Principal) middleware.Responder {
+func (h *authZHandlers) addPermission(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 	panic("not implemented")
 }
 
-func (h *authZHandlers) removePermission(params authz.RemovedPermissionParams, principal *models.Principal) middleware.Responder {
+func (h *authZHandlers) removePermission(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 	panic("not implemented")
 }
 
