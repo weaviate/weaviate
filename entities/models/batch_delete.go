@@ -29,6 +29,9 @@ import (
 // swagger:model BatchDelete
 type BatchDelete struct {
 
+	// Timestamp of deletion in milliseconds since epoch UTC.
+	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
+
 	// If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.
 	DryRun *bool `json:"dryRun,omitempty"`
 

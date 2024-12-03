@@ -28,14 +28,14 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: err},
 		}
 	}
-	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
+	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 }
 
 type deleteObjectsBatcher struct {
@@ -48,17 +48,19 @@ func newDeleteObjectsBatcher(shard ShardLike) *deleteObjectsBatcher {
 	return &deleteObjectsBatcher{shard: shard}
 }
 
-func (b *deleteObjectsBatcher) Delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
-	b.delete(ctx, uuids, dryRun)
+func (b *deleteObjectsBatcher) Delete(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
+	b.delete(ctx, uuids, deletionTime, dryRun)
 	b.flushWALs(ctx)
 	return b.objects
 }
 
-func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) {
-	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, dryRun)
+func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) {
+	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, deletionTime, dryRun)
 }
 
-func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
+	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
+) objects.BatchSimpleObjects {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
@@ -81,7 +83,7 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 		docID := docID
 		f := func() error {
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, docID, deletionTime, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
@@ -95,11 +97,13 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 	return result
 }
 
-func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context, uuid strfmt.UUID, dryRun bool) objects.BatchSimpleObject {
+func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
+	uuid strfmt.UUID, deletionTime time.Time, dryRun bool,
+) objects.BatchSimpleObject {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 	if !dryRun {
-		err := b.shard.batchDeleteObject(ctx, uuid)
+		err := b.shard.batchDeleteObject(ctx, uuid, deletionTime)
 		return objects.BatchSimpleObject{UUID: uuid, Err: err}
 	}
 

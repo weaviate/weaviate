@@ -14,6 +14,7 @@ package modstgazure
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
 type azureClient struct {
@@ -118,6 +120,40 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 	}
 }
 
+func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	var meta []*backup.DistributedBackupDescriptor
+
+	blobs := a.client.NewListBlobsFlatPager(a.config.Container, &azblob.ListBlobsFlatOptions{Prefix: to.Ptr(a.config.BackupPath)})
+	for {
+		if !blobs.More() {
+			break
+		}
+		blob, err := blobs.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get next blob: %w", err)
+		}
+		if blob.ListBlobsFlatSegmentResponse.Segment != nil {
+			for _, item := range blob.ListBlobsFlatSegmentResponse.Segment.BlobItems {
+				if item.Name != nil {
+					if strings.Contains(*item.Name, ubak.GlobalBackupFile) {
+						contents, err := a.getObject(ctx, a.config.Container, *item.Name)
+						if err != nil {
+							return nil, fmt.Errorf("get blob item %q: %w", *item.Name, err)
+						}
+						var desc backup.DistributedBackupDescriptor
+						if err := json.Unmarshal(contents, &desc); err != nil {
+							return nil, fmt.Errorf("unmarshal blob item %q: %w", *item.Name, err)
+						}
+						meta = append(meta, &desc)
+					}
+				}
+			}
+		}
+	}
+
+	return meta, nil
+}
+
 func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	objectName := a.makeObjectName(overridePath, []string{backupID, key})
 
@@ -126,6 +162,10 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key, overrideBuck
 		containerName = overrideBucket
 	}
 
+	return a.getObject(ctx, containerName, objectName)
+}
+
+func (a *azureClient) getObject(ctx context.Context, containerName, objectName string) ([]byte, error) {
 	blobDownloadResponse, err := a.client.DownloadStream(ctx, containerName, objectName, nil)
 	if err != nil {
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {

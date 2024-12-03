@@ -136,12 +136,18 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		shard := idx.GetShard(shardName)
+		shard, release, err := idx.GetShard(context.Background(), shardName)
+		if err != nil {
+			logger.WithField("shard", shardName).Error(err)
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		if shard == nil {
 			logger.WithField("shard", shardName).Error("shard not found")
 			http.Error(w, "shard not found", http.StatusNotFound)
 			return
 		}
+		defer release()
 
 		// Get the vector index
 		var vidx db.VectorIndex

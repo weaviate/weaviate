@@ -104,7 +104,7 @@ func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backup
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney,
-			checkClassPresenceOnly, tenantNames, false, map[string]string{}, override, overrideBucket, overridePath)
+			checkClassPresenceOnly, tenantNames, false, map[string]string{}, false, "", "")
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
