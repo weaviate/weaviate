@@ -24,7 +24,6 @@ def test_rbac_viewer_assign(
     with role_wrapper(admin_client, request, RBAC.permissions.collections.delete(collection=name)):
         viewer_client.collections.delete(name)
 
-
     admin_client.collections.delete(name)
 
 
