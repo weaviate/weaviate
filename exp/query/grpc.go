@@ -66,7 +66,7 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 	return toProtoResponse(res), nil
 }
 
-func requestFromProto(req *protocol.SearchRequest, getClass func(string) (*models.Class, error)) (*SearchRequest, error) {
+func requestFromProto(req *protocol.SearchRequest, authorizedGetClass func(string) (*models.Class, error)) (*SearchRequest, error) {
 	sr := &SearchRequest{
 		Collection: req.Collection,
 		Tenant:     req.Tenant,
@@ -79,7 +79,7 @@ func requestFromProto(req *protocol.SearchRequest, getClass func(string) (*model
 		}
 	}
 	if req.Filters != nil {
-		filter, err := v1.ExtractFilters(req.Filters, getClass, req.Collection)
+		filter, err := v1.ExtractFilters(req.Filters, authorizedGetClass, req.Collection)
 		if err != nil {
 			return nil, err
 		}

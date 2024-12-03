@@ -114,7 +114,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterFunc(principal))
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(principal))
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -239,7 +239,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 
 	parser := NewParser(
 		req.Uses_127Api,
-		s.classGetterFunc(principal),
+		s.classGetterWithAuthzFunc(principal),
 	)
 	replier := NewReplier(
 		req.Uses_123Api || req.Uses_125Api || req.Uses_127Api,
@@ -283,7 +283,7 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 	return nil
 }
 
-func (s *Service) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
+func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
 		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
 			return nil, err
