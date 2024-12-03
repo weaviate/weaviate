@@ -42,7 +42,7 @@ func Serve(appState *state.State) {
 
 	mux.Handle("/nodes/", nodes.Nodes())
 	mux.Handle("/indices/", indices.Indices())
-	mux.Handle("/indices/maintainance-mode", indices.MaintainanceMode())
+	mux.Handle("/indices/maintenance-mode", indices.MaintenanceMode())
 	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
