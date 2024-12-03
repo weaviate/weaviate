@@ -419,7 +419,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		defer c.Close()
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.InvList(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -452,7 +452,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.InvList(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -468,7 +468,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		assertSingleSegmentOfSize(t, bucket, expectedMinSize, expectedMaxSize)
 	})
 
-	t.Run("verify control using individual get (InvList) operations",
+	t.Run("verify control using individual get (MapList) operations",
 		func(t *testing.T) {
 			// Previously the only verification was done using the cursor. That
 			// guaranteed that all pairs are present in the payload, but it did not
@@ -476,7 +476,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				kvs, err := bucket.InvList(ctx, pair.key)
+				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
 				assert.Equal(t, pair.values, kvs)
@@ -558,7 +558,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.InvList(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -586,7 +586,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
-			kvs, err := bucket.InvList(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -599,7 +599,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("verify control using individual get (InvList) operations",
+	t.Run("verify control using individual get (MapList) operations",
 		func(t *testing.T) {
 			// Previously the only verification was done using the cursor. That
 			// guaranteed that all pairs are present in the payload, but it did not
@@ -607,7 +607,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				kvs, err := bucket.InvList(ctx, pair.key)
+				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
 				assert.Equal(t, pair.values, kvs)
@@ -661,7 +661,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			})
 
 			t.Run("check entries before compaction", func(t *testing.T) {
-				res, err := bucket.InvList(ctx, key)
+				res, err := bucket.MapList(ctx, key)
 				assert.Nil(t, err)
 				if size == 5 || size == 6 {
 					assert.Empty(t, res)
@@ -680,7 +680,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			})
 
 			t.Run("check entries after compaction", func(t *testing.T) {
-				res, err := bucket.InvList(ctx, key)
+				res, err := bucket.MapList(ctx, key)
 				assert.Nil(t, err)
 				if size == 5 || size == 6 {
 					assert.Empty(t, res)
