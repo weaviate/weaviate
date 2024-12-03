@@ -112,10 +112,12 @@ func TestUserWithBuildInName(t *testing.T) {
 		_, err = helper.Client(t).Authz.CreateRole(
 			authz.NewCreateRoleParams().WithBody(&models.Role{
 				Name: &testingRole,
-				Permissions: []*models.Permission{{
-					Action:     String(authorization.CreateSchema),
-					Collection: String("*"),
-				}},
+				Permissions: []*models.Permission{
+					{
+						Action:      String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{},
+					},
+				},
 			}),
 			customAuth,
 		)
