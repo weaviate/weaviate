@@ -25,19 +25,19 @@ func decodeReusable(deltas []uint64, packed []byte, deltaDiff bool) {
 	deltas[0] = binary.BigEndian.Uint64(packed[0:8])
 
 	// Read bitsNeeded (6 bits starting from bit 2 of packed[8])
-	bitsNeeded := int((packed[8]))
+	bitsNeeded := int((packed[8] >> 2) & 0x3F)
 	if bitsNeeded == 0 || bitsNeeded > 64 {
 		// Handle invalid bitsNeeded
 		return
 	}
 
-	// Set up the buffer to the beginning of next byte
-	bytePos := 9
+	// Starting bit position after reading bitsNeeded
+	bitPos := 6
+	bytePos := 8 // Start from packed[8]
 
 	// Initialize the bit buffer with the remaining bits in packed[8], if any
-
-	bitBuffer := uint64(packed[bytePos])
-	bitsLeft := 8
+	bitsLeft := 8 - bitPos
+	bitBuffer := uint64(packed[bytePos] & ((1 << bitsLeft) - 1))
 
 	bytePos++
 
@@ -89,9 +89,18 @@ func encodeReusable(deltas []uint64, packed []byte, deltaDiff bool) int {
 
 	bitsToStore := uint64(bitsNeeded)
 
-	packed[currentByteIndex] = byte(bitsToStore)
-	currentByteIndex++
-	bitPos = 0
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
+	currentByte |= byte((bitsToStore>>(5-bitPos))&1) << (7 - bitPos)
+	bitPos++
 
 	for i, delta := range deltas[1:] {
 		if deltaDiff {
