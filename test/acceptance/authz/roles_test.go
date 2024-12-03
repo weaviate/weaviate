@@ -79,6 +79,50 @@ func TestAuthzGetOwnRole(t *testing.T) {
 	})
 }
 
+func TestUserWithBuildInName(t *testing.T) {
+	customUser := "custom-admin-user"
+	customKey := "custom-key"
+	customAuth := helper.CreateAuth(customKey)
+	testingRole := "testingOwnRole"
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	helper.Client(t).Authz.DeleteRole(
+		authz.NewDeleteRoleParams().WithID(testingRole),
+		adminAuth,
+	)
+
+	t.Run("Create role with custom user - fail", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &testingRole,
+				Permissions: []*models.Permission{{
+					Action:     String(authorization.CreateSchema),
+					Collection: String("*"),
+				}},
+			}),
+			customAuth,
+		)
+		require.Error(t, err)
+	})
+}
+
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
