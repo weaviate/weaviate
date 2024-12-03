@@ -45,17 +45,18 @@ def role_wrapper() -> Role_Wrapper_Type:
         admin_client,
         request: SubRequest,
         permissions: Union[_CollectionsPermission, List[_CollectionsPermission]],
+        user: str = "custom-user",
     ) -> ContextManager[Any]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
         if not isinstance(permissions, list) or len(permissions) > 0:
             admin_client.roles.create(name=name, permissions=permissions)
-            admin_client.roles.assign(user="custom-user", roles=name)
+            admin_client.roles.assign(user=user, roles=name)
 
         yield
 
         if not isinstance(permissions, list) or len(permissions) > 0:
-            admin_client.roles.revoke(user="custom-user", roles=name)
+            admin_client.roles.revoke(user=user, roles=name)
             admin_client.roles.delete(name)
 
     return wrapper

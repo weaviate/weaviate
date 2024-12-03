@@ -86,6 +86,10 @@ func TestAuthzNodes(t *testing.T) {
 		helper.AddPermissions(t, adminKey, customRole, helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission())
 	})
 
+	t.Run("assign custom role to custom user", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, customRole, customUser)
+	})
+
 	t.Run("get minimal nodes with read_nodes", func(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(customKey))
 		require.Nil(t, err)

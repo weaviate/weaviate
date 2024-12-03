@@ -79,7 +79,7 @@ func TestAuthzGetOwnRole(t *testing.T) {
 	})
 }
 
-func TestUserWithBuildInName(t *testing.T) {
+func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 	customUser := "custom-admin-user"
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
