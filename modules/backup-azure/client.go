@@ -123,7 +123,7 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
 	var meta []*backup.DistributedBackupDescriptor
 
-	blobs := a.client.NewListBlobsFlatPager(a.config.Container, &azblob.ListBlobsFlatOptions{})
+	blobs := a.client.NewListBlobsFlatPager(a.config.Container, &azblob.ListBlobsFlatOptions{Prefix: to.Ptr(a.config.BackupPath)})
 	for {
 		if !blobs.More() {
 			break
