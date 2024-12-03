@@ -324,11 +324,13 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			key := item.Data
 			if reindexablePropSearchableValue && inverted.HasSearchableIndex(schemaProp) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+				fmt.Printf("    ==> handleProperty searchable [%s][%d]\n", key, docID)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
 			if reindexablePropValue && inverted.HasFilterableIndex(schemaProp) {
+				fmt.Printf("    ==> handleProperty filterable [%s][%d]\n", key, docID)
 				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
@@ -353,6 +355,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 				}
 				for _, item := range property.Items {
 					key := item.Data
+					fmt.Printf("    ==> handleProperty meta [%s][%d]\n", key, docID)
 					if err := r.shard.addToPropertySetBucket(bucketMeta, docID, key); err != nil {
 						return errors.Wrapf(err, "failed adding to prop '%s' meta bucket", property.Name)
 					}
@@ -372,6 +375,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			if bucketLength == nil {
 				return fmt.Errorf("no bucket for prop '%s' length found", property.Name)
 			}
+			fmt.Printf("    ==> handleProperty length [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketLength, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' length bucket", property.Name)
 			}
@@ -388,6 +392,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			if bucketNull == nil {
 				return fmt.Errorf("no bucket for prop '%s' null found", property.Name)
 			}
+			fmt.Printf("    ==> handleProperty null [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' null bucket", property.Name)
 			}
@@ -410,6 +415,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 			if bucketLength == nil {
 				return fmt.Errorf("no bucket for prop '%s' length found", nilProperty.Name)
 			}
+			fmt.Printf("    ==> handleNilProperty length [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketLength, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' length bucket", nilProperty.Name)
 			}
@@ -426,6 +432,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 			if bucketNull == nil {
 				return fmt.Errorf("no bucket for prop '%s' null found", nilProperty.Name)
 			}
+			fmt.Printf("    ==> handleNilProperty null [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' null bucket", nilProperty.Name)
 			}
