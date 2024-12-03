@@ -38,8 +38,9 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/verbosity/verbose/collections/[^/]+$`, authorization.NodesDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.BackupsDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.BackupsDomain),
+	fmt.Sprintf(`^%s/.*$`, authorization.CollectionDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.TenantDomain),
 	fmt.Sprintf(`^%s/collections/.*$`, authorization.SchemaDomain),
-	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
@@ -108,6 +109,27 @@ func CasbinSchema(collection, shard string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
 }
 
+func CasbinCollection(collection string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+
+	return fmt.Sprintf("%s/%s", authorization.CollectionDomain, collection)
+}
+
+func CasbinShard(collection, shard string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.TenantDomain, collection, shard)
+}
+
 func CasbinData(collection, shard, object string) string {
 	if collection == "" {
 		collection = "*"
@@ -129,10 +151,19 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return nil, fmt.Errorf("missing action")
 	}
-	action, domain, found := strings.Cut(*permission.Action, "_")
-	if !found {
+
+	actionParts := strings.Split(*permission.Action, "_")
+	action := actionParts[0]
+	domain := actionParts[1]
+
+	if len(actionParts) < 2 {
 		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
 	}
+
+	// if domain == "tenant" || domain == "tenants" || domain == "collection" {
+	// 	domain = authorization.SchemaDomain
+	// }
+
 	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
 		verb = authorization.CRUD
@@ -171,7 +202,23 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		if permission.Tenant != nil {
 			tenant = *permission.Tenant
 		}
-		resource = CasbinSchema(collection, tenant)
+		resource = CasbinShard(collection, tenant)
+	case authorization.CollectionDomain:
+		collection := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		resource = CasbinCollection(collection)
+	case authorization.TenantDomain:
+		collection := "*"
+		tenant := "*"
+		if permission.Collection != nil {
+			collection = *permission.Collection
+		}
+		if permission.Tenant != nil {
+			tenant = *permission.Tenant
+		}
+		resource = CasbinShard(collection, tenant)
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
@@ -243,6 +290,11 @@ func permission(policy []string) (*models.Permission, error) {
 	case authorization.SchemaDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
+	case authorization.TenantDomain:
+		permission.Collection = &splits[1]
+		permission.Tenant = &splits[3]
+	case authorization.CollectionDomain:
+		permission.Collection = &splits[1]
 	case authorization.DataDomain:
 		permission.Collection = &splits[2]
 		permission.Tenant = &splits[4]
@@ -282,6 +334,24 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
 
+	// if mapped.Domain == authorization.SchemaDomain {
+	// 	if permission.Tenant != nil {
+	// 		fmt.Println(*permission.Tenant)
+	// 	}
+	// 	if permission.Collection != nil {
+	// 		fmt.Println(*permission.Collection)
+	// 	}
+
+	// 	if *permission.Collection != "*" {
+	// 		permission.Action = authorization.String(fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], "tenants"))
+	// 	}
+
+	// 	if *permission.Collection == "*" && *permission.Tenant == "*" {
+	// 		permission.Action = authorization.String(fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], "collection_config"))
+	// 	}
+
+	// 	fmt.Println(*permission.Action)
+	// }
 	return permission, nil
 }
 

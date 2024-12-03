@@ -5403,7 +5403,15 @@ func init() {
             "create_data",
             "read_data",
             "update_data",
-            "delete_data"
+            "delete_data",
+            "create_collection",
+            "read_collection_configuration",
+            "update_collection_configuration",
+            "delete_collection",
+            "create_tenant",
+            "read_tenant",
+            "update_tenant_state",
+            "delete_tenant"
           ]
         },
         "backup": {
@@ -12038,7 +12046,15 @@ func init() {
             "create_data",
             "read_data",
             "update_data",
-            "delete_data"
+            "delete_data",
+            "create_collection",
+            "read_collection_configuration",
+            "update_collection_configuration",
+            "delete_collection",
+            "create_tenant",
+            "read_tenant",
+            "update_tenant_state",
+            "delete_tenant"
           ]
         },
         "backup": {

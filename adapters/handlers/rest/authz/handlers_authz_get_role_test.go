@@ -37,7 +37,7 @@ func TestGetRoleSuccess(t *testing.T) {
 
 	policies := []authorization.Policy{
 		{
-			Resource: authorization.Collections("ABC")[0],
+			Resource: authorization.CollectionsDataAndMeta("ABC")[0],
 			Verb:     authorization.READ,
 			Domain:   authorization.SchemaDomain,
 		},
@@ -218,7 +218,7 @@ func TestGetRoleInternalServerError(t *testing.T) {
 
 			policies := []authorization.Policy{
 				{
-					Resource: authorization.Collections("ABC")[0],
+					Resource: authorization.CollectionsDataAndMeta("ABC")[0],
 					Verb:     authorization.READ,
 					Domain:   authorization.SchemaDomain,
 				},

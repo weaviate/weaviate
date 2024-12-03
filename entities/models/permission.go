@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_users manage_roles read_roles read_nodes read_cluster manage_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data]
+	// Enum: [manage_users manage_roles read_roles read_nodes read_cluster manage_backups create_schema read_schema update_schema delete_schema create_data read_data update_data delete_data create_collection read_collection_configuration update_collection_configuration delete_collection create_tenant read_tenant update_tenant_state delete_tenant]
 	Action *string `json:"action"`
 
 	// backup
@@ -84,7 +84,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","read_nodes","read_cluster","manage_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_users","manage_roles","read_roles","read_nodes","read_cluster","manage_backups","create_schema","read_schema","update_schema","delete_schema","create_data","read_data","update_data","delete_data","create_collection","read_collection_configuration","update_collection_configuration","delete_collection","create_tenant","read_tenant","update_tenant_state","delete_tenant"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -135,6 +135,30 @@ const (
 
 	// PermissionActionDeleteData captures enum value "delete_data"
 	PermissionActionDeleteData string = "delete_data"
+
+	// PermissionActionCreateCollection captures enum value "create_collection"
+	PermissionActionCreateCollection string = "create_collection"
+
+	// PermissionActionReadCollectionConfiguration captures enum value "read_collection_configuration"
+	PermissionActionReadCollectionConfiguration string = "read_collection_configuration"
+
+	// PermissionActionUpdateCollectionConfiguration captures enum value "update_collection_configuration"
+	PermissionActionUpdateCollectionConfiguration string = "update_collection_configuration"
+
+	// PermissionActionDeleteCollection captures enum value "delete_collection"
+	PermissionActionDeleteCollection string = "delete_collection"
+
+	// PermissionActionCreateTenant captures enum value "create_tenant"
+	PermissionActionCreateTenant string = "create_tenant"
+
+	// PermissionActionReadTenant captures enum value "read_tenant"
+	PermissionActionReadTenant string = "read_tenant"
+
+	// PermissionActionUpdateTenantState captures enum value "update_tenant_state"
+	PermissionActionUpdateTenantState string = "update_tenant_state"
+
+	// PermissionActionDeleteTenant captures enum value "delete_tenant"
+	PermissionActionDeleteTenant string = "delete_tenant"
 )
 
 // prop value enum

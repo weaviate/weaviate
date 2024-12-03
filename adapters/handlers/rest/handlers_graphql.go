@@ -152,7 +152,7 @@ func setupGraphQLHandlers(
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 		// this is barely used (if at all) - so require read access to all collections for data and metadata
-		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsDataAndMeta()...)
 		if err != nil {
 			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(err))
 		}
