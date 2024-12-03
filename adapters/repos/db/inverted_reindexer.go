@@ -253,7 +253,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 
 	i := 0
 	if err := objectsIterator(ctx, func(object *storobj.Object) error {
-		fmt.Printf("  ==> iterating objects: object id [%s]\n", object.ID())
+		fmt.Printf("  ==> iterating objects: object id [%s][%+v]\n\n", object.ID(), object.Properties())
 
 		// check context expired every 1k objects
 		if i%1_000 == 0 && i != 0 {
