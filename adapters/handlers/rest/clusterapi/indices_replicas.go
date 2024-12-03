@@ -73,7 +73,7 @@ type replicatedIndices struct {
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
-	maintenanceModeEnabled bool
+	maintenanceModeEnabled func() bool
 }
 
 var (
@@ -97,7 +97,7 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled bool) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
 	return &replicatedIndices{
 		shards:                 shards,
 		scaler:                 scaler,
@@ -113,7 +113,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if i.maintenanceModeEnabled {
+		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}

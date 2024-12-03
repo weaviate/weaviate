@@ -176,4 +176,34 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
+
+	// Call via something like: curl -X GET localhost:6060/debug/config/maintenance_mode (can replace GET w/ POST or DELETE)
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/maintenance_mode", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var bytesToWrite []byte = nil
+		switch r.Method {
+		case http.MethodGet:
+			jsonBytes, err := json.Marshal(MaintenanceMode{Enabled: appState.Cluster.MaintenanceModeEnabledForLocalhost()})
+			if err != nil {
+				logger.WithError(err).Error("marshal failed on stats")
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			bytesToWrite = jsonBytes
+		case http.MethodPost:
+			appState.Cluster.SetMaintenanceModeForLocalhost(true)
+		case http.MethodDelete:
+			appState.Cluster.SetMaintenanceModeForLocalhost(false)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		if bytesToWrite != nil {
+			w.Write(bytesToWrite)
+		}
+	}))
+}
+
+type MaintenanceMode struct {
+	Enabled bool `json:"enabled"`
 }

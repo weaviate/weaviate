@@ -28,9 +28,8 @@ func Serve(appState *state.State) {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	maintenanceModeEnabled := appState.Cluster.MaintenanceModeEnabled()
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, maintenanceModeEnabled, appState.Logger)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, maintenanceModeEnabled)
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
+	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
