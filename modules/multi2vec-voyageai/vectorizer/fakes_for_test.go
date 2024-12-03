@@ -1,28 +1,22 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package vectorizer
 
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/ent"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
-
-type fakeClient struct {
-	lastInput  []string
-	lastImages []string
-	lastConfig ent.VectorizationConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	texts []string, images []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = texts
-	c.lastImages = images
-	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
-		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
-	}, nil
-}
 
 type builder struct {
 	fakeClassConfig *fakeClassConfig
@@ -79,4 +73,34 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+type fakeClient struct{}
+
+func (c *fakeClient) Vectorize(ctx context.Context,
+	texts, images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult, error) {
+	result := &modulecomponents.VectorizationCLIPResult{
+		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
+		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	return result, nil
+}
+
+func (c *fakeClient) VectorizeQuery(ctx context.Context,
+	input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult, error) {
+	result := &modulecomponents.VectorizationCLIPResult{
+		TextVectors: [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},
+	}
+	return result, nil
+}
+
+func (c *fakeClient) VectorizeImageQuery(ctx context.Context,
+	images []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationCLIPResult, error) {
+	result := &modulecomponents.VectorizationCLIPResult{
+		ImageVectors: [][]float32{{10.0, 20.0, 30.0, 40.0, 50.0}},
+	}
+	return result, nil
 }

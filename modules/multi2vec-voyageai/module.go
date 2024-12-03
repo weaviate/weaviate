@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modvoyageai
+package modclip
 
 import (
 	"context"
@@ -17,81 +17,127 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/clients"
+	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/ent"
 	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/vectorizer"
 )
 
 const Name = "multi2vec-voyageai"
 
-func New() *VoyageAIModule {
-	return &VoyageAIModule{}
+func New() *Module {
+	return &Module{}
 }
 
-type VoyageAIModule struct {
-	vectorizer   vectorizer.Vectorizer
-	metaProvider metaProvider
-}
-type Vectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+type Module struct {
+	vectorizer               *vectorizer.Vectorizer
+	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
+	nearImageSearcher        modulecapabilities.Searcher
+	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
+	nearTextSearcher         modulecapabilities.Searcher
+	nearTextTransformer      modulecapabilities.TextTransform
+	metaClient               metaClient
+	logger                   logrus.FieldLogger
 }
 
-type metaProvider interface {
+type metaClient interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *VoyageAIModule) Name() string {
+func (m *Module) Name() string {
 	return Name
 }
 
-func (m *VoyageAIModule) Type() modulecapabilities.ModuleType {
+func (m *Module) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Multi2Vec
 }
 
-func (m *VoyageAIModule) Init(ctx context.Context,
+func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
+
+	if err := m.initNearImage(); err != nil {
+		return errors.Wrap(err, "init near image")
+	}
+
 	return nil
 }
 
-func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Duration,
+func (m *Module) InitExtension(modules []modulecapabilities.Module) error {
+	for _, module := range modules {
+		if module.Name() == m.Name() {
+			continue
+		}
+		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
+			if arg != nil && arg.TextTransformers() != nil {
+				m.nearTextTransformer = arg.TextTransformers()["nearText"]
+			}
+		}
+	}
+
+	if err := m.initNearText(); err != nil {
+		return errors.Wrap(err, "init near text")
+	}
+
+	return nil
+}
+
+func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("VOYAGEAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = *vectorizer.New(client)
-	m.metaProvider = client
+	m.vectorizer = vectorizer.New(client)
+	m.metaClient = client
 
 	return nil
 }
 
-func (m *VoyageAIModule) RootHandler() http.Handler {
+func (m *Module) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *VoyageAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (m *Module) VectorizeObject(ctx context.Context,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *VoyageAIModule) MetaInfo() (map[string]interface{}, error) {
-	return m.metaProvider.MetaInfo()
+func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+}
+
+func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := ent.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
+}
+
+func (m *Module) MetaInfo() (map[string]interface{}, error) {
+	return m.metaClient.MetaInfo()
+}
+
+func (m *Module) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
-	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.InputVectorizer(New())
 )

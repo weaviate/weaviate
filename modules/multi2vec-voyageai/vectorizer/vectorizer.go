@@ -1,13 +1,25 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package vectorizer
 
 import (
 	"context"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
@@ -26,7 +38,14 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		texts, images []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationCLIPResult, error)
+	VectorizeQuery(ctx context.Context,
+		input []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationCLIPResult, error)
+	VectorizeImageQuery(ctx context.Context,
+		images []string, cfg moduletools.ClassConfig,
+	) (*modulecomponents.VectorizationCLIPResult, error)
 }
 
 type ClassSettings interface {
@@ -34,73 +53,67 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
-	BaseURL() string
-	Model() string
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
+func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
+	res, err := v.client.VectorizeImageQuery(ctx, []string{image}, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(res.ImageVectors) != 1 {
+		return nil, errors.New("empty vector")
 	}
 
-	vectorize := prevVector == nil
+	return res.ImageVectors[0], nil
+}
+
+func (v *Vectorizer) object(ctx context.Context, object *models.Object,
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	ichek := ent.NewClassSettings(cfg)
 
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if ichek.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
+	if object.Properties != nil {
+		schemamap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
+			switch val := schemamap[propName].(type) {
+			case string:
+				if ichek.ImageField(propName) {
+					images = append(images, val)
+				}
+				if ichek.TextField(propName) {
+					texts = append(texts, val)
+				}
+			case []string:
+				if ichek.TextField(propName) {
+					texts = append(texts, val...)
+				}
+			default: // properties that are not part of the object
 
-		case []string:
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
-
-		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
-	}
 
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
 	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, v.getVectorizationConfig(cfg))
+		res, err := v.client.Vectorize(ctx, texts, images, cfg)
 		if err != nil {
-			return nil, errors.Wrap(err, "remote client vectorize")
+			return nil, err
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
 	}
-
 	weights, err := v.getWeights(ichek)
 	if err != nil {
 		return nil, err
@@ -142,12 +155,4 @@ func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
 		return normalized
 	}
 	return nil
-}
-
-func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	settings := NewClassSettings(cfg)
-	return ent.VectorizationConfig{
-		Model:   settings.Model(),
-		BaseURL: settings.BaseURL(),
-	}
 }
