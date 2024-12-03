@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 const (
@@ -56,11 +57,31 @@ var Actions = map[string]string{
 var (
 	All = String("*")
 
+	AllBackups = &models.PermissionBackups{
+		Collection: All,
+	}
+	AllData = &models.PermissionData{
+		Collection: All,
+		Tenant:     All,
+		Object:     All,
+	}
+	AllNodes = &models.PermissionNodes{
+		Verbosity:  String(verbosity.OutputVerbose),
+		Collection: All,
+	}
+	AllRoles = &models.PermissionRoles{
+		Role: All,
+	}
+	AllCollections = &models.PermissionCollections{
+		Collection: All,
+		Tenant:     All,
+	}
+
 	ComponentName = "RBAC"
 
 	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
 	// to be added to built in roles
-	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, schema, data
+	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
 	ManageRoles = "manage_roles"
 	ReadRoles   = "read_roles"
 	ManageUsers = "manage_users"
@@ -69,11 +90,13 @@ var (
 
 	ManageBackups = "manage_backups"
 
-	CreateSchema = "create_schema"
-	ReadSchema   = "read_schema"
-	UpdateSchema = "update_schema"
-	DeleteSchema = "delete_schema"
+	ManageCollections = "manage_collections"
+	CreateCollections = "create_collections"
+	ReadCollections   = "read_collections"
+	UpdateCollections = "update_collections"
+	DeleteCollections = "delete_collections"
 
+	ManageData = "manage_data"
 	CreateData = "create_data"
 	ReadData   = "read_data"
 	UpdateData = "update_data"
@@ -96,13 +119,15 @@ var (
 		// Nodes domain
 		ReadNodes,
 
-		// Schema domain
-		CreateSchema,
-		ReadSchema,
-		UpdateSchema,
-		DeleteSchema,
+		// Collections domain
+		ManageCollections,
+		CreateCollections,
+		ReadCollections,
+		UpdateCollections,
+		DeleteCollections,
 
 		// Data domain
+		ManageData,
 		CreateData,
 		ReadData,
 		UpdateData,
@@ -376,14 +401,12 @@ func viewerPermissions() []*models.Permission {
 		}
 
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllCollections,
 		})
 	}
 
@@ -393,20 +416,19 @@ func viewerPermissions() []*models.Permission {
 // editor : can create/read/update everything , roles, users, schema, data
 func editorPermissions() []*models.Permission {
 	perms := []*models.Permission{}
+	// TODO ignore CRUD if there is manage
 	for _, action := range availableWeaviateActions {
 		if strings.ToUpper(action)[0] == DELETE[0] {
 			continue
 		}
 
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllCollections,
 		})
 	}
 
@@ -415,17 +437,16 @@ func editorPermissions() []*models.Permission {
 
 // Admin : aka basically super Admin or root
 func adminPermissions() []*models.Permission {
+	// TODO ignore CRUD if there is manage
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		perms = append(perms, &models.Permission{
-			Action: &action,
-			Backup: &models.PermissionBackup{
-				Collection: All,
-			},
-			Collection: All,
-			Tenant:     All,
-			Role:       All,
-			User:       All,
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllCollections,
 		})
 	}
 
