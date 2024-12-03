@@ -324,20 +324,6 @@ func (t *Terms) CompletelyExhausted() bool {
 	return true
 }
 
-func (t *Terms) Pivot(minScore float64) bool {
-	minID, pivotPoint, abort := t.FindMinID(minScore)
-	if abort {
-		return true
-	}
-	if pivotPoint == 0 {
-		return false
-	}
-
-	t.AdvanceAllAtLeast(minID, pivotPoint)
-
-	return false
-}
-
 func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
 
@@ -354,7 +340,7 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 	return 0, 0, true
 }
 
-func (t *Terms) PivotWand(minScore float64) bool {
+func (t *Terms) Pivot(minScore float64) bool {
 	minID, pivotPoint, abort := t.FindMinIDWand(minScore)
 	if abort {
 		return true
