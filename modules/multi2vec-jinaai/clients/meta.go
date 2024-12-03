@@ -9,9 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationResult struct {
-	TextVectors  [][]float32
-	ImageVectors [][]float32
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "JinaAI CLIP Module",
+		"documentationHref": "https://jina.ai/embeddings/",
+	}, nil
 }

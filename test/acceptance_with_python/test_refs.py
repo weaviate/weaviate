@@ -89,3 +89,30 @@ def test_ref_with_multiple_cycle(collection_factory: CollectionFactory) -> None:
     ret2_objects = sorted(ret[2].references["ref"].objects, key=lambda x: x.properties["name"])
     assert ret2_objects[0].properties["name"] == "A"
     assert ret2_objects[1].properties["name"] == "B"
+
+
+def test_return_metadata_ref(collection_factory: CollectionFactory) -> None:
+    target = collection_factory(
+        name="target",
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(name="bringYourOwn1"),
+            wvc.config.Configure.NamedVectors.none(name="bringYourOwn2"),
+        ],
+    )
+
+    source = collection_factory(
+        name="source",
+        references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+
+    uuid_target = target.data.insert(
+        properties={}, vector={"bringYourOwn1": [1, 2, 3], "bringYourOwn2": [4, 5, 6]}
+    )
+    source.data.insert(properties={}, references={"ref": uuid_target})
+
+    res = source.query.fetch_objects(
+        return_references=wvc.query.QueryReference(link_on="ref", include_vector=True)
+    )
+
+    assert res.objects[0].references["ref"].objects[0].vector["bringYourOwn1"] == [1, 2, 3]

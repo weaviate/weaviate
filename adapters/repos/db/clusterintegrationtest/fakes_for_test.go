@@ -278,6 +278,10 @@ func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabiliti
 	return backend, nil
 }
 
+func (f *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	return nil
+}
+
 type fakeBackupBackend struct {
 	sync.Mutex
 	backupsPath string
@@ -303,6 +307,10 @@ func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath strin
 			return path.Join(f.backupsPath, backupID)
 		}
 	}
+}
+
+func (f *fakeBackupBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {

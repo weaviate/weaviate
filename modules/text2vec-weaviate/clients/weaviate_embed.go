@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	DefaultRPM = 10000    // TODO: find a good limit
-	DefaultTPM = 10000000 // Does not have a token limit
+	DefaultRPM = 10000
+	DefaultTPM = 10_000_000
 )
 
 type embeddingsRequest struct {
@@ -51,9 +51,10 @@ type embeddingsResponseError struct {
 }
 
 type metadata struct {
-	Model                 string  `json:"model,omitempty"`
-	TimeTakenInference    float32 `json:"time_taken_inference,omitempty"`
-	NumEmbeddingsInferred int     `json:"num_embeddings_inferred,omitempty"`
+	Model                 string                  `json:"model,omitempty"`
+	TimeTakenInference    float32                 `json:"time_taken_inference,omitempty"`
+	NumEmbeddingsInferred int                     `json:"num_embeddings_inferred,omitempty"`
+	Usage                 *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
 type vectorizer struct {
@@ -78,15 +79,15 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
-	return res, nil, 0, err
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, true, config)
+	res, _, _, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, true, config)
+	return res, err
 }
 
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
@@ -100,57 +101,62 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, isSearchQuery bool, config ent.VectorizationConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, isSearchQuery, config.Dimensions))
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal body")
+		return nil, nil, 0, errors.Wrap(err, "marshal body")
 	}
 
 	url := v.getWeaviateEmbedURL(ctx, baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, nil, 0, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "Weaviate API key")
+		return nil, nil, 0, errors.Wrap(err, "Weaviate API key")
+	}
+	clusterURL, err := v.getClusterURL(ctx)
+	if err != nil {
+		return nil, nil, 0, errors.Wrap(err, "cluster URL")
 	}
 
 	req.Header.Set("Authorization", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
 	req.Header.Add("X-Model-Name", model)
+	req.Header.Add("X-Weaviate-Cluster-Url", clusterURL)
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, nil, 0, errors.Wrap(err, "read response body")
 	}
 
 	if res.StatusCode > 200 {
 		errorMessage := getErrorMessage(res.StatusCode, string(bodyBytes), "Weaviate embed API error: %d %s")
-		return nil, errors.New(errorMessage)
+		return nil, nil, 0, errors.New(errorMessage)
 	}
 
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, nil, 0, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if len(resBody.Embeddings) == 0 {
-		return nil, errors.Errorf("empty embeddings response")
+		return nil, nil, 0, errors.Errorf("empty embeddings response")
 	}
 
 	return &modulecomponents.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
 		Vector:     resBody.Embeddings,
-	}, nil
+	}, nil, modulecomponents.GetTotalTokens(resBody.Metadata.Usage), nil
 }
 
 func (v *vectorizer) getWeaviateEmbedURL(ctx context.Context, baseURL string) string {
@@ -174,7 +180,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 }
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Weaviate", DefaultRPM, 0)
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Weaviate", DefaultRPM, DefaultTPM)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
@@ -190,9 +196,8 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools
 		limits.LimitRequests = rpm
 		limits.LastOverwrite = time.Now()
 
-		// high dummy values for tokens per minute
-		limits.RemainingTokens = DefaultTPM
-		limits.LimitTokens = DefaultTPM
+		limits.RemainingTokens = tpm
+		limits.LimitTokens = tpm
 		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
 	}
 
@@ -220,4 +225,12 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Weaviate-Api-Key " +
 		"nor in environment variable under WEAVIATE_APIKEY")
+}
+
+func (v *vectorizer) getClusterURL(ctx context.Context) (string, error) {
+	if clusterURL := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Cluster-Url"); clusterURL != "" {
+		return clusterURL, nil
+	}
+	return "", errors.New("no cluster URL found " +
+		"in request header: X-Weaviate-Cluster-Url")
 }

@@ -236,6 +236,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseNonNegativeInt(
+		"HNSW_FLAT_SEARCH_CONCURRENCY",
+		func(val int) { config.HNSWFlatSearchConcurrency = val },
+		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err

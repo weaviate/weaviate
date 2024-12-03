@@ -123,6 +123,7 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 
 	// Raft Specific configuration
@@ -243,6 +244,8 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
+
+const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
