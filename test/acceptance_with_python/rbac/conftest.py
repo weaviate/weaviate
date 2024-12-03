@@ -1,4 +1,4 @@
-from typing import Union, Callable, Generator, List, Any, ContextManager
+from typing import Union, Callable, Generator, List, Sequence, Any, ContextManager
 
 import pytest
 import weaviate
@@ -6,7 +6,8 @@ import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from contextlib import contextmanager, _GeneratorContextManager
 
-from weaviate.rbac.models import _CollectionsPermission
+from weaviate import WeaviateClient
+from weaviate.rbac.models import _Permission
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -32,7 +33,7 @@ Role_Wrapper_Type = Callable[
     [
         Any,
         SubRequest,
-        Union[_CollectionsPermission, List[_CollectionsPermission]],
+        Union[_Permission, Sequence[_Permission], Sequence[Sequence[_Permission]]],
     ],
     ContextManager[Any],
 ]
@@ -42,9 +43,9 @@ Role_Wrapper_Type = Callable[
 def role_wrapper() -> Role_Wrapper_Type:
     @contextmanager
     def wrapper(
-        admin_client,
+        admin_client: WeaviateClient,
         request: SubRequest,
-        permissions: Union[_CollectionsPermission, List[_CollectionsPermission]],
+        permissions: Union[_Permission, Sequence[_Permission], Sequence[Sequence[_Permission]]],
         user: str = "custom-user",
     ) -> ContextManager[Any]:
         name = _sanitize_role_name(request.node.name) + "role"

@@ -17,8 +17,7 @@ def test_rbac_collection_create(
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
     required_permissions = [
-        RBAC.permissions.collections.read(collection=name),
-        RBAC.permissions.collections.create(collection=name),
+        RBAC.permissions.collection_config(collection=name, read_config=True, create_collection=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.create(
@@ -50,9 +49,8 @@ def test_rbac_collection_create_with_ref(
     )
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=name_source),
-        RBAC.permissions.collections.create(collection=name_source),
-        RBAC.permissions.collections.read(collection=target.name),
+        RBAC.permissions.collection_config(collection=[name_source,target.name], read_config=True),
+        RBAC.permissions.collection_config(collection=name_source, create_collection=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         custom_client.collections.create(
@@ -89,7 +87,7 @@ def test_rbac_collection_read(
     if mt:
         col_admin.tenants.create("tenant1")
 
-    required_permissions = RBAC.permissions.collections.read(collection=name)
+    required_permissions = RBAC.permissions.collection_config(collection=name, read_config=True)
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.get(name=name)
         assert col.config.get() is not None
@@ -118,7 +116,7 @@ def test_rbac_schema_read(
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
 
-    required_permission = RBAC.permissions.collections.read()
+    required_permission = RBAC.permissions.collection_config(collection="*", read_config=True)
     with role_wrapper(admin_client, request, required_permission):
         custom_client.collections.list_all()
 
@@ -143,8 +141,7 @@ def test_rbac_collection_update(
         col_admin.tenants.create("tenant1")
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=name),
-        RBAC.permissions.collections.update(collection=name),
+        RBAC.permissions.collection_config(collection=name, read_config=True, update_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name)
@@ -186,9 +183,8 @@ def test_rbac_collection_update_with_ref(
     admin_client.collections.create(name=name_source)
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=name_target),
-        RBAC.permissions.collections.read(collection=name_source),
-        RBAC.permissions.collections.update(collection=name_source),
+        RBAC.permissions.collection_config(collection=[name_target,name_source], read_config=True),
+        RBAC.permissions.collection_config(collection=name_source, update_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name_source)
@@ -222,8 +218,7 @@ def test_rbac_collection_delete(
         col_admin.tenants.create("tenant1")
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=name),
-        RBAC.permissions.collections.delete(collection=name),
+        RBAC.permissions.collection_config(collection=name, delete_collection=True, read_config=True),
     ]
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
