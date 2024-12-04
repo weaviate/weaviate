@@ -365,6 +365,7 @@ func Objects(class, shard string, id strfmt.UUID) string {
 // - "backups/*" if the backend is an empty string
 // - "backups/{backend}" for the provided backend
 func Backups(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}
 	}
