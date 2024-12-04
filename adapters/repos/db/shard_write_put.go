@@ -105,7 +105,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 		return nil
 	}
 
-	if err := s.vectorIndex.Add(ctx, status.docID, vector); err != nil {
+	if err := s.queue.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -132,8 +132,8 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range vectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-			if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 			}
 		}
@@ -163,7 +163,7 @@ func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
 }
 
 func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
+	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
@@ -187,11 +187,11 @@ func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
 		return nil
 	}
 
-	if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
+	if err := queue.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
-	if err := vectorIndex.Flush(); err != nil {
+	if err := queue.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 

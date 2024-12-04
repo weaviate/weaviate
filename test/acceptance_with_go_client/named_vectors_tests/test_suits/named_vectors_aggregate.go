@@ -14,7 +14,9 @@ package test_suits
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
@@ -89,21 +91,23 @@ func testAggregate(host string) func(t *testing.T) {
 		// aggregate
 		no := &graphql.NearObjectArgumentBuilder{}
 		no.WithTargetVectors("first").WithID(UUID1).WithCertainty(0.9)
-		agg, err := client.GraphQL().Aggregate().WithClassName(classAggregate).WithNearObject(no).WithFields(graphql.Field{Name: "number", Fields: []graphql.Field{{Name: "maximum"}}}).Do(ctx)
-		require.Nil(t, err)
 
-		require.NotNil(t, agg)
-		require.Nil(t, agg.Errors)
-		require.NotNil(t, agg.Data)
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			agg, err := client.GraphQL().Aggregate().WithClassName(classAggregate).WithNearObject(no).WithFields(graphql.Field{Name: "number", Fields: []graphql.Field{{Name: "maximum"}}}).Do(ctx)
+			require.Nil(ct, err)
 
-		require.Equal(t, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["number"].(map[string]interface{})["maximum"], float64(1))
+			assert.NotNil(ct, agg)
+			assert.Nil(ct, agg.Errors)
+			assert.NotNil(ct, agg.Data)
+			assert.Equal(ct, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["number"].(map[string]interface{})["maximum"], float64(1))
 
-		// aggregate without needed a target vector
-		agg, err = client.GraphQL().Aggregate().WithClassName(classAggregate).WithFields(graphql.Field{Name: "meta", Fields: []graphql.Field{{Name: "count"}}}).Do(ctx)
-		require.Nil(t, err)
-		require.NotNil(t, agg)
-		require.Nil(t, agg.Errors)
-		require.NotNil(t, agg.Data)
-		require.Equal(t, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], float64(2))
+			// aggregate without needed a target vector
+			agg, err = client.GraphQL().Aggregate().WithClassName(classAggregate).WithFields(graphql.Field{Name: "meta", Fields: []graphql.Field{{Name: "count"}}}).Do(ctx)
+			assert.Nil(ct, err)
+			assert.NotNil(ct, agg)
+			assert.Nil(ct, agg.Errors)
+			assert.NotNil(ct, agg.Data)
+			assert.Equal(ct, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], float64(2))
+		}, 15*time.Second, 500*time.Millisecond)
 	}
 }

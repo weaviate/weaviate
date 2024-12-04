@@ -313,7 +313,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 
 function run_acceptance_graphql_tests() {
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

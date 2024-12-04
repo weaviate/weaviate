@@ -72,17 +72,14 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred          *prometheus.CounterVec
 
 	// offload metric
+	QueueSize                        *prometheus.GaugeVec
+	QueueDiskUsage                   *prometheus.GaugeVec
+	QueuePaused                      *prometheus.GaugeVec
+	QueueCount                       *prometheus.GaugeVec
+	QueuePartitionProcessingDuration *prometheus.HistogramVec
 
-	IndexQueuePushDuration    *prometheus.SummaryVec
-	IndexQueueDeleteDuration  *prometheus.SummaryVec
-	IndexQueuePreloadDuration *prometheus.SummaryVec
-	IndexQueuePreloadCount    *prometheus.GaugeVec
-	IndexQueueSearchDuration  *prometheus.SummaryVec
-	IndexQueuePaused          *prometheus.GaugeVec
-	IndexQueueSize            *prometheus.GaugeVec
-	IndexQueueStaleCount      *prometheus.CounterVec
-	IndexQueueVectorsDequeued *prometheus.GaugeVec
-	IndexQueueWaitDuration    *prometheus.SummaryVec
+	VectorIndexQueueInsertCount *prometheus.CounterVec
+	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
@@ -255,16 +252,13 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.LSMSegmentCount.DeletePartialMatch(labels)
 	pm.LSMSegmentSize.DeletePartialMatch(labels)
 	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
-	pm.IndexQueuePushDuration.DeletePartialMatch(labels)
-	pm.IndexQueueDeleteDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePreloadDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePreloadCount.DeletePartialMatch(labels)
-	pm.IndexQueueSearchDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePaused.DeletePartialMatch(labels)
-	pm.IndexQueueSize.DeletePartialMatch(labels)
-	pm.IndexQueueStaleCount.DeletePartialMatch(labels)
-	pm.IndexQueueVectorsDequeued.DeletePartialMatch(labels)
-	pm.IndexQueueWaitDuration.DeletePartialMatch(labels)
+	pm.QueueSize.DeletePartialMatch(labels)
+	pm.QueueDiskUsage.DeletePartialMatch(labels)
+	pm.QueuePaused.DeletePartialMatch(labels)
+	pm.QueueCount.DeletePartialMatch(labels)
+	pm.QueuePartitionProcessingDuration.DeletePartialMatch(labels)
+	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
+	pm.VectorIndexQueueDeleteCount.DeletePartialMatch(labels)
 	pm.VectorIndexTombstones.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
@@ -451,46 +445,36 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
+		// Queue metrics
+		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_size",
+			Help: "Number of records in the queue",
+		}, []string{"class_name", "shard_name"}),
+		QueueDiskUsage: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_disk_usage",
+			Help: "Disk usage of the queue",
+		}, []string{"class_name", "shard_name"}),
+		QueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_paused",
+			Help: "Whether the queue is paused",
+		}, []string{"class_name", "shard_name"}),
+		QueueCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_count",
+			Help: "Number of queues",
+		}, []string{"class_name", "shard_name"}),
+		QueuePartitionProcessingDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "queue_partition_processing_duration_ms",
+			Help: "Duration in ms of a single partition processing",
+		}, []string{"class_name", "shard_name"}),
+
 		// Async indexing metrics
-		IndexQueuePushDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_push_duration_ms",
-			Help: "Duration of pushing one or more vectors to the index queue",
+		VectorIndexQueueInsertCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_queue_insert_count",
+			Help: "Number of insert operations added to the vector index queue",
 		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueDeleteDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_delete_duration_ms",
-			Help: "Duration of deleting one or more vectors from the index queue and the underlying index",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePreloadDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_preload_duration_ms",
-			Help: "Duration of preloading unindexed vectors to the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePreloadCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_preload_count",
-			Help: "Number of vectors preloaded to the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueSearchDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_search_duration_ms",
-			Help: "Duration of searching for vectors in the index queue and the underlying index",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_paused",
-			Help: "Whether the index queue is paused",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_size",
-			Help: "Number of vectors in the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueStaleCount: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "index_queue_stale_count",
-			Help: "Number of times the index queue has been marked as stale",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueVectorsDequeued: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_vectors_dequeued",
-			Help: "Number of vectors sent to the workers per tick",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueWaitDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_wait_duration_ms",
-			Help: "Duration of waiting for the workers to finish",
+		VectorIndexQueueDeleteCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_queue_delete_count",
+			Help: "Number of delete operations added to the vector index queue",
 		}, []string{"class_name", "shard_name", "target_vector"}),
 
 		// Vector index metrics
