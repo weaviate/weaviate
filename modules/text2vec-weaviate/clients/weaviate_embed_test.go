@@ -234,6 +234,32 @@ func TestClient(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Weaviate-Cluster-Url", err.Error())
 	})
+
+	t.Run("TestVectorizeRequestBodyWithCustomDimensions", func(t *testing.T) {
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &weaviateEmbedUrlBuilder{
+				origin:   "http://example.com",
+				pathMask: "/v1/embeddings/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		dims := int64(256)
+		cfg := &fakeClassConfig{
+			classConfig: map[string]interface{}{
+				"dimensions": dims,
+			},
+		}
+
+		config := c.getVectorizationConfig(cfg)
+		reqBody := c.getEmbeddingsRequest([]string{"test text"}, false, config.Dimensions)
+
+		require.NotNil(t, reqBody.Dimensions)
+		require.Equal(t, int64(256), *reqBody.Dimensions)
+		require.Equal(t, []string{"test text"}, reqBody.Texts)
+	})
 }
 
 type fakeHandler struct {
