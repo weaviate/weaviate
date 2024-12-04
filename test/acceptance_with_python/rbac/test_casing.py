@@ -21,8 +21,8 @@ def test_rbac_refs(request: SubRequest, admin_client, custom_client, to_upper: b
     admin_client.roles.create(
         name=name,
         permissions=[
-            RBAC.permissions.collections.read(collection=name),
-            RBAC.permissions.data.read(collection=name),
+            RBAC.permissions.collections(collection=name, read_config=True),
+            RBAC.permissions.data(collection=name, read=True),
         ],
     )
     admin_client.roles.assign(user="custom-user", roles=name)
@@ -45,11 +45,11 @@ def test_role_name_case_sensitivity(request: SubRequest, admin_client):
     admin_client.roles.delete(u_name)
 
     admin_client.roles.create(
-        name=l_name, permissions=RBAC.permissions.collections.read(collection="lower")
+        name=l_name, permissions=RBAC.permissions.collections(collection="lower", read_config=True)
     )
 
     admin_client.roles.create(
-        name=u_name, permissions=RBAC.permissions.collections.read(collection="upper")
+        name=u_name, permissions=RBAC.permissions.collections(collection="upper", read_config=True)
     )
 
     admin_client.roles.assign(user="custom-user", roles=[l_name, u_name])

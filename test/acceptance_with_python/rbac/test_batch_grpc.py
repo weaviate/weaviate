@@ -4,14 +4,14 @@ import weaviate.classes as wvc
 from typing_extensions import Optional
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, generate_missing_permissions, Role_Wrapper_Type
+from .conftest import _sanitize_role_name, generate_missing_permissions, RoleWrapperProtocol
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_batch_grpc(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "1", name + "2"])
@@ -30,12 +30,10 @@ def test_batch_grpc(
     admin_client.roles.delete(name)
 
     required_permissions = [
-        RBAC.permissions.data.create(collection=col1.name),
-        RBAC.permissions.data.update(collection=col1.name),
-        RBAC.permissions.collections.read(collection=col1.name),
-        RBAC.permissions.data.create(collection=col2.name),
-        RBAC.permissions.data.update(collection=col2.name),
-        RBAC.permissions.collections.read(collection=col2.name),
+        RBAC.permissions.data(collection=col1.name, create=True, update=True),
+        RBAC.permissions.collections(collection=col1.name, read_config=True),
+        RBAC.permissions.data(collection=col2.name, create=True, update=True),
+        RBAC.permissions.collections(collection=col2.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:

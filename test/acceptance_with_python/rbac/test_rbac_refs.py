@@ -6,15 +6,16 @@ import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
 from weaviate.rbac.models import RBAC
+from weaviate.rbac.roles import _flatten_permissions
 
-from .conftest import _sanitize_role_name, generate_missing_permissions, Role_Wrapper_Type
+from .conftest import _sanitize_role_name, generate_missing_permissions, RoleWrapperProtocol
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_refs(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     col_name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([col_name + "target", col_name + "source"])
@@ -41,9 +42,8 @@ def test_rbac_refs(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=target.name),
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.update(collection=source.name),
+        RBAC.permissions.collections(collection=[source.name, target.name], read_config=True),
+        RBAC.permissions.data(collection=source.name, update=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -107,7 +107,7 @@ def test_rbac_refs(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_batch_delete_with_filter(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ) -> None:
     col_name = _sanitize_role_name(request.node.name)
 
@@ -142,11 +142,9 @@ def test_batch_delete_with_filter(
     )
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=target.name),
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.delete(collection=source.name),
-        RBAC.permissions.data.read(collection=target.name),
-        RBAC.permissions.data.read(collection=source.name),
+        RBAC.permissions.collections(collection=[target.name, source.name], read_config=True),
+        RBAC.permissions.data(collection=source.name, delete=True, read=True),
+        RBAC.permissions.data(collection=target.name, read=True),
     ]
 
     # failing permissions first, so the object isn't actually deleted
@@ -192,7 +190,7 @@ def test_batch_delete_with_filter(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_search_with_filter_and_return(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ) -> None:
     col_name = _sanitize_role_name(request.node.name)
 
@@ -221,10 +219,8 @@ def test_search_with_filter_and_return(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.collections.read(collection=target.name),
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.read(collection=source.name),
-        RBAC.permissions.data.read(collection=target.name),
+        RBAC.permissions.collections(collection=[target.name, source.name], read_config=True),
+        RBAC.permissions.data(collection=[source.name, target.name], read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -274,7 +270,7 @@ def test_search_with_filter_and_return(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_batch_ref(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     col_name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(
@@ -317,9 +313,8 @@ def test_batch_ref(
 
     # self reference
     required_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.data.read(collection=source.name),
+        RBAC.permissions.collections(collection=source.name, read_config=True),
+        RBAC.permissions.data(collection=source.name, read=True, update=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -353,11 +348,10 @@ def test_batch_ref(
 
     # ref to one target
     required_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.data.read(collection=source.name),
-        RBAC.permissions.data.read(collection=target1.name),
-        RBAC.permissions.collections.read(collection=target1.name),
+        RBAC.permissions.collections(collection=source.name, read_config=True),
+        RBAC.permissions.data(collection=[source.name, target1.name], read=True),
+        RBAC.permissions.data(collection=source.name, update=True),
+        RBAC.permissions.collections(collection=target1.name, read_config=True),
     ]
 
     with role_wrapper(admin_client, request, required_permissions):
@@ -391,14 +385,12 @@ def test_batch_ref(
 
     # ref to two targets
     ref2_required_permissions = [
-        RBAC.permissions.collections.read(collection=source.name),
-        RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.data.read(collection=source.name),
-        RBAC.permissions.data.read(collection=target1.name),
-        RBAC.permissions.data.read(collection=target2.name),
-        RBAC.permissions.collections.read(collection=target1.name),
-        RBAC.permissions.collections.read(collection=target2.name),
+        RBAC.permissions.collections(collection=[source.name, target1.name], read_config=True),
+        RBAC.permissions.data(collection=source.name, update=True),
+        RBAC.permissions.data(collection=[source.name, target1.name, target2.name], read=True),
+        RBAC.permissions.collections(collection=target2.name, read_config=True),
     ]
+
     with role_wrapper(admin_client, request, ref2_required_permissions):
         source_no_rights = custom_client.collections.get(source.name)
         if mt:

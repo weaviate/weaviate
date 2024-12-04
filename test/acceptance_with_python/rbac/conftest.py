@@ -1,12 +1,20 @@
-from typing import Union, Callable, Generator, List, Any, ContextManager
+from typing import (
+    Union,
+    Sequence,
+    Any,
+    ContextManager,
+    Protocol,
+    Iterator,
+)
 
 import pytest
 import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
-from contextlib import contextmanager, _GeneratorContextManager
+from contextlib import contextmanager
 
-from weaviate.rbac.models import _CollectionsPermission
+from weaviate import WeaviateClient
+from weaviate.rbac.models import PermissionsType
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -28,25 +36,24 @@ def generate_missing_permissions(permissions: list):
     return result
 
 
-Role_Wrapper_Type = Callable[
-    [
-        Any,
-        SubRequest,
-        Union[_CollectionsPermission, List[_CollectionsPermission]],
-    ],
-    ContextManager[Any],
-]
+class RoleWrapperProtocol(Protocol):
+    def __call__(
+        self,
+        admin_client: WeaviateClient,
+        request: SubRequest,
+        permissions: PermissionsType,
+        user: str = "custom-user",
+    ) -> ContextManager[Any]: ...
 
 
 @pytest.fixture
-def role_wrapper() -> Role_Wrapper_Type:
-    @contextmanager
+def role_wrapper() -> RoleWrapperProtocol:
     def wrapper(
-        admin_client,
+        admin_client: WeaviateClient,
         request: SubRequest,
-        permissions: Union[_CollectionsPermission, List[_CollectionsPermission]],
+        permissions: PermissionsType,
         user: str = "custom-user",
-    ) -> ContextManager[Any]:
+    ) -> Iterator[None]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
         if not isinstance(permissions, list) or len(permissions) > 0:
@@ -59,7 +66,7 @@ def role_wrapper() -> Role_Wrapper_Type:
             admin_client.roles.revoke(user=user, roles=name)
             admin_client.roles.delete(name)
 
-    return wrapper
+    return contextmanager(wrapper)
 
 
 @pytest.fixture
