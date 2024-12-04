@@ -52,6 +52,7 @@ var (
 		authorization.DELETE: "delete",
 	}
 )
+
 var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
