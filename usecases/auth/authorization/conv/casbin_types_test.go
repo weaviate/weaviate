@@ -41,7 +41,7 @@ var (
 	readVerb   = authorization.READ
 	updateVerb = authorization.UPDATE
 	deleteVerb = authorization.DELETE
-	manageVerb = authorization.CRUD
+	manageVerb = CRUD
 
 	rolesTests = []innerTest{
 		{permissionAction: authorization.ManageRoles, testDescription: manageDesc, policyVerb: manageVerb},

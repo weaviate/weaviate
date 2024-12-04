@@ -28,8 +28,30 @@ const (
 	ROLE_NAME_PREFIX = "role:"
 	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	USER_NAME_PREFIX = "user:"
+
+	// CRUD allow all actions on a resource
+	// this is internal for casbin to handle admin actions
+	CRUD = "(C)|(R)|(U)|(D)"
+	// CRU allow all actions on a resource except DELETE
+	// this is internal for casbin to handle editor actions
+	CRU = "(C)|(R)|(U)"
 )
 
+var (
+	BuiltInPolicies = map[string]string{
+		authorization.Viewer: authorization.READ,
+		authorization.Editor: CRU,
+		authorization.Admin:  CRUD,
+	}
+	actions = map[string]string{
+		CRUD:                 "manage",
+		CRU:                  "manage",
+		authorization.CREATE: "create",
+		authorization.READ:   "read",
+		authorization.UPDATE: "update",
+		authorization.DELETE: "delete",
+	}
+)
 var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
@@ -138,7 +160,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}
 	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
-		verb = authorization.CRUD
+		verb = CRUD
 	}
 
 	if domain == "collections" {
@@ -235,7 +257,7 @@ func permission(policy []string) (*models.Permission, error) {
 		mapped.Domain = "collections"
 	}
 
-	action := fmt.Sprintf("%s_%s", authorization.Actions[mapped.Verb], mapped.Domain)
+	action := fmt.Sprintf("%s_%s", actions[mapped.Verb], mapped.Domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
 		Action: &action,
@@ -308,7 +330,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(authorization.CRUD).MatchString(input)
+	return regexp.MustCompile(CRUD).MatchString(input)
 }
 
 func PrefixRoleName(name string) string {

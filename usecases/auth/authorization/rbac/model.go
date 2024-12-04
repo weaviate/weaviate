@@ -106,7 +106,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	// add pre existing roles
-	for name, verb := range authorization.BuiltInPolicies {
+	for name, verb := range conv.BuiltInPolicies {
 		if verb == "" {
 			continue
 		}
