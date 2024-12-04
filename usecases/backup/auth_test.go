@@ -13,29 +13,36 @@ package backup
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	cmocks "github.com/weaviate/weaviate/entities/modulecapabilities/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authZMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	bmocks "github.com/weaviate/weaviate/usecases/backup/mocks"
 )
 
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
 
 func Test_Authorization(t *testing.T) {
-	req := &BackupRequest{ID: "123", Backend: "s3"}
+	req := &BackupRequest{ID: "123", Backend: "filesystem"}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
+		classes          []string
 		expectedVerb     string
 		expectedResource string
+		ignoreAuthZ      bool
 	}
 
 	tests := []testCase{
@@ -43,37 +50,40 @@ func Test_Authorization(t *testing.T) {
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
-			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			methodName:     "BackupStatus",
+			additionalArgs: []interface{}{"filesystem", "123", "", ""},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
-			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			methodName:     "RestorationStatus",
+			additionalArgs: []interface{}{"filesystem", "123", "", ""},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 		{
 			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			additionalArgs:   []interface{}{"filesystem", "123", "", ""},
 			expectedVerb:     authorization.DELETE,
-			expectedResource: authorization.Cluster(),
+			expectedResource: authorization.Backups("ABC")[0],
+			classes:          []string{"ABC"},
 		},
 		{
-			methodName:       "List",
-			additionalArgs:   []interface{}{"s3"},
-			expectedVerb:     authorization.READ,
-			expectedResource: authorization.Cluster(),
+			methodName:     "List",
+			additionalArgs: []interface{}{"filesystem"},
+			classes:        []string{"ABC"},
+			ignoreAuthZ:    true,
 		},
 	}
 
@@ -94,23 +104,69 @@ func Test_Authorization(t *testing.T) {
 	})
 
 	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
-		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(errors.New("just a test fake"))
-				s := NewScheduler(authorizer, nil, nil, nil, nil, &fakeSchemaManger{}, logger)
+				authorizer := authZMocks.NewAuthorizer(t)
+				selector := bmocks.NewSelector(t)
+				backupProvider := bmocks.NewBackupBackendProvider(t)
+				nodeResolver := bmocks.NewNodeResolver(t)
+				modulecapabilities := cmocks.NewBackupBackend(t)
+
+				backupProvider.On("BackupBackend", mock.Anything).Return(modulecapabilities, nil).Maybe()
+
+				modulecapabilities.On("IsExternal").Return(false).Maybe()
+				modulecapabilities.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/").Maybe()
+
+				d, err := json.Marshal(backup.DistributedBackupDescriptor{
+					StartedAt: time.Now(),
+					Nodes: map[string]*backup.NodeDescriptor{
+						"node-0": {
+							Classes: test.classes,
+							Status:  backup.Success,
+						},
+					},
+					Status:        backup.Success,
+					ID:            "123",
+					Version:       "2.1",
+					ServerVersion: "x.x.x",
+					Error:         "",
+				})
+				require.Nil(t, err)
+				var dd backup.DistributedBackupDescriptor
+				err = json.Unmarshal(d, &dd)
+				require.Nil(t, err)
+
+				var notFound interface{}
+				if test.methodName == "Backup" {
+					notFound = backup.ErrNotFound{}
+				} else {
+					notFound = nil
+				}
+
+				modulecapabilities.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(d, notFound).Maybe()
+				modulecapabilities.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				modulecapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				nodeResolver.On("NodeCount").Return(1).Maybe()
+				nodeResolver.On("LeaderID").Return("node-0").Maybe()
+				nodeResolver.On("AllNames").Return([]string{"node-0"}).Maybe()
+				nodeResolver.On("NodeHostname", mock.Anything).Return("localhost", false).Maybe()
+
+				selector.On("Shards", mock.Anything, test.classes[0]).Return([]string{"node-0"}, nil).Maybe()
+				selector.On("ListClasses", mock.Anything).Return(test.classes).Maybe()
+				selector.On("Backupable", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				s := NewScheduler(authorizer, nil, selector, backupProvider, nodeResolver, &fakeSchemaManger{}, logger)
 				require.NotNil(t, s)
 
-				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-				out, _ := callFuncByName(s, test.methodName, args...)
+				if !test.ignoreAuthZ {
+					authorizer.On("Authorize", mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
+				}
 
-				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
-				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-					"execution must abort with authorizer error")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: []string{test.expectedResource}},
-					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
+				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)
+				callFuncByName(s, test.methodName, args...)
 			})
 		}
 	})

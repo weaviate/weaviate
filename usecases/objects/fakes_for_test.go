@@ -143,7 +143,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, merge bool, newProps ...*models.Property,
+	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class

@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 
 	"github.com/tailor-inc/graphql"
@@ -204,7 +205,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum, authorizer authorization.Authorizer,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -234,7 +235,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
 		},
-		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
+		Resolve: newResolver(authorizer, modulesProvider).makeResolveGetClass(class.Class),
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
@@ -310,11 +311,12 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 }
 
 type resolver struct {
+	authorizer      authorization.Authorizer
 	modulesProvider ModulesProvider
 }
 
-func newResolver(modulesProvider ModulesProvider) *resolver {
-	return &resolver{modulesProvider}
+func newResolver(authorizer authorization.Authorizer, modulesProvider ModulesProvider) *resolver {
+	return &resolver{authorizer, modulesProvider}
 }
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
@@ -328,6 +330,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 }
 
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
+	principal := principalFromContext(p.Context)
+
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
@@ -336,6 +340,15 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
 		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
+		return nil, err
 	}
 
 	pagination, err := filters.ExtractPaginationFromArgs(p.Args)
@@ -360,6 +373,11 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if err != nil {
 		return nil, err
 	}
+	for _, property := range properties {
+		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
+			return nil, err
+		}
+	}
 
 	var sort []filters.Sort
 	if sortArg, ok := p.Args["sort"]; ok {
@@ -369,6 +387,11 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %s", err)
+	}
+	if filters != nil {
+		if err = common_filters.AuthorizeFilters(r.authorizer, filters.Root, principal); err != nil {
+			return nil, err
+		}
 	}
 
 	var targetVectorCombination *dto.TargetCombination
@@ -447,11 +470,6 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		groupByParams = &p
 	}
 
-	var tenant string
-	if tk, ok := p.Args["tenant"]; ok {
-		tenant = tk.(string)
-	}
-
 	params := dto.GetParams{
 		Filters:                 filters,
 		ClassName:               className,
@@ -477,7 +495,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	setLimitBasedOnVectorSearchParams(&params)
 
 	return func() (interface{}, error) {
-		result, err := resolver.GetClass(p.Context, principalFromContext(p.Context), params)
+		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
 		}

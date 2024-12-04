@@ -32,6 +32,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
+	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
@@ -42,6 +43,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -52,12 +54,11 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/exp/metadata"
-
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/exp/metadata"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -109,6 +110,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -125,8 +127,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-
-	"github.com/getsentry/sentry-go"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -502,6 +502,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 		ClassTenantDataEvents:  classTenantDataEvents,
+		AuthzController:        appState.AuthzController,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -693,7 +694,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	setupAuthZHandlers(api, appState.Metrics, appState.Authorizer, appState.Logger)
+	authz.SetupHandlers(api,
+		appState.ClusterService.Raft,
+		appState.SchemaManager,
+		appState.ServerConfig.Config.Authentication.APIKey,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.Metrics,
+		appState.Authorizer,
+		appState.Logger)
+
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -832,7 +841,20 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	appState.Authorizer = configureAuthorizer(appState)
+	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
+	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
+	controller, err := rbac.New(rbacStoragePath, rbacConfig, appState.Logger)
+	if err != nil {
+		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
+		logger.Exit(1)
+	}
+
+	appState.AuthzController = controller
+
+	if err = configureAuthorizer(appState, controller); err != nil {
+		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
+		logger.Exit(1)
+	}
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
