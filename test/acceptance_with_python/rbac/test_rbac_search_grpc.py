@@ -3,14 +3,14 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.rbac.models import RBAC
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_permissions
+from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_search(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name_collection1 = _sanitize_role_name(request.node.name) + "col1"
     name_collection2 = _sanitize_role_name(request.node.name) + "col2"
@@ -36,8 +36,8 @@ def test_rbac_search(
 
     # with correct rights
     required_permissions = [
-        RBAC.permissions.collections.read(collection=col1.name),
-        RBAC.permissions.data.read(collection=col1.name),
+        RBAC.permissions.collections(collection=col1.name, read_config=True),
+        RBAC.permissions.data(collection=col1.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(col1.name)  # no network call => no RBAC check
@@ -59,7 +59,7 @@ def test_rbac_search(
             assert "forbidden" in e.value.args[0]
 
     # rights for wrong collection
-    wrong_collection = RBAC.permissions.collections.read(collection=col2.name)
+    wrong_collection = RBAC.permissions.collections(collection=col2.name, read_config=True)
     with role_wrapper(admin_client, request, wrong_collection):
         col_no_rights = custom_client.collections.get(col1.name)  # no network call => no RBAC check
         if mt:

@@ -1,4 +1,4 @@
-git+https://github.com/weaviate/weaviate-python-client.git@3e4893a8f9ba078ffda44fbf4303eaf0840c8243
+git+https://github.com/weaviate/weaviate-python-client.git@364c1f0d0f7eb731686be322416bd17e0b3fa12e
 
 pytest>=8.0.1,<9.0.0
 pytest-xdist==3.6.1
