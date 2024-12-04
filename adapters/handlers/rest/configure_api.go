@@ -506,12 +506,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	metaStoreReadyErr := fmt.Errorf("meta store ready")
+	metaStoreFailedErr := fmt.Errorf("meta store failed")
+	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
+			storeReadyCancel(metaStoreFailedErr)
+		} else {
+			storeReadyCancel(metaStoreReadyErr)
 		}
 	}, appState.Logger)
 
@@ -534,25 +540,33 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	// FIXME to avoid import cycles, tasks are passed as strings
-	reindexTaskNames := []string{}
+	reindexTaskNamesWithArgs := map[string]any{}
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+		reindexTaskNamesWithArgs["ShardInvertedReindexTaskSetToRoaringSet"] = nil
 	}
 	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+		reindexTaskNamesWithArgs["ShardInvertedReindexTaskMissingTextFilterable"] = nil
 	}
-	if len(reindexTaskNames) > 0 {
+	if len(appState.ServerConfig.Config.ReindexIndexesAtStartup) > 0 {
+		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
+	}
+
+	if len(reindexTaskNamesWithArgs) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+			// wait until meta store is ready, as reindex tasks needs schema
+			<-storeReadyCtx.Done()
+			if context.Cause(storeReadyCtx) == metaStoreReadyErr {
+				appState.Logger.
+					WithField("action", "startup").
+					Info("Reindexing inverted indexes")
+				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			}
 		}, appState.Logger)
 	}
 
