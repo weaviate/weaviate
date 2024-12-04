@@ -45,7 +45,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).
-		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewer(viewerUser).
+		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewers(viewerUser).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)

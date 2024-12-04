@@ -25,19 +25,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestBatchObjREST(t *testing.T) {
+func TestAuthZBatchObjREST(t *testing.T) {
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
-	customAuth := helper.CreateAuth("custom-key")
+	customKey := "custom-key"
+	customAuth := helper.CreateAuth(customKey)
 	testRoleName := "test-role"
 	readCollectionsAction := authorization.ReadCollections
 	// readDataAction := authorization.ReadData
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	helper.SetupClient("127.0.0.1:8081")
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	// add classes with object
 	className1 := "AuthZBatchObjREST1"

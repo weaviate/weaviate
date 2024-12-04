@@ -457,7 +457,7 @@ func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacViewer(usernames ...string) *Compose {
+func (d *Compose) WithRbacViewers(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}

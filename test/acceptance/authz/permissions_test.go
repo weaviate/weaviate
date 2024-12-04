@@ -12,13 +12,10 @@
 package test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -27,22 +24,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	testClass := &models.Class{
 		Class:              "Foo",
@@ -110,7 +93,6 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 				{Action: String(authorization.ManageRoles), Roles: &models.PermissionRoles{Role: String("foo")}},
 			},
 		})
-		require.Nil(t, err)
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
