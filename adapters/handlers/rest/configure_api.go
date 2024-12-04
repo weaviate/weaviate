@@ -694,14 +694,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	var existingUsersApiKeys []string
-	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
-		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
-	}
 	authz.SetupHandlers(api,
 		appState.ClusterService.Raft,
 		appState.SchemaManager,
-		existingUsersApiKeys,
+		appState.ServerConfig.Config.Authentication.APIKey,
 		appState.ServerConfig.Config.Authorization.Rbac,
 		appState.Metrics,
 		appState.Authorizer,
