@@ -43,10 +43,11 @@ type NodeSelector interface {
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock             sync.RWMutex
+	list                 *memberlist.Memberlist
+	nonStorageNodes      map[string]struct{}
+	delegate             delegate
+	maintenanceNodesLock sync.RWMutex
 }
 
 type Config struct {
@@ -64,11 +65,12 @@ type Config struct {
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
-	// MaintenanceNodes is experimental. is a list of nodes (by Hostname) that are in maintenance mode
-	// (eg return an error for all data requests). We use a list here instead of a bool because it
-	// allows us to set the same config/env vars on all nodes to put a subset of them in maintenance
-	// mode. In addition, we may want to have the cluster nodes not in maintenance mode be aware of
-	// which nodes are in maintenance mode in the future.
+	// MaintenanceNodes is experimental. You should not use this directly, but should use the
+	// public methods on the State struct. This is a list of nodes (by Hostname) that are in
+	// maintenance mode (eg return a 418 for all data requests). We use a list here instead of a
+	// bool because it allows us to set the same config/env vars on all nodes to put a subset of
+	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
+	// maintenance mode be aware of which nodes are in maintenance mode in the future.
 	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
@@ -323,12 +325,44 @@ func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
 }
 
-// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+// MaintenanceModeEnabledForLocalhost is experimental, may be removed/changed. It returns true if this node is in
 // maintenance mode (which means it should return an error for all data requests).
-func (s *State) MaintenanceModeEnabled() bool {
+func (s *State) MaintenanceModeEnabledForLocalhost() bool {
 	return s.nodeInMaintenanceMode(s.config.Hostname)
 }
 
+// SetMaintenanceModeForLocalhost is experimental, may be removed/changed. Enables/disables maintenance
+// mode for this node.
+func (s *State) SetMaintenanceModeForLocalhost(enabled bool) {
+	s.setMaintenanceModeForNode(s.config.Hostname, enabled)
+}
+
+func (s *State) setMaintenanceModeForNode(node string, enabled bool) {
+	s.maintenanceNodesLock.Lock()
+	defer s.maintenanceNodesLock.Unlock()
+
+	if s.config.MaintenanceNodes == nil {
+		s.config.MaintenanceNodes = []string{}
+	}
+	if !enabled {
+		// we're disabling maintenance mode, remove the node from the list
+		for i, enabledNode := range s.config.MaintenanceNodes {
+			if enabledNode == node {
+				s.config.MaintenanceNodes = append(s.config.MaintenanceNodes[:i], s.config.MaintenanceNodes[i+1:]...)
+			}
+		}
+		return
+	}
+	if !slices.Contains(s.config.MaintenanceNodes, node) {
+		// we're enabling maintenance mode, add the node to the list
+		s.config.MaintenanceNodes = append(s.config.MaintenanceNodes, node)
+		return
+	}
+}
+
 func (s *State) nodeInMaintenanceMode(node string) bool {
+	s.maintenanceNodesLock.RLock()
+	defer s.maintenanceNodesLock.RUnlock()
+
 	return slices.Contains(s.config.MaintenanceNodes, node)
 }
