@@ -117,7 +117,9 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.Logger == nil {
 		opt.Logger = logrus.New()
 	}
-	opt.Logger = opt.Logger.WithField("queue_id", opt.ID)
+	opt.Logger = opt.Logger.
+		WithField("queue_id", opt.ID).
+		WithField("action", "disk_queue")
 
 	if opt.Metrics == nil {
 		opt.Metrics = NewMetrics(opt.Logger, nil, nil)
