@@ -89,7 +89,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
-
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -706,7 +705,6 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			var addProps additional.Properties
 			if prop.Properties != nil {
 				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
-
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -720,7 +718,6 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 
 			if prop.Properties == nil {
 				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
-
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
