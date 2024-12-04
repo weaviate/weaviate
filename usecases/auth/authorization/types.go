@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
@@ -162,6 +163,8 @@ func nodes(verbosity, class string) string {
 }
 
 func Nodes(verbosity string, classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{nodes(verbosity, "*")}
 	}
@@ -240,6 +243,8 @@ func Roles(roles ...string) []string {
 //
 //	A slice of strings representing the resource paths.
 func CollectionsMetadata(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
 	}
@@ -257,6 +262,8 @@ func CollectionsMetadata(classes ...string) []string {
 }
 
 func CollectionsData(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
 		return []string{Objects("*", "*", "*")}
 	}
@@ -269,6 +276,7 @@ func CollectionsData(classes ...string) []string {
 }
 
 func Collections(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
 	return append(CollectionsData(classes...), CollectionsMetadata(classes...)...)
 }
 
@@ -285,6 +293,7 @@ func Collections(classes ...string) []string {
 //
 //	A slice of strings representing the resource paths for the given class and shards.
 func ShardsMetadata(class string, shards ...string) []string {
+	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
 	}
@@ -306,6 +315,7 @@ func ShardsMetadata(class string, shards ...string) []string {
 }
 
 func ShardsData(class string, shards ...string) []string {
+	class = schema.UppercaseClassesNames(class)[0]
 	var paths []string
 	for _, shard := range shards {
 		paths = append(paths, Objects(class, shard, "*"))
@@ -329,6 +339,7 @@ func ShardsData(class string, shards ...string) []string {
 // - "collections/*/shards/*/objects/{id}" if only id is provided
 // - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
 func Objects(class, shard string, id strfmt.UUID) string {
+	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
 	}
