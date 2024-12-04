@@ -94,15 +94,14 @@ func TestRevokeRoleSuccess(t *testing.T) {
 
 func TestRevokeRoleBadRequest(t *testing.T) {
 	type testCase struct {
-		name           string
-		params         authz.RevokeRoleParams
-		principal      *models.Principal
-		expectedError  string
-		existedRoles   map[string][]authorization.Policy
-		callAuthZ      bool
-		callToGetRoles bool
-		admins         []string
-		viewers        []string
+		name          string
+		params        authz.RevokeRoleParams
+		principal     *models.Principal
+		expectedError string
+		existedRoles  map[string][]authorization.Policy
+		callAuthZ     bool
+		admins        []string
+		viewers       []string
 	}
 
 	tests := []testCase{
@@ -165,11 +164,6 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 
 			if tt.callAuthZ {
 				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			}
-
-			if tt.callToGetRoles {
-				authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			}
 
 			h := &authZHandlers{
