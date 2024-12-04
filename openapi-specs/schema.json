@@ -109,7 +109,7 @@
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
-          "enum": [            
+          "enum": [
             "manage_backups",
 
             "read_cluster",
@@ -119,9 +119,9 @@
             "read_data",
             "update_data",
             "delete_data",
-  
+
             "read_nodes",
-          
+
             "manage_roles",
             "read_roles",
 
@@ -141,7 +141,7 @@
       "items": {
         "$ref": "#/definitions/Role"
       }
-    },   
+    },
     "Link": {
       "type": "object",
       "properties": {
@@ -841,7 +841,7 @@
           "type": "object"
         },
         "description": {
-          "description": "Description of the collection for metadata purposes.",          
+          "description": "Description of the collection for metadata purposes.",
           "type": "string"
         },
         "properties": {
@@ -973,7 +973,7 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"            
+            "kagome_ja"
           ]
         },
         "nestedProperties": {
@@ -2587,7 +2587,7 @@
         ],
         "tags": [
           "authz"
-        ],       
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -2711,7 +2711,7 @@
                 }
               },
               "required": ["name", "permissions"]
-              
+
             }
           }
         ],
@@ -2843,7 +2843,7 @@
             "name": "id",
             "required": true,
             "type": "string"
-          }      
+          }
         ],
         "responses": {
           "200": {
