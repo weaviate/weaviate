@@ -28,16 +28,18 @@ import (
 )
 
 func TestAuthZObjectValidate(t *testing.T) {
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
-	customAuth := helper.CreateAuth("custom-key")
+	customKey := "custom-key"
+	customAuth := helper.CreateAuth(customKey)
 
 	readDataAction := authorization.ReadData
 	readCollectionsAction := authorization.ReadCollections
 
-	helper.SetupClient("127.0.0.1:8081")
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	roleName := "AuthZObjectValidateTestRole"
 	className := "AuthZObjectValidateTest"

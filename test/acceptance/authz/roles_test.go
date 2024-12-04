@@ -27,6 +27,8 @@ import (
 )
 
 func TestAuthzGetOwnRole(t *testing.T) {
+	var err error
+
 	customUser := "custom-user"
 	customKey := "custom-key"
 	testingRole := "testingOwnRole"
@@ -34,20 +36,8 @@ func TestAuthzGetOwnRole(t *testing.T) {
 	adminUser := "admin-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	helper.Client(t).Authz.DeleteRole(
 		authz.NewDeleteRoleParams().WithID(testingRole),
@@ -128,25 +118,16 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 }
 
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
+	var err error
+
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminRole := "admin"
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
@@ -217,6 +198,8 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesJourney(t *testing.T) {
+	var err error
+
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 	existingRole := "admin"
@@ -236,19 +219,8 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
@@ -406,25 +378,8 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 		}},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(testUser, testKey).
-		WithRBAC().
-		WithRbacAdmins(adminUser).
-		Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{testUser: testKey}, nil)
+	defer down()
 
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
