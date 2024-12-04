@@ -12,14 +12,11 @@
 package test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -31,24 +28,8 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	anotherUser := "another-user"
 	anotherKey := "another-key"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(anotherUser, anotherKey).
-		WithRBAC().WithRbacAdmins(adminUser).
-		Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{anotherUser: anotherKey}, nil)
+	defer down()
 
 	t.Run("all roles", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
@@ -77,26 +58,10 @@ func TestAuthzRolesForUsers(t *testing.T) {
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 	adminUser := "admin"
 	adminKey := "admin"
-
 	similar := "similarRoleKeyUserName"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(similar, similar).
-		WithRBAC().WithRbacAdmins(adminUser).
-		Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{similar: similar}, nil)
+	defer down()
 
 	t.Run("create role with the same name of the user", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
