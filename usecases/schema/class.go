@@ -69,6 +69,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
+	for idx := range names {
+		names[idx] = schema.UppercaseClassName(names[idx])
+	}
+
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
 		return nil, err
 	}
@@ -233,6 +237,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
+	className = schema.UppercaseClassName(className)
 	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
