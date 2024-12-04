@@ -1,13 +1,20 @@
-from typing import Union, Callable, Generator, List, Sequence, Any, ContextManager
+from typing import (
+    Union,
+    Sequence,
+    Any,
+    ContextManager,
+    Protocol,
+    Iterator,
+)
 
 import pytest
 import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
-from contextlib import contextmanager, _GeneratorContextManager
+from contextlib import contextmanager
 
 from weaviate import WeaviateClient
-from weaviate.rbac.models import _Permission
+from weaviate.rbac.models import PermissionsType
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -29,38 +36,37 @@ def generate_missing_permissions(permissions: list):
     return result
 
 
-Role_Wrapper_Type = Callable[
-    [
-        Any,
-        SubRequest,
-        Union[_Permission, Sequence[_Permission], Sequence[Sequence[_Permission]]],
-    ],
-    ContextManager[Any],
-]
+class RoleWrapperProtocol(Protocol):
+    def __call__(
+        self,
+        admin_client: WeaviateClient,
+        request: SubRequest,
+        permissions: PermissionsType,
+        user: str = "custom-user",
+    ) -> ContextManager[Any]: ...
 
 
 @pytest.fixture
-def role_wrapper() -> Role_Wrapper_Type:
-    @contextmanager
+def role_wrapper() -> RoleWrapperProtocol:
     def wrapper(
         admin_client: WeaviateClient,
         request: SubRequest,
-        permissions: Union[_Permission, Sequence[_Permission], Sequence[Sequence[_Permission]]],
+        permissions: PermissionsType,
         user: str = "custom-user",
-    ) -> ContextManager[Any]:
+    ) -> Iterator[None]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
-        if not isinstance(permissions, list) or len(permissions) > 0:
+        if not isinstance(permissions, list) or len(permissions) > 0 and user is not None:
             admin_client.roles.create(name=name, permissions=permissions)
             admin_client.roles.assign(user=user, roles=name)
 
         yield
 
-        if not isinstance(permissions, list) or len(permissions) > 0:
+        if not isinstance(permissions, list) or len(permissions) > 0 and user is not None:
             admin_client.roles.revoke(user=user, roles=name)
             admin_client.roles.delete(name)
 
-    return wrapper
+    return contextmanager(wrapper)
 
 
 @pytest.fixture
