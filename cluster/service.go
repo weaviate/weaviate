@@ -65,14 +65,14 @@ func New(cfg Config) *Service {
 			cfg.Logger.Warnf("raft fqdn lookup configured but unable to resolve node %s to an IP, fallbacking to %s", cfg.NodeID, raftAdvertisedAddress)
 		}
 	}
-	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 	fsm := NewFSM(cfg)
-	raft := NewRaft(cfg.NodeSelector, &fsm, cl)
+	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	return &Service{
 		Raft:              raft,
 		raftAddr:          raftAdvertisedAddress,
 		config:            &cfg,
-		rpcClient:         cl,
+		rpcClient:         client,
 		rpcServer:         rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),

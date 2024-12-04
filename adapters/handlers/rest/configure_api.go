@@ -32,11 +32,14 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
+	"github.com/armon/go-metrics"
+	metricsprom "github.com/armon/go-metrics/prometheus"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -206,6 +209,31 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// export build tags to prometheus metric
 		build.SetPrometheusBuildInfo()
 		prometheus.MustRegister(version.NewCollector(build.AppName))
+
+		opts := metricsprom.PrometheusOpts{
+			Expiration: 0, // never expire any metrics,
+			Registerer: prometheus.DefaultRegisterer,
+		}
+
+		sink, err := metricsprom.NewPrometheusSinkFrom(opts)
+		if err != nil {
+			panic(err)
+		}
+
+		cfg := metrics.DefaultConfig("weaviate")
+		cfg.EnableHostname = false
+		cfg.EnableHostnameLabel = false
+		cfg.EnableServiceLabel = false
+		cfg.EnableRuntimeMetrics = false
+		cfg.EnableTypePrefix = true
+		cfg.TimerGranularity = time.Second
+
+		_, err = metrics.NewGlobal(cfg, sink)
+		if err != nil {
+			panic(err)
+		}
+		// TODO: hook g.Shutdown() somehow.
+		// g.Shutdown
 
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
