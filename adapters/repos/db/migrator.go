@@ -781,24 +781,37 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	var errs errorcompounder.ErrorCompounder
-	errs.Add(m.doInvertedReindex(ctx, taskNames...))
-	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
+	errs.Add(m.doInvertedReindex(ctx, taskNamesWithArgs))
+	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNamesWithArgs))
 	return errs.ToError()
 }
 
-func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) error {
-	tasksProviders := map[string]func() ShardInvertedReindexTask{
-		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
-			return &ShardInvertedReindexTaskSetToRoaringSet{}
-		},
-	}
-
+func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
 	tasks := map[string]ShardInvertedReindexTask{}
-	for _, taskName := range taskNames {
-		if taskProvider, ok := tasksProviders[taskName]; ok {
-			tasks[taskName] = taskProvider()
+	for name, args := range taskNamesWithArgs {
+		switch name {
+		case "ShardInvertedReindexTaskSetToRoaringSet":
+			tasks[name] = &ShardInvertedReindexTaskSetToRoaringSet{}
+		case "ShardInvertedReindexTask_CorruptedIndex":
+			if args == nil {
+				return fmt.Errorf("no args given for %q reindex task", name)
+			}
+			argsMap, ok := args.(map[string][]string)
+			if !ok {
+				return fmt.Errorf("invalid args given for %q reindex task", name)
+			}
+			classNamesWithPropertyNames := map[string]map[string]struct{}{}
+			for class, props := range argsMap {
+				classNamesWithPropertyNames[class] = map[string]struct{}{}
+				for _, prop := range props {
+					classNamesWithPropertyNames[class][prop] = struct{}{}
+				}
+			}
+			tasks[name] = &ShardInvertedReindexTask_CorruptedIndex{
+				classNamesWithPropertyNames: classNamesWithPropertyNames,
+			}
 		}
 	}
 
@@ -834,16 +847,8 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 	return eg.Wait()
 }
 
-func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNames ...string) error {
-	taskName := "ShardInvertedReindexTaskMissingTextFilterable"
-	taskFound := false
-	for _, name := range taskNames {
-		if name == taskName {
-			taskFound = true
-			break
-		}
-	}
-	if !taskFound {
+func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, taskNamesWithArgs map[string]any) error {
+	if _, ok := taskNamesWithArgs["ShardInvertedReindexTaskMissingTextFilterable"]; !ok {
 		return nil
 	}
 
