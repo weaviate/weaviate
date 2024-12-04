@@ -74,6 +74,7 @@ type State struct {
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+	Migrator       *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
