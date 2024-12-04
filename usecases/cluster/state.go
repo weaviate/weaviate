@@ -43,10 +43,11 @@ type NodeSelector interface {
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock             sync.RWMutex
+	list                 *memberlist.Memberlist
+	nonStorageNodes      map[string]struct{}
+	delegate             delegate
+	maintenanceNodesLock sync.RWMutex
 }
 
 type Config struct {
@@ -63,8 +64,7 @@ type Config struct {
 	// failures (down nodes) faster.
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
-	Localhost            bool `json:"localhost" yaml:"localhost"`
-	MaintenanceNodesLock *sync.RWMutex
+	Localhost bool `json:"localhost" yaml:"localhost"`
 	// MaintenanceNodes is experimental. You should not use this directly, but should use the
 	// public methods on the State struct. This is a list of nodes (by Hostname) that are in
 	// maintenance mode (eg return a 418 for all data requests). We use a list here instead of a
@@ -338,12 +338,8 @@ func (s *State) SetMaintenanceModeForLocalhost(enabled bool) {
 }
 
 func (s *State) setMaintenanceModeForNode(node string, enabled bool) {
-	if s.config.MaintenanceNodesLock == nil {
-		// we shouldn't hit this, just being extra safe
-		return
-	}
-	s.config.MaintenanceNodesLock.Lock()
-	defer s.config.MaintenanceNodesLock.Unlock()
+	s.maintenanceNodesLock.Lock()
+	defer s.maintenanceNodesLock.Unlock()
 
 	if s.config.MaintenanceNodes == nil {
 		s.config.MaintenanceNodes = []string{}
@@ -365,12 +361,8 @@ func (s *State) setMaintenanceModeForNode(node string, enabled bool) {
 }
 
 func (s *State) nodeInMaintenanceMode(node string) bool {
-	if s.config.MaintenanceNodesLock == nil {
-		// we shouldn't hit this, just being extra safe
-		return false
-	}
-	s.config.MaintenanceNodesLock.RLock()
-	defer s.config.MaintenanceNodesLock.RUnlock()
+	s.maintenanceNodesLock.RLock()
+	defer s.maintenanceNodesLock.RUnlock()
 
 	return slices.Contains(s.config.MaintenanceNodes, node)
 }

@@ -17,7 +17,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -854,11 +853,9 @@ func parseClusterConfig() (cluster.Config, error) {
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
 	// return an error for all data requests, but will still participate in the raft cluster and
 	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
-	// data requests and you need to start up the node to give it time to "catch up".
-
-	// it would be better to create this lock via a config "constructor", but since we unmarshal json/yaml config
-	// files, this is a convenient place to ensure it gets created once
-	cfg.MaintenanceNodesLock = &sync.RWMutex{}
+	// data requests and you need to start up the node to give it time to "catch up". Note that in
+	// general one should not use the MaintenanceNodes field directly, but since we don't have
+	// access to the State here and the cluster has not yet initialized, we have to set it here.
 
 	// avoid the case where strings.Split creates a slice with only the empty string as I think
 	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
