@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -92,6 +94,14 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	if v := os.Getenv("REINDEX_CORRUPTED_INDEXES_AT_STARTUP"); v != "" {
+		asClassesWithProps, err := parseClassNamesWithPropsNames(v)
+		if err != nil {
+			return fmt.Errorf("parse REINDEX_CORRUPTED_INDEXES_AT_STARTUP as class with props: %w", err)
+		}
+		config.ReindexCorruptedIndexesAtStartup = asClassesWithProps
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
@@ -689,6 +699,60 @@ func parseInt(envName string, defaultValue int, verify func(val int) error, cb f
 
 	cb(asInt)
 	return nil
+}
+
+func parseClassNamesWithPropsNames(v string) (map[string][]string, error) {
+	// "class1:property11,property12;class2:property21,property22"
+	classNamesWithPropsNames := map[string][]string{}
+
+	regexClass := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
+	regexProp := regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`)
+	uniqueClasses := map[string]struct{}{}
+	var uniqueProps map[string]struct{}
+
+	ec := &errorcompounder.ErrorCompounder{}
+	parts := strings.Split(v, ";")
+	for _, part := range parts {
+		err := func() error {
+			parts2 := strings.Split(part, ":")
+			if len(parts2) != 2 {
+				return fmt.Errorf("invalid class+property setting %q", part)
+			}
+
+			class := parts2[0]
+			if _, ok := uniqueClasses[class]; ok {
+				return fmt.Errorf("class name %q duplicated", class)
+			}
+			if !regexClass.MatchString(class) {
+				return fmt.Errorf("invalid class name %q", class)
+			}
+			uniqueClasses[class] = struct{}{}
+
+			uniqueProps = map[string]struct{}{}
+			props := strings.Split(parts2[1], ",")
+			for _, prop := range props {
+				if _, ok := uniqueProps[prop]; ok {
+					return fmt.Errorf("prop name %q duplicated in class %q", prop, class)
+				}
+				if !regexProp.MatchString(prop) {
+					return fmt.Errorf("invalid prop name %q in class %q", prop, class)
+				}
+				uniqueProps[prop] = struct{}{}
+			}
+
+			classNamesWithPropsNames[class] = props
+			return nil
+		}()
+		ec.Add(err)
+	}
+
+	if err := ec.ToError(); err != nil {
+		return nil, err
+	}
+	if len(classNamesWithPropsNames) > 0 {
+		return classNamesWithPropsNames, nil
+	}
+	return nil, nil
 }
 
 const (
