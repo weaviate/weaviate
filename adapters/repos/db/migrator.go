@@ -794,7 +794,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 		switch name {
 		case "ShardInvertedReindexTaskSetToRoaringSet":
 			tasks[name] = &ShardInvertedReindexTaskSetToRoaringSet{}
-		case "ShardInvertedReindexTask_CorruptedIndex":
+		case "ShardInvertedReindexTask_SpecifiedIndex":
 			if args == nil {
 				return fmt.Errorf("no args given for %q reindex task", name)
 			}
@@ -809,7 +809,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 					classNamesWithPropertyNames[class][prop] = struct{}{}
 				}
 			}
-			tasks[name] = &ShardInvertedReindexTask_CorruptedIndex{
+			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
 				classNamesWithPropertyNames: classNamesWithPropertyNames,
 			}
 		}
