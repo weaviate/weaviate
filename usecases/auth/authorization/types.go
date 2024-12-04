@@ -21,10 +21,6 @@ import (
 )
 
 const (
-	// CRUD allow all actions on a resource
-	CRUD = "(C)|(R)|(U)|(D)"
-	// CRU allow all actions on a resource except DELETE
-	CRU = "(C)|(R)|(U)"
 	// CREATE Represents the action to create a new resource.
 	CREATE = "C"
 	// READ Represents the action to retrieve a resource.
@@ -44,15 +40,6 @@ const (
 	SchemaDomain  = "schema"
 	DataDomain    = "data"
 )
-
-var Actions = map[string]string{
-	CRUD:   "manage",
-	CRU:    "manage",
-	CREATE: "create",
-	READ:   "read",
-	UPDATE: "update",
-	DELETE: "delete",
-}
 
 var (
 	All = String("*")
@@ -136,22 +123,17 @@ var (
 )
 
 var (
-	Viewer          = "viewer"
-	editor          = "editor"
-	Admin           = "admin"
-	BuiltInRoles    = []string{Viewer, editor, Admin}
-	BuiltInPolicies = map[string]string{
-		Viewer: READ,
-		editor: CRU,
-		Admin:  CRUD,
-	}
+	Viewer       = "viewer"
+	Editor       = "editor"
+	Admin        = "admin"
+	BuiltInRoles = []string{Viewer, Editor, Admin}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
 	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
 		Viewer: viewerPermissions(),
-		editor: editorPermissions(),
+		Editor: editorPermissions(),
 		Admin:  adminPermissions(),
 	}
 )
