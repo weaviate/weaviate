@@ -164,6 +164,31 @@ func (o *RevokeRoleForbidden) WriteResponse(rw http.ResponseWriter, producer run
 	}
 }
 
+// RevokeRoleNotFoundCode is the HTTP code returned for type RevokeRoleNotFound
+const RevokeRoleNotFoundCode int = 404
+
+/*
+RevokeRoleNotFound role or user is not found.
+
+swagger:response revokeRoleNotFound
+*/
+type RevokeRoleNotFound struct {
+}
+
+// NewRevokeRoleNotFound creates RevokeRoleNotFound with default headers values
+func NewRevokeRoleNotFound() *RevokeRoleNotFound {
+
+	return &RevokeRoleNotFound{}
+}
+
+// WriteResponse to the client
+func (o *RevokeRoleNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
+}
+
 // RevokeRoleInternalServerErrorCode is the HTTP code returned for type RevokeRoleInternalServerError
 const RevokeRoleInternalServerErrorCode int = 500
 

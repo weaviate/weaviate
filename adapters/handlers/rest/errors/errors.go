@@ -9,15 +9,16 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package traverser
+package errors
 
 import (
-	"github.com/weaviate/weaviate/entities/filters"
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (e *Explorer) validateFilters(filter *filters.LocalFilter) error {
-	if filter == nil {
-		return nil
-	}
-	return filters.ValidateFilters(e.schemaGetter.ReadOnlyClass, filter)
+func ErrPayloadFromSingleErr(err error) *models.ErrorResponse {
+	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: fmt.Sprintf("%s", err),
+	}}}
 }

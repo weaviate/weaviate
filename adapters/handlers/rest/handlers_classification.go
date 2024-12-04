@@ -14,10 +14,12 @@ package rest
 import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/entities/models"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -31,7 +33,14 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))
 			if err != nil {
 				metricRequestsTotal.logError("", err)
-				return classifications.NewClassificationsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+				var forbidden autherrs.Forbidden
+				switch {
+				case errors.As(err, &forbidden):
+					return classifications.NewClassificationsGetForbidden().
+						WithPayload(errPayloadFromSingleErr(err))
+				default:
+					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
+				}
 			}
 
 			if res == nil {
@@ -49,7 +58,15 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
 				metricRequestsTotal.logUserError("")
-				return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
+
+				var forbidden autherrs.Forbidden
+				switch {
+				case errors.As(err, &forbidden):
+					return classifications.NewClassificationsPostForbidden().
+						WithPayload(errPayloadFromSingleErr(err))
+				default:
+					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
+				}
 			}
 
 			metricRequestsTotal.logOk("")

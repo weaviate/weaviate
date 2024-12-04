@@ -51,22 +51,22 @@ type generativeParser interface {
 }
 
 type Parser struct {
-	generative generativeParser
-	getClass   func(string) *models.Class
+	generative         generativeParser
+	authorizedGetClass func(string) (*models.Class, error)
 }
 
-func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
+func NewParser(uses127Api bool, authorizedGetClass func(string) (*models.Class, error)) *Parser {
 	return &Parser{
-		generative: generative.NewParser(uses127Api),
-		getClass:   getClass,
+		generative:         generative.NewParser(uses127Api),
+		authorizedGetClass: authorizedGetClass,
 	}
 }
 
 func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class := p.getClass(req.Collection)
-	if class == nil {
-		return dto.GetParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
+	class, err := p.authorizedGetClass(req.Collection)
+	if err != nil {
+		return out, err
 	}
 
 	out.ClassName = req.Collection
@@ -88,7 +88,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -330,12 +330,12 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(p.getClass, filter); err != nil {
+		if err := filters.ValidateFilters(p.authorizedGetClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
@@ -632,13 +632,13 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(getClass, className)
+		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -647,13 +647,13 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 
 	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors, vectorSearch)
+		return extractPropertiesRequestDeprecated(reqProps, authorizedGetClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(getClass, className)
+		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -672,9 +672,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class := getClass(className)
-		if class == nil {
-			return nil, fmt.Errorf("could not find class %s in schema", className)
+		class, err := authorizedGetClass(className)
+		if err != nil {
+			return nil, err
 		}
 
 		for _, prop := range reqProps.RefProperties {
@@ -697,12 +697,14 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
-			linkedClass := getClass(linkedClassName)
-
+			linkedClass, err := authorizedGetClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -715,7 +717,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -746,7 +748,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -762,9 +764,9 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class := getClass(className)
-		if class == nil {
-			return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+		class, err := authorizedGetClass(className)
+		if err != nil {
+			return nil, err
 		}
 
 		for _, prop := range reqProps.RefProperties {
@@ -790,12 +792,15 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
-			linkedClass := getClass(linkedClassName)
+			linkedClass, err := authorizedGetClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			if prop.Metadata != nil {
 				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
@@ -804,7 +809,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -906,13 +911,12 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(getClass func(string) *models.Class, className string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(authorizedGetClass func(string) (*models.Class, error), className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
-	class := getClass(className)
-	if class == nil {
-		return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+	class, err := authorizedGetClass(className)
+	if err != nil {
+		return nil, err
 	}
-
 	for _, prop := range class.Properties {
 		dt, err := schema.GetPropertyDataType(class, prop.Name)
 		if err != nil {

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
@@ -52,6 +54,13 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateClassAuth(t *testing.T, class *models.Class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -119,6 +128,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
+func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
+	t.Helper()
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
 func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
 	cls := string(cl)
 	params := batch.NewBatchObjectsCreateParams().
@@ -171,6 +191,13 @@ func DeleteClass(t *testing.T, class string) {
 	t.Helper()
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+	AssertRequestOk(t, delRes, err, nil)
+}
+
+func DeleteClassWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, authInfo)
 	AssertRequestOk(t, delRes, err, nil)
 }
 
@@ -288,6 +315,13 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateTenantsAuth(t *testing.T, class string, tenants []*models.Tenant, key string) {
+	t.Helper()
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 

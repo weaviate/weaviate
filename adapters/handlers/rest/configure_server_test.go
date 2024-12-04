@@ -9,45 +9,49 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package authorization
+package rest
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_Authorizer(t *testing.T) {
+func Test_DummyAuthorizer(t *testing.T) {
 	t.Run("when no authz is configured", func(t *testing.T) {
-		cfg := config.Config{}
-
-		authorizer := New(cfg)
-
-		t.Run("it uses the dummy authorizer", func(t *testing.T) {
-			_, ok := authorizer.(*DummyAuthorizer)
-			assert.Equal(t, true, ok)
-		})
+		authorizer := authorization.DummyAuthorizer{}
 
 		t.Run("any request is allowed", func(t *testing.T) {
 			err := authorizer.Authorize(nil, "delete", "the/world")
 			assert.Nil(t, err)
 		})
 	})
+}
 
+func Test_AdminListAuthorizer(t *testing.T) {
 	t.Run("when adminlist is configured", func(t *testing.T) {
 		cfg := config.Config{
 			Authorization: config.Authorization{
 				AdminList: adminlist.Config{
 					Enabled: true,
+					Users:   []string{"user1"},
 				},
 			},
 		}
 
-		authorizer := New(cfg)
+		authorizer := adminlist.New(cfg.Authorization.AdminList)
+		t.Run("admin requests are allowed", func(t *testing.T) {
+			err := authorizer.Authorize(&models.Principal{Username: "user1"}, "delete", "the/world")
+			assert.Nil(t, err)
+		})
 
-		_, ok := authorizer.(*adminlist.Authorizer)
-		assert.Equal(t, true, ok)
+		t.Run("non admin requests are allowed", func(t *testing.T) {
+			err := authorizer.Authorize(&models.Principal{Username: "user2"}, "delete", "the/world")
+			assert.NotNil(t, err)
+		})
 	})
 }

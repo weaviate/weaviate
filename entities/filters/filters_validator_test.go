@@ -25,13 +25,13 @@ type fakeFinder struct {
 	mock.Mock
 }
 
-func (f *fakeFinder) ReadOnlyClass(name string) *models.Class {
+func (f *fakeFinder) ReadOnlyClass(name string) (*models.Class, error) {
 	args := f.Called(name)
 	model := args.Get(0)
 	if model == nil {
-		return nil
+		return nil, nil
 	}
-	return model.(*models.Class)
+	return model.(*models.Class), nil
 }
 
 func TestValidateIsNullOperator(t *testing.T) {
