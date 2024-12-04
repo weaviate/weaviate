@@ -547,7 +547,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
 		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
 	}
-	reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_BrokenIndex")
+	// reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_BrokenIndex")
 	if len(reindexTaskNames) > 0 {
 		// wait until meta store is ready, as reindex tasks needs schema
 		<-storeReadyCtx.Done()
@@ -557,9 +557,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			appState.Logger.
 				WithField("action", "startup").
 				Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+			taskArgs := &db.ShardInvertedReindexTask_BrokenIndexArgs{
+				ClassNamesWithPropertyNames: map[string]map[string]struct{}{"I5_psg": {"i5_doc": {}}},
+			}
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, taskArgs, reindexTaskNames...)
 		}, appState.Logger)
 	}
+	appState.Migrator = migrator
 
 	configureServer = makeConfigureServer(appState)
 

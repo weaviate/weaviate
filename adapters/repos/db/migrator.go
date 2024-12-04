@@ -781,20 +781,27 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
 
-func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+// TODO any->invertedReindexTaskArgs
+func (m *Migrator) InvertedReindex(ctx context.Context, taskArgs any, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
-	errs.Add(m.doInvertedReindex(ctx, taskNames...))
+	errs.Add(m.doInvertedReindex(ctx, taskArgs, taskNames...))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
 	return errs.ToError()
 }
 
-func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) error {
+func (m *Migrator) doInvertedReindex(ctx context.Context, taskArgs any, taskNames ...string) error {
 	tasksProviders := map[string]func() ShardInvertedReindexTask{
 		"ShardInvertedReindexTaskSetToRoaringSet": func() ShardInvertedReindexTask {
 			return &ShardInvertedReindexTaskSetToRoaringSet{}
 		},
 		"ShardInvertedReindexTask_BrokenIndex": func() ShardInvertedReindexTask {
-			return &ShardInvertedReindexTask_BrokenIndex{}
+			if taskArgs == nil {
+				panic("unexpected nil taskArgs for ShardInvertedReindexTask_BrokenIndex")
+			}
+			args := taskArgs.(*ShardInvertedReindexTask_BrokenIndexArgs)
+			return &ShardInvertedReindexTask_BrokenIndex{
+				classNamesWithPropertyNames: args.ClassNamesWithPropertyNames,
+			}
 		},
 	}
 

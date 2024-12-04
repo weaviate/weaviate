@@ -22,7 +22,13 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type ShardInvertedReindexTask_BrokenIndex struct{}
+type ShardInvertedReindexTask_BrokenIndex struct {
+	classNamesWithPropertyNames map[string]map[string]struct{}
+}
+
+type ShardInvertedReindexTask_BrokenIndexArgs struct {
+	ClassNamesWithPropertyNames map[string]map[string]struct{}
+}
 
 func (t *ShardInvertedReindexTask_BrokenIndex) GetPropertiesToReindex(ctx context.Context,
 	shard ShardLike,
@@ -158,10 +164,5 @@ func (t *ShardInvertedReindexTask_BrokenIndex) ObjectsIterator(shard ShardLike) 
 }
 
 func (t *ShardInvertedReindexTask_BrokenIndex) getClassesWithProps() map[string]map[string]struct{} {
-	// TODO configurable
-	return map[string]map[string]struct{}{
-		"City": {
-			"inCountry": {},
-		},
-	}
+	return t.classNamesWithPropertyNames
 }

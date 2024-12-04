@@ -253,17 +253,20 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 
 	i := 0
 	if err := objectsIterator(ctx, func(object *storobj.Object) error {
-		fmt.Printf("  ==> iterating objects: object id [%s][%+v]\n\n", object.ID(), object.Properties())
+		// fmt.Printf("  ==> iterating objects: object id [%s][%+v]\n\n", object.ID(), object.Properties())
 
 		// check context expired every 1k objects
 		if i%1_000 == 0 && i != 0 {
 			if err := r.checkContextExpired(ctx, "iterating through objects stopped due to context canceled"); err != nil {
 				return err
 			}
-			r.logger.
-				WithField("action", "inverted_reindex").
-				WithField("shard", r.shard.Name()).
-				Debugf("iterating through objects: %d done", i)
+			// log every 100k objects, to avoid too much logging
+			if i%100_000 == 0 {
+				r.logger.
+					WithField("action", "inverted_reindex").
+					WithField("shard", r.shard.Name()).
+					Infof("iterating through objects: %d done", i)
+			}
 		}
 		docID := object.DocID
 		properties, nilProperties, err := r.shard.AnalyzeObject(object)
@@ -272,18 +275,18 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 		}
 
 		for _, property := range properties {
-			fmt.Printf("  ==> iterating objects: property [%s]\n", property.Name)
+			// fmt.Printf("  ==> iterating objects: property [%s]\n", property.Name)
 			if err := r.handleProperty(ctx, checker, docID, property); err != nil {
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", property.Name, docID)
 			}
 		}
 		for _, nilProperty := range nilProperties {
-			fmt.Printf("  ==> iterating objects: nilProperty [%s]\n", nilProperty.Name)
+			// fmt.Printf("  ==> iterating objects: nilProperty [%s]\n", nilProperty.Name)
 			if err := r.handleNilProperty(ctx, checker, docID, nilProperty); err != nil {
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", nilProperty.Name, docID)
 			}
 		}
-		fmt.Println()
+		// fmt.Println()
 
 		i++
 		return nil
@@ -328,13 +331,13 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			key := item.Data
 			if reindexablePropSearchableValue && inverted.HasSearchableIndex(schemaProp) {
 				pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-				fmt.Printf("    ==> handleProperty searchable [%s][%d]\n", key, docID)
+				// fmt.Printf("    ==> handleProperty searchable [%s][%d]\n", key, docID)
 				if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
 			}
 			if reindexablePropValue && inverted.HasFilterableIndex(schemaProp) {
-				fmt.Printf("    ==> handleProperty filterable [%s][%d]\n", key, docID)
+				// fmt.Printf("    ==> handleProperty filterable [%s][%d]\n", key, docID)
 				if err := r.shard.addToPropertySetBucket(bucketValue, docID, key); err != nil {
 					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 				}
@@ -359,7 +362,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 				}
 				for _, item := range property.Items {
 					key := item.Data
-					fmt.Printf("    ==> handleProperty meta [%s][%d]\n", key, docID)
+					// fmt.Printf("    ==> handleProperty meta [%s][%d]\n", key, docID)
 					if err := r.shard.addToPropertySetBucket(bucketMeta, docID, key); err != nil {
 						return errors.Wrapf(err, "failed adding to prop '%s' meta bucket", property.Name)
 					}
@@ -379,7 +382,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			if bucketLength == nil {
 				return fmt.Errorf("no bucket for prop '%s' length found", property.Name)
 			}
-			fmt.Printf("    ==> handleProperty length [%s][%d]\n", key, docID)
+			// fmt.Printf("    ==> handleProperty length [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketLength, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' length bucket", property.Name)
 			}
@@ -396,7 +399,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 			if bucketNull == nil {
 				return fmt.Errorf("no bucket for prop '%s' null found", property.Name)
 			}
-			fmt.Printf("    ==> handleProperty null [%s][%d]\n", key, docID)
+			// fmt.Printf("    ==> handleProperty null [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' null bucket", property.Name)
 			}
@@ -419,7 +422,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 			if bucketLength == nil {
 				return fmt.Errorf("no bucket for prop '%s' length found", nilProperty.Name)
 			}
-			fmt.Printf("    ==> handleNilProperty length [%s][%d]\n", key, docID)
+			// fmt.Printf("    ==> handleNilProperty length [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketLength, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' length bucket", nilProperty.Name)
 			}
@@ -436,7 +439,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 			if bucketNull == nil {
 				return fmt.Errorf("no bucket for prop '%s' null found", nilProperty.Name)
 			}
-			fmt.Printf("    ==> handleNilProperty null [%s][%d]\n", key, docID)
+			// fmt.Printf("    ==> handleNilProperty null [%s][%d]\n", key, docID)
 			if err := r.shard.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' null bucket", nilProperty.Name)
 			}
