@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	sumadditional "github.com/weaviate/weaviate/modules/sum-transformers/additional"
@@ -68,9 +69,16 @@ func (m *SUMModule) initAdditional(ctx context.Context, timeout time.Duration,
 		return errors.Errorf("required variable SUM_INFERENCE_API is not set")
 	}
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("SUM_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	client := client.New(uri, timeout, logger)
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote sum module")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote sum module")
+		}
 	}
 
 	m.sum = client

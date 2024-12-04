@@ -68,6 +68,10 @@ issues:
         - staticcheck
       path: test/acceptance/grpc/list_value_return_test.go
       text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
+    - linters:
+        - staticcheck
+      path: usecases/auth/authentication/oidc/middleware_test.go
+      text: 'SA1019' # jwt.StandardClaims is deprecated, but for the purpose of this test, this doesn't matter
     # Exclude 'unused' linter for assembly files
     - linters:
         - unused
