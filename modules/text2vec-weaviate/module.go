@@ -35,11 +35,11 @@ import (
 const Name = "text2vec-weaviate"
 
 var batchSettings = batch.Settings{
-	TokenMultiplier:    0,
+	TokenMultiplier:    1,
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 200,
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
-	HasTokenLimit:      false,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 512 * 200 },
+	HasTokenLimit:      true,
 	ReturnsRateLimit:   false,
 }
 
