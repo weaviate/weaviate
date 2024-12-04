@@ -129,6 +129,9 @@ type Config struct {
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
+
+	// map[className][]propertyName
+	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 }
 
 type moduleProvider interface {
