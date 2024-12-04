@@ -261,7 +261,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 			r.logger.
 				WithField("action", "inverted_reindex").
 				WithField("shard", r.shard.Name()).
-				Debugf("iterating through objects: %d done", i)
+				Infof("iterating through objects: %d done", i)
 		}
 		docID := object.DocID
 		properties, nilProperties, err := r.shard.AnalyzeObject(object)
