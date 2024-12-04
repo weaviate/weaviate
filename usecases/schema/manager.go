@@ -341,6 +341,16 @@ func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...st
 	return m.activateTenantIfInactive(ctx, class, status)
 }
 
+func (m *Manager) TenantsShardsDontActivate(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+	slices.Sort(tenants)
+	tenants = slices.Compact(tenants)
+	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	if err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
 // OptimisticTenantStatus tries to query the local state first. It is
 // optimistic that the state has already propagated correctly. If the state is
 // unexpected, i.e. either the tenant is not found at all or the status is
