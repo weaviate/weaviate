@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -26,6 +27,46 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		propertyNamesStr := r.URL.Query().Get("propertyNames")
+		if propertyNamesStr == "" {
+			http.Error(w, "propertyNames is required", http.StatusBadRequest)
+			return
+		}
+		propertyNames := strings.Split(propertyNamesStr, ",")
+		if len(propertyNames) == 0 {
+			http.Error(w, "propertyNames len > 0 is required", http.StatusBadRequest)
+			return
+		}
+		timeoutStr := r.URL.Query().Get("timeout")
+		timeoutDuration := time.Hour
+		var err error
+		if timeoutStr != "" {
+			timeoutDuration, err = time.ParseDuration(timeoutStr)
+			if err != nil {
+				http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+		defer cancel()
+
+		err = appState.Migrator.InvertedReindex(ctx, map[string]any{
+			"ShardInvertedReindexTask_SpecifiedIndex": map[string][]string{colName: propertyNames},
+		})
+		if err != nil {
+			logger.WithError(err).Error("failed to rebuild inverted index")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
