@@ -14,6 +14,7 @@ package authz
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/pkg/errors"
@@ -25,24 +26,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type authZHandlers struct {
-	authorizer         authorization.Authorizer
-	controller         authorization.Controller
-	schemaReader       schemaUC.SchemaGetter
-	logger             logrus.FieldLogger
-	metrics            *monitoring.PrometheusMetrics
-	existingAuthNUsers []string
-	rbacconfig         rbacconf.Config
+	authorizer     authorization.Authorizer
+	controller     authorization.Controller
+	schemaReader   schemaUC.SchemaGetter
+	logger         logrus.FieldLogger
+	metrics        *monitoring.PrometheusMetrics
+	apiKeysConfigs config.APIKey
+	rbacconfig     rbacconf.Config
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
-	existingAuthNUsers []string, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	apiKeysConfigs config.APIKey, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, existingAuthNUsers: existingAuthNUsers, logger: logger, metrics: metrics}
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -289,8 +291,18 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
+	for _, role := range params.Body.Roles {
+		if strings.TrimSpace(role) == "" {
+			return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
+		}
+	}
+
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewAssignRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if !h.userExists(params.ID) {
+		return authz.NewAssignRoleNotFound()
 	}
 
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
@@ -298,8 +310,12 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	if len(existedRoles) != len(params.Body.Roles) && len(params.Body.Roles) == 1 {
+		return authz.NewAssignRoleNotFound()
+	}
+
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign doesn't exists")))
+		return authz.NewAssignRoleNotFound()
 	}
 
 	if err := h.controller.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
@@ -427,6 +443,12 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
 	}
 
+	for _, role := range params.Body.Roles {
+		if strings.TrimSpace(role) == "" {
+			return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))
+		}
+	}
+
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.Body.Roles...)...); err != nil {
 		return authz.NewRevokeRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -441,13 +463,17 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not revoke configured role %s", requestedRole)))
 	}
 
+	if !h.userExists(params.ID) {
+		return authz.NewRevokeRoleNotFound()
+	}
+
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if len(existedRoles) != len(params.Body.Roles) {
-		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke doesn't exists")))
+		return authz.NewRevokeRoleNotFound()
 	}
 
 	if err := h.controller.RevokeRolesForUser(params.ID, params.Body.Roles...); err != nil {
@@ -466,8 +492,8 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 }
 
 func (h *authZHandlers) userExists(user string) bool {
-	if h.existingAuthNUsers != nil {
-		for _, apiKey := range h.existingAuthNUsers {
+	if h.apiKeysConfigs.Enabled {
+		for _, apiKey := range h.apiKeysConfigs.Users {
 			if apiKey == user {
 				return true
 			}
