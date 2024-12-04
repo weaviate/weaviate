@@ -326,11 +326,7 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 
 	copy(objectDigest[:], uuidBytes)
 
-	if status.docIDChanged {
-		if status.oldUpdateTime < 1 {
-			return fmt.Errorf("invalid object previous update time")
-		}
-
+	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(token, objectDigest[:])
