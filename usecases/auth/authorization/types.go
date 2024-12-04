@@ -416,7 +416,6 @@ func viewerPermissions() []*models.Permission {
 // editor : can create/read/update everything , roles, users, schema, data
 func editorPermissions() []*models.Permission {
 	perms := []*models.Permission{}
-	// TODO ignore CRUD if there is manage
 	for _, action := range availableWeaviateActions {
 		if strings.ToUpper(action)[0] == DELETE[0] {
 			continue

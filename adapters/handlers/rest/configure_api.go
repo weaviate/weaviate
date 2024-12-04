@@ -852,7 +852,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
 	}
-	// assign authController
+
 	appState.AuthzController = controller
 
 	if err = configureAuthorizer(appState, controller); err != nil {

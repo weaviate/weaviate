@@ -82,10 +82,6 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// if err := h.validatePermissions(params.Body.Permissions); err != nil {
-	// 	return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
-
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -134,10 +130,6 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
-
-	// if err := h.validatePermissions(params.Body.Permissions); err != nil {
-	// 	return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	// }
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -310,8 +302,6 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign doesn't exists")))
 	}
 
-	// TODO check for users when we have dynamic users
-
 	if err := h.controller.AddRolesForUser(params.ID, params.Body.Roles); err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -350,7 +340,6 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 			return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 
-		// verify the user has access
 		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(roleName)...); err != nil {
 			authErr = err
 			continue
@@ -461,8 +450,6 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke doesn't exists")))
 	}
 
-	// TODO check for users when we have dynamic users
-
 	if err := h.controller.RevokeRolesForUser(params.ID, params.Body.Roles...); err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -490,6 +477,7 @@ func (h *authZHandlers) userExists(user string) bool {
 	return true // dont block OICD for now
 }
 
+// TODO-RBAC: we could expose endpoint to validate permissions as dry-run
 // func (h *authZHandlers) validatePermissions(permissions []*models.Permission) error {
 // 	for _, perm := range permissions {
 // 		if perm == nil {
