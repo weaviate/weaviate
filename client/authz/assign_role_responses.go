@@ -333,7 +333,7 @@ func NewAssignRoleNotFound() *AssignRoleNotFound {
 /*
 AssignRoleNotFound describes a response with status code 404, with default header values.
 
-role is not found.
+role or user is not found.
 */
 type AssignRoleNotFound struct {
 }

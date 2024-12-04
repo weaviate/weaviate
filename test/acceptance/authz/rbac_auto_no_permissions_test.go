@@ -125,7 +125,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 			if slices.Contains(ignoreEndpoints, endpoint.path) {
 				return
 			}
-
+			t.Log(resp.Body)
 			require.Equal(t, http.StatusForbidden, resp.StatusCode)
 		})
 	}
