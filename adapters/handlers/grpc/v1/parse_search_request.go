@@ -793,7 +793,6 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authoriz
 			var addProps additional.Properties
 			if prop.Properties != nil {
 				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
-
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -811,7 +810,6 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authoriz
 
 			if prop.Properties == nil {
 				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
-
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
