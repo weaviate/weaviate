@@ -25,7 +25,7 @@ import (
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
-	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
