@@ -502,6 +502,66 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	})
 }
 
+func TestAuthzRolesHasPermission(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRole := "test-role"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRole,
+			Permissions: []*models.Permission{{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}},
+		})
+	})
+
+	t.Run("true", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("false", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.DeleteCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.False(t, res.Payload)
+	})
+
+	t.Run("forbidden", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*authz.HasPermissionForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+}
+
 func String(s string) *string {
 	return &s
 }

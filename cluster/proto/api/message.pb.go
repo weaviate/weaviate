@@ -41,6 +41,7 @@ const (
 	ApplyRequest_TYPE_REMOVE_PERMISSIONS       ApplyRequest_Type = 62
 	ApplyRequest_TYPE_ADD_ROLES_FOR_USER       ApplyRequest_Type = 63
 	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER    ApplyRequest_Type = 64
+	ApplyRequest_TYPE_HAS_PERMISSION           ApplyRequest_Type = 65
 	ApplyRequest_TYPE_STORE_SCHEMA_V1          ApplyRequest_Type = 99
 )
 
@@ -63,6 +64,7 @@ var (
 		62: "TYPE_REMOVE_PERMISSIONS",
 		63: "TYPE_ADD_ROLES_FOR_USER",
 		64: "TYPE_REVOKE_ROLES_FOR_USER",
+		65: "TYPE_HAS_PERMISSION",
 		99: "TYPE_STORE_SCHEMA_V1",
 	}
 	ApplyRequest_Type_value = map[string]int32{
@@ -82,6 +84,7 @@ var (
 		"TYPE_REMOVE_PERMISSIONS":       62,
 		"TYPE_ADD_ROLES_FOR_USER":       63,
 		"TYPE_REVOKE_ROLES_FOR_USER":    64,
+		"TYPE_HAS_PERMISSION":           65,
 		"TYPE_STORE_SCHEMA_V1":          99,
 	}
 )
