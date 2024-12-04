@@ -751,7 +751,7 @@ func Test_pCollections(t *testing.T) {
 	}{
 		{collection: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
 		{collection: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", expected: fmt.Sprintf("%s/collections/foo/shards/.*", authorization.SchemaDomain)},
+		{collection: "foo", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
@@ -770,11 +770,11 @@ func Test_CasbinShards(t *testing.T) {
 	}{
 		{collection: "", shard: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
 		{collection: "*", shard: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", shard: "", expected: fmt.Sprintf("%s/collections/foo/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", shard: "*", expected: fmt.Sprintf("%s/collections/foo/shards/.*", authorization.SchemaDomain)},
+		{collection: "foo", shard: "", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
+		{collection: "foo", shard: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
 		{collection: "", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar", authorization.SchemaDomain)},
 		{collection: "*", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar", authorization.SchemaDomain)},
-		{collection: "foo", shard: "bar", expected: fmt.Sprintf("%s/collections/foo/shards/bar", authorization.SchemaDomain)},
+		{collection: "foo", shard: "bar", expected: fmt.Sprintf("%s/collections/Foo/shards/bar", authorization.SchemaDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
@@ -794,19 +794,19 @@ func Test_pObjects(t *testing.T) {
 	}{
 		{collection: "", shard: "", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
 		{collection: "*", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "", object: "", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "", object: "", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "*", object: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/.*", authorization.DataDomain)},
 		{collection: "", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
 		{collection: "*", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/.*", authorization.DataDomain)},
 		{collection: "", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
 		{collection: "*", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/.*", authorization.DataDomain)},
-		{collection: "foo", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/.*", authorization.DataDomain)},
+		{collection: "foo", shard: "", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "*", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/.*/objects/baz", authorization.DataDomain)},
 		{collection: "", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
 		{collection: "*", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/.*/shards/bar/objects/baz", authorization.DataDomain)},
-		{collection: "foo", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/foo/shards/bar/objects/baz", authorization.DataDomain)},
+		{collection: "foo", shard: "bar", object: "baz", expected: fmt.Sprintf("%s/collections/Foo/shards/bar/objects/baz", authorization.DataDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s; object: %s", tt.collection, tt.shard, tt.object)
@@ -824,11 +824,11 @@ func Test_CasbinBackups(t *testing.T) {
 	}{
 		{backend: "", expected: fmt.Sprintf("%s/collections/.*", authorization.BackupsDomain)},
 		{backend: "*", expected: fmt.Sprintf("%s/collections/.*", authorization.BackupsDomain)},
-		{backend: "foo", expected: fmt.Sprintf("%s/collections/foo", authorization.BackupsDomain)},
-		{backend: "foo", expected: fmt.Sprintf("%s/collections/foo", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/collections/Foo", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/collections/Foo", authorization.BackupsDomain)},
 		{backend: "", expected: fmt.Sprintf("%s/collections/.*", authorization.BackupsDomain)},
 		{backend: "*", expected: fmt.Sprintf("%s/collections/.*", authorization.BackupsDomain)},
-		{backend: "foo", expected: fmt.Sprintf("%s/collections/foo", authorization.BackupsDomain)},
+		{backend: "foo", expected: fmt.Sprintf("%s/collections/Foo", authorization.BackupsDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("backend: %s", tt.backend)

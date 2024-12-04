@@ -87,18 +87,20 @@ func CasbinClusters() string {
 	return fmt.Sprintf("%s/.*", authorization.ClusterDomain)
 }
 
-func CasbinNodes(verbosity, collection string) string {
+func CasbinNodes(verbosity, class string) string {
+	class = schema.UppercaseClassesNames(class)[0]
 	if verbosity == "minimal" {
 		return fmt.Sprintf("%s/verbosity/minimal", authorization.NodesDomain)
 	}
-	if collection == "" {
-		collection = "*"
+	if class == "" {
+		class = "*"
 	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, collection)
+	class = strings.ReplaceAll(class, "*", ".*")
+	return fmt.Sprintf("%s/verbosity/verbose/collections/%s", authorization.NodesDomain, class)
 }
 
 func CasbinBackups(class string) string {
+	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
 	}
@@ -123,6 +125,7 @@ func CasbinRoles(role string) string {
 }
 
 func CasbinSchema(collection, shard string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
 	}
@@ -135,6 +138,7 @@ func CasbinSchema(collection, shard string) string {
 }
 
 func CasbinData(collection, shard, object string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
 	}
