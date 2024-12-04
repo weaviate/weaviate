@@ -22,11 +22,11 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type ShardInvertedReindexTask_CorruptedIndex struct {
+type ShardInvertedReindexTask_SpecifiedIndex struct {
 	classNamesWithPropertyNames map[string]map[string]struct{}
 }
 
-func (t *ShardInvertedReindexTask_CorruptedIndex) GetPropertiesToReindex(ctx context.Context,
+func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx context.Context,
 	shard ShardLike,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
@@ -111,11 +111,11 @@ func (t *ShardInvertedReindexTask_CorruptedIndex) GetPropertiesToReindex(ctx con
 	return reindexableProperties, nil
 }
 
-func (t *ShardInvertedReindexTask_CorruptedIndex) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
+func (t *ShardInvertedReindexTask_SpecifiedIndex) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	return nil
 }
 
-func (t *ShardInvertedReindexTask_CorruptedIndex) ObjectsIterator(shard ShardLike) objectsIterator {
+func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLike) objectsIterator {
 	class := shard.Index().Config.ClassName.String()
 	props, ok := t.classNamesWithPropertyNames[class]
 	if !ok || len(props) == 0 {

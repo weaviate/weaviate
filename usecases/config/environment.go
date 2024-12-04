@@ -96,12 +96,14 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	if v := os.Getenv("REINDEX_CORRUPTED_INDEXES_AT_STARTUP"); v != "" {
+	// variable expects string in format:
+	// "Class1:property11,property12;Class2:property21,property22"
+	if v := os.Getenv("REINDEX_INDEXES_AT_STARTUP"); v != "" {
 		asClassesWithProps, err := parseClassNamesWithPropsNames(v)
 		if err != nil {
-			return fmt.Errorf("parse REINDEX_CORRUPTED_INDEXES_AT_STARTUP as class with props: %w", err)
+			return fmt.Errorf("parse REINDEX_INDEXES_AT_STARTUP as class with props: %w", err)
 		}
-		config.ReindexCorruptedIndexesAtStartup = asClassesWithProps
+		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
@@ -701,8 +703,9 @@ func parseInt(envName string, defaultValue int, verify func(val int) error, cb f
 	return nil
 }
 
+// expects "Class1:property11,property12;Class2:property21,property22"
+// returns map[Class][]property
 func parseClassNamesWithPropsNames(v string) (map[string][]string, error) {
-	// "class1:property11,property12;class2:property21,property22"
 	classNamesWithPropsNames := map[string][]string{}
 
 	regexClass := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
