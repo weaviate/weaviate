@@ -96,6 +96,7 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		Model:    icheck.Model(),
 		BaseURL:  icheck.BaseURL(),
 		Truncate: icheck.Truncate(),
+		Dimensions: icheck.Dimensions(),
 	}
 }
 
