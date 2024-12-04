@@ -93,9 +93,9 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	icheck := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		Model:    icheck.Model(),
-		BaseURL:  icheck.BaseURL(),
-		Truncate: icheck.Truncate(),
+		Model:      icheck.Model(),
+		BaseURL:    icheck.BaseURL(),
+		Truncate:   icheck.Truncate(),
 		Dimensions: icheck.Dimensions(),
 	}
 }
