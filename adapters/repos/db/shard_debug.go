@@ -29,7 +29,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 
 	var vidx VectorIndex
-	var q *IndexQueue
+	var q *VectorIndexQueue
 	if s.hasTargetVectors() {
 		vidx = s.vectorIndexes[targetVector]
 		q = s.queues[targetVector]
@@ -42,7 +42,8 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
 
-	q.PauseIndexing()
+	q.Pause()
+	q.Wait()
 
 	err := vidx.Drop(ctx)
 	if err != nil {
@@ -63,11 +64,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		vidx = s.vectorIndex
 	}
 
-	err = q.ResetWith(vidx)
-	if err != nil {
-		return errors.Wrap(err, "reset queue")
-	}
-
-	q.ResumeIndexing()
+	q.ResetWith(vidx)
+	q.Resume()
 	return nil
 }

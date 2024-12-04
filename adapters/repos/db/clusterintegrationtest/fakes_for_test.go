@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -68,6 +69,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		local:        n.name,
 	}
 
+	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
 		panic(err)
