@@ -451,7 +451,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
-      ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai" \
+      ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai,multi2vec-voyageai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
