@@ -243,6 +243,7 @@ func (pc *PagedCache[T]) GetFreeCallerId() int {
 func (pc *PagedCache[T]) ReturnCallerId(id int) {
 	pc.Lock()
 	defer pc.Unlock()
+	pc.collectMemoryAfterReturningCallerId(id)
 	pc.callerIds[id] = false
 	pc.pagesUsedByCaller[id] = nil
 }
@@ -258,6 +259,22 @@ func (pc *PagedCache[T]) CollectMemory() {
 	}
 	for i, page := range pc.pages {
 		if page == nil || bussy[i] {
+			continue
+		}
+		pc.pages[i].store(pc.fileNameForId(i))
+		pc.pages[i] = nil
+	}
+}
+
+func (pc *PagedCache[T]) collectMemoryAfterReturningCallerId(id int) {
+	bussy := make([]bool, len(pc.pages))
+	for _, m := range pc.pagesUsedByCaller {
+		for i := range m {
+			bussy[i] = true
+		}
+	}
+	for i := range pc.pagesUsedByCaller[id] {
+		if bussy[i] || pc.pages[i] == nil {
 			continue
 		}
 		pc.pages[i].store(pc.fileNameForId(i))
