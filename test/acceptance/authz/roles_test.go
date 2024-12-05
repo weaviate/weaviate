@@ -502,6 +502,126 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	})
 }
 
+func TestAuthzRolesHasPermission(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRole := "test-role"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRole,
+			Permissions: []*models.Permission{{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}},
+		})
+	})
+
+	t.Run("true", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("false", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.DeleteCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.False(t, res.Payload)
+	})
+
+	t.Run("forbidden", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*authz.HasPermissionForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+}
+
+func TestAuthzRolesHasPermissionEventuallyConsistent(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	testRole := "test-role"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRole,
+			Permissions: []*models.Permission{{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}},
+		})
+	})
+
+	t.Run("eventually true", func(t *testing.T) {
+		require.EventuallyWithT(t, func(collect *assert.CollectT) {
+			res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}), helper.CreateAuth(adminKey))
+			require.Nil(t, err)
+			require.True(t, res.Payload)
+		}, 3*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run("eventually false", func(t *testing.T) {
+		require.EventuallyWithT(t, func(collect *assert.CollectT) {
+			res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+				Action: &authorization.DeleteCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}), helper.CreateAuth(adminKey))
+			require.Nil(t, err)
+			require.False(t, res.Payload)
+		}, 3*time.Second, 500*time.Millisecond)
+	})
+}
+
 func String(s string) *string {
 	return &s
 }
