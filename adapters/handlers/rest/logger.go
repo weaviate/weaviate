@@ -40,3 +40,26 @@ func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	e.Data["build_go_version"] = wf.goVersion
 	return wf.TextFormatter.Format(e)
 }
+
+// logLevelFromString converts a string to a logrus log level, defaulting to info if the string is
+// not recognized.
+func logLevelFromString(level string) logrus.Level {
+	switch level {
+	case "panic":
+		return logrus.PanicLevel
+	case "fatal":
+		return logrus.FatalLevel
+	case "error":
+		return logrus.ErrorLevel
+	case "warn", "warning":
+		return logrus.WarnLevel
+	case "info":
+		return logrus.InfoLevel
+	case "debug":
+		return logrus.DebugLevel
+	case "trace":
+		return logrus.TraceLevel
+	default:
+		return logrus.InfoLevel
+	}
+}
