@@ -12,12 +12,8 @@
 package test
 
 import (
-	"context"
 	"errors"
 	"testing"
-	"time"
-
-	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
@@ -35,27 +31,20 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	adminUser := "admin-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	readSchemaAction := authorization.ReadSchema
+	readSchemaAction := authorization.ReadCollections
 	createDataAction := authorization.CreateData
-	updateSchemaAction := authorization.UpdateSchema
-	createSchemaAction := authorization.CreateSchema
+	updateSchemaAction := authorization.UpdateCollections
+	createSchemaAction := authorization.CreateCollections
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
-	compose, err := docker.New().WithWeaviate().WithAutoschema().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	var err error
 
 	className := "Class"
+	classNameNew := "ClassNew"
+	deleteObjectClass(t, className, adminAuth)
+	deleteObjectClass(t, classNameNew, adminAuth)
 	c := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
@@ -65,23 +54,42 @@ func TestAutoschemaAuthZ(t *testing.T) {
 			},
 		},
 	}
-	deleteObjectClass(t, className, adminAuth)
 	helper.CreateClassAuth(t, c, adminKey)
 
-	// user needs to be able to create objects and read the class schema
-
-	// create roles to assign to user later:
+	// user needs to be able to create objects and read the configs
+	all := "*"
 	readSchemaAndCreateDataRoleName := "readSchemaAndCreateData"
 	readSchemaRole := &models.Role{
 		Name: &readSchemaAndCreateDataRoleName,
 		Permissions: []*models.Permission{
-			{Action: &readSchemaAction, Collection: &className},
-			{Action: &createDataAction, Collection: &className},
+			{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &all}},
+			{Action: &createDataAction, Data: &models.PermissionData{Collection: &all}},
 		},
 	}
-	helper.DeleteRole(t, adminKey, *readSchemaRole.Name)
-	helper.CreateRole(t, adminKey, readSchemaRole)
 
+	// create roles to assign to user later:
+	updateSchemaRoleName := "updateSchema"
+	updateSchemaRole := &models.Role{
+		Name:        &updateSchemaRoleName,
+		Permissions: []*models.Permission{{Action: &updateSchemaAction, Collections: &models.PermissionCollections{Collection: &className}}},
+	}
+	createSchemaRoleName := "createSchema"
+	createSchemaRole := &models.Role{
+		Name:        &createSchemaRoleName,
+		Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &classNameNew}}},
+	}
+
+	helper.DeleteRole(t, adminKey, *readSchemaRole.Name)
+	helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
+	helper.DeleteRole(t, adminKey, *updateSchemaRole.Name)
+	helper.CreateRole(t, adminKey, readSchemaRole)
+	helper.CreateRole(t, adminKey, updateSchemaRole)
+	helper.CreateRole(t, adminKey, createSchemaRole)
+	defer helper.DeleteRole(t, adminKey, *readSchemaRole.Name)
+	defer helper.DeleteRole(t, adminKey, *updateSchemaRole.Name)
+	defer helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
+
+	// all tests need read schema
 	_, err = helper.Client(t).Authz.AssignRole(
 		authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{readSchemaAndCreateDataRoleName}}),
 		adminAuth,
@@ -111,22 +119,6 @@ func TestAutoschemaAuthZ(t *testing.T) {
 		require.True(t, errors.As(err, &batchObjectsDeleteUnauthorized))
 	})
 
-	updateSchemaRoleName := "updateSchema"
-	updateSchemaRole := &models.Role{
-		Name:        &updateSchemaRoleName,
-		Permissions: []*models.Permission{{Action: &updateSchemaAction, Collection: &className}},
-	}
-	helper.DeleteRole(t, adminKey, *updateSchemaRole.Name)
-	helper.CreateRole(t, adminKey, updateSchemaRole)
-
-	createSchemaRoleName := "createSchema"
-	createSchemaRole := &models.Role{
-		Name:        &createSchemaRoleName,
-		Permissions: []*models.Permission{{Action: &createSchemaAction, Collection: &className}},
-	}
-	helper.DeleteRole(t, adminKey, *createSchemaRole.Name)
-	helper.CreateRole(t, adminKey, createSchemaRole)
-
 	t.Run("read and update rights for schema", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AssignRole(
 			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
@@ -136,7 +128,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 		// object which does NOT introduce a new prop => no failure
 		_, err = createObject(t, &models.Object{
-			ID:         UUID1,
+			ID:         UUID2,
 			Class:      className,
 			Properties: map[string]interface{}{"name": "prop"},
 			Tenant:     "",
@@ -145,7 +137,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 		// object which does introduce a new prop => also no failure
 		_, err = createObject(t, &models.Object{
-			ID:         UUID2,
+			ID:         UUID3,
 			Class:      className,
 			Properties: map[string]interface{}{"different": "prop"},
 			Tenant:     "",
@@ -154,8 +146,8 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 		// object which does introduce a new class => failure
 		_, err = createObject(t, &models.Object{
-			ID:         UUID3,
-			Class:      className + "new",
+			ID:         UUID4,
+			Class:      classNameNew,
 			Properties: map[string]interface{}{"different": "prop"},
 			Tenant:     "",
 		}, customKey)
@@ -167,14 +159,14 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 	t.Run("create rights for schema", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AssignRole(
-			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName}}),
+			authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{updateSchemaRoleName, createSchemaRoleName}}),
 			adminAuth,
 		)
 		require.NoError(t, err)
 
 		// object which does NOT introduce a new class
 		_, err = createObject(t, &models.Object{
-			ID:         UUID4,
+			ID:         UUID5,
 			Class:      className,
 			Properties: map[string]interface{}{"name": "prop"},
 			Tenant:     "",
@@ -183,8 +175,8 @@ func TestAutoschemaAuthZ(t *testing.T) {
 
 		// object which does introduce a new class
 		_, err = createObject(t, &models.Object{
-			ID:         UUID5,
-			Class:      className + "new",
+			ID:         UUID6,
+			Class:      classNameNew,
 			Properties: map[string]interface{}{"different": "prop"},
 			Tenant:     "",
 		}, customKey)
