@@ -845,10 +845,10 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 }
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	k_prime := k
+	kPrime := k
 	candidateSet := make(map[uint64]bool)
 	for _, vec := range queryVectors {
-		ids, _, err := h.knnSearchByVector(ctx, vec, k_prime, h.searchTimeEF(k_prime), allowList)
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
 		if err != nil {
 			return nil, nil, err
 		}
