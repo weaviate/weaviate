@@ -151,8 +151,11 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7106" \
         CLUSTER_DATA_BIND_PORT="7107" \
         CLUSTER_JOIN="localhost:7100" \
+        PROMETHEUS_MONITORING_PORT="2115" \
+	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         RAFT_PORT="8306" \
         RAFT_INTERNAL_RPC_PORT="8307" \
+	RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
