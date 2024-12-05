@@ -118,3 +118,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx co
 	shard.setFallbackToSearchable(false)
 	return nil
 }
+
+func (t *shardInvertedReindexTaskMissingTextFilterable) ObjectsIterator(shard ShardLike) objectsIterator {
+	return shard.Store().Bucket(helpers.ObjectsBucketLSM).IterateObjects
+}
