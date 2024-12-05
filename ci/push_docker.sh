@@ -60,6 +60,7 @@ function release() {
     echo "PREVIEW_SEMVER_TAG=$tag_preview_semver" >> "$GITHUB_OUTPUT"
   elif [ -n "$tag_exact" ]; then
     echo "PREVIEW_TAG=$tag_exact" >> "$GITHUB_OUTPUT"
+    echo "PREVIEW_SEMVER_TAG=$tag_exact" >> "$GITHUB_OUTPUT"
   fi
 }
 
