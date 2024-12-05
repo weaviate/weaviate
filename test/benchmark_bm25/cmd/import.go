@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/benchmark_bm25/lib"
 )
@@ -38,6 +39,31 @@ func init() {
 	importCmd.PersistentFlags().IntVarP(&Limit, "limit", "l", DefaultLimit, "Limit the number of results returned by the query")
 	importCmd.PersistentFlags().BoolVarP(&AdditionalExplanations, "additional-explanations", "e", DefaultAdditionalExplanations, "Request additional explanations for the query results")
 	importCmd.PersistentFlags().BoolVarP(&PrintDetailedResults, "print-detailed-results", "p", DefaultPrintDetailedResults, "Print detailed results")
+}
+
+func parseData(data []lib.Corpus, datasetId string, batch *batch.ObjectsBatcher, i int) int {
+	total := 0
+	for _, corp := range data {
+		id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
+		props := map[string]interface{}{
+			"modulo_10":   i % 10,
+			"modulo_100":  i % 100,
+			"modulo_1000": i % 1000,
+		}
+
+		for key, value := range corp {
+			props[key] = value
+		}
+
+		batch.WithObjects(&models.Object{
+			ID:         strfmt.UUID(id),
+			Class:      lib.ClassNameFromDatasetID(datasetId),
+			Properties: props,
+		})
+
+		total++
+	}
+	return total
 }
 
 type IndexingExperimentResult struct {
@@ -129,27 +155,9 @@ var importCmd = &cobra.Command{
 				if len(data) == 0 {
 					break
 				}
-				for _, corp := range data {
-					id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
-					props := map[string]interface{}{
-						"modulo_10":   i % 10,
-						"modulo_100":  i % 100,
-						"modulo_1000": i % 1000,
-					}
-
-					for key, value := range corp {
-						props[key] = value
-					}
-
-					batch.WithObjects(&models.Object{
-						ID:         strfmt.UUID(id),
-						Class:      lib.ClassNameFromDatasetID(dataset.ID),
-						Properties: props,
-					})
-
-					i++
-					indexCount++
-				}
+				parsedCount := parseData(data, dataset.ID, batch, i)
+				i += parsedCount
+				indexCount += parsedCount
 
 				if indexCount%BatchSize == 0 {
 					br, err := batch.Do(context.Background())
@@ -181,27 +189,9 @@ var importCmd = &cobra.Command{
 
 			if len(c.Data) != 0 {
 				data := c.Data
-				for _, corp := range data {
-					id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
-					props := map[string]interface{}{
-						"modulo_10":   i % 10,
-						"modulo_100":  i % 100,
-						"modulo_1000": i % 1000,
-					}
-
-					for key, value := range corp {
-						props[key] = value
-					}
-
-					batch.WithObjects(&models.Object{
-						ID:         strfmt.UUID(id),
-						Class:      lib.ClassNameFromDatasetID(dataset.ID),
-						Properties: props,
-					})
-
-					i++
-					indexCount++
-				}
+				parsedCount := parseData(data, dataset.ID, batch, i)
+				i += parsedCount
+				indexCount += parsedCount
 				// we need to send one final batch
 				br, err := batch.Do(context.Background())
 				if err != nil {
