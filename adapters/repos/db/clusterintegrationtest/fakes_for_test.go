@@ -110,7 +110,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
-		n.repo, clusterapi.NewNoopAuthHandler(), false, logger)
+		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
