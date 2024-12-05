@@ -47,7 +47,7 @@ type indices struct {
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all indices requests just return a 418
-	maintenanceModeEnabled          bool
+	maintenanceModeEnabled          func() bool
 	regexpObjects                   *regexp.Regexp
 	regexpObjectsOverwrite          *regexp.Regexp
 	regexObjectsDigest              *regexp.Regexp
@@ -162,7 +162,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled bool, logger logrus.FieldLogger) *indices {
+func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() bool, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:                   regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite:          regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -195,7 +195,7 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if i.maintenanceModeEnabled {
+		if i.maintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
