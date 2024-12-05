@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	Model    string
-	Truncate bool
-	BaseURL  string
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "VoyageAI Multi Modal Module",
+		"documentationHref": "https://docs.voyageai.com/docs/multimodal-embeddings",
+	}, nil
 }
