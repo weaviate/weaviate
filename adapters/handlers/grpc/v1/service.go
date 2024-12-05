@@ -240,6 +240,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(principal),
+		s.classAndDataGetterWithAuthzFunc(principal),
 	)
 	replier := NewReplier(
 		req.Uses_123Api || req.Uses_125Api || req.Uses_127Api,
@@ -286,6 +287,20 @@ func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
 func (s *Service) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
 	return func(name string) (*models.Class, error) {
 		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			return nil, err
+		}
+		class := s.schemaManager.ReadOnlyClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+		return class, nil
+	}
+}
+
+func (s *Service) classAndDataGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	return func(name string) (*models.Class, error) {
+		paths := append(authorization.Collections(name), authorization.Collections(name)...)
+		if err := s.authorizer.Authorize(principal, authorization.READ, paths...); err != nil {
 			return nil, err
 		}
 		class := s.schemaManager.ReadOnlyClass(name)

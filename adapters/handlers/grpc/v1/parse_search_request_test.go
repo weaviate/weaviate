@@ -1807,7 +1807,7 @@ func TestGRPCRequest(t *testing.T) {
 		return class, nil
 	}
 
-	parser := NewParser(false, getClass)
+	parser := NewParser(false, getClass, getClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})

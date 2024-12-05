@@ -5,6 +5,7 @@ from typing import (
     ContextManager,
     Protocol,
     Iterator,
+    List,
 )
 
 import pytest
@@ -14,7 +15,7 @@ from _pytest.fixtures import SubRequest
 from contextlib import contextmanager
 
 from weaviate import WeaviateClient
-from weaviate.rbac.models import PermissionsType
+from weaviate.rbac.models import PermissionsType, _Permission
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -29,11 +30,24 @@ def _sanitize_role_name(name: str) -> str:
     )
 
 
-def generate_missing_permissions(permissions: list):
+def generate_missing_permissions(permissions: PermissionsType):
     result = []
+    permissions = _flatten_permissions(permissions)
     for i in range(len(permissions)):
         result.append(permissions[:i] + permissions[i + 1 :])
     return result
+
+
+def _flatten_permissions(permissions: PermissionsType) -> List[_Permission]:
+    if isinstance(permissions, _Permission):
+        return [permissions]
+    flattened_permissions: List[_Permission] = []
+    for permission in permissions:
+        if isinstance(permission, _Permission):
+            flattened_permissions.append(permission)
+        else:
+            flattened_permissions.extend(permission)
+    return flattened_permissions
 
 
 class RoleWrapperProtocol(Protocol):

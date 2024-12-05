@@ -5,6 +5,7 @@ import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
+from weaviate.collections.classes.types import IReferences
 from weaviate.rbac.models import RBAC
 from weaviate.rbac.roles import _flatten_permissions
 
@@ -424,3 +425,58 @@ def test_batch_ref(
     admin_client.collections.delete(
         [col_name + "target1", col_name + "target2", col_name + "source"]
     )
+
+
+def test_groupby_with_refs(
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol
+) -> None:
+    col_name = _sanitize_role_name(request.node.name)
+    admin_client.collections.delete(
+        [col_name + "target1", col_name + "target2", col_name + "source"]
+    )
+    # create two collections with some objects to test refs
+    target = admin_client.collections.create(
+        name=col_name + "target1",
+        properties=[wvc.config.Property(name="prop", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    source = admin_client.collections.create(
+        name=col_name + "source",
+        references=[
+            wvc.config.ReferenceProperty(name="ref", target_collection=target.name),
+        ],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    uuid_target1 = target.data.insert({"prop": "one"})
+    uuid_target2 = target.data.insert({"prop": "two"})
+    uuid_source1 = source.data.insert(
+        properties={}, references={"ref": uuid_target1}, vector=[1, 0]
+    )
+    uuid_source2 = source.data.insert(
+        properties={}, references={"ref": uuid_target2}, vector=[1, 0]
+    )
+
+    required_permissions = [
+        RBAC.permissions.collections(collection=[source.name, target.name], read_config=True),
+        RBAC.permissions.data(collection=[source.name, target.name], read=True),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(
+            source.name
+        )  # no network call => no RBAC check
+
+        res = source_no_rights.query.near_vector(
+            [1, 0],
+            group_by=wvc.query.GroupBy(prop="ref", objects_per_group=2, number_of_groups=3),
+        )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(source.name)
+
+            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+                res = source_no_rights.query.near_vector(
+                    [1, 0],
+                    group_by=wvc.query.GroupBy(prop="ref", objects_per_group=2, number_of_groups=3),
+                )
+            assert "forbidden" in e.value.args[0]

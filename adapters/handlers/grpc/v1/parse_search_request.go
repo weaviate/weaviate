@@ -51,14 +51,16 @@ type generativeParser interface {
 }
 
 type Parser struct {
-	generative         generativeParser
-	authorizedGetClass func(string) (*models.Class, error)
+	generative                 generativeParser
+	authorizedGetClass         func(string) (*models.Class, error)
+	authorizedGetClassWithData func(string) (*models.Class, error)
 }
 
-func NewParser(uses127Api bool, authorizedGetClass func(string) (*models.Class, error)) *Parser {
+func NewParser(uses127Api bool, authorizedGetClass func(string) (*models.Class, error), authorizedGetClassWithData func(string) (*models.Class, error)) *Parser {
 	return &Parser{
-		generative:         generative.NewParser(uses127Api),
-		authorizedGetClass: authorizedGetClass,
+		generative:                 generative.NewParser(uses127Api),
+		authorizedGetClass:         authorizedGetClass,
+		authorizedGetClassWithData: authorizedGetClassWithData,
 	}
 }
 
@@ -349,7 +351,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy, &out, class)
+		groupBy, err := extractGroupBy(req.GroupBy, &out, class, p.authorizedGetClassWithData)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -371,7 +373,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class, authorizedGetClassWithData func(string) (*models.Class, error)) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
@@ -387,6 +389,17 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class
 		isPrimitive := true
 		if *dataType == schema.DataTypeCRef {
 			isPrimitive = false
+			targetClass, err := schema.GetPropertyByName(class, groupByProp)
+			if err != nil {
+				return nil, err
+			}
+			// can be multi ref
+			for _, target := range targetClass.DataType {
+				_, err := authorizedGetClassWithData(target)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 		out.Properties = append(out.Properties, search.SelectProperty{Name: groupByProp, IsPrimitive: isPrimitive})
 	}
