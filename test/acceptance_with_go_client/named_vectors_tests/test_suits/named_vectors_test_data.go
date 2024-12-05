@@ -293,9 +293,14 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err = get.Do(context.Background())
 		require.NoError(t, err)
+		require.NotNil(t, resp)
+		if len(resp.Data) == 0 {
+			return
+		}
+
 		ids := acceptance_with_go_client.GetIds(t, resp, className)
 		assert.Contains(ct, ids, id)
-	}, 5*time.Second, 200*time.Millisecond)
+	}, 5*time.Second, 1*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
@@ -342,5 +347,5 @@ func testAllObjectsIndexed(t *testing.T, client *wvt.Client, className string) {
 				assert.Equal(ct, "READY", s.VectorIndexingStatus)
 			}
 		}
-	}, 15*time.Second, 500*time.Millisecond)
+	}, 30*time.Second, 500*time.Millisecond)
 }

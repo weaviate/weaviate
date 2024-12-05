@@ -153,15 +153,16 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
-			keys := strings.Split(keysString, ",")
+		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(rawKeys, ",")
 			config.Authentication.APIKey.AllowedKeys = keys
 		}
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
-			keys := strings.Split(keysString, ",")
-			config.Authentication.APIKey.Users = keys
+		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			users := strings.Split(rawUsers, ",")
+			config.Authentication.APIKey.Users = users
 		}
+
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
@@ -185,6 +186,20 @@ func FromEnv(config *Config) error {
 		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
 		if ok {
 			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
+	}
+
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+		config.Authorization.Rbac.Enabled = true
+
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+		}
+
+		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		if ok {
+			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
 		}
 	}
 

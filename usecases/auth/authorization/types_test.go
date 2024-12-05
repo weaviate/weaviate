@@ -12,11 +12,31 @@
 package authorization
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestUsers(t *testing.T) {
+	tests := []struct {
+		name     string
+		users    []string
+		expected []string
+	}{
+		{"No users", []string{}, []string{fmt.Sprintf("%s/*", UsersDomain)}},
+		{"Single user", []string{"user1"}, []string{fmt.Sprintf("%s/user1", UsersDomain)}},
+		{"Multiple users", []string{"user1", "user2"}, []string{fmt.Sprintf("%s/user1", UsersDomain), fmt.Sprintf("%s/user2", UsersDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Users(tt.users...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
 
 func TestRoles(t *testing.T) {
 	tests := []struct {
@@ -24,9 +44,9 @@ func TestRoles(t *testing.T) {
 		roles    []string
 		expected []string
 	}{
-		{"No roles", []string{}, []string{"roles/*"}},
-		{"Single role", []string{"admin"}, []string{"roles/admin"}},
-		{"Multiple roles", []string{"admin", "user"}, []string{"roles/admin", "roles/user"}},
+		{"No roles", []string{}, []string{fmt.Sprintf("%s/*", RolesDomain)}},
+		{"Single role", []string{"admin"}, []string{fmt.Sprintf("%s/admin", RolesDomain)}},
+		{"Multiple roles", []string{"admin", "user"}, []string{fmt.Sprintf("%s/admin", RolesDomain), fmt.Sprintf("%s/user", RolesDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -43,21 +63,60 @@ func TestCluster(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
+func TestNodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		verbosity string
+		classes   []string
+		expected  []string
+	}{
+		{"Empty verbosity", "", []string{}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Minimal verbosity", "minimal", []string{}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Minimal verbosity with classes", "minimal", []string{"class1"}, []string{fmt.Sprintf("%s/verbosity/minimal", NodesDomain)}},
+		{"Verbose verbosity with no classes", "verbose", []string{}, []string{fmt.Sprintf("%s/verbosity/verbose/collections/*", NodesDomain)}},
+		{"Verbose verbosity with classes", "verbose", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/verbosity/verbose/collections/Class1", NodesDomain), fmt.Sprintf("%s/verbosity/verbose/collections/Class2", NodesDomain)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Nodes(tt.verbosity, tt.classes...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBackups(t *testing.T) {
+	tests := []struct {
+		name     string
+		backend  string
+		expected []string
+	}{
+		{"No collection", "", []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}},
+		{"Collection", "class1", []string{fmt.Sprintf("%s/collections/Class1", BackupsDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Backups(tt.backend)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestCollections(t *testing.T) {
 	tests := []struct {
 		name     string
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{"collections/*"}},
-		{"Single empty class", []string{""}, []string{"collections/*"}},
-		{"Single class", []string{"class1"}, []string{"collections/class1"}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{"collections/class1", "collections/class2"}},
+		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/*", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Collections(tt.classes...)
+			result := CollectionsMetadata(tt.classes...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -70,17 +129,17 @@ func TestShards(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no shards", "", []string{}, []string{"collection/*/shards/*"}},
-		{"Class, no shards", "class1", []string{}, []string{"collection/class1/shards/*"}},
-		{"No class, single shard", "", []string{"shard1"}, []string{"collection/*/shards/shard1"}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{"collection/class1/shards/shard1"}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{"collection/class1/shards/shard1", "collection/class1/shards/shard2"}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{"collection/class1/shards/shard1", "collection/class1/shards/*"}},
+		{"No class, no shards", "", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Class, no shards", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
+		{"No class, single shard", "", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/*/shards/shard1", SchemaDomain)}},
+		{"Class, single shard", "class1", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain)}},
+		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/shard2", SchemaDomain)}},
+		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := Shards(tt.class, tt.shards...)
+			result := ShardsMetadata(tt.class, tt.shards...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -94,14 +153,14 @@ func TestObjects(t *testing.T) {
 		id       strfmt.UUID
 		expected string
 	}{
-		{"No class, no shard, no id", "", "", "", "collections/*/shards/*/objects/*"},
-		{"Class, no shard, no id", "class1", "", "", "collections/class1/shards/*/objects/*"},
-		{"No class, shard, no id", "", "shard1", "", "collections/*/shards/shard1/objects/*"},
-		{"No class, no shard, id", "", "", "id1", "collections/*/shards/*/objects/id1"},
-		{"Class, shard, no id", "class1", "shard1", "", "collections/class1/shards/shard1/objects/*"},
-		{"Class, no shard, id", "class1", "", "id1", "collections/class1/shards/*/objects/id1"},
-		{"No class, shard, id", "", "shard1", "id1", "collections/*/shards/shard1/objects/id1"},
-		{"Class, shard, id", "class1", "shard1", "id1", "collections/class1/shards/shard1/objects/id1"},
+		{"No class, no shard, no id", "", "", "", fmt.Sprintf("%s/collections/*/shards/*/objects/*", DataDomain)},
+		{"Class, no shard, no id", "class1", "", "", fmt.Sprintf("%s/collections/Class1/shards/*/objects/*", DataDomain)},
+		{"No class, shard, no id", "", "shard1", "", fmt.Sprintf("%s/collections/*/shards/shard1/objects/*", DataDomain)},
+		{"No class, no shard, id", "", "", "id1", fmt.Sprintf("%s/collections/*/shards/*/objects/id1", DataDomain)},
+		{"Class, shard, no id", "class1", "shard1", "", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/*", DataDomain)},
+		{"Class, no shard, id", "class1", "", "id1", fmt.Sprintf("%s/collections/Class1/shards/*/objects/id1", DataDomain)},
+		{"No class, shard, id", "", "shard1", "id1", fmt.Sprintf("%s/collections/*/shards/shard1/objects/id1", DataDomain)},
+		{"Class, shard, id", "class1", "shard1", "id1", fmt.Sprintf("%s/collections/Class1/shards/shard1/objects/id1", DataDomain)},
 	}
 
 	for _, tt := range tests {

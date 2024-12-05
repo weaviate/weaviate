@@ -14,6 +14,7 @@ package test_suits
 import (
 	"context"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -134,16 +135,21 @@ func testHybrid(host string) func(t *testing.T) {
 				Do(ctx)
 			require.NoError(t, err)
 
-			resp, err := client.GraphQL().Get().
-				WithClassName(class.Class).
-				WithHybrid(client.GraphQL().
-					HybridArgumentBuilder().
-					WithQuery("apple").
-					WithAlpha(1).WithTargetVectors(transformers, contextionary)).
-				WithFields(field).
-				Do(ctx)
-			require.NoError(t, err)
-			ids := acceptance_with_go_client.GetIds(t, resp, class.Class)
+			var ids []string
+			require.Eventually(t, func() bool {
+				resp, err := client.GraphQL().Get().
+					WithClassName(class.Class).
+					WithHybrid(client.GraphQL().
+						HybridArgumentBuilder().
+						WithQuery("apple").
+						WithAlpha(1).WithTargetVectors(transformers, contextionary)).
+					WithFields(field).
+					Do(ctx)
+				require.NoError(t, err)
+				ids = acceptance_with_go_client.GetIds(t, resp, class.Class)
+				return len(ids) == 2
+			}, 5*time.Second, 1*time.Second)
+
 			require.ElementsMatch(t, ids, []string{id, id2})
 		})
 	}

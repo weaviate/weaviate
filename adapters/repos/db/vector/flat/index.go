@@ -44,10 +44,11 @@ import (
 )
 
 const (
-	compressionBQ   = "bq"
-	compressionPQ   = "pq"
-	compressionSQ   = "sq"
-	compressionNone = "none"
+	compressionBQ        = "bq"
+	compressionPQ        = "pq"
+	compressionSQ        = "sq"
+	compressionNone      = "none"
+	defaultCachePageSize = 32
 )
 
 type flat struct {
@@ -105,7 +106,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
-			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+			index.getBQVector, uc.VectorCacheMaxObjects, defaultCachePageSize, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
 	if err := index.initMetadata(); err != nil {
@@ -578,24 +579,41 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
 	}
 	all := index.bqCache.Len()
 
+	out := make([][]uint64, index.bqCache.PageSize())
+	errs := make([]error, index.bqCache.PageSize())
+
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
-	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
-		if allow == nil || allow.Contains(id) {
-			vec, err := index.bqCache.Get(context.Background(), id)
-			if err != nil {
-				return err
+	for id < uint64(all) && (allow == nil || id <= allowMax) {
+
+		vecs, errs, start, end := index.bqCache.GetAllInCurrentLock(context.Background(), id, out, errs)
+
+		for i, vec := range vecs {
+			if i < (int(end) - int(start)) {
+				currentId := start + uint64(i)
+
+				if (currentId < uint64(all)) && (allow == nil || allow.Contains(currentId)) {
+
+					err := errs[i]
+					if err != nil {
+						return err
+					}
+					if len(vec) == 0 {
+						continue
+					}
+					distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+					if err != nil {
+						return err
+					}
+					index.insertToHeap(heap, limit, currentId, distance)
+
+				}
 			}
-			if len(vec) == 0 {
-				continue
-			}
-			distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
-			if err != nil {
-				return err
-			}
-			index.insertToHeap(heap, limit, id, distance)
 		}
+
+		id = end
 	}
+
 	return nil
 }
 

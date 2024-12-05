@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -97,9 +98,16 @@ func (m *GPT4AllModule) initVectorizer(ctx context.Context, timeout time.Duratio
 		return errors.New("required variable GPT4ALL_INFERENCE_API is not set")
 	}
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("GPT4ALL_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	client := clients.New(uri, timeout, logger)
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote vectorizer")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote vectorizer")
+		}
 	}
 
 	m.vectorizer = vectorizer.New(client)

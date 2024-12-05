@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 
 	"github.com/pkg/errors"
 
@@ -191,6 +192,7 @@ type Index struct {
 
 	metrics          *Metrics
 	centralJobQueue  chan job
+	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
 
 	cycleCallbacks *indexCycleCallbacks
@@ -238,6 +240,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
+	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
 ) (*Index, error) {
@@ -268,6 +271,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:        jobQueueCh,
 		shardTransferMutex:     shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		scheduler:              scheduler,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
@@ -313,7 +317,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -421,7 +425,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -2611,7 +2615,7 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	}
 
 	// Reset the queue
-	var q *IndexQueue
+	var q *VectorIndexQueue
 	if targetVector == "" {
 		q = shard.Queue()
 	} else {
@@ -2629,7 +2633,7 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 
 	// Reindex in the background
 	enterrors.GoWrapper(func() {
-		err = shard.PreloadQueue(targetVector)
+		err = shard.FillQueue(targetVector, 0)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
 			return

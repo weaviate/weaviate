@@ -247,7 +247,7 @@ func New(cfg Config, uc ent.UserConfig,
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, cfg.Logger,
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
 			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())

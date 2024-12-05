@@ -87,6 +87,14 @@ func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []e
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]float32, errs []error) ([][]float32, []error, uint64, uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PageSize() uint64 {
+	return 1
+}
+
 func (f *fakeCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	f.store[id] = struct{}{}
 	return nil, nil
