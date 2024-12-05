@@ -666,7 +666,7 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 	return m
 }
 
-func configureAPI(api *operations.WeaviateAPI) http.Handler {
+func configureAPI(host string, api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -677,6 +677,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		"server_version": config.ServerVersion,
 		"version":        build.Version,
 	}).Infof("configured versions")
+
+	appState.ServerConfig.Hostname = host
 
 	api.ServeError = openapierrors.ServeError
 
