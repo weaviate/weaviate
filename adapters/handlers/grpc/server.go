@@ -13,6 +13,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -24,11 +25,14 @@ import (
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
+	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
@@ -53,6 +57,8 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	}
 
 	var interceptors []grpc.UnaryServerInterceptor
+
+	interceptors = append(interceptors, makeAuthInterceptor())
 
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
@@ -117,6 +123,24 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
 			Observe(float64(duration.Milliseconds()))
 		metrics.BatchSizeBytes.WithLabelValues("grpc").Observe(reqSizeBytes)
+
+		return resp, err
+	}
+}
+
+func makeAuthInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (any, error) {
+		resp, err := handler(ctx, req)
+
+		if errors.As(err, &authErrs.Unauthenticated{}) {
+			return nil, status.Errorf(codes.Unauthenticated, err.Error())
+		}
+
+		if errors.As(err, &authErrs.Forbidden{}) {
+			return nil, status.Errorf(codes.PermissionDenied, err.Error())
+		}
 
 		return resp, err
 	}
