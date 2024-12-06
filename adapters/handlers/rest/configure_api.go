@@ -665,7 +665,13 @@ func logger() *logrus.Logger {
 			&logrus.JSONFormatter{},
 		})
 	}
-	logger.SetLevel(logLevelFromString(os.Getenv("LOG_LEVEL")))
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	level, err := logLevelFromString(logLevelStr)
+	if err == logLevelNotRecognized {
+		logger.WithField("log_level_env", logLevelStr).Warn("log level not recognized, defaulting to info")
+		level = logrus.InfoLevel
+	}
+	logger.SetLevel(level)
 	return logger
 }
 

@@ -12,6 +12,9 @@
 package rest
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,25 +44,27 @@ func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	return wf.TextFormatter.Format(e)
 }
 
-// logLevelFromString converts a string to a logrus log level, defaulting to info if the string is
-// not recognized.
-func logLevelFromString(level string) logrus.Level {
-	switch level {
+var logLevelNotRecognized = errors.New("log level not recognized")
+
+// logLevelFromString converts a string to a logrus log level, returns a logLevelNotRecognized
+// error if the string is not recognized. level is case insensitive.
+func logLevelFromString(level string) (logrus.Level, error) {
+	switch strings.ToLower(level) {
 	case "panic":
-		return logrus.PanicLevel
+		return logrus.PanicLevel, nil
 	case "fatal":
-		return logrus.FatalLevel
+		return logrus.FatalLevel, nil
 	case "error":
-		return logrus.ErrorLevel
+		return logrus.ErrorLevel, nil
 	case "warn", "warning":
-		return logrus.WarnLevel
+		return logrus.WarnLevel, nil
 	case "info":
-		return logrus.InfoLevel
+		return logrus.InfoLevel, nil
 	case "debug":
-		return logrus.DebugLevel
+		return logrus.DebugLevel, nil
 	case "trace":
-		return logrus.TraceLevel
+		return logrus.TraceLevel, nil
 	default:
-		return logrus.InfoLevel
+		return 0, logLevelNotRecognized
 	}
 }

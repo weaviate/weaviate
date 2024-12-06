@@ -34,7 +34,12 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, "newLogLevel is required", http.StatusBadRequest)
 			return
 		}
-		appState.Logger.SetLevel(logLevelFromString(newLogLevel))
+		level, err := logLevelFromString(newLogLevel)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		appState.Logger.SetLevel(level)
 		w.WriteHeader(http.StatusOK)
 	}))
 
