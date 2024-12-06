@@ -46,6 +46,8 @@ def test_groupby_with_refs(
     # repeat with GQL - slightly different code path in
     client = weaviate.connect_to_local()
     ref = "_additional{id distance}"
+    if return_refs is None:
+        ref = f"text {ref}"
     if return_refs is not None:
         ref = "ref{... on " + col.name + "{_additional{id}}} _additional{id distance}"
     hits = "hits{" + ref + "}"
@@ -66,3 +68,5 @@ def test_groupby_with_refs(
         assert len(group["_additional"]["group"]["hits"]) == 1
         if return_refs is not None:
             assert group["_additional"]["group"]["hits"][0]["ref"] is not None
+        else:
+            assert len(group["_additional"]["group"]["hits"][0]["text"]) == 2
