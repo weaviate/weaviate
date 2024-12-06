@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -103,41 +101,72 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 }
 
 func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
+	var client *storage.Client
+	var err error = fmt.Errorf("client not yet defined")
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
-		require.Nil(t, err)
-		err = client.Bucket(bucketName).Create(ctx, projectID, nil)
-		gcsErr, ok := err.(*googleapi.Error)
-		if ok {
-			// the bucket persists from the previous test.
-			// if the bucket already exists, we can proceed
-			if gcsErr.Code == http.StatusConflict {
+		client, err = storage.NewClient(ctx, option.WithoutAuthentication())
+		assert.Nil(collect, err)
+
+		client.Bucket(bucketName).Create(ctx, projectID, nil)
+		itr := client.Buckets(ctx, projectID)
+		err = fmt.Errorf("bucket not found")
+		for b, _ := itr.Next(); b != nil; b, _ = itr.Next() {
+			if b.Name == bucketName {
+				err = nil
 				return
 			}
 		}
-		require.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		assert.Nil(collect, err)
+	}, 30*time.Second, 2*time.Second, "failed to create bucket")
+
 }
 
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
-	t.Log("Creating azure container", containerName)
+	t.Log("Waiting for Azure Storage Emulator to start")
+	var client *azblob.Client
+	var err error = fmt.Errorf("client not yet defined")
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		require.Nil(t, err)
+		client, err = azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
+		assert.Nil(collect, err)
 
+		t.Log("Creating azure container", containerName)
 		_, err = client.CreateContainer(ctx, containerName, nil)
-		require.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		pager := client.NewListContainersPager(&azblob.ListContainersOptions{})
+		page, _ := pager.NextPage(ctx)
+
+		for _, container := range page.ContainerItems {
+			if container.Name != nil && *container.Name == containerName {
+				err = nil
+				return
+			}
+		}
+		assert.Nil(collect, err)
+	}, 15*time.Second, 2*time.Second)
 }
 
 func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
+	var client *azblob.Client
+	var err error = fmt.Errorf("client not yet defined")
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
+		client, err = azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
 		require.Nil(t, err)
 
-		_, err = client.DeleteContainer(ctx, containerName, nil)
-		require.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		t.Log("Deleting azure container", containerName)
+		client.DeleteContainer(ctx, containerName, nil)
+		pager := client.NewListContainersPager(&azblob.ListContainersOptions{})
+		page, _ := pager.NextPage(ctx)
+		err = nil
+		for _, container := range page.ContainerItems {
+			if container.Name != nil && *container.Name == containerName {
+				err = fmt.Errorf("container not deleted")
+
+			}
+		}
+
+
+
+		require.Nil(collect, err)
+	}, 30*time.Second, 2*time.Second)
 }
