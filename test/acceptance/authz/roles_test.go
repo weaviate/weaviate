@@ -501,7 +501,3 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 	})
 }
-
-func String(s string) *string {
-	return &s
-}
