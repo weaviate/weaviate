@@ -25,8 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
-
 func TestAuthzViewerEndpoints(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
