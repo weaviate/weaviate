@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -26,6 +27,46 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		propertyNamesStr := r.URL.Query().Get("propertyNames")
+		if propertyNamesStr == "" {
+			http.Error(w, "propertyNames is required", http.StatusBadRequest)
+			return
+		}
+		propertyNames := strings.Split(propertyNamesStr, ",")
+		if len(propertyNames) == 0 {
+			http.Error(w, "propertyNames len > 0 is required", http.StatusBadRequest)
+			return
+		}
+		timeoutStr := r.URL.Query().Get("timeout")
+		timeoutDuration := time.Hour
+		var err error
+		if timeoutStr != "" {
+			timeoutDuration, err = time.ParseDuration(timeoutStr)
+			if err != nil {
+				http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+		defer cancel()
+
+		err = appState.Migrator.InvertedReindex(ctx, map[string]any{
+			"ShardInvertedReindexTask_SpecifiedIndex": map[string][]string{colName: propertyNames},
+		})
+		if err != nil {
+			logger.WithError(err).Error("failed to rebuild inverted index")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
 
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -182,4 +223,34 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
+
+	// Call via something like: curl -X GET localhost:6060/debug/config/maintenance_mode (can replace GET w/ POST or DELETE)
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/maintenance_mode", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var bytesToWrite []byte = nil
+		switch r.Method {
+		case http.MethodGet:
+			jsonBytes, err := json.Marshal(MaintenanceMode{Enabled: appState.Cluster.MaintenanceModeEnabledForLocalhost()})
+			if err != nil {
+				logger.WithError(err).Error("marshal failed on stats")
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			bytesToWrite = jsonBytes
+		case http.MethodPost:
+			appState.Cluster.SetMaintenanceModeForLocalhost(true)
+		case http.MethodDelete:
+			appState.Cluster.SetMaintenanceModeForLocalhost(false)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		if bytesToWrite != nil {
+			w.Write(bytesToWrite)
+		}
+	}))
+}
+
+type MaintenanceMode struct {
+	Enabled bool `json:"enabled"`
 }
