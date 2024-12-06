@@ -44,6 +44,10 @@ func (m *Manager) GetUsersForRole(role string) ([]string, error) {
 	return m.authZ.GetUsersForRole(role)
 }
 
+func (m *Manager) HasPermission(role string, permission *authorization.Policy) (bool, error) {
+	return m.authZ.HasPermission(role, permission)
+}
+
 func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {

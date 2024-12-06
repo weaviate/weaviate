@@ -26,3 +26,7 @@ func (s *Raft) GetRolesForUser(user string) (map[string][]authorization.Policy, 
 func (s *Raft) GetUsersForRole(role string) ([]string, error) {
 	return s.store.authZManager.GetUsersForRole(role)
 }
+
+func (s *Raft) HasPermission(role string, permission *authorization.Policy) (bool, error) {
+	return s.store.authZManager.HasPermission(role, permission)
+}
