@@ -12,8 +12,12 @@
 package test
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
@@ -36,10 +40,26 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	updateSchemaAction := authorization.UpdateCollections
 	createSchemaAction := authorization.CreateCollections
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	var err error
+	compose, err := docker.
+		New().
+		WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		WithAutoschema().
+		Start(ctx)
+
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
 
 	className := "Class"
 	classNameNew := "ClassNew"
