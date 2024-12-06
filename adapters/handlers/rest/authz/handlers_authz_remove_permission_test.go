@@ -266,12 +266,17 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 }
 
 func TestRemovePermissionsInternalServerError(t *testing.T) {
+	type authCond struct {
+		verb     string
+		policies []authorization.Policy
+	}
 	type testCase struct {
 		name          string
 		params        authz.RemovePermissionsParams
 		principal     *models.Principal
 		upsertErr     error
 		expectedError string
+		auths         map[string]authCond
 	}
 
 	tests := []testCase{
@@ -291,30 +296,48 @@ func TestRemovePermissionsInternalServerError(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			upsertErr:     fmt.Errorf("some error from controller"),
 			expectedError: "some error from controller",
+			auths: map[string]authCond{
+				"updatesRole": {
+					verb: authorization.UPDATE,
+					policies: []authorization.Policy{
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+					},
+				},
+				"deletesRoles": {
+					verb: authorization.DELETE,
+					policies: []authorization.Policy{
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+					},
+				},
+			},
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
+		for name, cond := range tt.auths {
+			t.Run(fmt.Sprintf("%s %s", tt.name, name), func(t *testing.T) {
+				authorizer := mocks.NewAuthorizer(t)
+				controller := mocks.NewController(t)
+				logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
-			controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(tt.upsertErr)
+				authorizer.On("Authorize", tt.principal, cond.verb, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{*tt.params.Body.Name: cond.policies}, nil)
+				controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(tt.upsertErr)
 
-			h := &authZHandlers{
-				authorizer: authorizer,
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.removePermissions(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RemovePermissionsInternalServerError)
-			assert.True(t, ok)
+				h := &authZHandlers{
+					authorizer: authorizer,
+					controller: controller,
+					logger:     logger,
+				}
+				res := h.removePermissions(tt.params, tt.principal)
+				parsed, ok := res.(*authz.RemovePermissionsInternalServerError)
+				assert.True(t, ok)
 
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
-		})
+				if tt.expectedError != "" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
+				}
+			})
+		}
 	}
 }
