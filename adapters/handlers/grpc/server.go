@@ -135,11 +135,11 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		if errors.As(err, &authErrs.Unauthenticated{}) {
-			return nil, status.Errorf(codes.Unauthenticated, err.Error())
+			return nil, status.Error(codes.Unauthenticated, err.Error())
 		}
 
 		if errors.As(err, &authErrs.Forbidden{}) {
-			return nil, status.Errorf(codes.PermissionDenied, err.Error())
+			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 
 		return resp, err
