@@ -72,6 +72,11 @@ func (a *Article) WithTenant(tk string) *Article {
 	return a
 }
 
+func (a *Article) WithVector(vector []float32) *Article {
+	a.Vector = vector
+	return a
+}
+
 func (a *Article) Object() *models.Object {
 	obj := models.Object(*a)
 	return &obj
