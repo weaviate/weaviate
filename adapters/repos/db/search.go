@@ -87,6 +87,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	return res, scores, nil
 }
 
+// Search returns Results for the given params with references enriched. Performs an inverted index search.
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	if params.Pagination == nil {
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
