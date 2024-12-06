@@ -312,12 +312,17 @@ func TestAddPermissionsForbidden(t *testing.T) {
 }
 
 func TestAddPermissionsInternalServerError(t *testing.T) {
+	type authCond struct {
+		verb string
+		role map[string][]authorization.Policy
+	}
 	type testCase struct {
 		name          string
 		params        authz.AddPermissionsParams
 		principal     *models.Principal
 		upsertErr     error
 		expectedError string
+		auths         map[string]authCond
 	}
 
 	tests := []testCase{
@@ -337,30 +342,47 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			upsertErr:     fmt.Errorf("some error from controller"),
 			expectedError: "some error from controller",
+			auths: map[string]authCond{
+				"createsRole": {
+					verb: authorization.CREATE,
+					role: nil,
+				},
+				"updatesRole": {
+					verb: authorization.UPDATE,
+					role: map[string][]authorization.Policy{
+						"test": {
+							{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+						},
+					},
+				},
+			},
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
+		for name, cond := range tt.auths {
+			t.Run(fmt.Sprintf("%s %s", tt.name, name), func(t *testing.T) {
+				authorizer := mocks.NewAuthorizer(t)
+				controller := mocks.NewController(t)
+				logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
-			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
+				authorizer.On("Authorize", tt.principal, cond.verb, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+				controller.On("GetRoles", *tt.params.Body.Name).Return(cond.role, nil)
+				controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 
-			h := &authZHandlers{
-				authorizer: authorizer,
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.addPermissions(tt.params, tt.principal)
-			parsed, ok := res.(*authz.AddPermissionsInternalServerError)
-			assert.True(t, ok)
+				h := &authZHandlers{
+					authorizer: authorizer,
+					controller: controller,
+					logger:     logger,
+				}
+				res := h.addPermissions(tt.params, tt.principal)
+				parsed, ok := res.(*authz.AddPermissionsInternalServerError)
+				assert.True(t, ok)
 
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
-		})
+				if tt.expectedError != "" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
+				}
+			})
+		}
 	}
 }
