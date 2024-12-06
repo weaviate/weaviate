@@ -129,7 +129,18 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	roles, err := h.controller.GetRoles(*params.Body.Name)
+	if err != nil {
+		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	var verb string
+	if len(roles) > 0 {
+		verb = authorization.UPDATE
+	} else {
+		verb = authorization.CREATE
+	}
+	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -169,7 +180,24 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	role, err := h.controller.GetRoles(*params.Body.Name)
+	if err != nil {
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if len(role) != 1 {
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	rolePerms := role[*params.Body.Name]
+
+	var verb string
+	if len(rolePerms) <= len(permissions) { // i.e., all permissions are removed
+		verb = authorization.DELETE
+	} else {
+		verb = authorization.UPDATE
+	}
+	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
