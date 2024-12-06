@@ -824,10 +824,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	for res.Len() > k {
-		res.Pop()
+	if !h.multivector.Load() {
+		for res.Len() > k {
+			res.Pop()
+		}
 	}
-
 	ids := make([]uint64, res.Len())
 	dists := make([]float32, res.Len())
 
@@ -852,12 +853,10 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 		if err != nil {
 			return nil, nil, err
 		}
-		h.RLock()
 		for _, id := range ids {
 			docId, _ := h.cache.GetKeys(id)
 			candidateSet[docId] = true
 		}
-		h.RUnlock()
 	}
 	return h.computeLateInteraction(queryVectors, k, candidateSet)
 }
