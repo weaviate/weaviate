@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -518,7 +519,9 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, nil, err
 			}
-			if sg.strategy != StrategyInverted {
+			// inverted segments need to be loaded anyway, even if they don't have
+			// the key, as we need to know if they have tombstones
+			if segment.strategy != segmentindex.StrategyInverted {
 				continue
 			}
 		}

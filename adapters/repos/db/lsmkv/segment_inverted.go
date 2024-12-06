@@ -108,7 +108,7 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 	}
 
 	s.invertedData.lockInvertedData.RLock()
-	loaded := false
+	loaded := s.invertedData.tombstonesLoaded
 	s.invertedData.lockInvertedData.RUnlock()
 	if !loaded {
 		return s.loadTombstones()
