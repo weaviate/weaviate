@@ -318,17 +318,25 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	propLength := uint32(0)
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].Key)
+		_, ok := c.propertyLengthsToWrite[docId]
 		if values[i].Tombstone {
-			c.tombstonesToWrite.Set(docId)
+			// if we saw a non-tombstone for this docId, don't add it to the tombstonesToWrite
+			if !ok {
+				c.tombstonesToWrite.Set(docId)
+			}
 		} else if !(c.tombstonesToClean != nil && c.tombstonesToClean.Contains(docId)) {
 
 			// if docId in propertyLengthsToWrite
 			// then add propertyLengthsToWrite[docId] to propertyLengthsSum
-			if _, ok := c.propertyLengthsToWrite[docId]; !ok {
+			if !ok {
 				propLength = uint32(math.Float32frombits(binary.LittleEndian.Uint32(values[i].Value[4:])))
 				c.propertyLengthsToWrite[docId] = propLength
 				c.propertyLengthsCount++
 				c.propertyLengthsSum += uint64(propLength)
+			}
+			// if we have a tombstone for this docId, remove it
+			if c.tombstonesToWrite.Contains(docId) {
+				c.tombstonesToWrite.Remove(docId)
 			}
 			values[last], values[i] = values[i], values[last]
 			last++
