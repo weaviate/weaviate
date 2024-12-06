@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestRemovePermissionsSuccess(t *testing.T) {
+func TestRemovePermissionsSuccessUpdate(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
@@ -46,7 +46,48 @@ func TestRemovePermissionsSuccess(t *testing.T) {
 	policies, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	require.Nil(t, err)
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles("test")[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)[0]).Return(nil)
+	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{*params.Body.Name: {
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+	}}, nil)
+	controller.On("RemovePermissions", *params.Body.Name, policies).Return(nil)
+
+	h := &authZHandlers{
+		authorizer: authorizer,
+		controller: controller,
+		logger:     logger,
+	}
+	res := h.removePermissions(params, principal)
+	parsed, ok := res.(*authz.RemovePermissionsOK)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+}
+
+func TestRemovePermissionsSuccessDelete(t *testing.T) {
+	authorizer := mocks.NewAuthorizer(t)
+	controller := mocks.NewController(t)
+	logger, _ := test.NewNullLogger()
+
+	principal := &models.Principal{Username: "user1"}
+	params := authz.RemovePermissionsParams{
+		Body: authz.RemovePermissionsBody{
+			Name: String("test"),
+			Permissions: []*models.Permission{
+				{
+					Action: String("manage_roles"),
+					Roles:  &models.PermissionRoles{},
+				},
+			},
+		},
+	}
+	policies, err := conv.PermissionToPolicies(params.Body.Permissions...)
+	require.Nil(t, err)
+
+	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Roles("test")[0]).Return(nil)
+	controller.On("GetRoles", *params.Body.Name).Return(map[string][]authorization.Policy{*params.Body.Name: {
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+	}}, nil)
 	controller.On("RemovePermissions", *params.Body.Name, policies).Return(nil)
 
 	h := &authZHandlers{
@@ -149,17 +190,22 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 }
 
 func TestRemovePermissionsForbidden(t *testing.T) {
+	type authCond struct {
+		verb     string
+		policies []authorization.Policy
+	}
 	type testCase struct {
 		name          string
 		params        authz.RemovePermissionsParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
+		auths         map[string]authCond
 	}
 
 	tests := []testCase{
 		{
-			name: "update some role",
+			name: "remove permissions",
 			params: authz.RemovePermissionsParams{
 				Body: authz.RemovePermissionsBody{
 					Name: String("someRole"),
@@ -174,30 +220,48 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			authorizeErr:  fmt.Errorf("some error from authZ"),
 			expectedError: "some error from authZ",
+			auths: map[string]authCond{
+				"updatesRole": {
+					verb: authorization.UPDATE,
+					policies: []authorization.Policy{
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+					},
+				},
+				"deletesRoles": {
+					verb: authorization.DELETE,
+					policies: []authorization.Policy{
+						{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+					},
+				},
+			},
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
+		for name, cond := range tt.auths {
+			t.Run(fmt.Sprintf("%s %s", tt.name, name), func(t *testing.T) {
+				authorizer := mocks.NewAuthorizer(t)
+				controller := mocks.NewController(t)
+				logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, cond.verb, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+				controller.On("GetRoles", *tt.params.Body.Name).Return(map[string][]authorization.Policy{*tt.params.Body.Name: cond.policies}, nil)
 
-			h := &authZHandlers{
-				authorizer: authorizer,
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.removePermissions(tt.params, tt.principal)
-			parsed, ok := res.(*authz.RemovePermissionsForbidden)
-			assert.True(t, ok)
+				h := &authZHandlers{
+					authorizer: authorizer,
+					controller: controller,
+					logger:     logger,
+				}
+				res := h.removePermissions(tt.params, tt.principal)
+				parsed, ok := res.(*authz.RemovePermissionsForbidden)
+				assert.True(t, ok)
 
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
-		})
+				if tt.expectedError != "" {
+					assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
+				}
+			})
+		}
 	}
 }
 
