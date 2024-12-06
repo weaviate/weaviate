@@ -63,6 +63,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -99,6 +103,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -146,6 +154,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -193,6 +205,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -241,6 +257,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -286,6 +306,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -340,6 +364,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -393,6 +421,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 
@@ -466,6 +498,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -550,6 +586,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -595,6 +635,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 		{
@@ -655,6 +699,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+				},
 			},
 		},
 	}
