@@ -197,10 +197,11 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 }
 
 func Normalize_Temp(vector []float32) []float32 {
+	newVector := make([]float32, len(vector))
 	for i := range vector {
-		vector[i] = vector[i] * 0.146
+		newVector[i] = vector[i] * 0.146
 	}
-	return vector
+	return newVector
 }
 
 func (index *cuvs_index) Add(id uint64, vector []float32) error {
@@ -373,6 +374,8 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 }
 
 func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	index.Lock()
+	defer index.Unlock()
 	vector = Normalize_Temp(vector)
 	queries, err := cuvs.NewTensor([][]float32{vector})
 	if err != nil {
@@ -438,6 +441,8 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 }
 
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
+	index.Lock()
+	defer index.Unlock()
 	for v := range vector {
 		vector[v] = Normalize_Temp(vector[v])
 	}

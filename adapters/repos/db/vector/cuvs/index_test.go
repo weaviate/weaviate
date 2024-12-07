@@ -171,7 +171,6 @@ func TestBatchAddAndQuery(t *testing.T) {
 		results, _, err := index.SearchByVector(vectors[i], k, nil)
 		require.NoError(t, err)
 		require.Len(t, results, k)
-		t.Log("results: ", results)
 		recall := calculateRecall([]uint64{ids[i]}, results)
 		totalRecall += recall
 
@@ -188,8 +187,6 @@ func TestBatchAddAndQuery(t *testing.T) {
 	totalBatchRecall := 0.0
 
 	for i := range batchResults {
-		// log batchResults as int
-		t.Log("batchResults: ", batchResults[i])
 		rc := calculateRecall([]uint64{ids[i]}, batchResults[i])
 		totalBatchRecall += rc
 	}
