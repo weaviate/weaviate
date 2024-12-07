@@ -39,7 +39,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		"action": "init_shard",
 		"shard":  shardName,
 		"index":  index.ID(),
-	}).Debugf("initializing shard %q", shardName)
+	}).Infof("initializing shard %q", shardName)
 
 	s := &Shard{
 		index:       index,
