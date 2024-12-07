@@ -19,18 +19,18 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/hdf5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
-
-	"github.com/weaviate/hdf5"
 )
 
 func getHDF5ByteSize(dataset *hdf5.Dataset) (uint, error) {
@@ -71,7 +71,48 @@ func convert1DChunk_int[D int](input []D, dimensions int, batchRows int) [][]int
 
 var paretoConfigurations [](func(indexParams *cagra.IndexParams, searchParams *cagra.SearchParams) (*cagra.IndexParams, *cagra.SearchParams))
 
-func TestPareto(t *testing.T) {
+func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagra.SearchParams, b *testing.B) BenchResult {
+	logger, _ := test.NewNullLogger()
+
+	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	defer store.Shutdown(context.Background())
+
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams, RootPath: b.TempDir()}, cuvsEnt.UserConfig{}, store)
+	if err != nil {
+		panic(err)
+	}
+
+	index.PostStartup()
+
+	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
+	if err != nil {
+		log.Fatalf("Error opening file: %v\n", err)
+	}
+	defer file.Close()
+
+	dataset, err := file.OpenDataset("train")
+	testdataset, err := file.OpenDataset("test")
+	neighborsdataset, err := file.OpenDataset("neighbors")
+	// distancesdataset, err := file.OpenDataset("distances")
+	if err != nil {
+		log.Fatalf("Error opening dataset: %v\n", err)
+	}
+
+	BuildTime, BuildQPS := LoadVectors(index, dataset, b)
+
+	QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset, b)
+
+	result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
+
+	err = index.Shutdown(context.TODO())
+	if err != nil {
+		panic(err)
+	}
+
+	return result
+}
+
+func BenchmarkPareto(b *testing.B) {
 	type cagraConfig struct {
 		graphDegree             int
 		intermediateGraphDegree int
@@ -299,7 +340,7 @@ func TestPareto(t *testing.T) {
 		searchParams.SetItopkSize(uintptr(config.itopkSize))
 		searchParams.SetSearchWidth(uintptr(config.searchWidth))
 
-		benchResult := RunConfiguration(indexParams, searchParams)
+		benchResult := RunConfiguration(indexParams, searchParams, b)
 
 		benchResults = append(benchResults, benchResult)
 
@@ -324,29 +365,25 @@ type BenchResult struct {
 	QueryRecall float64
 }
 
-func TestBench(t *testing.T) {
+func BenchmarkDataset(b *testing.B) {
+	// Reset the timer to exclude setup time
+	b.StopTimer()
+
 	logger, _ := test.NewNullLogger()
-
-	store, err := lsmkv.New("store", "~/wv-data", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
-		t.Fatal("failed to create store")
+		b.Fatal("failed to create store")
 	}
-
 	defer store.Shutdown(context.Background())
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, RootPath: t.TempDir(), CuvsPoolMemory: 90}, cuvsEnt.UserConfig{}, store)
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, RootPath: b.TempDir(), CuvsPoolMemory: 90}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
-		panic(err)
+		b.Fatal(err)
 	}
 
-	index.PostStartup()
-
-	// file, err := hdf5.OpenFile("/home/ajit/datasets/sift-128-euclidean.hdf5", hdf5.F_ACC_RDONLY)
 	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
-	// file, err := hdf5.OpenFile("/home/ajit/datasets/fashion-mnist-784-euclidean.hdf5", hdf5.F_ACC_RDONLY)
 	if err != nil {
-		t.Fatalf("Error opening file: %v\n", err)
+		b.Fatalf("Error opening file: %v\n", err)
 	}
 	defer file.Close()
 
@@ -354,105 +391,42 @@ func TestBench(t *testing.T) {
 	testdataset, err := file.OpenDataset("test")
 	neighborsdataset, err := file.OpenDataset("neighbors")
 	if err != nil {
-		t.Fatalf("Error opening dataset: %v\n", err)
+		b.Fatalf("Error opening dataset: %v\n", err)
 	}
 
-	BuildTime, BuildQPS := LoadVectors(index, dataset)
+	b.StartTimer()
+	// Run the benchmark b.N times
+	for i := 0; i < b.N; i++ {
+		BuildTime, BuildQPS := LoadVectors(index, dataset, b)
+		QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset, b)
 
-	// Create a CPU profile file
-	f, err := os.Create("cpu_profile.prof")
-	if err != nil {
-		log.Fatal("could not create CPU profile: ", err)
+		// Report metrics
+		b.ReportMetric(BuildQPS, "build-qps")
+		b.ReportMetric(BuildTime, "build-time")
+		b.ReportMetric(QueryQPS, "query-qps")
+		b.ReportMetric(QueryTime, "query-time")
+		b.ReportMetric(QueryRecall, "query-recall")
 	}
-	defer f.Close()
-
-	// Start CPU profiling
-	// if err := pprof.StartCPUProfile(f); err != nil {
-	// 	log.Fatal("could not start CPU profile: ", err)
-	// }
-	// defer pprof.StopCPUProfile()
-
-	QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset)
-
-	// result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
-	println("BuildQPS: ", BuildQPS)
-	println("BuildTime: ", BuildTime)
-	println("QueryTime: ", QueryTime)
-	println("QueryQPS: ", QueryQPS)
-	println("QueryRecall: ", QueryRecall)
-
-	// return result
 }
 
-func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagra.SearchParams) BenchResult {
-	logger, _ := test.NewNullLogger()
+func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, b *testing.B) (float64, float64) {
+	const (
+		rows      = uint(990_000)
+		batchSize = uint(990_000)
+	)
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams}, cuvsEnt.UserConfig{}, nil)
-	if err != nil {
-		panic(err)
-	}
-
-	index.PostStartup()
-
-	// file, err := hdf5.OpenFile("/home/ajit/datasets/sift-128-euclidean.hdf5", hdf5.F_ACC_RDONLY)
-	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
-	// file, err := hdf5.OpenFile("/home/ajit/datasets/fashion-mnist-784-euclidean.hdf5", hdf5.F_ACC_RDONLY)
-	if err != nil {
-		log.Fatalf("Error opening file: %v\n", err)
-	}
-	defer file.Close()
-
-	dataset, err := file.OpenDataset("train")
-	testdataset, err := file.OpenDataset("test")
-	neighborsdataset, err := file.OpenDataset("neighbors")
-	// distancesdataset, err := file.OpenDataset("distances")
-	if err != nil {
-		log.Fatalf("Error opening dataset: %v\n", err)
-	}
-
-	BuildTime, BuildQPS := LoadVectors(index, dataset)
-
-	// Create a CPU profile file
-	f, err := os.Create("cpu_profile.prof")
-	if err != nil {
-		log.Fatal("could not create CPU profile: ", err)
-	}
-	defer f.Close()
-
-	QueryRecall, QueryTime, QueryQPS := QueryVectors(index, testdataset, neighborsdataset)
-
-	result := BenchResult{BuildTime, BuildQPS, QueryTime, QueryQPS, QueryRecall}
-
-	err = index.Shutdown(context.TODO())
-	if err != nil {
-		panic(err)
-	}
-
-	return result
-}
-
-func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 	dataspace := dataset.Space()
-	dims, _, _ := dataspace.SimpleExtentDims()
+	dims, _, err := dataspace.SimpleExtentDims()
+	require.NoError(b, err)
 
 	if len(dims) != 2 {
 		log.Fatal("expected 2 dimensions")
 	}
 
-	byteSize, _ := getHDF5ByteSize(dataset)
+	byteSize, err := getHDF5ByteSize(dataset)
+	require.NoError(b, err)
 
-	rows := dims[0]
 	dimensions := dims[1]
-
-	rows = uint(990_000)
-	// rows = uint(1_000)
-
-	// batchSize := uint(30_000)
-	batchSize := uint(990_000)
-	// batchSize := uint(1_000)
-
-	// Handle offsetting the data for product quantization
-	// i := uint(0)
 
 	memspace, err := hdf5.CreateSimpleDataspace([]uint{batchSize, dimensions}, []uint{batchSize, dimensions})
 	if err != nil {
@@ -507,73 +481,11 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 
 		}
 
-		// for i := range chunkData {
-		// 	for j := range chunkData[i] {
-		// 		println(chunkData[i][j])
-		// 	}
-		// }
-
-		// for i := range chunkData {
-
 		ids := make([]uint64, batchSize)
 
 		for j := uint(0); j < batchSize; j++ {
 			ids[j] = uint64(i*batchSize + j)
 		}
-
-		// ids := make([]uint64, batchSize)
-		// for i := range ids {
-		// 	ids[i] = uint64(i)
-		// }
-
-		// NDataPoints := batchSize
-		// NFeatures := 1536
-
-		// TestDataset := make([][]float32, NDataPoints)
-		// for i := range TestDataset {
-		// 	TestDataset[i] = make([]float32, NFeatures)
-		// 	for j := range TestDataset[i] {
-		// 		TestDataset[i][j] = rand.Float32()
-		// 	}
-		// }
-
-		// neatly print chunkData
-		// for i := range chunkData {
-		// 	println("chunk data: ", chunkData[i])
-		// 	for j := range chunkData[i] {
-		// 		println(chunkData[i][j])
-		// 		println(TestDataset[i][j])
-		// 	}
-		// }
-
-		// for i := range TestDataset {
-		// 	for j := range TestDataset[i] {
-		// 		TestDataset[i][j] = chunkData[i][j]
-		// 	}
-		// }
-
-		for i := range chunkData {
-			for j := range chunkData[i] {
-				chunkData[i][j] = chunkData[i][j] * 0.146
-				// max := float32(31.99999)
-				// if chunkData[i][j] > max {
-				// 	chunkData[i][j] = max
-				// } else {
-				// 	chunkData[i][j] = chunkData[i][j] * 1.0
-				// }
-				// chunkData[i][j] = chunkData[i][j] * -1
-			}
-		}
-
-		// // neatly print TestDataset
-		// for i := range TestDataset {
-		// 	println("TestDataset: ", TestDataset[i])
-		// 	for j := range TestDataset[i] {
-
-		// 	}
-		// }
-
-		// println("chunk data vector len: ", len(chunkData[0]))
 
 		for i := range chunkData {
 			for j := range chunkData[i] {
@@ -594,33 +506,12 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 			}
 		}
 
-		// minVal, maxVal := float32(math.Inf(1)), float32(math.Inf(-1))
-		// for _, vec := range TestDataset {
-		// 	for _, val := range vec {
-		// 		if val < minVal {
-		// 			minVal = val
-		// 		}
-		// 		if val > maxVal {
-		// 			maxVal = val
-		// 		}
-		// 	}
-		// }
-		// log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
-		println("add batch")
 		err := index.AddBatch(context.TODO(), ids, chunkData)
-		if err != nil {
-			panic(err)
-		}
-
-		// }
+		require.NoError(b, err)
 
 	}
 
-	// log.Printf("chunkData range: [%f, %f]", minValC, maxValC)
-
 	elapsed := time.Since(start)
-	// println("elapsed time: ", elapsed.Seconds())
-	// println("QPS: ", float64(rows)/elapsed.Seconds())
 
 	time := elapsed.Seconds()
 	qps := float64(rows) / time
@@ -628,39 +519,30 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset) (float64, float64) {
 	return time, qps
 }
 
-func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf5.Dataset) (float64, float64, float64) {
+func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf5.Dataset, b *testing.B) (float64, float64, float64) {
+	const (
+		rows      = uint(10_000)
+		batchSize = uint(10_000)
+	)
+
 	dataspace := dataset.Space()
 	dims, _, _ := dataspace.SimpleExtentDims()
 
 	ideal_neighbors_dataspace := ideal_neighbors.Space()
 
-	// dims_ideal, _, _ := ideal_neighbors_dataspace.SimpleExtentDims()
-	// print dims
-	// println(dims_ideal[0])
-	// println(dims_ideal[1])
-
 	if len(dims) != 2 {
-		log.Fatal("expected 2 dimensions")
+		b.Fatalf("expected 2 dimensions")
 	}
 
-	byteSize, _ := getHDF5ByteSize(dataset)
+	byteSize, error := getHDF5ByteSize(dataset)
+	require.NoError(b, error)
 
-	byteSize_ideal, _ := getHDF5ByteSize(ideal_neighbors)
+	byteSize_ideal, error := getHDF5ByteSize(ideal_neighbors)
+	require.NoError(b, error)
 
-	rows := dims[0]
 	dimensions := dims[1]
 
 	K := 10
-
-	rows = uint(10_000)
-	// rows = uint(5)
-
-	// batchSize := uint(30_000)
-	batchSize := uint(10_000)
-	// batchSize := uint(5)
-
-	// Handle offsetting the data for product quantization
-	// i := uint(0)
 
 	memspace, err := hdf5.CreateSimpleDataspace([]uint{batchSize, dimensions}, []uint{batchSize, dimensions})
 	if err != nil {
@@ -756,35 +638,26 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 
 		}
 
-		// for i := range chunkData {
-		// 	for j := range chunkData[i] {
-		// 		println(chunkData[i][j])
-		// 	}
-		// }
-
-		// for i := range chunkData {
-
-		for i := range chunkData {
-			for j := range chunkData[i] {
-				chunkData[i][j] = chunkData[i][j] * 0.146
-				// max := float32(31.99999)
-				// if chunkData[i][j] > max {
-				// 	chunkData[i][j] = max
-				// } else {
-				// 	chunkData[i][j] = chunkData[i][j] * 1.0
-				// }
-				// chunkData[i][j] = chunkData[i][j] * -1
-			}
-		}
-
 		ids := make([]uint64, batchSize)
 
 		for j := uint(0); j < batchSize; j++ {
 			ids[j] = uint64(i*batchSize + j)
 		}
 
-		for k := range chunkData {
-			ids, _, err := index.SearchByVector(chunkData[k], K, nil)
+		if batchSize > 1 {
+
+			idsBatch, _, err := index.SearchByVectorBatch(chunkData, K, nil)
+			require.NoError(b, err)
+			for j := range idsBatch {
+				for k := range idsBatch[j] {
+					if idsBatch[j][k] == uint64(chunkData_ideal[j][k]) {
+						numCorrect += 1
+					}
+				}
+			}
+		} else {
+			ids, _, err := index.SearchByVector(chunkData[0], K, nil)
+			require.NoError(b, err)
 
 			ids_ideal := chunkData_ideal[k]
 
@@ -793,31 +666,12 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 					numCorrect += 1
 				}
 			}
-			// r = r + 1
-			if err != nil {
-				panic(err)
-			}
+
 		}
-
-		// _, _, err := index.SearchByVectorBatch(chunkData, K, nil)
-
-		// if err != nil {
-		// 	panic(err)
-		// }
-
-		// }
 
 	}
 
-	// println("r: ", r)
-
-	println(numCorrect)
-
 	elapsed := time.Since(start)
-	// println("elapsed time (query): ", elapsed.Seconds())
-	// println(float64(rows))
-	// println("recall: ", float64(numCorrect)/float64(rows*uint(K)))
-	// println("QPS: ", float64(rows)/elapsed.Seconds())
 
 	time := float64(elapsed.Seconds())
 
