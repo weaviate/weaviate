@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -88,6 +89,42 @@ func InsertObjects(t *testing.T, host string, className string) {
 		helper.CreateObject(t, obj)
 		helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
 	}
+}
+
+func BatchInsertObjects(t *testing.T, host string, className string) {
+	var objects []*models.Object
+	for _, company := range Companies {
+		objects = append(objects, &models.Object{
+			Class: className,
+			ID:    company.ID,
+			Properties: map[string]interface{}{
+				"name":        company.Name,
+				"description": company.Description,
+			},
+		})
+	}
+	helper.SetupClient(host)
+
+	returnedFields := "ALL"
+	params := batch.NewBatchObjectsCreateParams().WithBody(
+		batch.BatchObjectsCreateBody{
+			Objects: objects,
+			Fields:  []*string{&returnedFields},
+		})
+
+	resp, err := helper.BatchClient(t).BatchObjectsCreate(params, nil)
+
+	// ensure that the response is OK
+	helper.AssertRequestOk(t, resp, err, func() {
+		objectsCreateResponse := resp.Payload
+
+		// check if the batch response contains two batched responses
+		assert.Equal(t, 2, len(objectsCreateResponse))
+
+		for _, elem := range resp.Payload {
+			assert.Nil(t, elem.Result.Errors)
+		}
+	})
 }
 
 func PerformVectorSearchTest(t *testing.T, host string, className string) {

@@ -67,7 +67,6 @@ func (v *ollama) GetApiKeyHash(ctx context.Context, config moduletools.ClassConf
 }
 
 func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	// TODO: What to put here as rate limits?
 	return &modulecomponents.RateLimits{}
 }
 
