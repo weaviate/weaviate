@@ -26,18 +26,30 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-ollama"
+
+var batchSettings = batch.Settings{
+	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+	// using 30% more than the OpenAI model is a rough estimate but seems to work
+	TokenMultiplier:    1.3,
+	MaxTimePerBatch:    float64(10),
+	MaxObjectsPerBatch: 512, // Info from jina
+	// real limit is 8192, but the vectorization times go up by A LOT if the batches are larger
+	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 2500 },
+	HasTokenLimit:     true,
+	ReturnsRateLimit:  false,
+}
 
 func New() *OllamaModule {
 	return &OllamaModule{}
 }
 
 type OllamaModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizerBatch
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -93,7 +105,10 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 ) error {
 	client := clients.New(timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
+	)
 	m.metaProvider = client
 
 	return nil
@@ -112,11 +127,12 @@ func (m *OllamaModule) RootHandler() http.Handler {
 func (m *OllamaModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *OllamaModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
 }
 
 func (m *OllamaModule) MetaInfo() (map[string]interface{}, error) {

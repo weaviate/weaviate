@@ -24,7 +24,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
+
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -73,7 +74,7 @@ func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.Cla
 func (v *ollama) vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
-	settings := vectorizer.NewClassSettings(cfg)
+	settings := ent.NewClassSettings(cfg)
 	body, err := json.Marshal(embeddingsRequest{
 		Model: settings.Model(),
 		Input: input,
