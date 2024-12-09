@@ -12,19 +12,24 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestSegmentGroupConverInverted(t *testing.T) {
 	path := os.Getenv("PATH_TO_SEGMENTS_TO_CONVERT")
 	if path == "" {
-		t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
+		// t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
+		path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable/TEST"
 	}
 	err := ConvertSegments(path)
 	if err != nil {
@@ -42,6 +47,8 @@ func ConvertSegments(path string) error {
 
 	segments := make([]*segment, 0)
 
+	ctx := context.Background()
+
 	for _, file := range dir {
 		segPath := path + "/" + file.Name()
 		if strings.HasSuffix(file.Name(), ".db") {
@@ -56,6 +63,26 @@ func ConvertSegments(path string) error {
 		}
 	}
 
+	// get dir by first splitting the path to get the parent
+	pathSplit := strings.Split(path, "/")
+	objectParent := pathSplit[len(pathSplit)-1]
+
+	opts := []BucketOption{
+		WithStrategy(StrategyMapCollection),
+		WithPread(true),
+		WithKeepTombstones(true),
+		WithDynamicMemtableSizing(1, 2, 1, 4),
+		WithDirtyThreshold(time.Duration(60)),
+		WithAllocChecker(nil),
+		WithMaxSegmentSize(math.MaxInt64),
+		WithSegmentsCleanupInterval(time.Duration(60)),
+	}
+
+	currBucket, err := NewBucketCreator().NewBucket(ctx, path, objectParent, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	if err != nil {
+		return fmt.Errorf("Error creating current bucket: %v", err)
+	}
+
 	sg := &SegmentGroup{
 		dir:                     path,
 		segments:                segments,
@@ -66,8 +93,35 @@ func ConvertSegments(path string) error {
 		logger:                  logger,
 	}
 
+	opts = []BucketOption{
+		WithStrategy(StrategyReplace),
+		WithSecondaryIndices(2),
+		WithPread(true),
+		WithKeepTombstones(true),
+		WithDynamicMemtableSizing(1, 2, 1, 4),
+		WithDirtyThreshold(time.Duration(60)),
+		WithAllocChecker(nil),
+		WithMaxSegmentSize(math.MaxInt64),
+		WithSegmentsCleanupInterval(time.Duration(60)),
+	}
+
+	// object path is at objects/
+	objectBucketDir := objectParent + "/objects"
+
+	objectBucket, err := NewBucketCreator().NewBucket(ctx, objectBucketDir, objectParent, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	if err != nil {
+		return fmt.Errorf("Error creating object bucket: %v", err)
+	}
+
+	idBucketDir := objectParent + "/property__id"
+
+	idBucket, err := NewBucketCreator().NewBucket(ctx, idBucketDir, objectParent, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+	if err != nil {
+		return fmt.Errorf("Error creating object bucket: %v", err)
+	}
+
 	for {
-		ok, err := sg.convertOnce()
+		ok, err := sg.convertOnce(objectBucket, currBucket, idBucket, nil)
 		if err != nil {
 			return fmt.Errorf("Error during conversion: %v", err)
 		}

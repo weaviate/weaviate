@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitmap, int, error) {
@@ -33,9 +34,6 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	if sg.isReadyOnly() {
 		return nil, nil, 0, nil
 	}
-
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
 
 	allTombstones := sroar.NewBitmap()
 
@@ -64,14 +62,9 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) convertOnce() (bool, error) {
-	// Is it safe to only occasionally lock instead of the entire duration? Yes,
-	// because other than compaction the only change to the segments array could
-	// be an append because of a new flush cycle, so we do not need to guarantee
-	// that the array contents stay stable over the duration of an entire
-	// compaction. We do however need to protect against a read-while-write (race
-	// condition) on the array. Thus any read from sg.segments need to protected
-
+func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, currentBucket *Bucket, prop *models.Property) (bool, error) {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 	segment, tombstones, index, err := sg.findInvertedConvertionCandidats()
 
 	if segment == nil {
@@ -123,7 +116,7 @@ func (sg *SegmentGroup) convertOnce() (bool, error) {
 
 	c := newConvertedInverted(f,
 		segment.newMapCursor(),
-		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones)
+		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones, objectBucket, currentBucket, prop, idBucket)
 
 	if sg.metrics != nil {
 		sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -151,7 +144,7 @@ func (sg *SegmentGroup) convertOnce() (bool, error) {
 	}).Debug("Ccnvertion done")
 
 	// time
-	fmt.Println("Converted segment: ", segment.path, size, end.Sub(start).Seconds())
+	fmt.Println("Converted segment: ", segment.path, size, end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys)
 
 	if err := sg.replaceCompactedSegment(index, path); err != nil {
 		return false, errors.Wrap(err, "replace converted segments")
@@ -163,9 +156,9 @@ func (sg *SegmentGroup) convertOnce() (bool, error) {
 func (sg *SegmentGroup) replaceCompactedSegment(old int,
 	newPathTmp string,
 ) error {
-	sg.maintenanceLock.RLock()
+	// sg.maintenanceLock.RLock()
 	updatedCountNetAdditions := sg.segments[old].countNetAdditions
-	sg.maintenanceLock.RUnlock()
+	// sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
@@ -219,14 +212,6 @@ func (sg *SegmentGroup) replaceCompactedSegmentBlocking(
 	// maintenanceLock.RLock().
 	sg.flushVsCompactLock.Lock()
 	defer sg.flushVsCompactLock.Unlock()
-
-	beforeMaintenanceLock := time.Now()
-	sg.maintenanceLock.Lock()
-	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
-		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
-			Debug("compaction took more than 100ms to acquire maintenance lock")
-	}
-	defer sg.maintenanceLock.Unlock()
 
 	segment := sg.segments[old]
 
@@ -286,9 +271,9 @@ func (sg *SegmentGroup) stripTmpExtensionSingle(oldPath string) (string, error) 
 	return newPath, nil
 }
 
-func (b *Bucket) ConvertToInverted() error {
+func (b *Bucket) ConvertToInverted(objectBucket *Bucket, idBucket *Bucket, prop *models.Property) error {
 	for {
-		ok, err := b.disk.convertOnce()
+		ok, err := b.disk.convertOnce(objectBucket, idBucket, b, prop)
 		if err != nil {
 			return fmt.Errorf("error during conversion: %v", err)
 		}

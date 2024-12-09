@@ -18,11 +18,16 @@ import (
 	"encoding/gob"
 	"io"
 	"math"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type convertedInverted struct {
@@ -51,12 +56,25 @@ type convertedInverted struct {
 	propertyLengthsSum     uint64
 
 	invertedHeader *segmentindex.HeaderInverted
+
+	objectBucket  *Bucket
+	currentBucket *Bucket
+	idBucket      *Bucket
+	prop          *models.Property
+
+	statsWrittenDocs uint64
+	statsWrittenKeys uint64
+	statsDeletedDocs uint64
+	statsUpdatedDocs uint64
+
+	documentsToUpdate *sroar.Bitmap
 }
 
 func newConvertedInverted(w io.WriteSeeker,
 	c1 *segmentCursorMap, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap,
+	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap, objectBucket *Bucket, currentBucket *Bucket, prop *models.Property, idBucket *Bucket,
 ) *convertedInverted {
+	documentsToUpdate := sroar.NewBitmap()
 	return &convertedInverted{
 		c1:                  c1,
 		w:                   w,
@@ -67,6 +85,11 @@ func newConvertedInverted(w io.WriteSeeker,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 		offset:              0,
+		objectBucket:        objectBucket,
+		documentsToUpdate:   documentsToUpdate,
+		currentBucket:       currentBucket,
+		prop:                prop,
+		idBucket:            idBucket,
 	}
 }
 
@@ -319,25 +342,122 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].Key)
 		_, ok := c.propertyLengthsToWrite[docId]
+		actuallyDeleted := false
+		needsReindex := false
+		obj := &storobj.Object{}
 		if values[i].Tombstone {
+
 			// if we saw a non-tombstone for this docId, don't add it to the tombstonesToWrite
-			if !ok {
-				c.tombstonesToWrite.Set(docId)
+			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.prop.Name}, c.objectBucket.logger)
+			if err != nil {
+				continue
 			}
-		} else if !(c.tombstonesToClean != nil && c.tombstonesToClean.Contains(docId)) {
+			if len(objs) == 0 || c.tombstonesToClean.Contains(docId) || c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
+				actuallyDeleted = true
+				c.statsDeletedDocs++
+				c.tombstonesToWrite.Set(docId)
+				continue
+			}
+
+			allInternalIdBytes, err := c.idBucket.SetList([]byte(objs[0].ID().String()))
+			if err != nil {
+				continue
+			}
+			matched := false
+			for _, internalIdBytes := range allInternalIdBytes {
+				internalId := binary.BigEndian.Uint64(internalIdBytes)
+				if internalId == docId {
+					matched = true
+					break
+				}
+			}
+
+			if !matched {
+				actuallyDeleted = true
+				c.statsDeletedDocs++
+				c.tombstonesToWrite.Set(docId)
+				continue
+			}
+
+			textData, ok := objs[0].Properties().(map[string]interface{})
+
+			if !ok || textData == nil || len(textData) == 0 {
+				actuallyDeleted = true
+				c.statsDeletedDocs++
+				c.tombstonesToWrite.Set(docId)
+				continue
+			}
+
+			texts, ok := textData[c.prop.Name]
+
+			if !ok {
+				actuallyDeleted = true
+				c.statsDeletedDocs++
+				c.tombstonesToWrite.Set(docId)
+				continue
+			}
+
+			textsArr, ok := texts.([]string)
+
+			if !ok {
+				textsArr = []string{texts.(string)}
+			}
+
+			if len(textsArr) == 0 || c.tombstonesToClean.Contains(docId) || c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
+				actuallyDeleted = true
+				c.statsDeletedDocs++
+			} else if !c.documentsToUpdate.Contains(docId) {
+				needsReindex = true
+				c.statsUpdatedDocs++
+				c.documentsToUpdate.Set(docId)
+				obj = objs[0]
+			}
+			c.tombstonesToWrite.Set(docId)
+
+		}
+		if needsReindex {
+			texts, ok := obj.Properties().(map[string]interface{})[c.prop.Name].([]string)
+			if !ok {
+				text, ok := obj.Properties().(map[string]interface{})[c.prop.Name].(string)
+				if ok {
+					texts = []string{text}
+				}
+			}
+
+			analysed := AnalyseTextArray(c.prop.Tokenization, texts)
+			propLen := float32(0)
+
+			if os.Getenv("COMPUTE_PROPLENGTH_WITH_DUPS") == "true" {
+				// Iterating over all items to calculate the property length, which is the sum of all term frequencies
+				for _, item := range analysed {
+					propLen += item.TermFrequency
+				}
+			} else {
+				// This is the old way of calculating the property length, which counts terms that show up multiple times only once,
+				// which is not standard for BM25
+				propLen = float32(len(analysed))
+			}
+			for _, item := range analysed {
+				key := item.Data
+				mp := NewMapPairFromDocIdAndTf2(docId, item.TermFrequency, propLen, false)
+
+				if err := c.currentBucket.MapSet(key, mp); err != nil {
+					continue
+				}
+			}
+		} else if !actuallyDeleted && !c.documentsToUpdate.Contains(docId) && !c.tombstonesToClean.Contains(docId) {
 
 			// if docId in propertyLengthsToWrite
 			// then add propertyLengthsToWrite[docId] to propertyLengthsSum
+			c.statsWrittenKeys++
 			if !ok {
+				c.statsWrittenDocs++
 				propLength = uint32(math.Float32frombits(binary.LittleEndian.Uint32(values[i].Value[4:])))
 				c.propertyLengthsToWrite[docId] = propLength
 				c.propertyLengthsCount++
 				c.propertyLengthsSum += uint64(propLength)
 			}
-			// if we have a tombstone for this docId, remove it
-			if c.tombstonesToWrite.Contains(docId) {
-				c.tombstonesToWrite.Remove(docId)
-			}
+
 			values[last], values[i] = values[i], values[last]
 			last++
 		}
@@ -348,4 +468,47 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 		return nil, true
 	}
 	return values[:last], false
+}
+
+func NewMapPairFromDocIdAndTf2(docId uint64, tf float32, propLength float32, isTombstone bool) MapPair {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, docId)
+
+	value := make([]byte, 8)
+	binary.LittleEndian.PutUint32(value[0:4], math.Float32bits(tf))
+	binary.LittleEndian.PutUint32(value[4:8], math.Float32bits(propLength))
+
+	return MapPair{
+		Key:       key,
+		Value:     value,
+		Tombstone: isTombstone,
+	}
+}
+
+type Countable struct {
+	Data          []byte
+	TermFrequency float32
+}
+
+func AnalyseTextArray(tokenization string, inArr []string) []Countable {
+	var terms []string
+	for _, in := range inArr {
+		terms = append(terms, helpers.Tokenize(tokenization, in)...)
+	}
+
+	counts := map[string]uint64{}
+	for _, term := range terms {
+		counts[term]++
+	}
+
+	countable := make([]Countable, len(counts))
+	i := 0
+	for term, count := range counts {
+		countable[i] = Countable{
+			Data:          []byte(term),
+			TermFrequency: float32(count),
+		}
+		i++
+	}
+	return countable
 }
