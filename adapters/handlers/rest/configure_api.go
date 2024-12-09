@@ -215,7 +215,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
 		if err != nil {
-			panic(err)
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
 		}
 
 		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal packages.
@@ -228,7 +228,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 		_, err = armonmetrics.NewGlobal(cfg, sink)
 		if err != nil {
-			panic(err)
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
 		}
 
 		// only monitoring tool supported at the moment is prometheus
