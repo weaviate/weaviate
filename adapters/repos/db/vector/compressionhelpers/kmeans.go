@@ -104,6 +104,15 @@ func (m *KMeans) Encode(point []float32) byte {
 	return byte(m.Nearest(point))
 }
 
+func (te *KMeans) SortCodes(point []float32) ([]byte, []float32) {
+	codes, dists := te.nNearest(point, 256)
+	bcodes := make([]byte, len(codes))
+	for i := range codes {
+		bcodes[i] = byte(codes[i])
+	}
+	return bcodes, dists
+}
+
 func (m *KMeans) Nearest(point []float32) uint64 {
 	return m.NNearest(point, 1)[0]
 }

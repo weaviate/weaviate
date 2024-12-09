@@ -17,10 +17,9 @@ type supportedValueType interface {
 
 // Item represents a queue item supporting an optional additional Value
 type Item[T supportedValueType] struct {
-	ID       uint64
-	Dist     float32
-	Rescored bool
-	Value    T
+	ID    uint64
+	Dist  float32
+	Value T
 }
 
 // Queue is a priority queue supporting generic item values

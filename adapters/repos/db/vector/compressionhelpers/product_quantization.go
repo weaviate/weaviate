@@ -179,6 +179,7 @@ type PQData struct {
 }
 
 type PQEncoder interface {
+	SortCodes(point []float32) ([]byte, []float32)
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
 	Add(x []float32)
@@ -406,6 +407,17 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 	return nil
 }
 
+func (pq *ProductQuantizer) SortCodes(vec []float32) ([][]byte, [][]float32) {
+	codes := make([][]byte, pq.m)
+	distances := make([][]float32, pq.m)
+	for i := 0; i < pq.m; i++ {
+		wCodes, wDists := pq.kms[i].SortCodes(vec)
+		codes[i] = wCodes
+		distances[i] = wDists
+	}
+	return codes, distances
+}
+
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
 	codes := make([]byte, pq.m)
 	for i := 0; i < pq.m; i++ {
@@ -428,4 +440,22 @@ func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq)
+}
+
+type PQGlobalDistancer struct {
+	distances []float32
+	ks        int
+}
+
+func (gd *PQGlobalDistancer) Distance(x, y byte, dim int) float32 {
+	return gd.distances[dim*gd.ks*gd.ks+int(x)*gd.ks+int(y)]
+}
+
+func (pq *ProductQuantizer) GetGlobalDistancer() *PQGlobalDistancer {
+	distances := make([]float32, len(pq.globalDistances))
+	copy(distances, pq.globalDistances)
+	return &PQGlobalDistancer{
+		distances: distances,
+		ks:        pq.ks,
+	}
 }
