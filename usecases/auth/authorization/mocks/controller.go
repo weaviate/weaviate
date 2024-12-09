@@ -177,6 +177,21 @@ func (_m *Controller) RemovePermissions(role string, permissions []*authorizatio
 	return r0
 }
 
+// HasPermission provides a mock function with given fields: role, permissions
+func (_m *Controller) HasPermission(role string, permission *authorization.Policy) (bool, error) {
+	ret := _m.Called(role, permission)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemovePermissions")
+	}
+
+	if rf, ok := ret.Get(0).(func(string, *authorization.Policy) (bool, error)); ok {
+		return rf(role, permission)
+	} else {
+		return false, ret.Error(0)
+	}
+}
+
 // RevokeRolesForUser provides a mock function with given fields: user, roles
 func (_m *Controller) RevokeRolesForUser(user string, roles ...string) error {
 	_va := make([]interface{}, len(roles))

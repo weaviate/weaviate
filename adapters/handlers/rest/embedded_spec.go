@@ -259,7 +259,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -310,7 +310,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -424,6 +424,70 @@ func init() {
         ]
       }
     },
+    "/authz/roles/{id}/has-permission": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Check whether role possesses this permission.",
+        "operationId": "hasPermission",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Permission"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission check was successful",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.has.role.permission"
+        ]
+      }
+    },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
         "tags": [
@@ -510,7 +574,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6632,7 +6696,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6683,7 +6747,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6797,6 +6861,70 @@ func init() {
         ]
       }
     },
+    "/authz/roles/{id}/has-permission": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Check whether role possesses this permission.",
+        "operationId": "hasPermission",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Permission"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission check was successful",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.has.role.permission"
+        ]
+      }
+    },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
         "tags": [
@@ -6883,7 +7011,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
