@@ -274,7 +274,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 			},
 		}), clientAuth)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.RemovePermissionsUnprocessableEntity)
+		_, failed := err.(*authz.RemovePermissionsUnprocessableEntity)
 		require.True(t, failed)
 	})
 
@@ -345,7 +345,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.ErrorIs(t, err, authz.NewGetRoleNotFound())
 	})
 
-	t.Run("error with add permissions on non-existant role", func(t *testing.T) {
+	t.Run("error with add permissions on non-existent role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID("upsert-role").WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{Action: &createCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
@@ -353,7 +353,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.ErrorIs(t, err, authz.NewAddPermissionsNotFound())
 	})
 
-	t.Run("error with remove permissions on non-existant role", func(t *testing.T) {
+	t.Run("error with remove permissions on non-existent role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID("upsert-role").WithBody(authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{{Action: &createCollectionsAction, Collections: &models.PermissionCollections{Collection: &all}}},
 		}), clientAuth)
