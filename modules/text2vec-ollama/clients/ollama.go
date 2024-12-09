@@ -67,7 +67,7 @@ func (v *ollama) GetApiKeyHash(ctx context.Context, config moduletools.ClassConf
 }
 
 func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{}
+	return &modulecomponents.DummyRateLimits
 }
 
 func (v *ollama) vectorize(ctx context.Context, input []string,
@@ -109,7 +109,7 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult, error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, fmt.Errorf("unmarshal response body. Got: %v: %w", string(bodyBytes), err)
+		return nil, errors.Wrapf(err, "unmarshal response body. Got: %v", string(bodyBytes))
 	}
 
 	if resBody.Error != "" {
@@ -117,7 +117,7 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 	}
 
 	if statusCode != 200 {
-		return nil, fmt.Errorf("connection to Ollama API failed with status: %d", statusCode)
+		return nil, errors.Errorf("connection to Ollama API failed with status: %d", statusCode)
 	}
 
 	if len(resBody.Embeddings) == 0 {
