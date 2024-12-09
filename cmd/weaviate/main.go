@@ -116,7 +116,7 @@ func main() {
 		}
 		svrMetrics := monitoring.NewServerMetrics(opts.Monitoring, prometheus.DefaultRegisterer)
 		listener = monitoring.CountingListener(listener, svrMetrics.TCPActiveConnections.WithLabelValues("grpc"))
-		grpcServer := grpc.NewServer(GrpcOptions(*svrMetrics)...)
+		grpcServer := grpc.NewServer(monitoring.InstrumentGrpc(*svrMetrics)...)
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
@@ -143,26 +143,4 @@ type Options struct {
 	Target     string            `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
 	Query      query.Config      `group:"query" namespace:"query"`
 	Monitoring monitoring.Config `group:"monitoring" namespace:"monitoring"`
-}
-
-func GrpcOptions(svrMetrics monitoring.ServerMetrics) []grpc.ServerOption {
-	grpcOptions := []grpc.ServerOption{
-		grpc.StatsHandler(monitoring.NewGrpcStatsHandler(
-			svrMetrics.InflightRequests,
-			svrMetrics.RequestBodySize,
-			svrMetrics.ResponseBodySize,
-		)),
-	}
-
-	grpcInterceptUnary := grpc.ChainUnaryInterceptor(
-		monitoring.UnaryServerInstrument(svrMetrics.RequestDuration),
-	)
-	grpcOptions = append(grpcOptions, grpcInterceptUnary)
-
-	grpcInterceptStream := grpc.ChainStreamInterceptor(
-		monitoring.StreamServerInstrument(svrMetrics.RequestDuration),
-	)
-	grpcOptions = append(grpcOptions, grpcInterceptStream)
-
-	return grpcOptions
 }
