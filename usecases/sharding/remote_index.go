@@ -510,7 +510,7 @@ func (ri *RemoteIndex) queryReplicas(
 				"replica": node,
 				"class":   ri.class,
 				"shard":   shard,
-			}).WithError(err).Debug("remote index query replica attempt failed")
+			}).WithError(err).Warn("remote index query replica attempt failed")
 		}
 		return
 	}
