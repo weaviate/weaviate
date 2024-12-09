@@ -401,7 +401,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -452,7 +452,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -499,7 +499,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -563,7 +563,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6827,7 +6827,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6878,7 +6878,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6925,7 +6925,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true
@@ -6989,7 +6989,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role ID",
+            "description": "role name",
             "name": "id",
             "in": "path",
             "required": true

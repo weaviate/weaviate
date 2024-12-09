@@ -79,7 +79,7 @@ type HasPermissionParams struct {
 
 	/* ID.
 
-	   role ID
+	   role name
 	*/
 	ID string
 
