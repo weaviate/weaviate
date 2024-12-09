@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package gql
+package test
 
 import (
 	"context"

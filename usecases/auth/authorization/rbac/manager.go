@@ -178,7 +178,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
 	if principal == nil {
-		return fmt.Errorf("user is unauthenticated")
+		return errors.NewUnauthenticated()
 	}
 
 	// TODO-RBAC: batch enforce
