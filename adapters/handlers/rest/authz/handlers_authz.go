@@ -131,13 +131,11 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	var verb string
-	if len(roles) > 0 {
-		verb = authorization.UPDATE
-	} else {
+	verb := authorization.UPDATE
+	if len(roles) == 0 { // i.e. new role
 		verb = authorization.CREATE
 	}
 	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
@@ -191,11 +189,9 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 
 	rolePerms := role[*params.Body.Name]
 
-	var verb string
+	verb := authorization.UPDATE
 	if len(rolePerms) <= len(permissions) { // i.e., all permissions are removed
 		verb = authorization.DELETE
-	} else {
-		verb = authorization.UPDATE
 	}
 	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
