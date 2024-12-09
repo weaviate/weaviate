@@ -2834,7 +2834,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2885,7 +2885,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2932,7 +2932,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2996,7 +2996,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,

@@ -51,7 +51,7 @@ type HasPermissionParams struct {
 	  In: body
 	*/
 	Body *models.Permission
-	/*role ID
+	/*role name
 	  Required: true
 	  In: path
 	*/
