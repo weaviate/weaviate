@@ -59,8 +59,10 @@ func TestAuthzNodes(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("add read_nodes with minimal nodes resource to custom role", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, customRole, helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission())
+	t.Run("make custom role with read_nodes and minimal nodes resource", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{Name: &customRole, Permissions: []*models.Permission{
+			helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission(),
+		}})
 	})
 
 	t.Run("assign custom role to custom user", func(t *testing.T) {

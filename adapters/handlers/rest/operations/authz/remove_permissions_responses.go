@@ -164,6 +164,31 @@ func (o *RemovePermissionsForbidden) WriteResponse(rw http.ResponseWriter, produ
 	}
 }
 
+// RemovePermissionsNotFoundCode is the HTTP code returned for type RemovePermissionsNotFound
+const RemovePermissionsNotFoundCode int = 404
+
+/*
+RemovePermissionsNotFound no role found
+
+swagger:response removePermissionsNotFound
+*/
+type RemovePermissionsNotFound struct {
+}
+
+// NewRemovePermissionsNotFound creates RemovePermissionsNotFound with default headers values
+func NewRemovePermissionsNotFound() *RemovePermissionsNotFound {
+
+	return &RemovePermissionsNotFound{}
+}
+
+// WriteResponse to the client
+func (o *RemovePermissionsNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
+}
+
 // RemovePermissionsUnprocessableEntityCode is the HTTP code returned for type RemovePermissionsUnprocessableEntity
 const RemovePermissionsUnprocessableEntityCode int = 422
 
