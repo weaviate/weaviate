@@ -131,10 +131,16 @@ func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, curr
 		return false, errors.Wrap(err, "fsync converted segment file")
 	}
 
+	end := time.Now()
+
+	newSize, err := f.Stat()
+	if err != nil {
+		return false, errors.Wrap(err, "stat converted segment file")
+	}
+
 	if err := f.Close(); err != nil {
 		return false, errors.Wrap(err, "close converted segment file")
 	}
-	end := time.Now()
 
 	sg.logger.WithFields(logrus.Fields{
 		"action": "lsm_compaction",
@@ -144,7 +150,7 @@ func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, curr
 	}).Debug("Ccnvertion done")
 
 	// time
-	fmt.Println("Converted segment: ", segment.path, size, end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys)
+	fmt.Println("Converted segment: ", segment.path, size, newSize.Size(), end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys)
 
 	if err := sg.replaceCompactedSegment(index, path); err != nil {
 		return false, errors.Wrap(err, "replace converted segments")
