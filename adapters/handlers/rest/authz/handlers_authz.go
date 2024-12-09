@@ -53,6 +53,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Control
 	api.AuthzDeleteRoleHandler = authz.DeleteRoleHandlerFunc(h.deleteRole)
 	api.AuthzAddPermissionsHandler = authz.AddPermissionsHandlerFunc(h.addPermissions)
 	api.AuthzRemovePermissionsHandler = authz.RemovePermissionsHandlerFunc(h.removePermissions)
+	api.AuthzHasPermissionHandler = authz.HasPermissionHandlerFunc(h.hasPermission)
 
 	// rbac users handlers
 	api.AuthzGetRolesForUserHandler = authz.GetRolesForUserHandlerFunc(h.getRolesForUser)
@@ -210,6 +211,31 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	}).Info("permissions removed")
 
 	return authz.NewRemovePermissionsOK()
+}
+
+func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
+	if params.Body == nil {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("permission is required")))
+	}
+
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewHasPermissionForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	policy, err := conv.PermissionToPolicies(params.Body)
+	if err != nil {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+	if len(policy) == 0 {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("unknown error occurred passing permission to policy")))
+	}
+
+	hasPermission, err := h.controller.HasPermission(params.ID, policy[0])
+	if err != nil {
+		return authz.NewHasPermissionInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	return authz.NewHasPermissionOK().WithPayload(hasPermission)
 }
 
 func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {

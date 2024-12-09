@@ -20,4 +20,5 @@ type Controller interface {
 	GetUsersForRole(role string) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error
+	HasPermission(role string, permission *Policy) (bool, error)
 }
