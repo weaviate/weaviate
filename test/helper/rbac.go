@@ -72,8 +72,7 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
-		authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name:        authorization.String(role),
+		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{
 			Permissions: permissions,
 		}),
 		CreateAuth(key),

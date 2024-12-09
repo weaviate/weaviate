@@ -109,12 +109,12 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 }
 
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
-	if *params.Body.Name == "" {
+	if params.ID == "" {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
 	if len(params.Body.Permissions) == 0 {
@@ -122,24 +122,24 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
-		Name:        params.Body.Name,
+		Name:        &params.ID,
 		Permissions: params.Body.Permissions,
 	})
 	if err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	roles, err := h.controller.GetRoles(*params.Body.Name)
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	verb := authorization.UPDATE
 	if len(roles) == 0 { // i.e. new role
-		verb = authorization.CREATE
-	}
-	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return authz.NewAddPermissionsNotFound()
 	}
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
@@ -150,7 +150,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		"action":      "add_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.Body.Name,
+		"roleName":    params.ID,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions added")
 
@@ -158,7 +158,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 }
 
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
-	if *params.Body.Name == "" {
+	if params.ID == "" {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
 	}
 
@@ -169,8 +169,8 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
 	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
@@ -178,26 +178,26 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	role, err := h.controller.GetRoles(*params.Body.Name)
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
+		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	role, err := h.controller.GetRoles(params.ID)
 	if err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if len(role) != 1 {
-		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	if len(role) == 0 {
+		return authz.NewRemovePermissionsNotFound()
 	}
 
-	rolePerms := role[*params.Body.Name]
+	rolePerms := role[params.ID]
 
-	verb := authorization.UPDATE
 	if len(rolePerms) <= len(permissions) { // i.e., all permissions are removed
-		verb = authorization.DELETE
-	}
-	if err := h.authorizer.Authorize(principal, verb, authorization.Roles(*params.Body.Name)...); err != nil {
-		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return authz.NewRemovePermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot remove the last permission from role %s", params.ID)))
 	}
 
-	if err := h.controller.RemovePermissions(*params.Body.Name, permissions); err != nil {
+	if err := h.controller.RemovePermissions(params.ID, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -205,7 +205,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		"action":      "remove_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.Body.Name,
+		"roleName":    params.ID,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions removed")
 

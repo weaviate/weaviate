@@ -846,7 +846,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/roles/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
+	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1026,7 +1026,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/roles/remove-permissions"] = authz.NewRemovePermissions(o.context, o.AuthzRemovePermissionsHandler)
+	o.handlers["POST"]["/authz/roles/{id}/remove-permissions"] = authz.NewRemovePermissions(o.context, o.AuthzRemovePermissionsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
