@@ -4,6 +4,21 @@ scrape_configs:
   static_configs:
   - targets:
     - host.docker.internal:2112
+- job_name: weaviate1
+  scrape_interval: 15s
+  static_configs:
+  - targets:
+    - host.docker.internal:2113
+- job_name: weaviate2
+  scrape_interval: 15s
+  static_configs:
+  - targets:
+    - host.docker.internal:2114
+- job_name: weaviate3
+  scrape_interval: 15s
+  static_configs:
+  - targets:
+    - host.docker.internal:2115
 - job_name: node
   scrape_interval: 15s
   static_configs:
