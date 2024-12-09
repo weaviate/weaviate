@@ -64,6 +64,21 @@ func createObject(t *testing.T, object *models.Object, key string) (*objects.Obj
 	return helper.Client(t).Objects.ObjectsCreate(params, helper.CreateAuth(key))
 }
 
+func getObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsGetOK, error) {
+	params := objects.NewObjectsGetParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsGet(params, helper.CreateAuth(key))
+}
+
+func updateObject(t *testing.T, id strfmt.UUID, object *models.Object, key string) (*objects.ObjectsUpdateOK, error) {
+	params := objects.NewObjectsUpdateParams().WithBody(object).WithID(id)
+	return helper.Client(t).Objects.ObjectsUpdate(params, helper.CreateAuth(key))
+}
+
+func deleteObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
+	params := objects.NewObjectsDeleteParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
+}
+
 func String(s string) *string {
 	return &s
 }
