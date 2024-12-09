@@ -37,6 +37,7 @@ import (
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -119,6 +120,7 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
+	withAutoschema                bool
 	weaviateEnvs                  map[string]string
 	removeEnvs                    map[string]struct{}
 }
@@ -231,6 +233,12 @@ func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
+	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
@@ -269,7 +277,8 @@ func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecVoyageAI() *Compose {
+func (d *Compose) WithText2VecVoyageAI(apiKey string) *Compose {
+	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modvoyageai.Name)
 	return d
 }
@@ -469,6 +478,11 @@ func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
 	for _, name := range names {
 		d.removeEnvs[name] = struct{}{}
 	}
+	return d
+}
+
+func (d *Compose) WithAutoschema() *Compose {
+	d.withAutoschema = true
 	return d
 }
 
@@ -765,6 +779,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
 		}
+	}
+
+	if d.withAutoschema {
+		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
 
 	settings["RAFT_PORT"] = "8300"

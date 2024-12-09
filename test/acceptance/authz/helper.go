@@ -14,11 +14,26 @@ package test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	gql "github.com/weaviate/weaviate/client/graphql"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/client/objects"
+
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/runtime"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/test/helper"
+)
+
+const (
+	UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
+	UUID2 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168242")
+	UUID3 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168243")
+	UUID4 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168244")
+	UUID5 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168245")
+	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
@@ -42,4 +57,29 @@ func generateMissingLists(permissions []*models.Permission) [][]*models.Permissi
 	}
 
 	return result
+}
+
+func createObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsCreateOK, error) {
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	return helper.Client(t).Objects.ObjectsCreate(params, helper.CreateAuth(key))
+}
+
+func String(s string) *string {
+	return &s
+}
+
+func queryGQL(t *testing.T, query, key string) (*gql.GraphqlPostOK, error) {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	return helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(key))
+}
+
+func assertGQL(t *testing.T, query, key string) *models.GraphQLResponse {
+	params := gql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: "", Query: query, Variables: nil})
+	resp, err := helper.Client(t).Graphql.GraphqlPost(params, helper.CreateAuth(key))
+	require.Nil(t, err)
+	if len(resp.Payload.Errors) > 0 {
+		t.Logf("Error: %s", resp.Payload.Errors[0].Message)
+	}
+	require.Equal(t, len(resp.Payload.Errors), 0)
+	return resp.Payload
 }
