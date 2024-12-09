@@ -44,6 +44,25 @@ func (m *Manager) GetUsersForRole(role string) ([]string, error) {
 	return m.authZ.GetUsersForRole(role)
 }
 
+func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.QueryHasPermissionRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	hasPerm, err := m.authZ.HasPermission(subCommand.Role, subCommand.Permission)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryHasPermissionResponse{HasPermission: hasPerm}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 	req := &cmd.CreateRolesRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
