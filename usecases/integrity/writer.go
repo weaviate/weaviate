@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rwhasher
+package integrity
 
 import (
 	"hash"
@@ -17,14 +17,14 @@ import (
 	"io"
 )
 
-type WriterHasher interface {
+type ChecksumWriter interface {
 	io.Writer
 	N() int
 	Hash() []byte
 	Reset()
 }
 
-var _ WriterHasher = (*CRC32Writer)(nil)
+var _ ChecksumWriter = (*CRC32Writer)(nil)
 
 type CRC32Writer struct {
 	w    io.Writer
