@@ -95,6 +95,29 @@ func (h *hnsw) Delete(ids ...uint64) error {
 	return nil
 }
 
+func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
+	before := time.Now()
+	defer h.metrics.TrackDelete(before, "total")
+
+	for _, docID := range docIDs {
+		h.RLock()
+		vecIDs := h.docIDVectors[docID]
+		h.RUnlock()
+
+		for _, id := range vecIDs {
+			if err := h.Delete(id); err != nil {
+				return err
+			}
+		}
+		h.Lock()
+		delete(h.docIDVectors, docID)
+		h.Unlock()
+
+	}
+
+	return nil
+}
+
 func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
