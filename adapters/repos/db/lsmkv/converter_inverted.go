@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -57,10 +56,11 @@ type convertedInverted struct {
 
 	invertedHeader *segmentindex.HeaderInverted
 
-	objectBucket  *Bucket
-	currentBucket *Bucket
-	idBucket      *Bucket
-	prop          *models.Property
+	objectBucket     *Bucket
+	currentBucket    *Bucket
+	idBucket         *Bucket
+	propName         string
+	propTokenization string
 
 	statsWrittenDocs uint64
 	statsWrittenKeys uint64
@@ -72,7 +72,7 @@ type convertedInverted struct {
 
 func newConvertedInverted(w io.WriteSeeker,
 	c1 *segmentCursorMap, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap, objectBucket *Bucket, currentBucket *Bucket, prop *models.Property, idBucket *Bucket,
+	scratchSpacePath string, cleanupTombstones bool, allTombstones *sroar.Bitmap, objectBucket *Bucket, currentBucket *Bucket, idBucket *Bucket, propName string, propTokenization string,
 ) *convertedInverted {
 	documentsToUpdate := sroar.NewBitmap()
 	return &convertedInverted{
@@ -88,7 +88,8 @@ func newConvertedInverted(w io.WriteSeeker,
 		objectBucket:        objectBucket,
 		documentsToUpdate:   documentsToUpdate,
 		currentBucket:       currentBucket,
-		prop:                prop,
+		propName:            propName,
+		propTokenization:    propTokenization,
 		idBucket:            idBucket,
 	}
 }
@@ -348,7 +349,7 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 		if values[i].Tombstone {
 
 			// if we saw a non-tombstone for this docId, don't add it to the tombstonesToWrite
-			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.prop.Name}, c.objectBucket.logger)
+			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.propName}, c.objectBucket.logger)
 			if err != nil {
 				continue
 			}
@@ -388,7 +389,7 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 				continue
 			}
 
-			texts, ok := textData[c.prop.Name]
+			texts, ok := textData[c.propName]
 
 			if !ok {
 				actuallyDeleted = true
@@ -416,15 +417,15 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 
 		}
 		if needsReindex {
-			texts, ok := obj.Properties().(map[string]interface{})[c.prop.Name].([]string)
+			texts, ok := obj.Properties().(map[string]interface{})[c.propName].([]string)
 			if !ok {
-				text, ok := obj.Properties().(map[string]interface{})[c.prop.Name].(string)
+				text, ok := obj.Properties().(map[string]interface{})[c.propName].(string)
 				if ok {
 					texts = []string{text}
 				}
 			}
 
-			analysed := AnalyseTextArray(c.prop.Tokenization, texts)
+			analysed := AnalyseTextArray(c.propTokenization, texts)
 			propLen := float32(0)
 
 			if os.Getenv("COMPUTE_PROPLENGTH_WITH_DUPS") == "true" {

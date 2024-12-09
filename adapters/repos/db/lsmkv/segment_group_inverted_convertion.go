@@ -62,7 +62,7 @@ func (sg *SegmentGroup) findInvertedConvertionCandidats() (*segment, *sroar.Bitm
 	return nil, nil, 0, nil
 }
 
-func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, currentBucket *Bucket, prop *models.Property) (bool, error) {
+func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, currentBucket *Bucket, propName, propTokenization string) (bool, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 	segment, tombstones, index, err := sg.findInvertedConvertionCandidats()
@@ -116,7 +116,7 @@ func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, curr
 
 	c := newConvertedInverted(f,
 		segment.newMapCursor(),
-		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones, objectBucket, currentBucket, prop, idBucket)
+		segment.level, secondaryIndices, scratchSpacePath, cleanupTombstones, tombstones, objectBucket, currentBucket, idBucket, propName, propTokenization)
 
 	if sg.metrics != nil {
 		sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -273,7 +273,7 @@ func (sg *SegmentGroup) stripTmpExtensionSingle(oldPath string) (string, error) 
 
 func (b *Bucket) ConvertToInverted(objectBucket *Bucket, idBucket *Bucket, prop *models.Property) error {
 	for {
-		ok, err := b.disk.convertOnce(objectBucket, idBucket, b, prop)
+		ok, err := b.disk.convertOnce(objectBucket, idBucket, b, prop.Name, prop.Tokenization)
 		if err != nil {
 			return fmt.Errorf("error during conversion: %v", err)
 		}

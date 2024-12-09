@@ -29,7 +29,7 @@ func TestSegmentGroupConverInverted(t *testing.T) {
 	path := os.Getenv("PATH_TO_SEGMENTS_TO_CONVERT")
 	if path == "" {
 		t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
-		// path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable/TEST"
+		// path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable"
 	}
 	err := ConvertSegments(path)
 	if err != nil {
@@ -66,6 +66,7 @@ func ConvertSegments(path string) error {
 	// get dir by first splitting the path to get the parent
 	pathSplit := strings.Split(path, "/")
 	objectParent := pathSplit[len(pathSplit)-1]
+	propName := strings.Split(pathSplit[len(pathSplit)-1], "_")[1]
 
 	opts := []BucketOption{
 		WithStrategy(StrategyMapCollection),
@@ -120,8 +121,10 @@ func ConvertSegments(path string) error {
 		return fmt.Errorf("Error creating object bucket: %v", err)
 	}
 
+	propTokenization := "word"
+
 	for {
-		ok, err := sg.convertOnce(objectBucket, currBucket, idBucket, nil)
+		ok, err := sg.convertOnce(objectBucket, currBucket, idBucket, propName, propTokenization)
 		if err != nil {
 			return fmt.Errorf("Error during conversion: %v", err)
 		}
