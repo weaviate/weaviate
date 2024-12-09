@@ -562,7 +562,7 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 	})
 }
 
-func TestAuthzRolesHasPermissionEventuallyConsistent(t *testing.T) {
+func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -583,6 +583,10 @@ func TestAuthzRolesHasPermissionEventuallyConsistent(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
+	t.Run("StopNode-3", func(t *testing.T) {
+		require.Nil(t, compose.StopAt(ctx, 2, nil))
+	})
+
 	t.Run("create role", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: &testRole,
@@ -595,29 +599,42 @@ func TestAuthzRolesHasPermissionEventuallyConsistent(t *testing.T) {
 		})
 	})
 
-	t.Run("eventually true", func(t *testing.T) {
-		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
-				Action: &authorization.CreateCollections,
-				Collections: &models.PermissionCollections{
-					Collection: authorization.All,
-				},
-			}), helper.CreateAuth(adminKey))
-			require.Nil(t, err)
-			require.True(t, res.Payload)
-		}, 3*time.Second, 500*time.Millisecond)
+	t.Run("permission in node 1", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
 	})
 
-	t.Run("eventually false", func(t *testing.T) {
-		require.EventuallyWithT(t, func(collect *assert.CollectT) {
-			res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
-				Action: &authorization.DeleteCollections,
-				Collections: &models.PermissionCollections{
-					Collection: authorization.All,
-				},
-			}), helper.CreateAuth(adminKey))
-			require.Nil(t, err)
-			require.False(t, res.Payload)
-		}, 3*time.Second, 500*time.Millisecond)
+	t.Run("permission in 2 without waiting", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviateNode2().URI())
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("StartNode-3", func(t *testing.T) {
+		require.Nil(t, compose.StartAt(ctx, 2))
+	})
+
+	t.Run("permission in 3 without waiting", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviateNode3().URI())
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
 	})
 }

@@ -58,8 +58,7 @@ message ApplyRequest {
     TYPE_DELETE_ROLES = 61;
     TYPE_REMOVE_PERMISSIONS = 62;
     TYPE_ADD_ROLES_FOR_USER = 63;
-    TYPE_REVOKE_ROLES_FOR_USER = 64;
-    TYPE_HAS_PERMISSION = 65;
+    TYPE_REVOKE_ROLES_FOR_USER = 64;    
 
     TYPE_STORE_SCHEMA_V1 = 99;
   }
@@ -83,6 +82,8 @@ message QueryRequest {
     TYPE_GET_SHARD_OWNER = 4;
     TYPE_GET_TENANTS_SHARDS = 5;
     TYPE_GET_SHARDING_STATE = 6;
+
+    TYPE_HAS_PERMISSION = 30;
   }
 
   Type type = 1;
