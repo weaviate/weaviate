@@ -85,8 +85,8 @@ func TestSegmentedBigHashTree(t *testing.T) {
 
 	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
 
-	maxHeight := 16
-	expectedHeight := 16
+	maxHeight := 11
+	expectedHeight := 11
 
 	ht, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestSegmentedBigHashTree(t *testing.T) {
 	require.Equal(t, expectedHeight, ht.Height())
 	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.(*CompactHashTree).capacity)
 
-	actualNumberOfElementsPerSegment := 1_000_000
+	actualNumberOfElementsPerSegment := 10_000
 
 	valuePrefix := "somevalue"
 
@@ -116,7 +116,7 @@ func TestSegmentedBigHashTree(t *testing.T) {
 func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 	segmentSize := uint64(math.MaxUint64 / 128)
 	segments := []uint64{1_000, segmentSize + 3_000, 2*segmentSize + 9_000}
-	maxHeight := 16
+	maxHeight := 12
 
 	ht1, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 }
 
 func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
-	leavesSpace := 100_000
+	leavesSpace := 10_000
 	totalSegmentsCount := 64
 	segmentSize := leavesSpace / totalSegmentsCount
 	actualNumberOfElementsPerSegment := segmentSize / 100

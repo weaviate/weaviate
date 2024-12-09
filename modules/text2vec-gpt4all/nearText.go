@@ -26,11 +26,11 @@ func (m *GPT4AllModule) Arguments() map[string]modulecapabilities.GraphQLArgumen
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *GPT4AllModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *GPT4AllModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

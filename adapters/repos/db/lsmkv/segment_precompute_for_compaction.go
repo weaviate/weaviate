@@ -73,6 +73,19 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
+
+	var invertedHeader *segmentindex.HeaderInverted
+	if header.Strategy == segmentindex.StrategyInverted {
+		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+		dataStartPos = invertedHeader.KeysOffset
+		dataEndPos = invertedHeader.TombstoneOffset
+	}
+
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
@@ -88,12 +101,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataStartPos:          dataStartPos,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		invertedHeader:        invertedHeader,
+		invertedData:          &segmentInvertedData{},
 	}
 
 	if seg.secondaryIndexCount > 0 {

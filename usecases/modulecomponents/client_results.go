@@ -11,7 +11,11 @@
 
 package modulecomponents
 
-import "time"
+import (
+	"time"
+
+	"github.com/weaviate/weaviate/entities/types"
+)
 
 type RateLimits struct {
 	LastOverwrite        time.Time
@@ -74,11 +78,16 @@ func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
-type VectorizationResult struct {
+type VectorizationResult[T types.Embedding] struct {
 	Text       []string
 	Dimensions int
-	Vector     [][]float32
+	Vector     []T
 	Errors     []error
+}
+
+type VectorizationCLIPResult[T types.Embedding] struct {
+	TextVectors  []T
+	ImageVectors []T
 }
 
 type Usage struct {

@@ -333,7 +333,7 @@ func NewAssignRoleNotFound() *AssignRoleNotFound {
 /*
 AssignRoleNotFound describes a response with status code 404, with default header values.
 
-role is not found.
+role or user is not found.
 */
 type AssignRoleNotFound struct {
 }
@@ -455,7 +455,7 @@ swagger:model AssignRoleBody
 */
 type AssignRoleBody struct {
 
-	// the roles that assigned to the key or user
+	// the roles that assigned to user
 	Roles []string `json:"roles"`
 }
 

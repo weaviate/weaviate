@@ -290,15 +290,17 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	var resp *models.GraphQLResponse
 	var err error
 
-	require.Eventually(t, func() bool {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err = get.Do(context.Background())
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		return len(resp.Data) > 0
-	}, 5*time.Second, 1*time.Millisecond)
+		if len(resp.Data) == 0 {
+			return
+		}
 
-	ids := acceptance_with_go_client.GetIds(t, resp, className)
-	require.Contains(t, ids, id)
+		ids := acceptance_with_go_client.GetIds(t, resp, className)
+		assert.Contains(ct, ids, id)
+	}, 5*time.Second, 1*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
@@ -328,4 +330,22 @@ func checkTargetVectors(t *testing.T, resultVectors map[string][]float32) {
 	assert.NotEqual(t, resultVectors[c11y_flat], resultVectors[transformers_flat])
 	assert.NotEqual(t, resultVectors[c11y_pq], resultVectors[transformers_pq])
 	assert.NotEqual(t, resultVectors[c11y_bq], resultVectors[transformers_bq])
+}
+
+func testAllObjectsIndexed(t *testing.T, client *wvt.Client, className string) {
+	// wait for all of the objects to get indexed
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := client.Cluster().NodesStatusGetter().
+			WithClass(className).
+			WithOutput("verbose").
+			Do(context.Background())
+		require.NoError(ct, err)
+		require.NotEmpty(ct, resp.Nodes)
+		for _, n := range resp.Nodes {
+			require.NotEmpty(ct, n.Shards)
+			for _, s := range n.Shards {
+				assert.Equal(ct, "READY", s.VectorIndexingStatus)
+			}
+		}
+	}, 30*time.Second, 500*time.Millisecond)
 }

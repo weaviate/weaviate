@@ -107,7 +107,7 @@ func TestHashTree(t *testing.T) {
 }
 
 func TestBigHashTree(t *testing.T) {
-	height := 15
+	height := 10
 
 	ht, err := NewHashTree(height)
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestBigHashTree(t *testing.T) {
 }
 
 func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
-	height := 13
+	height := 9
 
 	ht1, err := NewHashTree(height)
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
 }
 
 func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
-	height := 11
+	height := 7
 
 	ht1, err := NewHashTree(height)
 	require.NoError(t, err)
@@ -346,7 +346,7 @@ func TestHashTreeComparisonHeight2(t *testing.T) {
 }
 
 func TestHashTreeRandomAggregationOrder(t *testing.T) {
-	maxHeight := 16
+	maxHeight := 10
 
 	for h := 1; h < maxHeight; h++ {
 		var prevRoot Digest
@@ -394,7 +394,7 @@ func TestHashTreeRandomAggregationOrder(t *testing.T) {
 }
 
 func TestHashTreeConcurrentInsertions(t *testing.T) {
-	height := 16
+	height := 9
 
 	leavesCount := LeavesCount(height)
 

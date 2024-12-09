@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,7 +28,11 @@ const (
 	DefaultSchemaPrefix = "v1/schema"
 )
 
-var ErrTenantNotFound = errors.New("tenant not found")
+var (
+	ErrCollectionNotFound = errors.New("collection not found")
+	ErrTenantNotFound     = errors.New("tenant not found")
+	ErrUnauthorized       = errors.New("unauthorized")
+)
 
 type SchemaInfo struct {
 	addr         string
@@ -48,38 +51,43 @@ func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 	}
 }
 
-func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, uint64, error) {
-	respPayload := []Response{}
+func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, []string, int64, error) {
+	respPayload := Response{}
 
-	path := t.schemaPrefix + "/" + collection + "/tenants"
+	path := t.schemaPrefix + "/" + collection + "/tenants/" + tenant
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
 	resp, err := t.client.Get(u)
 	if err != nil {
-		return "", 0, err
+		return "", nil, 0, err
 	}
 	defer resp.Body.Close()
 
-	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
-		return "", 0, err
+	// GET /schema/{className}/tenants/{tenantName} does not return a body for 401 or 404
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", nil, 0, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil, 0, ErrTenantNotFound
 	}
 
+	if err := json.NewDecoder(resp.Body).Decode(&respPayload); err != nil {
+		return "", nil, 0, fmt.Errorf("tenant status: failed to json decode response: %w", err)
+	}
 	var rerr error
-	for _, v := range respPayload {
-		for _, e := range v.Error {
+	if resp.StatusCode/100 != 2 {
+		if len(respPayload.Error) == 0 {
+			return "", nil, 0, fmt.Errorf(
+				"tenant status: status code is non-200 but error is not set: %d", resp.StatusCode)
+		}
+		for _, e := range respPayload.Error {
 			rerr = errors.Join(rerr, errors.New(e.Message))
 		}
-		if strings.EqualFold(v.Name, tenant) {
-			return v.Status, 0, nil
-		}
-
 	}
-
 	if rerr != nil {
-		return "", 0, rerr
+		return "", nil, 0, rerr
 	}
-
-	return "", 0, ErrTenantNotFound
+	return respPayload.Status, respPayload.BelongsToNodes, respPayload.DataVersion, nil
 }
 
 // Collection returns details about single collection from the schema.
@@ -96,13 +104,21 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 	}
 	defer resp.Body.Close()
 
+	// GET /schema/{className} does not return a body for 401 or 404
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrUnauthorized
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrCollectionNotFound
+	}
+
 	if resp.StatusCode/100 != 2 {
 		var (
 			rerr  error
 			eresp Response
 		)
 		if err := json.NewDecoder(resp.Body).Decode(&eresp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to json decode response: %w", err)
 		}
 		if len(eresp.Error) == 0 {
 			return nil, errors.New("status code is non-200 but error is not set")
@@ -121,9 +137,11 @@ func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models
 }
 
 type Response struct {
-	Error  []ErrorResponse `json:"error,omitempty"`
-	Status string          `json:"activityStatus"`
-	Name   string          `json:"name"`
+	Error          []ErrorResponse `json:"error,omitempty"`
+	BelongsToNodes []string        `json:"belongsToNodes"`
+	Status         string          `json:"activityStatus"`
+	Name           string          `json:"name"`
+	DataVersion    int64           `json:"dataVersion"`
 }
 
 type ErrorResponse struct {

@@ -96,9 +96,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				},
 				AllocChecker:           s.index.allocChecker,
 				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
+			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
@@ -161,9 +161,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
-			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
-			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
+			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -200,10 +198,9 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initTargetQueues() error {
-	s.queues = make(map[string]*IndexQueue)
+	s.queues = make(map[string]*VectorIndexQueue)
 	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
-			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
+		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
@@ -222,8 +219,7 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyQueue() error {
-	queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
-		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
+	queue, err := NewVectorIndexQueue(s, "", s.vectorIndex)
 	if err != nil {
 		return err
 	}

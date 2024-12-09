@@ -120,7 +120,7 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -136,7 +136,7 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
@@ -144,14 +144,14 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
 	return resp.Tenants, resp.ShardVersion, nil
@@ -284,31 +284,29 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		))
 	defer t.ObserveDuration()
 
-	resp := &cmd.QueryResponse{}
-	err := backoff.Retry(func() error {
-		var err error
+	if s.store.IsLeader() {
+		return s.store.Query(req)
+	}
 
-		if s.store.IsLeader() {
-			resp, err = s.store.Query(req)
-			return err
-		}
-
-		leader := s.store.Leader()
-		if leader == "" {
-			err = s.leaderErr()
+	// find out who the leader is
+	var leader string
+	if err := backoff.Retry(func() error {
+		if leader = s.store.Leader(); leader == "" {
+			err := s.leaderErr()
 			s.log.Warnf("query: could not find leader: %s", err)
 			return err
 		}
 
-		resp, err = s.cl.Query(ctx, leader, req)
-		if err != nil {
-			s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
-			// Don't retry if the actual query fails
-			return backoff.Permanent(err)
-		}
 		return nil
-		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
-	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	}, backoff.WithContext(backoff.WithMaxRetries(
+		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx)); err != nil {
+		s.log.Errorf("query: failed to find leader after retries: %s", err)
+		return &cmd.QueryResponse{}, err
+	}
 
+	resp, err := s.cl.Query(ctx, leader, req)
+	if err != nil {
+		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+	}
 	return resp, err
 }

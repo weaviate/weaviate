@@ -55,7 +55,8 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
-	Vectors           map[string][]float32 `json:"vectors"`
+	Vectors           map[string][]float32   `json:"vectors"`
+	MultiVectors      map[string][][]float32 `json:"multivectors"`
 }
 
 func New(docID uint64) *Object {
@@ -66,6 +67,11 @@ func New(docID uint64) *Object {
 }
 
 func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
+	return FromObjectMulti(object, vector, vectors, nil)
+}
+
+// TODO: temporary solution
+func FromObjectMulti(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -85,12 +91,22 @@ func FromObject(object *models.Object, vector []float32, vectors models.Vectors)
 		}
 	}
 
+	var multiVectors map[string][][]float32
+	if multivectors != nil {
+
+		multiVectors = make(map[string][][]float32)
+		for targetVector, vectors := range multivectors {
+			multiVectors[targetVector] = vectors
+		}
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
+		MultiVectors:      multiVectors,
 	}
 }
 
@@ -202,6 +218,28 @@ func FromBinaryOptional(data []byte,
 			ko.Object.Vectors = make(models.Vectors)
 			for vecName, vec := range vectors {
 				ko.Object.Vectors[vecName] = vec
+			}
+		}
+	} else {
+		if rw.Position < uint64(len(rw.Buffer)) {
+			_ = rw.ReadBytesFromBufferWithUint32LengthIndicator()
+			targetVectorsSegmentLength := rw.ReadUint32()
+			pos := rw.Position
+			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+		}
+	}
+
+	if rw.Position < uint64(len(rw.Buffer)) {
+		multiVectorsLength := rw.ReadUint32()
+		if len(addProp.MultiVectors) > 0 {
+			if multiVectorsLength > 0 {
+				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
+				if err != nil {
+					return nil, errors.Wrap(err, "Could not copy multivectors")
+				}
+				if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
+					return nil, errors.Wrap(err, "Could not unmarshal multivectors")
+				}
 			}
 		}
 	}
@@ -654,6 +692,8 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
 // 4          | uint32        | length of target vectors segment (in bytes)
 // n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
+// 4          | uint32        | length of multivectors as msgpack
+// n          | []byte        | multivectors as msgpack
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -755,6 +795,17 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
 
+	var multiVectorsPacked []byte
+	if len(ko.MultiVectors) > 0 {
+		multiVectorsPacked, err = msgpack.Marshal(ko.MultiVectors)
+		if err != nil {
+			return nil, fmt.Errorf("could not marshal multivectors: %w", err)
+		}
+		if len(multiVectorsPacked) > maxTargetVectorsSegmentLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "multivectors", len(multiVectorsPacked), maxTargetVectorsSegmentLength)
+		}
+	}
+
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
 		2 + vectorLength*4 +
 		2 + classNameLength +
@@ -762,7 +813,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + metaLength +
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
-		4 + uint32(targetVectorsSegmentLength)
+		4 + uint32(targetVectorsSegmentLength) +
+		4 + uint32(len(multiVectorsPacked)) // multivectors
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -820,6 +872,14 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		rw.WriteUint16(uint16(vecLen))
 		for j := 0; j < vecLen; j++ {
 			rw.WriteUint32(math.Float32bits(vec[j]))
+		}
+	}
+
+	rw.WriteUint32(uint32(len(multiVectorsPacked)))
+	if len(multiVectorsPacked) > 0 {
+		err = rw.CopyBytesToBuffer(multiVectorsPacked)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy multivectors")
 		}
 	}
 
@@ -1014,6 +1074,19 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.Vectors = vectors
 
+	if rw.Position < uint64(len(rw.Buffer)) {
+		multivectorsLength := rw.ReadUint32()
+		if multivectorsLength > 0 {
+			multivectors, err := rw.CopyBytesFromBuffer(uint64(multivectorsLength), nil)
+			if err != nil {
+				return errors.Wrap(err, "Could not copy multivectors")
+			}
+			if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
+				return errors.Wrap(err, "Could not unmarshal multivectors")
+			}
+		}
+	}
+
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
@@ -1121,6 +1194,88 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	}
 
 	return out, nil
+}
+
+func incrementPos(in []byte, pos int, size int) int {
+	b := in[pos : pos+size]
+	if size == 2 {
+		length := binary.LittleEndian.Uint16(b)
+		pos += size + int(length)
+	} else if size == 4 {
+		length := binary.LittleEndian.Uint32(b)
+		pos += size + int(length)
+		return pos
+	} else if size == 8 {
+		length := binary.LittleEndian.Uint64(b)
+		pos += size + int(length)
+	}
+	return pos
+}
+
+func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([][]float32, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+
+	version := in[0]
+	if version != 1 {
+		return nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	// since we know the version and know that the blob is not len(0), we can
+	// assume that we can directly access the vector length field. The only
+	// situation where this is not accessible would be on corrupted data - where
+	// it would be acceptable to panic
+	vecLen := binary.LittleEndian.Uint16(in[42:44])
+
+	var out []float32
+	if cap(buffer) >= int(vecLen) {
+		out = buffer[:vecLen]
+	} else {
+		out = make([]float32, vecLen)
+	}
+	vecStart := 44
+	vecEnd := vecStart + int(vecLen*4)
+
+	i := 0
+	for start := vecStart; start < vecEnd; start += 4 {
+		asUint := binary.LittleEndian.Uint32(in[start : start+4])
+		out[i] = math.Float32frombits(asUint)
+		i++
+	}
+
+	pos := vecEnd
+
+	pos = incrementPos(in, pos, 2) // classNameLength
+	pos = incrementPos(in, pos, 4) // schemaLength
+	pos = incrementPos(in, pos, 4) // metaLength
+	pos = incrementPos(in, pos, 4) // vectorWeightsLength
+	pos = incrementPos(in, pos, 4) // bufLen
+	pos = incrementPos(in, pos, 4) // targetVectorsSegmentLength
+
+	// multivector
+	var multiVectors map[string][][]float32
+
+	if len(in) > pos {
+		multivec_len := binary.LittleEndian.Uint32(in[pos : pos+4])
+		multivec_start := pos + 4
+		multivec_end := multivec_start + int(multivec_len)
+		multiven_bin := in[multivec_start:multivec_end]
+
+		if multivec_len > 0 {
+			if err := msgpack.Unmarshal(multiven_bin, &multiVectors); err != nil {
+				return nil, errors.Wrap(err, "unmarshal multivector")
+			}
+		} else {
+			return nil, errors.New("multivector length is 0")
+		}
+	}
+
+	mvout, ok := multiVectors[targetVector]
+	if !ok {
+		return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+	}
+	return mvout, nil
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,

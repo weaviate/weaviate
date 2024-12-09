@@ -23,102 +23,138 @@ import (
 )
 
 func TestTenantInfo(t *testing.T) {
-	t.Run("tenant with frozen state", func(t *testing.T) {
-		schema := mockSchema(t)
+	t.Run("unauthorized", func(t *testing.T) {
+		schema := mockSchema(t, nil, "", 0, nil, http.StatusUnauthorized)
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
-		require.NoError(t, err)
-		assert.Equal(t, status, "FROZEN")
+		_, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.ErrorContains(t, err, "unauthorized")
 	})
 
-	t.Run("tenant with non-frozen state", func(t *testing.T) {
-		schema := mockSchema(t)
-		schema.returnActive = true // return non-frozen tenant
-
+	t.Run("not found", func(t *testing.T) {
+		schema := mockSchema(t, nil, "", 0, nil, http.StatusNotFound)
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		_, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
-		require.Empty(t, status)
 	})
 
-	t.Run("error getting tenant status", func(t *testing.T) {
-		schema := mockSchema(t)
-		schema.returnError = true // return error in getting tenant info
-
+	t.Run("error code but no error set on body", func(t *testing.T) {
+		schema := mockSchema(t, nil, "", 0, nil, http.StatusInternalServerError)
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		_, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.ErrorContains(t, err, "error is not set")
+	})
+
+	t.Run("errors in body", func(t *testing.T) {
+		errMessages := []ErrorResponse{{"some important error"}, {"another important error"}}
+		schema := mockSchema(t, errMessages, "", 0, nil, http.StatusInternalServerError)
+		ctx := context.Background()
+		svr := httptest.NewServer(schema)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
+
+		_, _, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorContains(t, err, "some important error")
-		require.Empty(t, status)
+		require.ErrorContains(t, err, "another important error")
 	})
 
-	t.Run("empty tenants", func(t *testing.T) {
-		schema := mockSchema(t)
-		schema.returnEmpty = true // return error in getting tenant info
-
+	t.Run("tenant with frozen state", func(t *testing.T) {
+		schema := mockSchema(t, nil, "FROZEN", 1, []string{"node-1", "node-2"}, 0)
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
 		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
-		status, _, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
-		require.ErrorIs(t, err, ErrTenantNotFound)
-		require.Empty(t, status)
+		status, belongsToNodes, dataVersion, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.NoError(t, err)
+		assert.Equal(t, "FROZEN", status)
+		assert.Equal(t, []string{"node-1", "node-2"}, belongsToNodes)
+		assert.Equal(t, int64(1), dataVersion)
+	})
+
+	t.Run("tenant with data version 2", func(t *testing.T) {
+		schema := mockSchema(t, nil, "FROZEN", 2, []string{"node-1", "node-2"}, 0)
+		ctx := context.Background()
+		svr := httptest.NewServer(schema)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
+
+		status, belongsToNodes, dataVersion, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.NoError(t, err)
+		assert.Equal(t, "FROZEN", status)
+		assert.Equal(t, []string{"node-1", "node-2"}, belongsToNodes)
+		assert.Equal(t, int64(2), dataVersion)
+	})
+
+	t.Run("tenant with five belongs to nodes", func(t *testing.T) {
+		schema := mockSchema(t, nil, "FROZEN", 1, []string{"node-1", "node-2", "node-3", "node-4", "node-5"}, 0)
+		ctx := context.Background()
+		svr := httptest.NewServer(schema)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
+
+		status, belongsToNodes, dataVersion, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.NoError(t, err)
+		assert.Equal(t, "FROZEN", status)
+		assert.Equal(t, []string{"node-1", "node-2", "node-3", "node-4", "node-5"}, belongsToNodes)
+		assert.Equal(t, int64(1), dataVersion)
+	})
+
+	t.Run("tenant with active state", func(t *testing.T) {
+		schema := mockSchema(t, nil, "ACTIVE", 0, []string{"node-1", "node-2"}, 0)
+		ctx := context.Background()
+		svr := httptest.NewServer(schema)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
+
+		status, belongsToNodes, dataVersion, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
+		require.NoError(t, err)
+		assert.Equal(t, "ACTIVE", status)
+		assert.Equal(t, []string{"node-1", "node-2"}, belongsToNodes)
+		assert.Equal(t, int64(0), dataVersion)
 	})
 }
 
 type schema struct {
-	t            *testing.T
-	returnError  bool
-	returnActive bool
-	returnEmpty  bool
+	t                    *testing.T
+	returnErrors         []ErrorResponse
+	returnBelongsToNodes []string
+	returnStatus         string
+	returnDataVersion    int64
+	// if 0, then WriteHeader will not be called
+	// so the default status will be 200
+	httpStatus int
 }
 
+// ServerHTTP json encodes the mock response and uses the httpStatus if set.
+// If httpStatus is 0, then the default status will be 200.
 func (s *schema) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	res := []Response{}
-
-	switch {
-	case s.returnError:
-		res = append(res, Response{
-			Error: []ErrorResponse{
-				{
-					Message: "some important error",
-				},
-			},
-		})
-	case s.returnActive:
-		res = append(res, Response{
-			Name:   "iron-man",
-			Status: "ACTIVE",
-		})
-
-	case s.returnEmpty:
-		// do not append anything
-	default:
-		res = append(res, Response{
-			Name:   "captain-america",
-			Status: "FROZEN",
-		})
-
+	res := Response{
+		Error:          s.returnErrors,
+		BelongsToNodes: s.returnBelongsToNodes,
+		Status:         s.returnStatus,
+		DataVersion:    s.returnDataVersion,
 	}
-
+	if s.httpStatus != 0 {
+		w.WriteHeader(s.httpStatus)
+	}
 	if err := json.NewEncoder(w).Encode(res); err != nil {
 		require.NoError(s.t, err)
 	}
 }
 
-func mockSchema(t *testing.T) *schema {
+func mockSchema(t *testing.T, returnErrors []ErrorResponse, returnStatus string,
+	returnDataVersion int64, returnBelongsToNodes []string, httpStatus int,
+) *schema {
 	return &schema{
-		t:            t,
-		returnError:  false,
-		returnActive: false,
-		returnEmpty:  false,
+		t:                    t,
+		returnErrors:         returnErrors,
+		returnStatus:         returnStatus,
+		returnDataVersion:    returnDataVersion,
+		returnBelongsToNodes: returnBelongsToNodes,
+		httpStatus:           httpStatus,
 	}
 }

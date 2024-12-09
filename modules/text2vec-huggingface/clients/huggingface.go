@@ -87,7 +87,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, err := v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 	return res, nil, 0, err
@@ -95,7 +95,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 }
@@ -113,7 +113,7 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 
 func (v *vectorizer) vectorize(ctx context.Context, url string,
 	input []string, options options,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Inputs:  input,
 		Options: &options,
@@ -152,7 +152,7 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		return nil, errors.Wrap(err, "cannot decode vector")
 	}
 
-	return &modulecomponents.VectorizationResult{
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Text:       input,
 		Dimensions: len(vector[0]),
 		Vector:     vector,

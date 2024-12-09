@@ -65,7 +65,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						DataType: dt.PropString(),
 					}
 					fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -109,7 +109,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						Name:     propName,
 						DataType: schema.DataTypeText.PropString(),
 					}
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
 					require.ErrorContains(t, err, "conflict for property")
 					require.ErrorContains(t, err, "already in use or provided multiple times")
 				})
@@ -148,7 +148,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 						NestedProperties: []*models.NestedProperty{{Name: "test", DataType: schema.DataTypeInt.PropString()}},
 					}
 					fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -205,7 +205,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 					fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 				}
 
-				_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+				_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
 				if len(tc.expectedErrContains) == 0 {
 					require.NoError(t, err)
 				} else {
@@ -416,7 +416,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	for _, tokenization := range helpers.Tokenizations {
 		propName := fmt.Sprintf("ref_%s", tokenization)
 		t.Run(propName, func(t *testing.T) {
-			_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
+			_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
 				&models.Property{
 					Name:         propName,
 					DataType:     dataType,
@@ -432,7 +432,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	// non-existent tokenization
 	propName := "ref_nonExistent"
 	t.Run(propName, func(t *testing.T) {
-		_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,
@@ -448,7 +448,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	propName = "ref_empty"
 	t.Run(propName, func(t *testing.T) {
 		fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
-		_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,

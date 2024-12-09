@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -92,7 +93,8 @@ type hnsw struct {
 	efFactor int64
 
 	// on filtered searches with less than n elements, perform flat search
-	flatSearchCutoff int64
+	flatSearchCutoff      int64
+	flatSearchConcurrency int
 
 	levelNormalizer float64
 
@@ -116,8 +118,6 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
-	shardCompactionCallbacks     cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks          cyclemanager.CycleCallbackGroup
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -165,6 +165,10 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
+	// rescore sequentially, as that would take very long. This setting allows us
+	// to define the rescoring concurrency.
+	rescoreConcurrency int
 
 	compressActionLock *sync.RWMutex
 	className          string
@@ -214,8 +218,8 @@ type MakeCommitLogger func() (CommitLogger, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
-	shardFlushCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
+func New(cfg Config, uc ent.UserConfig,
+	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -232,7 +236,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1,
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -244,27 +248,28 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:     1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:      uc.EFConstruction,
-		flatSearchCutoff:    int64(uc.FlatSearchCutoff),
-		nodes:               make([]*vertex, cache.InitialSize),
-		cache:               vectorCache,
-		waitForCachePrefill: cfg.WaitForCachePrefill,
-		vectorForID:         vectorCache.Get,
-		multiVectorForID:    vectorCache.MultiGet,
-		id:                  cfg.ID,
-		rootPath:            cfg.RootPath,
-		tombstones:          map[uint64]struct{}{},
-		logger:              cfg.Logger,
-		distancerProvider:   cfg.DistanceProvider,
-		deleteLock:          &sync.Mutex{},
-		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.RWMutex{},
-		resetCtx:            resetCtx,
-		resetCtxCancel:      resetCtxCancel,
-		shutdownCtx:         shutdownCtx,
-		shutdownCtxCancel:   shutdownCtxCancel,
-		initialInsertOnce:   &sync.Once{},
+		levelNormalizer:       1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:        uc.EFConstruction,
+		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
+		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		nodes:                 make([]*vertex, cache.InitialSize),
+		cache:                 vectorCache,
+		waitForCachePrefill:   cfg.WaitForCachePrefill,
+		vectorForID:           vectorCache.Get,
+		multiVectorForID:      vectorCache.MultiGet,
+		id:                    cfg.ID,
+		rootPath:              cfg.RootPath,
+		tombstones:            map[uint64]struct{}{},
+		logger:                cfg.Logger,
+		distancerProvider:     cfg.DistanceProvider,
+		deleteLock:            &sync.Mutex{},
+		tombstoneLock:         &sync.RWMutex{},
+		resetLock:             &sync.RWMutex{},
+		resetCtx:              resetCtx,
+		resetCtxCancel:        resetCtxCancel,
+		shutdownCtx:           shutdownCtx,
+		shutdownCtxCancel:     shutdownCtxCancel,
+		initialInsertOnce:     &sync.Once{},
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -282,13 +287,12 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		pqConfig:             uc.PQ,
 		bqConfig:             uc.BQ,
 		sqConfig:             uc.SQ,
+		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
-		shardCompactionCallbacks: shardCompactionCallbacks,
-		shardFlushCallbacks:      shardFlushCallbacks,
-		store:                    store,
-		allocChecker:             cfg.AllocChecker,
-		visitedListPoolMaxSize:   cfg.VisitedListPoolMaxSize,
+		store:                  store,
+		allocChecker:           cfg.AllocChecker,
+		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
@@ -465,13 +469,6 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 	}
 
 	return entryPointID, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
