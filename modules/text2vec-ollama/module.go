@@ -33,15 +33,12 @@ import (
 const Name = "text2vec-ollama"
 
 var batchSettings = batch.Settings{
-	// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
-	// using 30% more than the OpenAI model is a rough estimate but seems to work
-	TokenMultiplier:    1.3,
+	TokenMultiplier:    0,
+	MaxObjectsPerBatch: 10,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 2500 },
 	MaxTimePerBatch:    float64(10),
-	MaxObjectsPerBatch: 512, // Info from jina
-	// real limit is 8192, but the vectorization times go up by A LOT if the batches are larger
-	MaxTokensPerBatch: func(cfg moduletools.ClassConfig) int { return 2500 },
-	HasTokenLimit:     true,
-	ReturnsRateLimit:  false,
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
 }
 
 func New() *OllamaModule {
@@ -59,7 +56,7 @@ type OllamaModule struct {
 }
 
 func (m *OllamaModule) Name() string {
-	return "text2vec-ollama"
+	return Name
 }
 
 func (m *OllamaModule) Type() modulecapabilities.ModuleType {
