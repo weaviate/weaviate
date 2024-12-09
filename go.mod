@@ -41,6 +41,7 @@ require (
 	google.golang.org/api v0.216.0
 	google.golang.org/grpc v1.69.4
 	gopkg.in/yaml.v2 v2.4.0
+	github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd
 )
 
 require (
