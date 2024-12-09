@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"testing"
@@ -88,4 +88,65 @@ func Test_classSettings_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	apiEndpoint           string
+	modelID               string
+	properties            interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+	}
+	if f.apiEndpoint != "" {
+		classSettings["apiEndpoint"] = f.apiEndpoint
+	}
+	if f.modelID != "" {
+		classSettings["modelID"] = f.modelID
+	}
+	if f.properties != nil {
+		classSettings["properties"] = f.properties
+	}
+	for k, v := range f.classConfig {
+		classSettings[k] = v
+	}
+	return classSettings
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.Class()
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

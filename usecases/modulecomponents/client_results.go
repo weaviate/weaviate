@@ -13,6 +13,16 @@ package modulecomponents
 
 import "time"
 
+var DummyRateLimits = RateLimits{
+	LimitRequests:        1000000,
+	LimitTokens:          1000000,
+	RemainingRequests:    1000000,
+	RemainingTokens:      1000000,
+	ResetRequests:        time.Now(),
+	ResetTokens:          time.Now(),
+	AfterRequestFunction: func(limits *RateLimits, tokensUsed int, deductRequest bool) {},
+}
+
 type RateLimits struct {
 	LastOverwrite        time.Time
 	AfterRequestFunction func(limits *RateLimits, tokensUsed int, deductRequest bool)

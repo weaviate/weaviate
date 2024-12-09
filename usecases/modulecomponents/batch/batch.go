@@ -535,13 +535,5 @@ func VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []boo
 }
 
 func dummyRateLimit() *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{
-		LimitRequests:        1000000,
-		LimitTokens:          1000000,
-		RemainingRequests:    1000000,
-		RemainingTokens:      1000000,
-		ResetRequests:        time.Now(),
-		ResetTokens:          time.Now(),
-		AfterRequestFunction: func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {},
-	}
+	return &modulecomponents.DummyRateLimits
 }
