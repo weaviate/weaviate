@@ -56,6 +56,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			name:     "distance",
 			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
 		},
+		{
+			name:     "multivector",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.Enabled },
+		},
 	}
 
 	for _, u := range immutableFields {

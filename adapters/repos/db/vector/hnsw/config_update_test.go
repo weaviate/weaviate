@@ -40,7 +40,7 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"64\" to \"128\""),
 			},
 			{
-				name:    "attempting to change ef construction",
+				name:    "attempting to change max connections",
 				initial: ent.UserConfig{MaxConnections: 10},
 				update:  ent.UserConfig{MaxConnections: 15},
 				expectedError: errors.Errorf(
@@ -62,6 +62,18 @@ func TestUserConfigUpdates(t *testing.T) {
 				expectedError: errors.Errorf(
 					"distance is immutable: " +
 						"attempted change from \"cosine\" to \"l2-squared\""),
+			},
+			{
+				name: "attempting to change multivector",
+				initial: ent.UserConfig{Multivector: ent.MultivectorConfig{
+					Enabled: false,
+				}},
+				update: ent.UserConfig{Multivector: ent.MultivectorConfig{
+					Enabled: true,
+				}},
+				expectedError: errors.Errorf(
+					"multivector is immutable: " +
+						"attempted change from \"false\" to \"true\""),
 			},
 			{
 				name:          "changing ef",
