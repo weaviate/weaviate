@@ -97,7 +97,7 @@ func (m *manager) RemovePermissions(roleName string, permissions []*authorizatio
 }
 
 func (m *manager) HasPermission(role string, permission *authorization.Policy) (bool, error) {
-	return m.casbin.Enforce(conv.PrefixRoleName(role), permission.Resource, permission.Verb)
+	return m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(role), permission.Resource, permission.Verb, permission.Domain)
 }
 
 func (m *manager) DeleteRoles(roles ...string) error {
