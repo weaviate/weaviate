@@ -249,148 +249,6 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permissions": {
-      "post": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
-        "operationId": "addPermissions",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "name",
-                "permissions"
-              ],
-              "properties": {
-                "name": {
-                  "description": "role name",
-                  "type": "string"
-                },
-                "permissions": {
-                  "description": "permissions to be added to the role",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permissions added successfully"
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.add.role.permissions"
-        ]
-      }
-    },
-    "/authz/roles/remove-permissions": {
-      "post": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
-        "operationId": "removePermissions",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "name",
-                "permissions"
-              ],
-              "properties": {
-                "name": {
-                  "description": "role name",
-                  "type": "string"
-                },
-                "permissions": {
-                  "description": "permissions to remove from the role",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permissions removed successfully"
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.remove.role.permissions"
-        ]
-      }
-    },
     "/authz/roles/{id}": {
       "get": {
         "tags": [
@@ -489,6 +347,159 @@ func init() {
         ]
       }
     },
+    "/authz/roles/{id}/add-permissions": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Add permission to a given role.",
+        "operationId": "addPermissions",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "permissions to be added to the role",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permissions added successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.add.role.permissions"
+        ]
+      }
+    },
+    "/authz/roles/{id}/remove-permissions": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "permissions to remove from the role",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.remove.role.permissions"
+        ]
+      }
+    },
     "/authz/roles/{id}/users": {
       "get": {
         "tags": [
@@ -531,7 +542,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "no role found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6611,148 +6622,6 @@ func init() {
         ]
       }
     },
-    "/authz/roles/add-permissions": {
-      "post": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
-        "operationId": "addPermissions",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "name",
-                "permissions"
-              ],
-              "properties": {
-                "name": {
-                  "description": "role name",
-                  "type": "string"
-                },
-                "permissions": {
-                  "description": "permissions to be added to the role",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permissions added successfully"
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.add.role.permissions"
-        ]
-      }
-    },
-    "/authz/roles/remove-permissions": {
-      "post": {
-        "tags": [
-          "authz"
-        ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
-        "operationId": "removePermissions",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": [
-                "name",
-                "permissions"
-              ],
-              "properties": {
-                "name": {
-                  "description": "role name",
-                  "type": "string"
-                },
-                "permissions": {
-                  "description": "permissions to remove from the role",
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/Permission"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Permissions removed successfully"
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.authz.remove.role.permissions"
-        ]
-      }
-    },
     "/authz/roles/{id}": {
       "get": {
         "tags": [
@@ -6851,6 +6720,159 @@ func init() {
         ]
       }
     },
+    "/authz/roles/{id}/add-permissions": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Add permission to a given role.",
+        "operationId": "addPermissions",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "name",
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "permissions to be added to the role",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permissions added successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.add.role.permissions"
+        ]
+      }
+    },
+    "/authz/roles/{id}/remove-permissions": {
+      "post": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "operationId": "removePermissions",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "role name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "permissions"
+              ],
+              "properties": {
+                "permissions": {
+                  "description": "permissions to remove from the role",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Permission"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permissions removed successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.remove.role.permissions"
+        ]
+      }
+    },
     "/authz/roles/{id}/users": {
       "get": {
         "tags": [
@@ -6893,7 +6915,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "no role found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

@@ -131,8 +131,7 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 	})
 
 	t.Run("add permission to read data in paragraphs class", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(roleName),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(roleName).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
 				Action: String(authorization.ReadData),
 				Data:   &models.PermissionData{Collection: String(paragraphsCls.Class)},

@@ -67,7 +67,7 @@ type ClientService interface {
 }
 
 /*
-AddPermissions adds permission to a role as an upsert if the role doesn t exist then it will be created
+AddPermissions adds permission to a given role
 */
 func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -77,7 +77,7 @@ func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.C
 	op := &runtime.ClientOperation{
 		ID:                 "addPermissions",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/add-permissions",
+		PathPattern:        "/authz/roles/{id}/add-permissions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -428,7 +428,7 @@ func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo run
 	op := &runtime.ClientOperation{
 		ID:                 "removePermissions",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/remove-permissions",
+		PathPattern:        "/authz/roles/{id}/remove-permissions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
