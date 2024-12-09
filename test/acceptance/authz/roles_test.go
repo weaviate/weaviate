@@ -621,7 +621,3 @@ func TestAuthzRolesHasPermissionEventuallyConsistent(t *testing.T) {
 		}, 3*time.Second, 500*time.Millisecond)
 	})
 }
-
-func String(s string) *string {
-	return &s
-}
