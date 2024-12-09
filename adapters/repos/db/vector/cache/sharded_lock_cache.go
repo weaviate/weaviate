@@ -678,7 +678,10 @@ func (s *shardedMultipleLockCache) GrowMultiCache(id uint64) {
 }
 
 func (s *shardedMultipleLockCache) Len() int32 {
-	panic("not implemented")
+	s.maintenanceLock.RLock()
+	defer s.maintenanceLock.RUnlock()
+
+	return int32(len(s.cache))
 }
 
 func (s *shardedMultipleLockCache) CountVectors() int64 {
@@ -730,11 +733,12 @@ func (s *shardedMultipleLockCache) replaceIfFull() {
 }
 
 func (s *shardedMultipleLockCache) UpdateMaxSize(size int64) {
-	panic("not implemented")
+	atomic.StoreInt64(&s.maxSize, size)
 }
 
 func (s *shardedMultipleLockCache) CopyMaxSize() int64 {
-	panic("not implemented")
+	sizeCopy := atomic.LoadInt64(&s.maxSize)
+	return sizeCopy
 }
 
 func (s *shardedMultipleLockCache) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]float32, errs []error) ([][]float32, []error, uint64, uint64) {
