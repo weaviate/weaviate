@@ -72,7 +72,7 @@ func TestUserConfigUpdates(t *testing.T) {
 					Enabled: true,
 				}},
 				expectedError: errors.Errorf(
-					"multivector is immutable: " +
+					"multivector enabled is immutable: " +
 						"attempted change from \"false\" to \"true\""),
 			},
 			{

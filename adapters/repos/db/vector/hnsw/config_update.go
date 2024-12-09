@@ -57,7 +57,7 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "multivector",
+			name:     "multivector enabled",
 			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.Enabled },
 		},
 	}
