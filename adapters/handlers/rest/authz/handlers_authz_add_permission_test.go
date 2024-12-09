@@ -250,11 +250,6 @@ func TestAddPermissionsForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
-			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{
-				"test": {
-					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
-				},
-			}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
