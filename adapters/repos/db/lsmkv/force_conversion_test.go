@@ -28,8 +28,8 @@ import (
 func TestSegmentGroupConverInverted(t *testing.T) {
 	path := os.Getenv("PATH_TO_SEGMENTS_TO_CONVERT")
 	if path == "" {
-		// t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
-		path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable/TEST"
+		t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
+		// path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable/TEST"
 	}
 	err := ConvertSegments(path)
 	if err != nil {
