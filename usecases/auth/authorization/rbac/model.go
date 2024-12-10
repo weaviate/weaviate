@@ -48,6 +48,8 @@ const (
 	[matchers]
 	m = g(r.sub, p.sub) && keyMatch5(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
+	// InternalPlaceHolder is a place holder to mark empty roles
+	InternalPlaceHolder = "wv_internal_empty"
 )
 
 func createStorage(filePath string) error {

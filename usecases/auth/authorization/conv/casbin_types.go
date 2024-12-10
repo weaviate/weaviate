@@ -257,7 +257,8 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 func permission(policy []string) (*models.Permission, error) {
 	mapped := newPolicy(policy)
 
-	if mapped.Resource == "" || mapped.Resource == "wv_internal" {
+	// "wv_internal_empty" is InternalPlaceHolder to handle empty, stale roles
+	if mapped.Resource == "" || mapped.Resource == "wv_internal_empty" {
 		return &models.Permission{
 			Action: authorization.String("no_action"),
 		}, nil

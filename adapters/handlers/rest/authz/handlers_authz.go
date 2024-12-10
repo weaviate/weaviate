@@ -183,12 +183,6 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsNotFound()
 	}
 
-	rolePerms := role[params.ID]
-
-	if len(rolePerms) <= len(permissions) { // i.e., all permissions are removed
-		return authz.NewRemovePermissionsUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("cannot remove the last permission from role %s", params.ID)))
-	}
-
 	if err := h.controller.RemovePermissions(params.ID, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
