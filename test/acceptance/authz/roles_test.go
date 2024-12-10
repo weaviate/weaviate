@@ -266,21 +266,10 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.Equal(t, deleteCollectionsAction, *res.Payload.Permissions[1].Action)
 	})
 
-	t.Run("removing all permissions from role disallowed", func(t *testing.T) {
+	t.Run("removing all permissions from role allowed without role deletion", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID(testRoleName).WithBody(authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(createCollectionsAction).WithCollection(all).Permission(),
-				helper.NewCollectionsPermission().WithAction(deleteCollectionsAction).WithCollection(all).Permission(),
-			},
-		}), clientAuth)
-		require.NotNil(t, err)
-		_, failed := err.(*authz.RemovePermissionsUnprocessableEntity)
-		require.True(t, failed)
-	})
-
-	t.Run("remove permission from role", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID(testRoleName).WithBody(authz.RemovePermissionsBody{
-			Permissions: []*models.Permission{
 				helper.NewCollectionsPermission().WithAction(deleteCollectionsAction).WithCollection(all).Permission(),
 			},
 		}), clientAuth)
@@ -292,7 +281,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
-		require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
+		require.Nil(t, role.Permissions[0].Action)
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
