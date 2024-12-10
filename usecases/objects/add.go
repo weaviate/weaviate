@@ -49,12 +49,12 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
 
 	if tenant != "*" && m.autoSchemaManager.schemaManager.AllowImplicitTenantActivation(object.Class) {
-		resources := authorization.CollectionsMetadata(class)
+		resources := authorization.ShardsMetadata(class, tenant)
 		err := m.authorizer.Authorize(principal, authorization.UPDATE, resources...)
 		if err != nil {
 			statuses, innerErr := m.autoSchemaManager.schemaManager.TenantsShardsDontActivate(ctx, object.Class, tenant)
