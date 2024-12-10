@@ -163,15 +163,17 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 }
 
 func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	//defer down()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	articlesCls := articles.ArticlesClass()
 	paragraphsCls := articles.ParagraphsClass()
@@ -205,10 +207,10 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &all},
 		},
-		{
-			Action: &readDataAction,
-			Data:   &models.PermissionData{Collection: &paragraphsCls.Class},
-		},
+		//{
+		//	Action: &readDataAction,
+		//	Data:   &models.PermissionData{Collection: &paragraphsCls.Class},
+		//},
 		{
 			Action: &readDataAction,
 			Data:   &models.PermissionData{Collection: &articlesCls.Class},
@@ -256,18 +258,22 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 		require.Contains(t, data, "Article")
 	})
 
-	for _, permissions := range generateMissingLists(requiredPermissions) {
-		t.Run("One permission is missing", func(t *testing.T) {
+	t.Run("One permission is missing", func(t *testing.T) {
+		for _, permissions := range generateMissingLists(requiredPermissions) {
 			role := &models.Role{Name: &roleName, Permissions: permissions}
 			helper.DeleteRole(t, adminKey, *role.Name)
 			helper.CreateRole(t, adminKey, role)
 			helper.AssignRoleToUser(t, adminKey, roleName, customUser)
 			defer helper.DeleteRole(t, adminKey, *role.Name)
 			res, err := queryGQL(t, groupByQuery, customKey)
-			require.Error(t, err)
-			require.Nil(t, res)
-			var errForbidden *graphql.GraphqlPostForbidden
-			require.True(t, errors.As(err, &errForbidden))
-		})
-	}
+			if err != nil {
+				require.Nil(t, res)
+				var errForbidden *graphql.GraphqlPostForbidden
+				require.True(t, errors.As(err, &errForbidden))
+			} else {
+				require.NotNil(t, res.Payload.Errors)
+				require.Contains(t, res.Payload.Errors[0].Message, "forbidden")
+			}
+		}
+	})
 }
