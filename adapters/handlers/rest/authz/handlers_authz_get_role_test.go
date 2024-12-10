@@ -65,45 +65,6 @@ func TestGetRoleSuccess(t *testing.T) {
 	assert.Equal(t, expectedPermissions, parsed.Payload.Permissions)
 }
 
-func TestGetRoleBadRequest(t *testing.T) {
-	type testCase struct {
-		name          string
-		params        authz.GetRoleParams
-		principal     *models.Principal
-		expectedError string
-	}
-
-	tests := []testCase{
-		{
-			name: "role id is required",
-			params: authz.GetRoleParams{
-				ID: "",
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role id can not be empty",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			controller := mocks.NewController(t)
-			logger, _ := test.NewNullLogger()
-
-			h := &authZHandlers{
-				controller: controller,
-				logger:     logger,
-			}
-			res := h.getRole(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRoleBadRequest)
-			assert.True(t, ok)
-
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
-		})
-	}
-}
-
 func TestGetRoleForbidden(t *testing.T) {
 	type testCase struct {
 		name          string

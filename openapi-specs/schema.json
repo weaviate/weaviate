@@ -109,7 +109,7 @@
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
-          "enum": [            
+          "enum": [
             "manage_backups",
 
             "read_cluster",
@@ -119,9 +119,9 @@
             "read_data",
             "update_data",
             "delete_data",
-  
+
             "read_nodes",
-          
+
             "manage_roles",
             "read_roles",
 
@@ -141,7 +141,7 @@
       "items": {
         "$ref": "#/definitions/Role"
       }
-    },   
+    },
     "Link": {
       "type": "object",
       "properties": {
@@ -841,7 +841,7 @@
           "type": "object"
         },
         "description": {
-          "description": "Description of the collection for metadata purposes.",          
+          "description": "Description of the collection for metadata purposes.",
           "type": "string"
         },
         "properties": {
@@ -973,7 +973,7 @@
             "trigram",
             "gse",
             "kagome_kr",
-            "kagome_ja"            
+            "kagome_ja"
           ]
         },
         "nestedProperties": {
@@ -2377,14 +2377,6 @@
                 "items": {
                     "type": "string"
                 }
-            },
-            "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "example": 3,
-              "x-nullable": true
             }
           }
         }
@@ -2595,7 +2587,7 @@
         ],
         "tags": [
           "authz"
-        ],       
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -2685,9 +2677,9 @@
         }
       }
     },
-    "/authz/roles/add-permissions":{
+    "/authz/roles/{id}/add-permissions":{
       "post": {
-        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "summary": "Add permission to a given role.",
         "operationId": "addPermissions",
         "x-serviceIds": [
           "weaviate.authz.add.role.permissions"
@@ -2697,16 +2689,19 @@
         ],
         "parameters": [
           {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "role name"
-                },
                 "permissions": {
                   "type":"array",
                   "items": {
@@ -2716,7 +2711,7 @@
                 }
               },
               "required": ["name", "permissions"]
-              
+
             }
           }
         ],
@@ -2739,6 +2734,9 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "no role found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
@@ -2754,7 +2752,7 @@
         }
       }
     },
-    "/authz/roles/remove-permissions":{
+    "/authz/roles/{id}/remove-permissions":{
       "post": {
         "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
         "operationId": "removePermissions",
@@ -2766,16 +2764,19 @@
         ],
         "parameters": [
           {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "role name"
-                },
                 "permissions": {
                   "type":"array",
                   "items": {
@@ -2784,7 +2785,7 @@
                   "description": "permissions to remove from the role"
                 }
               },
-              "required": ["name", "permissions"]
+              "required": ["permissions"]
             }
           }
         ],
@@ -2806,6 +2807,9 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "no role found"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2834,12 +2838,12 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
             "type": "string"
-          }      
+          }
         ],
         "responses": {
           "200": {
@@ -2885,7 +2889,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2920,6 +2924,70 @@
         }
       }
     },
+    "/authz/roles/{id}/has-permission":{
+      "post": {
+        "summary": "Check whether role possesses this permission.",
+        "operationId": "hasPermission",
+        "x-serviceIds": [
+          "weaviate.authz.has.role.permission"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Permission"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission check was successful",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/roles/{id}/users": {
       "get": {
         "summary": "get users or a keys assigned to role",
@@ -2932,7 +3000,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2965,7 +3033,7 @@
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "no role found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

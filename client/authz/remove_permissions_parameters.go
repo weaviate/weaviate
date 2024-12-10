@@ -75,6 +75,12 @@ type RemovePermissionsParams struct {
 	// Body.
 	Body RemovePermissionsBody
 
+	/* ID.
+
+	   role name
+	*/
+	ID string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -139,6 +145,17 @@ func (o *RemovePermissionsParams) SetBody(body RemovePermissionsBody) {
 	o.Body = body
 }
 
+// WithID adds the id to the remove permissions params
+func (o *RemovePermissionsParams) WithID(id string) *RemovePermissionsParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the remove permissions params
+func (o *RemovePermissionsParams) SetID(id string) {
+	o.ID = id
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *RemovePermissionsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -147,6 +164,11 @@ func (o *RemovePermissionsParams) WriteToRequest(r runtime.ClientRequest, reg st
 	}
 	var res []error
 	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
 	}
 

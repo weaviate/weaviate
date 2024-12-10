@@ -5,7 +5,7 @@ import weaviate
 import weaviate.classes as wvc
 from _pytest.fixtures import SubRequest
 from weaviate.collections.classes.data import DataReference
-from weaviate.rbac.models import RBAC
+from weaviate.rbac.models import Permissions
 from weaviate.rbac.roles import _flatten_permissions
 
 from .conftest import _sanitize_role_name, generate_missing_permissions, RoleWrapperProtocol
@@ -42,8 +42,8 @@ def test_rbac_refs(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.collections(collection=[source.name, target.name], read_config=True),
-        RBAC.permissions.data(collection=source.name, update=True),
+        Permissions.collections(collection=[source.name, target.name], read_config=True),
+        Permissions.data(collection=source.name, update=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -78,7 +78,7 @@ def test_rbac_refs(
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.reference_add(
                     from_uuid=uuid_source,
                     from_property="ref",
@@ -86,7 +86,7 @@ def test_rbac_refs(
                 )
             assert e.value.status_code == 403
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.reference_replace(
                     from_uuid=uuid_source,
                     from_property="ref",
@@ -94,7 +94,7 @@ def test_rbac_refs(
                 )
             assert e.value.status_code == 403
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.reference_delete(
                     from_uuid=uuid_source,
                     from_property="ref",
@@ -142,9 +142,9 @@ def test_batch_delete_with_filter(
     )
 
     required_permissions = [
-        RBAC.permissions.collections(collection=[target.name, source.name], read_config=True),
-        RBAC.permissions.data(collection=source.name, delete=True, read=True),
-        RBAC.permissions.data(collection=target.name, read=True),
+        Permissions.collections(collection=[target.name, source.name], read_config=True),
+        Permissions.data(collection=source.name, delete=True, read=True),
+        Permissions.data(collection=target.name, read=True),
     ]
 
     # failing permissions first, so the object isn't actually deleted
@@ -161,7 +161,7 @@ def test_batch_delete_with_filter(
                 source_no_rights = source_no_rights.with_tenant("tenant1")
 
             # deletion does not work
-            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.delete_many(
                     where=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
                 )
@@ -219,8 +219,8 @@ def test_search_with_filter_and_return(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        RBAC.permissions.collections(collection=[target.name, source.name], read_config=True),
-        RBAC.permissions.data(collection=[source.name, target.name], read=True),
+        Permissions.collections(collection=[target.name, source.name], read_config=True),
+        Permissions.data(collection=[source.name, target.name], read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -250,13 +250,13 @@ def test_search_with_filter_and_return(
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.query.fetch_objects(
                     filters=wvc.query.Filter.by_ref("ref").by_id().equal(uuid_target1)
                 )
             assert "forbidden" in e.value.args[0]
 
-            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.query.fetch_objects(
                     return_references=wvc.query.QueryReference(
                         link_on="ref",
@@ -313,8 +313,8 @@ def test_batch_ref(
 
     # self reference
     required_permissions = [
-        RBAC.permissions.collections(collection=source.name, read_config=True),
-        RBAC.permissions.data(collection=source.name, read=True, update=True),
+        Permissions.collections(collection=source.name, read_config=True),
+        Permissions.data(collection=source.name, read=True, update=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -336,7 +336,7 @@ def test_batch_ref(
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.reference_add_many(
                     [
                         DataReference(
@@ -348,10 +348,10 @@ def test_batch_ref(
 
     # ref to one target
     required_permissions = [
-        RBAC.permissions.collections(collection=source.name, read_config=True),
-        RBAC.permissions.data(collection=[source.name, target1.name], read=True),
-        RBAC.permissions.data(collection=source.name, update=True),
-        RBAC.permissions.collections(collection=target1.name, read_config=True),
+        Permissions.collections(collection=source.name, read_config=True),
+        Permissions.data(collection=[source.name, target1.name], read=True),
+        Permissions.data(collection=source.name, update=True),
+        Permissions.collections(collection=target1.name, read_config=True),
     ]
 
     with role_wrapper(admin_client, request, required_permissions):
@@ -385,10 +385,10 @@ def test_batch_ref(
 
     # ref to two targets
     ref2_required_permissions = [
-        RBAC.permissions.collections(collection=[source.name, target1.name], read_config=True),
-        RBAC.permissions.data(collection=source.name, update=True),
-        RBAC.permissions.data(collection=[source.name, target1.name, target2.name], read=True),
-        RBAC.permissions.collections(collection=target2.name, read_config=True),
+        Permissions.collections(collection=[source.name, target1.name], read_config=True),
+        Permissions.data(collection=source.name, update=True),
+        Permissions.data(collection=[source.name, target1.name, target2.name], read=True),
+        Permissions.collections(collection=target2.name, read_config=True),
     ]
 
     with role_wrapper(admin_client, request, ref2_required_permissions):

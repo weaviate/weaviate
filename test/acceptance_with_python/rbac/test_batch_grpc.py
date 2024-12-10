@@ -2,7 +2,7 @@ import pytest
 import weaviate
 import weaviate.classes as wvc
 from typing_extensions import Optional
-from weaviate.rbac.models import RBAC
+from weaviate.rbac.models import Permissions
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name, generate_missing_permissions, RoleWrapperProtocol
 
@@ -30,10 +30,10 @@ def test_batch_grpc(
     admin_client.roles.delete(name)
 
     required_permissions = [
-        RBAC.permissions.data(collection=col1.name, create=True, update=True),
-        RBAC.permissions.collections(collection=col1.name, read_config=True),
-        RBAC.permissions.data(collection=col2.name, create=True, update=True),
-        RBAC.permissions.collections(collection=col2.name, read_config=True),
+        Permissions.data(collection=col1.name, create=True, update=True),
+        Permissions.collections(collection=col1.name, read_config=True),
+        Permissions.data(collection=col2.name, create=True, update=True),
+        Permissions.collections(collection=col2.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:

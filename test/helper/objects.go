@@ -98,6 +98,14 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
 func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)

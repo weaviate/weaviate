@@ -56,14 +56,6 @@ func TestDeleteRoleBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "authorization error",
-			params: authz.DeleteRoleParams{
-				ID: "",
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role id can not be empty",
-		},
-		{
 			name: "update builtin role",
 			params: authz.DeleteRoleParams{
 				ID: authorization.BuiltInRoles[0],

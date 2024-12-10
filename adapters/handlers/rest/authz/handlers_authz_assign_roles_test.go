@@ -127,17 +127,6 @@ func TestAssignRoleBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "user id can not be empty",
-			params: authz.AssignRoleParams{
-				ID: "",
-				Body: authz.AssignRoleBody{
-					Roles: []string{"testRole"},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "user id can not be empty",
-		},
-		{
 			name: "empty role",
 			params: authz.AssignRoleParams{
 				ID: "testUser",

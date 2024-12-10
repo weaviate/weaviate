@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -77,11 +79,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+		return nil, errors.Wrap(err, "invalid object")
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal("%v", err)
+		return nil, err
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)

@@ -72,8 +72,7 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
-		authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name:        authorization.String(role),
+		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{
 			Permissions: permissions,
 		}),
 		CreateAuth(key),
@@ -106,18 +105,18 @@ func (p *BackupPermission) Permission() *models.Permission {
 	return &perm
 }
 
-type SchemaPermission models.Permission
+type CollectionsPermission models.Permission
 
-func NewSchemaPermission() *SchemaPermission {
-	return &SchemaPermission{}
+func NewCollectionsPermission() *CollectionsPermission {
+	return &CollectionsPermission{}
 }
 
-func (p *SchemaPermission) WithAction(action string) *SchemaPermission {
+func (p *CollectionsPermission) WithAction(action string) *CollectionsPermission {
 	p.Action = authorization.String(action)
 	return p
 }
 
-func (p *SchemaPermission) WithCollection(collection string) *SchemaPermission {
+func (p *CollectionsPermission) WithCollection(collection string) *CollectionsPermission {
 	if p.Collections == nil {
 		p.Collections = &models.PermissionCollections{}
 	}
@@ -125,7 +124,7 @@ func (p *SchemaPermission) WithCollection(collection string) *SchemaPermission {
 	return p
 }
 
-func (p *SchemaPermission) WithTenant(tenant string) *SchemaPermission {
+func (p *CollectionsPermission) WithTenant(tenant string) *CollectionsPermission {
 	if p.Collections == nil {
 		p.Collections = &models.PermissionCollections{}
 	}
@@ -133,7 +132,7 @@ func (p *SchemaPermission) WithTenant(tenant string) *SchemaPermission {
 	return p
 }
 
-func (p *SchemaPermission) Permission() *models.Permission {
+func (p *CollectionsPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }

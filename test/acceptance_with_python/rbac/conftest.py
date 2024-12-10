@@ -14,7 +14,7 @@ from _pytest.fixtures import SubRequest
 from contextlib import contextmanager
 
 from weaviate import WeaviateClient
-from weaviate.rbac.models import PermissionsType
+from weaviate.rbac.models import PermissionsCreateType
 
 
 def _sanitize_role_name(name: str) -> str:
@@ -41,7 +41,7 @@ class RoleWrapperProtocol(Protocol):
         self,
         admin_client: WeaviateClient,
         request: SubRequest,
-        permissions: PermissionsType,
+        permissions: PermissionsCreateType,
         user: str = "custom-user",
     ) -> ContextManager[Any]: ...
 
@@ -51,19 +51,19 @@ def role_wrapper() -> RoleWrapperProtocol:
     def wrapper(
         admin_client: WeaviateClient,
         request: SubRequest,
-        permissions: PermissionsType,
+        permissions: PermissionsCreateType,
         user: str = "custom-user",
     ) -> Iterator[None]:
         name = _sanitize_role_name(request.node.name) + "role"
         admin_client.roles.delete(name)
         if not isinstance(permissions, list) or len(permissions) > 0:
-            admin_client.roles.create(name=name, permissions=permissions)
-            admin_client.roles.assign(user=user, roles=name)
+            admin_client.roles.create(role_name=name, permissions=permissions)
+            admin_client.roles.assign(user=user, role_names=name)
 
         yield
 
         if not isinstance(permissions, list) or len(permissions) > 0:
-            admin_client.roles.revoke(user=user, roles=name)
+            admin_client.roles.revoke(user=user, role_names=name)
             admin_client.roles.delete(name)
 
     return contextmanager(wrapper)

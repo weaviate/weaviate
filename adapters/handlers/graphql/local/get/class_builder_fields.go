@@ -373,7 +373,8 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if err != nil {
 		return nil, err
 	}
-	for _, property := range properties {
+	allPropsToAuthorize := append(properties, groupByProperties...)
+	for _, property := range allPropsToAuthorize {
 		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
 			return nil, err
 		}
@@ -801,6 +802,8 @@ func extractGroupHitProperties(
 												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 											}
 										}
+									} else {
+										additionalGroupProperties = append(additionalGroupProperties, search.SelectProperty{Name: hf.Name.Value})
 									}
 								}
 							}

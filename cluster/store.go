@@ -23,7 +23,6 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -143,11 +142,6 @@ type Config struct {
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
 
-	// ClassTenantDataEvents can have events published onto it when tenant changes like
-	// being frozen happen, with the goal of being able to alert the metadata nodes. This
-	// channel will be nil if the metadata server is not enabled.
-	ClassTenantDataEvents chan metadata.ClassTenant
-
 	AuthzController authorization.Controller
 }
 
@@ -219,13 +213,8 @@ func NewFSM(cfg Config) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		})
 	}
-	var schemaManager *schema.SchemaManager
-	if cfg.ClassTenantDataEvents != nil {
-		schemaManager = schema.NewSchemaManagerWithTenantEvents(cfg.NodeID, cfg.DB, cfg.Parser,
-			cfg.ClassTenantDataEvents, cfg.Logger)
-	} else {
-		schemaManager = schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
-	}
+
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
 
 	return Store{
 		cfg:           cfg,

@@ -96,6 +96,10 @@ func (m *manager) RemovePermissions(roleName string, permissions []*authorizatio
 	return m.casbin.InvalidateCache()
 }
 
+func (m *manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
+	return m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
+}
+
 func (m *manager) DeleteRoles(roles ...string) error {
 	for _, roleName := range roles {
 		// remove role
@@ -174,7 +178,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
 	if principal == nil {
-		return fmt.Errorf("user is unauthenticated")
+		return errors.NewUnauthenticated()
 	}
 
 	// TODO-RBAC: batch enforce

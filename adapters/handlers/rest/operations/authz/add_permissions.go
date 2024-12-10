@@ -49,9 +49,9 @@ func NewAddPermissions(ctx *middleware.Context, handler AddPermissionsHandler) *
 }
 
 /*
-	AddPermissions swagger:route POST /authz/roles/add-permissions authz addPermissions
+	AddPermissions swagger:route POST /authz/roles/{id}/add-permissions authz addPermissions
 
-Add permission to a role as an upsert. If the role doesn't exist then it will be created.
+Add permission to a given role.
 */
 type AddPermissions struct {
 	Context *middleware.Context
@@ -92,10 +92,6 @@ func (o *AddPermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model AddPermissionsBody
 type AddPermissionsBody struct {
 
-	// role name
-	// Required: true
-	Name *string `json:"name" yaml:"name"`
-
 	// permissions to be added to the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
@@ -105,10 +101,6 @@ type AddPermissionsBody struct {
 func (o *AddPermissionsBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateName(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := o.validatePermissions(formats); err != nil {
 		res = append(res, err)
 	}
@@ -116,15 +108,6 @@ func (o *AddPermissionsBody) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *AddPermissionsBody) validateName(formats strfmt.Registry) error {
-
-	if err := validate.Required("body"+"."+"name", "body", o.Name); err != nil {
-		return err
-	}
-
 	return nil
 }
 

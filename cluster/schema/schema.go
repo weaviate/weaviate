@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -51,8 +50,7 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 	sync.RWMutex
-	Classes               map[string]*metaClass
-	classTenantDataEvents chan metadata.ClassTenant
+	Classes map[string]*metaClass
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -221,17 +219,6 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 	}
 }
 
-func NewSchemaWithTenantEvents(nodeID string, shardReader shardReader,
-	classTenantDataEvents chan metadata.ClassTenant,
-) *schema {
-	return &schema{
-		nodeID:                nodeID,
-		Classes:               make(map[string]*metaClass, 128),
-		shardReader:           shardReader,
-		classTenantDataEvents: classTenantDataEvents,
-	}
-}
-
 func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
@@ -262,7 +249,6 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 
 	s.Classes[cls.Class] = &metaClass{
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
-		classTenantDataEvents: s.classTenantDataEvents,
 	}
 	return nil
 }
@@ -371,7 +357,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 				cpy := make([]string, len(physical.BelongsToNodes))
 				copy(cpy, physical.BelongsToNodes)
 
-				res[i] = MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), cpy, physical.DataVersion)
+				res[i] = MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
 
 				// Increment our result iterator
 				i++
@@ -383,7 +369,7 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 					// Ensure we copy the belongs to nodes array to avoid it being modified
 					cpy := make([]string, len(physical.BelongsToNodes))
 					copy(cpy, physical.BelongsToNodes)
-					res = append(res, MakeTenantWithDataVersion(tenant, entSchema.ActivityStatus(physical.Status), cpy, physical.DataVersion))
+					res = append(res, MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy))
 				}
 			}
 		}
@@ -422,11 +408,10 @@ func makeTenant(name, status string) models.Tenant {
 	}
 }
 
-// MakeTenantWithDataVersion creates a tenant with the given name, status, and data version
-func MakeTenantWithDataVersion(name, status string, belongsToNodes []string, dataVersion int64) *models.TenantResponse {
+// MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
+func MakeTenantWithBelongsToNodes(name, status string, belongsToNodes []string) *models.TenantResponse {
 	return &models.TenantResponse{
 		Tenant:         makeTenant(name, status),
-		DataVersion:    &dataVersion,
 		BelongsToNodes: belongsToNodes,
 	}
 }
