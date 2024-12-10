@@ -12,13 +12,10 @@
 package test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
@@ -27,22 +24,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	testClass := &models.Class{
 		Class:              "Foo",
@@ -58,15 +41,15 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateSchema), Collection: String("*")},
+				{Action: String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: String("*")}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
-		require.Equal(t, "*", *role.Permissions[0].Collection)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
+		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 	})
 
 	t.Run("create and get a role to create all tenants in a collection", func(t *testing.T) {
@@ -74,16 +57,16 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.CreateSchema), Collection: String(testClass.Class)},
+				{Action: String(authorization.CreateCollections), Collections: &models.PermissionCollections{Collection: String(testClass.Class)}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
-		require.Equal(t, authorization.CreateSchema, *role.Permissions[0].Action)
-		require.Equal(t, testClass.Class, *role.Permissions[0].Collection)
-		require.Equal(t, "*", *role.Permissions[0].Tenant)
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
+		require.Equal(t, testClass.Class, *role.Permissions[0].Collections.Collection)
+		require.Equal(t, "*", *role.Permissions[0].Collections.Tenant)
 	})
 
 	t.Run("create and get a role to manage all roles", func(t *testing.T) {
@@ -91,7 +74,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ManageRoles), Role: String("*")},
+				{Action: String(authorization.ManageRoles), Roles: &models.PermissionRoles{Role: String("*")}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
@@ -99,7 +82,7 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
 		require.Equal(t, authorization.ManageRoles, *role.Permissions[0].Action)
-		require.Equal(t, "*", *role.Permissions[0].Role)
+		require.Equal(t, "*", *role.Permissions[0].Roles.Role)
 	})
 
 	t.Run("create and get a role to manage one role", func(t *testing.T) {
@@ -107,16 +90,15 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ManageRoles), Role: String("foo")},
+				{Action: String(authorization.ManageRoles), Roles: &models.PermissionRoles{Role: String("foo")}},
 			},
 		})
-		require.Nil(t, err)
 		role := helper.GetRoleByName(t, adminKey, name)
 		require.NotNil(t, role)
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 1)
 		require.Equal(t, authorization.ManageRoles, *role.Permissions[0].Action)
-		require.Equal(t, "foo", *role.Permissions[0].Role)
+		require.Equal(t, "foo", *role.Permissions[0].Roles.Role)
 	})
 
 	t.Run("create and get a role to read two roles", func(t *testing.T) {
@@ -124,8 +106,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(name),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ReadRoles), Role: String("foo")},
-				{Action: String(authorization.ReadRoles), Role: String("bar")},
+				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("foo")}},
+				{Action: String(authorization.ReadRoles), Roles: &models.PermissionRoles{Role: String("bar")}},
 			},
 		})
 		role := helper.GetRoleByName(t, adminKey, name)
@@ -133,8 +115,8 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		require.Equal(t, name, *role.Name)
 		require.Len(t, role.Permissions, 2)
 		require.Equal(t, authorization.ReadRoles, *role.Permissions[0].Action)
-		require.Equal(t, "foo", *role.Permissions[0].Role)
+		require.Equal(t, "foo", *role.Permissions[0].Roles.Role)
 		require.Equal(t, authorization.ReadRoles, *role.Permissions[1].Action)
-		require.Equal(t, "bar", *role.Permissions[1].Role)
+		require.Equal(t, "bar", *role.Permissions[1].Roles.Role)
 	})
 }

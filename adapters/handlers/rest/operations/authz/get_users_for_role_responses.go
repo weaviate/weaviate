@@ -191,7 +191,7 @@ func (o *GetUsersForRoleForbidden) WriteResponse(rw http.ResponseWriter, produce
 const GetUsersForRoleNotFoundCode int = 404
 
 /*
-GetUsersForRoleNotFound no role found for user
+GetUsersForRoleNotFound no role found
 
 swagger:response getUsersForRoleNotFound
 */

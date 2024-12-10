@@ -24,8 +24,6 @@ func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, 
 	rolesmap := make(map[string][]authorization.Policy)
 	for idx := range roles {
 		for _, permission := range roles[idx].Permissions {
-			// TODO prefix roles names
-			// roleName := fmt.Sprintf("%s%s", rolePrefix, *roles[idx].Name)
 			policy, err := policy(permission)
 			if err != nil {
 				return rolesmap, err
@@ -78,7 +76,7 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 	rolesPermissions := make(map[string][]authorization.Policy)
 	for _, p := range casbinPolicies {
 		for _, policyParts := range p {
-			name := policyParts[0]
+			name := TrimRoleNamePrefix(policyParts[0])
 			if slices.Contains(authorization.BuiltInRoles, name) {
 				perms := authorization.BuiltInPermissions[name]
 				for _, p := range perms {

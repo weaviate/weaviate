@@ -13,6 +13,8 @@ package test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,8 +29,11 @@ import (
 )
 
 func TestAuthZBackupsManageJourney(t *testing.T) {
-	adminUser := "existing-user"
-	adminKey := "existing-key"
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	viewerUser := "viewer-user"
+	viewerKey := "viewer-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
@@ -36,14 +41,11 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	backend := "filesystem"
-	backupID := "backup-1"
-
 	compose, err := docker.
 		New().
 		WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).
+		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewers(viewerUser).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)
@@ -58,6 +60,8 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
+	backend := "filesystem"
+	backupID := "backup-1"
 	testRoleName := "test-role"
 
 	clsA := articles.ArticlesClass()
@@ -65,20 +69,33 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 	objA := articles.NewArticle().WithTitle("Programming 101")
 	objP := articles.NewParagraph().WithContents("hello world")
 
-	t.Run("setup", func(t *testing.T) {
-		helper.CreateClassAuth(t, clsP, adminKey)
-		helper.CreateClassAuth(t, clsA, adminKey)
-		helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object(), objP.Object()}, adminKey)
-	})
+	// cleanup
+	deleteObjectClass(t, clsA.Class, helper.CreateAuth(adminKey))
+	deleteObjectClass(t, clsP.Class, helper.CreateAuth(adminKey))
+	helper.DeleteRole(t, adminKey, testRoleName)
+
+	helper.CreateClassAuth(t, clsP, adminKey)
+	helper.CreateClassAuth(t, clsA, adminKey)
+	helper.CreateObjectsBatchAuth(t, []*models.Object{objA.Object(), objP.Object()}, adminKey)
 
 	t.Run("create and assign a role that does have the manage_backups permission", func(t *testing.T) {
 		helper.CreateRole(t, adminKey, &models.Role{
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
-				{Action: String(authorization.ReadRoles), Collection: String(testRoleName)},
+				{Action: String(authorization.ReadRoles), Backups: &models.PermissionBackups{Collection: String(testRoleName)}},
 			},
 		})
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+	})
+
+	t.Run("viewer cannot create a backup", func(t *testing.T) {
+		roles := helper.GetRolesForOwnUser(t, viewerKey)
+		fmt.Println(roles)
+		_, err := helper.CreateBackupWithAuthz(t, helper.DefaultBackupConfig(), clsA.Class, backend, backupID, helper.CreateAuth(viewerKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*backups.BackupsCreateForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail to create a backup due to missing manage_backups action", func(t *testing.T) {
@@ -123,6 +140,16 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 
 	t.Run("delete clsA", func(t *testing.T) {
 		helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("viewer cannot restore a backup", func(t *testing.T) {
+		_, err := helper.RestoreBackupWithAuthz(t, helper.DefaultRestoreConfig(), clsA.Class, backend, backupID, map[string]string{}, helper.CreateAuth(viewerKey))
+		require.Error(t, err)
+
+		var parsed *backups.BackupsRestoreForbidden
+		forbidden := errors.As(err, &parsed)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("successfully restore a backup with sufficient permissions", func(t *testing.T) {

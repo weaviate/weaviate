@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -68,6 +69,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		local:        n.name,
 	}
 
+	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
 		panic(err)
@@ -108,7 +110,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
-		n.repo, clusterapi.NewNoopAuthHandler(), false, logger)
+		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 

@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"sync"
 	"testing"
@@ -29,7 +30,7 @@ func TestVectorCacheGrowth(t *testing.T) {
 	id := 100_000
 	expectedCount := int64(0)
 
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000), nil)
+	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, 1, logger, false, time.Duration(10_000), nil)
 	initialSize := vectorCache.Len()
 	assert.Less(t, int(initialSize), id)
 	assert.Equal(t, expectedCount, vectorCache.CountVectors())
@@ -51,7 +52,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = func(context.Context, uint64) ([]float32, error) { return nil, nil }
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Second, nil)
+	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, 1, logger, false, time.Second, nil)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	count := 10_000
@@ -82,7 +83,7 @@ func TestCacheCleanup(t *testing.T) {
 	sleepMs := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, 1, logger, false, deletionInterval, nil)
 		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
 		assert.True(t, ok)
 
@@ -101,7 +102,7 @@ func TestCacheCleanup(t *testing.T) {
 	})
 
 	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval, nil)
+		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, 1, logger, false, deletionInterval, nil)
 		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
 		assert.True(t, ok)
 
@@ -131,4 +132,120 @@ func countCached(c *shardedLockCache[float32]) int {
 		}
 	}
 	return count
+}
+
+func TestGetAllInCurrentLock(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	pageSize := uint64(10)
+	maxSize := 1000
+
+	t.Run("fully cached page", func(t *testing.T) {
+		// Setup a cache with some pre-loaded vectors
+		vectorCache := NewShardedFloat32LockCache(nil, maxSize, pageSize, logger, false, 0, nil)
+		cache := vectorCache.(*shardedLockCache[float32])
+
+		// Preload vectors for a full page
+		for i := uint64(0); i < pageSize; i++ {
+			cache.Preload(i, []float32{float32(i)})
+		}
+
+		// Test retrieving the full page
+		out := make([][]float32, pageSize)
+		errs := make([]error, pageSize)
+		resultOut, resultErrs, start, end := cache.GetAllInCurrentLock(context.Background(), 5, out, errs)
+
+		assert.Equal(t, uint64(0), start)
+		assert.Equal(t, pageSize, end)
+		assert.Equal(t, pageSize, uint64(len(resultOut)))
+		assert.Equal(t, pageSize, uint64(len(resultErrs)))
+
+		// Verify all vectors are present and correct
+		for i := uint64(0); i < pageSize; i++ {
+			assert.NotNil(t, resultOut[i])
+			assert.Equal(t, []float32{float32(i)}, resultOut[i])
+			assert.Nil(t, resultErrs[i])
+		}
+	})
+
+	t.Run("partially cached page", func(t *testing.T) {
+		// Setup mock vector retrieval function
+		vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
+			return []float32{float32(id * 100)}, nil
+		}
+
+		vectorCache := NewShardedFloat32LockCache(vecForID, maxSize, pageSize, logger, false, 0, nil)
+		cache := vectorCache.(*shardedLockCache[float32])
+
+		// Preload only some vectors
+		for i := uint64(0); i < pageSize/2; i++ {
+			cache.Preload(i, []float32{float32(i)})
+		}
+
+		out := make([][]float32, pageSize)
+		errs := make([]error, pageSize)
+		resultOut, resultErrs, start, end := cache.GetAllInCurrentLock(context.Background(), 5, out, errs)
+
+		assert.Equal(t, uint64(0), start)
+		assert.Equal(t, pageSize, end)
+
+		// Verify cached vectors
+		for i := uint64(0); i < pageSize/2; i++ {
+			assert.NotNil(t, resultOut[i])
+			assert.Equal(t, []float32{float32(i)}, resultOut[i])
+			assert.Nil(t, resultErrs[i])
+		}
+
+		// Verify vectors loaded from storage
+		for i := pageSize / 2; i < pageSize; i++ {
+			assert.NotNil(t, resultOut[i])
+			assert.Equal(t, []float32{float32(i * 100)}, resultOut[i])
+			assert.Nil(t, resultErrs[i])
+		}
+	})
+
+	t.Run("page beyond cache size", func(t *testing.T) {
+		vectorCache := NewShardedFloat32LockCache(nil, maxSize, pageSize, logger, false, 0, nil)
+		cache := vectorCache.(*shardedLockCache[float32])
+
+		// Request vectors beyond current cache size
+		beyondCacheID := uint64(len(cache.cache) + int(pageSize))
+		out := make([][]float32, pageSize)
+		errs := make([]error, pageSize)
+		resultOut, resultErrs, start, end := cache.GetAllInCurrentLock(context.Background(), beyondCacheID, out, errs)
+
+		// Verify we get the last complete page
+		expectedStart := (beyondCacheID / pageSize) * pageSize
+		expectedEnd := uint64(len(cache.cache))
+		assert.Equal(t, expectedStart, start)
+		assert.Equal(t, expectedEnd, end)
+
+		// All vectors should be nil since they're beyond cache size
+		for i := uint64(0); i < uint64(len(resultOut)); i++ {
+			assert.Nil(t, resultOut[i])
+			assert.Nil(t, resultErrs[i])
+		}
+	})
+
+	t.Run("error handling from storage", func(t *testing.T) {
+		expectedErr := errors.New("storage error")
+		vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, expectedErr
+		}
+
+		vectorCache := NewShardedFloat32LockCache(vecForID, maxSize, pageSize, logger, false, 0, nil)
+		cache := vectorCache.(*shardedLockCache[float32])
+
+		out := make([][]float32, pageSize)
+		errs := make([]error, pageSize)
+		resultOut, resultErrs, start, end := cache.GetAllInCurrentLock(context.Background(), 5, out, errs)
+
+		assert.Equal(t, uint64(0), start)
+		assert.Equal(t, pageSize, end)
+
+		// All vectors should be nil and have errors
+		for i := uint64(0); i < pageSize; i++ {
+			assert.Nil(t, resultOut[i])
+			assert.Equal(t, expectedErr, resultErrs[i])
+		}
+	})
 }

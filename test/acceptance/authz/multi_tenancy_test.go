@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestAutoTenantActivation(t *testing.T) {
+func TestAuthzAutoTenantActivation(t *testing.T) {
 	existingUser := "existing-user"
 	existingKey := "existing-key"
 
@@ -36,7 +36,6 @@ func TestAutoTenantActivation(t *testing.T) {
 	testRoleName := "test-role"
 
 	adminAuth := helper.CreateAuth(existingKey)
-	customAuth := helper.CreateAuth(customKey)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -75,42 +74,33 @@ func TestAutoTenantActivation(t *testing.T) {
 		helper.CreateRole(t, existingKey, &models.Role{
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
-				{
-					Action:     String(authorization.CreateSchema),
-					Collection: String(cls.Class),
-				},
-				{
-					Action:     String(authorization.ReadSchema),
-					Collection: String(cls.Class),
-				},
+				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(cls.Class).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
 			},
 		})
-		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customKey).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
+		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
 		require.Nil(t, err)
 	})
 
-	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking permissions for autoTenantActivation", func(t *testing.T) {
-		err := helper.CreateObjectWithAuthz(t, obj, customAuth)
+	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
 		require.True(t, forbidden)
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("add permission allowing to update schema of collection and tenant", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(testRoleName),
-			Permissions: []*models.Permission{{
-				Action:     String(authorization.UpdateSchema),
-				Collection: String(cls.Class),
-				Tenant:     String(tenant),
-			}},
+	t.Run("add permission allowing to update schema of collection", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(cls.Class).Permission(),
+			},
 		}), adminAuth)
 		require.Nil(t, err)
 	})
 
 	t.Run("successfully create object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
-		err := helper.CreateObjectWithAuthz(t, obj, customAuth)
-		require.Nil(t, err)
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		helper.AssertRequestOk(t, nil, err, nil)
 	})
 }

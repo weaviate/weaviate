@@ -72,6 +72,16 @@ func GetClass(t *testing.T, class string) *models.Class {
 	return resp.Payload
 }
 
+func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func UpdateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsUpdateParams().
@@ -88,10 +98,10 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
-func CreateObjectWithAuthz(t *testing.T, object *models.Object, authInfo runtime.ClientAuthInfoWriter) error {
+func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
-	_, err := Client(t).Objects.ObjectsCreate(params, authInfo)
+	_, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
 	return err
 }
 

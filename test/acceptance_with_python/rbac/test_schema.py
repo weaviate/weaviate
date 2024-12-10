@@ -1,24 +1,22 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from grpc.aio import AioRpcError
 from weaviate.collections.classes.tenants import Tenant, TenantActivityStatus
-from weaviate.rbac.models import RBAC
+from weaviate.rbac.models import Permissions
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_permissions
+from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_create(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
     required_permissions = [
-        RBAC.permissions.config.read(collection=name),
-        RBAC.permissions.config.create(collection=name),
+        Permissions.collections(collection=name, read_config=True, create_collection=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.create(
@@ -31,7 +29,7 @@ def test_rbac_collection_create(
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 custom_client.collections.create(name=name)
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
@@ -40,7 +38,7 @@ def test_rbac_collection_create(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_create_with_ref(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
 ):
     name_target = _sanitize_role_name(request.node.name) + "target"
     name_source = _sanitize_role_name(request.node.name) + "source"
@@ -50,9 +48,8 @@ def test_rbac_collection_create_with_ref(
     )
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=name_source),
-        RBAC.permissions.config.create(collection=name_source),
-        RBAC.permissions.config.read(collection=target.name),
+        Permissions.collections(collection=[name_source, target.name], read_config=True),
+        Permissions.collections(collection=name_source, create_collection=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         custom_client.collections.create(
@@ -63,7 +60,7 @@ def test_rbac_collection_create_with_ref(
 
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 custom_client.collections.create(
                     name=name_source,
                     multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
@@ -79,7 +76,7 @@ def test_rbac_collection_create_with_ref(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_read(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
@@ -89,7 +86,7 @@ def test_rbac_collection_read(
     if mt:
         col_admin.tenants.create("tenant1")
 
-    required_permissions = RBAC.permissions.config.read(collection=name)
+    required_permissions = Permissions.collections(collection=name, read_config=True)
     with role_wrapper(admin_client, request, required_permissions):
         col = custom_client.collections.get(name=name)
         assert col.config.get() is not None
@@ -98,32 +95,32 @@ def test_rbac_collection_read(
 
     with role_wrapper(admin_client, request, []):
         col = custom_client.collections.get(name=name)
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
             col.config.get()
         assert e.value.status_code == 403
         assert "forbidden" in e.value.args[0]
 
         if mt:
-            with pytest.raises(weaviate.exceptions.WeaviateTenantGetError) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as ee:
                 col.tenants.get()
-            assert "forbidden" in e.value.args[0]
+            assert "forbidden" in ee.value.args[0]
 
     admin_client.collections.delete(name)
 
 
 def test_rbac_schema_read(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
     admin_client.collections.create(name=name)
 
-    required_permission = RBAC.permissions.config.read()
+    required_permission = Permissions.collections(collection="*", read_config=True)
     with role_wrapper(admin_client, request, required_permission):
         custom_client.collections.list_all()
 
     with role_wrapper(admin_client, request, []):
-        with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
             custom_client.collections.list_all()
         assert e.value.status_code == 403
         assert "forbidden" in e.value.args[0]
@@ -132,7 +129,7 @@ def test_rbac_schema_read(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_update(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
@@ -143,8 +140,7 @@ def test_rbac_collection_update(
         col_admin.tenants.create("tenant1")
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=name),
-        RBAC.permissions.config.update(collection=name),
+        Permissions.collections(collection=name, read_config=True, update_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name)
@@ -161,13 +157,13 @@ def test_rbac_collection_update(
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             col_custom = custom_client.collections.get(name)
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 col_custom.config.update(description="test")
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
 
             if mt:
-                with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                     col_custom.tenants.update(
                         Tenant(name="tenant1", activity_status=TenantActivityStatus.INACTIVE)
                     )
@@ -177,7 +173,7 @@ def test_rbac_collection_update(
 
 
 def test_rbac_collection_update_with_ref(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest
 ):
     name_target = _sanitize_role_name(request.node.name) + "target"
     name_source = _sanitize_role_name(request.node.name) + "source"
@@ -186,9 +182,8 @@ def test_rbac_collection_update_with_ref(
     admin_client.collections.create(name=name_source)
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=name_target),
-        RBAC.permissions.config.read(collection=name_source),
-        RBAC.permissions.config.update(collection=name_source),
+        Permissions.collections(collection=[name_target, name_source], read_config=True),
+        Permissions.collections(collection=name_source, update_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_custom = custom_client.collections.get(name_source)
@@ -199,7 +194,7 @@ def test_rbac_collection_update_with_ref(
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
             col_custom = custom_client.collections.get(name_source)
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 col_custom.config.add_reference(
                     wvc.config.ReferenceProperty(name="self2", target_collection=name_target)
                 )
@@ -211,7 +206,7 @@ def test_rbac_collection_update_with_ref(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_rbac_collection_delete(
-    admin_client, custom_client, role_wrapper: Role_Wrapper_Type, request: SubRequest, mt: bool
+    admin_client, custom_client, role_wrapper: RoleWrapperProtocol, request: SubRequest, mt: bool
 ):
     name = _sanitize_role_name(request.node.name) + "col"
     admin_client.collections.delete(name)
@@ -222,12 +217,11 @@ def test_rbac_collection_delete(
         col_admin.tenants.create("tenant1")
 
     required_permissions = [
-        RBAC.permissions.config.read(collection=name),
-        RBAC.permissions.config.delete(collection=name),
+        Permissions.collections(collection=name, delete_collection=True, read_config=True),
     ]
     for permission in generate_missing_permissions(required_permissions):
         with role_wrapper(admin_client, request, permission):
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 custom_client.collections.delete(name)
             assert e.value.status_code == 403
             assert "forbidden" in e.value.args[0]
@@ -235,7 +229,7 @@ def test_rbac_collection_delete(
 
             if mt:
                 col_custom = custom_client.collections.get(name)
-                with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+                with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                     col_custom.tenants.remove("tenant1")
                 assert e.value.status_code == 403
                 assert "forbidden" in e.value.args[0]

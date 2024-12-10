@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package gql
+package test
 
 import (
 	"context"
@@ -71,8 +71,8 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		role := &models.Role{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}
 		helper.CreateRole(t, adminKey, role)
@@ -102,11 +102,10 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	})
 
 	t.Run("add the read all collections permission to the role", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(readBooksRole).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadSchema),
-				Collection: String("*"),
+				Action:      String(authorization.ReadCollections),
+				Collections: &models.PermissionCollections{Collection: String("*")},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -130,11 +129,10 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	})
 
 	t.Run("remove the read objects in book class permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID(readBooksRole).WithBody(authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -157,10 +155,10 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 	})
 
 	t.Run("add the read all objects in all classes permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(readBooksRole).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
 				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -220,9 +218,11 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		role := &models.Role{
 			Name: String(readBooksRole),
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String(customUser),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String(customUser),
+				},
 			}},
 		}
 		helper.CreateRole(t, adminKey, role)
@@ -246,11 +246,10 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	})
 
 	t.Run("add the read all collections permission to the role", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(readBooksRole).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadSchema),
-				Collection: String("*"),
+				Action:      String(authorization.ReadCollections),
+				Collections: &models.PermissionCollections{Collection: String("*")},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -267,24 +266,26 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	})
 
 	t.Run("remove the read objects in books class and customUser tenant permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID(readBooksRole).WithBody(authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String(customUser),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String(customUser),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
 	})
 
 	t.Run("add the read objects in books class and non-existent tenant permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(readBooksRole).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String("non-existent-tenant"),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String("non-existent-tenant"),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
@@ -309,23 +310,23 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 	})
 
 	t.Run("remove the read objects in books class and non-existent tenant permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithBody(authz.RemovePermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.RemovePermissions(authz.NewRemovePermissionsParams().WithID(readBooksRole).WithBody(authz.RemovePermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
-				Tenant:     String("non-existent-tenant"),
+				Action: String(authorization.ReadData),
+				Data: &models.PermissionData{
+					Collection: String(class.Class),
+					Tenant:     String("non-existent-tenant"),
+				},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)
 	})
 
 	t.Run("add the read objects in books class permission", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithBody(authz.AddPermissionsBody{
-			Name: String(readBooksRole),
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(readBooksRole).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{{
-				Action:     String(authorization.ReadData),
-				Collection: String(class.Class),
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String(class.Class)},
 			}},
 		}), helper.CreateAuth(adminKey))
 		require.Nil(t, err)

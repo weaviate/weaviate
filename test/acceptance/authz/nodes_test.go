@@ -12,16 +12,13 @@
 package test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -35,28 +32,8 @@ func TestAuthzNodes(t *testing.T) {
 	customKey := "custom-key"
 	customRole := "custom"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.
-		New().
-		WithWeaviate().
-		WithApiKey().
-		WithRBAC().
-		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(customUser, customKey).
-		WithRbacAdmins(adminUser).
-		Start(ctx)
-
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	clsA := articles.ArticlesClass()
 
@@ -82,8 +59,14 @@ func TestAuthzNodes(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("add read_nodes with minimal nodes resource to custom role", func(t *testing.T) {
-		helper.AddPermissions(t, adminKey, customRole, helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission())
+	t.Run("make custom role with read_nodes and minimal nodes resource", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{Name: &customRole, Permissions: []*models.Permission{
+			helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputMinimal).Permission(),
+		}})
+	})
+
+	t.Run("assign custom role to custom user", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, customRole, customUser)
 	})
 
 	t.Run("get minimal nodes with read_nodes", func(t *testing.T) {

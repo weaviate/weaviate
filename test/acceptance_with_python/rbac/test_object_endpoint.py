@@ -1,16 +1,16 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.rbac.models import RBAC
+from weaviate.rbac.models import Permissions
 from _pytest.fixtures import SubRequest
-from .conftest import _sanitize_role_name, Role_Wrapper_Type, generate_missing_permissions
+from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing_permissions
 
 pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_insert(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
@@ -22,8 +22,8 @@ def test_obj_insert(
         col.tenants.create("tenant1")
 
     required_permissions = [
-        RBAC.permissions.data.create(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        Permissions.data(collection=col.name, create=True),
+        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -38,7 +38,7 @@ def test_obj_insert(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.insert({})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
@@ -46,7 +46,7 @@ def test_obj_insert(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_insert_ref(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "source", name + "target"])
@@ -68,8 +68,8 @@ def test_obj_insert_ref(
     uuid_target = target.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.create(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        Permissions.data(collection=source.name, create=True),
+        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -86,7 +86,7 @@ def test_obj_insert_ref(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.insert(properties={}, references={"ref": uuid_target})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
@@ -94,7 +94,7 @@ def test_obj_insert_ref(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_replace(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
@@ -109,8 +109,8 @@ def test_obj_replace(
     uuid_to_replace = col.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.update(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        Permissions.data(collection=col.name, update=True),
+        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -126,7 +126,7 @@ def test_obj_replace(
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.replace(uuid=uuid_to_replace, properties={})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
@@ -134,7 +134,7 @@ def test_obj_replace(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_replace_ref(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "source", name + "target"])
@@ -158,8 +158,8 @@ def test_obj_replace_ref(
     uuid_to_replace = source.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        Permissions.data(collection=source.name, update=True),
+        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -178,7 +178,7 @@ def test_obj_replace_ref(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.replace(
                     uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
                 )
@@ -188,7 +188,7 @@ def test_obj_replace_ref(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_update(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
@@ -203,8 +203,8 @@ def test_obj_update(
     uuid_to_replace = col.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.update(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        Permissions.data(collection=col.name, update=True),
+        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -219,7 +219,7 @@ def test_obj_update(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.update(uuid=uuid_to_replace, properties={})
             assert e.value.status_code == 403
     admin_client.collections.delete(name)
@@ -227,7 +227,7 @@ def test_obj_update(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_update_ref(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete([name + "source", name + "target"])
@@ -251,8 +251,8 @@ def test_obj_update_ref(
     uuid_to_replace = source.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.update(collection=source.name),
-        RBAC.permissions.config.read(collection=source.name),
+        Permissions.data(collection=source.name, update=True),
+        Permissions.collections(collection=source.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(
@@ -271,7 +271,7 @@ def test_obj_update_ref(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.update(
                     uuid=uuid_to_replace, properties={}, references={"ref": uuid_target}
                 )
@@ -281,7 +281,7 @@ def test_obj_update_ref(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_delete(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
@@ -296,8 +296,8 @@ def test_obj_delete(
     uuid_to_delete = col.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.delete(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        Permissions.data(collection=col.name, delete=True),
+        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -315,7 +315,7 @@ def test_obj_delete(
                 col_no_rights = col_no_rights.with_tenant("tenant1")
 
             assert len(col) == 1
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 col_no_rights.data.delete_by_id(uuid=uuid_to_delete)
             assert e.value.status_code == 403
             assert len(col) == 1
@@ -324,7 +324,7 @@ def test_obj_delete(
 
 @pytest.mark.parametrize("mt", [True, False])
 def test_obj_exists(
-    request: SubRequest, admin_client, custom_client, role_wrapper: Role_Wrapper_Type, mt: bool
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     name = _sanitize_role_name(request.node.name)
     admin_client.collections.delete(name)
@@ -339,8 +339,8 @@ def test_obj_exists(
     uuid_to_check = col.data.insert({})
 
     required_permissions = [
-        RBAC.permissions.data.read(collection=col.name),
-        RBAC.permissions.config.read(collection=col.name),
+        Permissions.data(collection=col.name, read=True),
+        Permissions.collections(collection=col.name, read_config=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
@@ -355,7 +355,7 @@ def test_obj_exists(
             if mt:
                 col_no_rights = col_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.UnexpectedStatusCodeException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 col_no_rights.data.exists(uuid=uuid_to_check)
             assert e.value.status_code == 403
     admin_client.collections.delete(name)

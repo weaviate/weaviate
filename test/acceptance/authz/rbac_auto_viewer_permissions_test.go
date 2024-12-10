@@ -13,17 +13,14 @@ package test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -32,21 +29,9 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	adminUser := "admin-User"
 	viewerKey := "viewer-key"
 	viewerUser := "viewer-User"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().WithBackendFilesystem().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(viewerUser, viewerKey).
-		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewer(viewerUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
+	defer down()
 
 	// create class via admin
 	className := "ABC"
@@ -74,6 +59,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 	}
 
 	for _, endpoint := range endpoints {

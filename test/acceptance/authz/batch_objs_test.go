@@ -25,19 +25,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func TestBatchObjREST(t *testing.T) {
+func TestAuthZBatchObjREST(t *testing.T) {
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
-	customAuth := helper.CreateAuth("custom-key")
+	customKey := "custom-key"
+	customAuth := helper.CreateAuth(customKey)
 	testRoleName := "test-role"
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 	// readDataAction := authorization.ReadData
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
-	helper.SetupClient("127.0.0.1:8081")
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	// add classes with object
 	className1 := "AuthZBatchObjREST1"
@@ -70,28 +72,28 @@ func TestBatchObjREST(t *testing.T) {
 
 	allPermissions := []*models.Permission{
 		{
-			Action:     &createDataAction,
-			Collection: &className1,
+			Action: &createDataAction,
+			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:     &updateDataAction,
-			Collection: &className1,
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:     &readSchemaAction,
-			Collection: &className1,
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &className1},
 		},
 		{
-			Action:     &createDataAction,
-			Collection: &className2,
+			Action: &createDataAction,
+			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action:     &updateDataAction,
-			Collection: &className2,
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action:     &readSchemaAction,
-			Collection: &className2,
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &className2},
 		},
 	}
 	t.Run("all rights for both classes", func(t *testing.T) {

@@ -81,6 +81,7 @@ import (
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -367,6 +368,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
 	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
+	appState.Migrator = migrator
 
 	vectorRepo = repo
 	// migrator = vectorMigrator
@@ -572,12 +574,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	metaStoreReadyErr := fmt.Errorf("meta store ready")
+	metaStoreFailedErr := fmt.Errorf("meta store failed")
+	storeReadyCtx, storeReadyCancel := context.WithCancelCause(context.Background())
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
+			storeReadyCancel(metaStoreFailedErr)
+		} else {
+			storeReadyCancel(metaStoreReadyErr)
 		}
 	}, appState.Logger)
 
@@ -600,25 +608,33 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	// FIXME to avoid import cycles, tasks are passed as strings
-	reindexTaskNames := []string{}
+	reindexTaskNamesWithArgs := map[string]any{}
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
+		reindexTaskNamesWithArgs["ShardInvertedReindexTaskSetToRoaringSet"] = nil
 	}
 	if appState.ServerConfig.Config.IndexMissingTextFilterableAtStartup {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskMissingTextFilterable")
+		reindexTaskNamesWithArgs["ShardInvertedReindexTaskMissingTextFilterable"] = nil
 	}
-	if len(reindexTaskNames) > 0 {
+	if len(appState.ServerConfig.Config.ReindexIndexesAtStartup) > 0 {
+		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
+	}
+
+	if len(reindexTaskNamesWithArgs) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+			// wait until meta store is ready, as reindex tasks needs schema
+			<-storeReadyCtx.Done()
+			if context.Cause(storeReadyCtx) == metaStoreReadyErr {
+				appState.Logger.
+					WithField("action", "startup").
+					Info("Reindexing inverted indexes")
+				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
+			}
 		}, appState.Logger)
 	}
 
@@ -694,11 +710,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
-	var existingUsersApiKeys []string
-	if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
-		existingUsersApiKeys = appState.ServerConfig.Config.Authentication.APIKey.Users
-	}
-	authz.SetupHandlers(api, appState.ClusterService.Raft, appState.SchemaManager, existingUsersApiKeys, appState.Metrics, appState.Authorizer, appState.Logger)
+	authz.SetupHandlers(api,
+		appState.ClusterService.Raft,
+		appState.SchemaManager,
+		appState.ServerConfig.Config.Authentication.APIKey,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.Metrics,
+		appState.Authorizer,
+		appState.Logger)
+
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -844,7 +864,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
 	}
-	// assign authController
+
 	appState.AuthzController = controller
 
 	if err = configureAuthorizer(appState, controller); err != nil {
@@ -892,25 +912,13 @@ func logger() *logrus.Logger {
 	if os.Getenv("LOG_FORMAT") != "text" {
 		logger.SetFormatter(NewWeaviateJSONFormatter())
 	}
-	switch os.Getenv("LOG_LEVEL") {
-	case "panic":
-		logger.SetLevel(logrus.PanicLevel)
-	case "fatal":
-		logger.SetLevel(logrus.FatalLevel)
-	case "error":
-		logger.SetLevel(logrus.ErrorLevel)
-	case "warn":
-		logger.SetLevel(logrus.WarnLevel)
-	case "warning":
-		logger.SetLevel(logrus.WarnLevel)
-	case "debug":
-		logger.SetLevel(logrus.DebugLevel)
-	case "trace":
-		logger.SetLevel(logrus.TraceLevel)
-	default:
-		logger.SetLevel(logrus.InfoLevel)
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	level, err := logLevelFromString(logLevelStr)
+	if err == logLevelNotRecognized {
+		logger.WithField("log_level_env", logLevelStr).Warn("log level not recognized, defaulting to info")
+		level = logrus.InfoLevel
 	}
-
+	logger.SetLevel(level)
 	return logger
 }
 
@@ -947,6 +955,8 @@ func registerModules(appState *state.State) error {
 		modtext2vecoctoai.Name,
 		modopenai.Name,
 		modvoyageai.Name,
+		modmulti2vecvoyageai.Name,
+		modweaviateembed.Name,
 	}
 	defaultGenerative := []string{
 		modgenerativeanthropic.Name,
@@ -1128,6 +1138,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modmulti2vecjinaai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecvoyageai.Name]; ok {
+		appState.Modules.Register(modmulti2vecvoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecvoyageai.Name).
 			Debug("enabled module")
 	}
 

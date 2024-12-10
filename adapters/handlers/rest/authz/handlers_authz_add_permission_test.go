@@ -32,9 +32,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 		name      string
 		principal *models.Principal
 		params    authz.AddPermissionsParams
-		// readCollection              bool
-		// readTenant                  bool
-		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
@@ -42,11 +39,12 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "all are *",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
+				ID: "test",
 				Body: authz.AddPermissionsBody{
-					Name: String("test"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateSchema),
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
 						},
 					},
 				},
@@ -56,51 +54,51 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			name:      "collection checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
+				ID: "newRole",
 				Body: authz.AddPermissionsBody{
-					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{Collection: String("ABC")},
 						},
 					},
 				},
 			},
-			// readCollection: true,
 		},
 		{
 			name:      "collection and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
+				ID: "newRole",
 				Body: authz.AddPermissionsBody{
-					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action:     String(authorization.CreateSchema),
-							Collection: String("ABC"),
-							Tenant:     String("Tenant1"),
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("ABC"),
+								Tenant:     String("Tenant1"),
+							},
 						},
 					},
 				},
 			},
-			// readCollection: true,
-			// readTenant:     true,
 		},
 		{
 			name:      "* collections and tenant checks",
 			principal: &models.Principal{Username: "user1"},
 			params: authz.AddPermissionsParams{
+				ID: "newRole",
 				Body: authz.AddPermissionsBody{
-					Name: String("newRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateSchema),
-							Tenant: String("Tenant1"),
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Tenant: String("Tenant1"),
+							},
 						},
 					},
 				},
 			},
-			// readTenantWithoutCollection: true,
 		},
 	}
 
@@ -112,37 +110,18 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			policies, err := conv.RolesToPolicies(&models.Role{
-				Name:        tt.params.Body.Name,
+				Name:        &tt.params.ID,
 				Permissions: tt.params.Body.Permissions,
 			})
 			require.Nil(t, err)
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{
+				"test": {
+					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+				},
+			}, nil)
 			controller.On("UpsertRolesPermissions", policies).Return(nil)
-
-			// if tt.readCollection {
-			// 	schemaReader.On("ReadOnlyClass",
-			// 		*tt.params.Body.Permissions[0].Collection).
-			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
-			// }
-
-			// if tt.readTenant {
-			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-			// 		*tt.params.Body.Permissions[0].Tenant).
-			// 		Return(map[string]string{*tt.params.Body.Permissions[0].Tenant: "ACTIVE"}, nil)
-			// }
-
-			// if tt.readTenantWithoutCollection {
-			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-			// 		Objects: &models.Schema{
-			// 			Classes: []*models.Class{{Class: "ABC"}},
-			// 		},
-			// 	})
-
-			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-			// 		Physical: map[string]sharding.Physical{*tt.params.Body.Permissions[0].Tenant: {Name: "anything"}},
-			// 	})
-			// }
 
 			h := &authZHandlers{
 				authorizer:   authorizer,
@@ -164,32 +143,14 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 		params        authz.AddPermissionsParams
 		principal     *models.Principal
 		expectedError string
-		// readCollection              bool
-		// readTenant                  bool
-		// readTenantWithoutCollection bool
 	}
 
 	tests := []testCase{
 		{
-			name: "role name is required",
-			params: authz.AddPermissionsParams{
-				Body: authz.AddPermissionsBody{
-					Name: String(""),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateSchema),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role name is required",
-		},
-		{
 			name: "role has to have at least 1 permission",
 			params: authz.AddPermissionsParams{
+				ID: "someName",
 				Body: authz.AddPermissionsBody{
-					Name:        String("someName"),
 					Permissions: []*models.Permission{},
 				},
 			},
@@ -197,28 +158,14 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			expectedError: "role has to have at least 1 permission",
 		},
 		{
-			name: "invalid action",
-			params: authz.AddPermissionsParams{
-				Body: authz.AddPermissionsBody{
-					Name: String("someName"),
-					Permissions: []*models.Permission{
-						{
-							Action: String("manage_somethingelse"),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "invalid permission",
-		},
-		{
 			name: "update builtin role",
 			params: authz.AddPermissionsParams{
+				ID: authorization.BuiltInRoles[0],
 				Body: authz.AddPermissionsBody{
-					Name: &authorization.BuiltInRoles[0],
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateSchema),
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
 						},
 					},
 				},
@@ -226,55 +173,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "you can not update builtin role",
 		},
-		// {
-		// 	name: "collection doesn't exist",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action:     String("manage_roles"),
-		// 					Collection: String("ABC"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readCollection: true,
-		// 	expectedError:  "collection ABC doesn't exists",
-		// },
-		// {
-		// 	name: "tenant doesn't exist",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action:     String("manage_roles"),
-		// 					Collection: String("ABC"),
-		// 					Tenant:     String("Tenant1"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readTenant:    true,
-		// 	expectedError: "tenant Tenant1 doesn't exist",
-		// },
-		// {
-		// 	name: "tenant doesn't exist with * collection",
-		// 	params: authz.AddPermissionsParams{
-		// 		Body: authz.AddPermissionsBody{
-		// 			Name: String("newRole"),
-		// 			Permissions: []*models.Permission{
-		// 				{
-		// 					Action: String(authorization.CreateSchema),
-		// 					Tenant: String("Tenant1"),
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	readTenantWithoutCollection: true,
-		// 	expectedError:               "tenant Tenant1 doesn't exist",
-		// },
 	}
 
 	for _, tt := range tests {
@@ -283,35 +181,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 			authorizer := mocks.NewAuthorizer(t)
 			schemaReader := schemaMocks.NewSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
-
-			// if tt.readCollection {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("ReadOnlyClass", *tt.params.Body.Permissions[0].Collection).Return(nil)
-			// }
-
-			// if tt.readTenant {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("ReadOnlyClass",
-			// 		*tt.params.Body.Permissions[0].Collection).
-			// 		Return(&models.Class{Class: *tt.params.Body.Permissions[0].Collection})
-
-			// 	schemaReader.On("TenantsShards", mock.Anything, *tt.params.Body.Permissions[0].Collection,
-			// 		*tt.params.Body.Permissions[0].Tenant).
-			// 		Return(map[string]string{}, nil)
-			// }
-
-			// if tt.readTenantWithoutCollection {
-			// 	authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// 	schemaReader.On("GetSchemaSkipAuth").Return(schema.Schema{
-			// 		Objects: &models.Schema{
-			// 			Classes: []*models.Class{{Class: "ABC"}},
-			// 		},
-			// 	})
-
-			// 	schemaReader.On("CopyShardingState", "ABC").Return(&sharding.State{
-			// 		Physical: map[string]sharding.Physical{},
-			// 	})
-			// }
 			h := &authZHandlers{
 				controller:   controller,
 				authorizer:   authorizer,
@@ -342,11 +211,12 @@ func TestAddPermissionsForbidden(t *testing.T) {
 		{
 			name: "update some role",
 			params: authz.AddPermissionsParams{
+				ID: "someRole",
 				Body: authz.AddPermissionsBody{
-					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateSchema),
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
 						},
 					},
 				},
@@ -363,7 +233,7 @@ func TestAddPermissionsForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -381,6 +251,54 @@ func TestAddPermissionsForbidden(t *testing.T) {
 	}
 }
 
+func TestAddPermissionsRoleNotFound(t *testing.T) {
+	type testCase struct {
+		name          string
+		params        authz.AddPermissionsParams
+		principal     *models.Principal
+		expectedError string
+	}
+
+	tests := []testCase{
+		{
+			name: "role not found",
+			params: authz.AddPermissionsParams{
+				ID: "some role",
+				Body: authz.AddPermissionsBody{
+					Permissions: []*models.Permission{
+						{
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
+						},
+					},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "role not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewAuthorizer(t)
+			controller := mocks.NewController(t)
+			logger, _ := test.NewNullLogger()
+
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
+
+			h := &authZHandlers{
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
+			}
+			res := h.addPermissions(tt.params, tt.principal)
+			_, ok := res.(*authz.AddPermissionsNotFound)
+			assert.True(t, ok)
+		})
+	}
+}
+
 func TestAddPermissionsInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
@@ -394,11 +312,12 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 		{
 			name: "update some role",
 			params: authz.AddPermissionsParams{
+				ID: "someRole",
 				Body: authz.AddPermissionsBody{
-					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateSchema),
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
 						},
 					},
 				},
@@ -415,7 +334,12 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{
+				"test": {
+					{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+				},
+			}, nil)
 			controller.On("UpsertRolesPermissions", mock.Anything).Return(tt.upsertErr)
 
 			h := &authZHandlers{
