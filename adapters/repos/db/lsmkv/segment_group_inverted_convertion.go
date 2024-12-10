@@ -150,7 +150,7 @@ func (sg *SegmentGroup) convertOnce(objectBucket *Bucket, idBucket *Bucket, curr
 	}).Debug("Ccnvertion done")
 
 	// time
-	fmt.Println("Converted segment: ", segment.path, size, newSize.Size(), end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys)
+	fmt.Println("Converted segment: ", segment.path, size, newSize.Size(), end.Sub(start).Seconds(), c.statsWrittenDocs, c.statsDeletedDocs, c.statsUpdatedDocs, c.statsWrittenKeys, c.statsDeletedKeys, c.statsUpdatedKeys, c.statsDeletedDocsLaterSegment, c.statsDeletedDocsObjectBucket, c.statsDeletedDocsIdBucket, c.statsDeletedDocsNoData, c.statsDeletedDocsNoProp, c.statsDeletedDocsNoText)
 
 	if err := sg.replaceCompactedSegment(index, path); err != nil {
 		return false, errors.Wrap(err, "replace converted segments")

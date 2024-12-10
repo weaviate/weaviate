@@ -64,8 +64,19 @@ type convertedInverted struct {
 
 	statsWrittenDocs uint64
 	statsWrittenKeys uint64
-	statsDeletedDocs uint64
+
 	statsUpdatedDocs uint64
+	statsUpdatedKeys uint64
+
+	statsDeletedDocs uint64
+	statsDeletedKeys uint64
+
+	statsDeletedDocsLaterSegment uint64
+	statsDeletedDocsObjectBucket uint64
+	statsDeletedDocsIdBucket     uint64
+	statsDeletedDocsNoData       uint64
+	statsDeletedDocsNoProp       uint64
+	statsDeletedDocsNoText       uint64
 
 	documentsToUpdate *sroar.Bitmap
 }
@@ -343,27 +354,43 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].Key)
 		_, ok := c.propertyLengthsToWrite[docId]
-		actuallyDeleted := false
-		needsReindex := false
 		obj := &storobj.Object{}
 		if values[i].Tombstone {
+			c.statsDeletedKeys++
 
-			// if we saw a non-tombstone for this docId, don't add it to the tombstonesToWrite
-			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.propName}, c.objectBucket.logger)
-			if err != nil {
+			// already tombstoned or updated in the current segment
+			if c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
 				continue
 			}
-			if len(objs) == 0 || c.tombstonesToClean.Contains(docId) || c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
-				actuallyDeleted = true
+
+			// tombstoned on a later segment
+			if c.tombstonesToClean.Contains(docId) {
 				c.statsDeletedDocs++
+				c.statsDeletedDocsLaterSegment++
 				c.tombstonesToWrite.Set(docId)
 				continue
 			}
 
+			// check if the object is still in the object bucket
+			objs, err := storobj.ObjectsByDocID(c.objectBucket, []uint64{docId}, additional.Properties{}, []string{c.propName}, c.objectBucket.logger)
+			if err != nil {
+				continue
+			}
+
+			// deleted in the object bucket
+			if len(objs) == 0 {
+				c.statsDeletedDocs++
+				c.statsDeletedDocsObjectBucket++
+				c.tombstonesToWrite.Set(docId)
+				continue
+			}
+
+			// check if the object is still in the id bucket
 			allInternalIdBytes, err := c.idBucket.SetList([]byte(objs[0].ID().String()))
 			if err != nil {
 				continue
 			}
+
 			matched := false
 			for _, internalIdBytes := range allInternalIdBytes {
 				internalId := binary.BigEndian.Uint64(internalIdBytes)
@@ -373,27 +400,30 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 				}
 			}
 
+			// deleted in the id bucket
 			if !matched {
-				actuallyDeleted = true
 				c.statsDeletedDocs++
+				c.statsDeletedDocsIdBucket++
 				c.tombstonesToWrite.Set(docId)
 				continue
 			}
 
+			// check if the object has data in the property
 			textData, ok := objs[0].Properties().(map[string]interface{})
 
 			if !ok || textData == nil || len(textData) == 0 {
-				actuallyDeleted = true
 				c.statsDeletedDocs++
+				c.statsDeletedDocsNoData++
 				c.tombstonesToWrite.Set(docId)
 				continue
 			}
 
 			texts, ok := textData[c.propName]
 
+			// no data in the property
 			if !ok {
-				actuallyDeleted = true
 				c.statsDeletedDocs++
+				c.statsDeletedDocsNoProp++
 				c.tombstonesToWrite.Set(docId)
 				continue
 			}
@@ -404,28 +434,32 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 				textsArr = []string{texts.(string)}
 			}
 
-			if len(textsArr) == 0 || c.tombstonesToClean.Contains(docId) || c.tombstonesToWrite.Contains(docId) || c.documentsToUpdate.Contains(docId) {
-				actuallyDeleted = true
+			// no data in the property
+			if len(textsArr) == 0 {
 				c.statsDeletedDocs++
-			} else if !c.documentsToUpdate.Contains(docId) {
-				needsReindex = true
-				c.statsUpdatedDocs++
-				c.documentsToUpdate.Set(docId)
-				obj = objs[0]
+				c.statsDeletedDocsNoText++
+				c.tombstonesToWrite.Set(docId)
+				continue
 			}
+
+			c.statsUpdatedDocs++
+			c.documentsToUpdate.Set(docId)
+
+			c.statsDeletedDocs++
 			c.tombstonesToWrite.Set(docId)
 
-		}
-		if needsReindex {
-			texts, ok := obj.Properties().(map[string]interface{})[c.propName].([]string)
+			// check if it is a string or []string prop
+			obj = objs[0]
+			textsParsed, ok := obj.Properties().(map[string]interface{})[c.propName].([]string)
 			if !ok {
 				text, ok := obj.Properties().(map[string]interface{})[c.propName].(string)
 				if ok {
-					texts = []string{text}
+					textsParsed = []string{text}
 				}
 			}
 
-			analysed := AnalyseTextArray(c.propTokenization, texts)
+			// Analyse the text
+			analysed := AnalyseTextArray(c.propTokenization, textsParsed)
 			propLen := float32(0)
 
 			if os.Getenv("COMPUTE_PROPLENGTH_WITH_DUPS") == "true" {
@@ -439,6 +473,7 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 				propLen = float32(len(analysed))
 			}
 			for _, item := range analysed {
+				c.statsUpdatedKeys++
 				key := item.Data
 				mp := NewMapPairFromDocIdAndTf2(docId, item.TermFrequency, propLen, false)
 
@@ -446,8 +481,11 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 					continue
 				}
 			}
-		} else if !actuallyDeleted && !c.documentsToUpdate.Contains(docId) && !c.tombstonesToClean.Contains(docId) {
+			continue
 
+		}
+
+		if !c.documentsToUpdate.Contains(docId) && !c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
 			// if docId in propertyLengthsToWrite
 			// then add propertyLengthsToWrite[docId] to propertyLengthsSum
 			c.statsWrittenKeys++
@@ -461,6 +499,8 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 
 			values[last], values[i] = values[i], values[last]
 			last++
+		} else if c.tombstonesToWrite.Contains(docId) {
+			c.statsDeletedDocs++
 		}
 
 	}
