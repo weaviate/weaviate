@@ -154,8 +154,8 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		res, err := deleteObject(t, UUID2, customKey)
-		require.Error(t, err)
-		require.Nil(t, res)
+		require.NoError(t, err)
+		require.NotNil(t, res)
 	})
 }
 
