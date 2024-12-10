@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"github.com/pkg/errors"
@@ -30,6 +30,7 @@ const (
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "http://localhost:11434"
 	DefaultModel                 = "nomic-embed-text"
+	LowerCaseInput               = false
 )
 
 type classSettings struct {
@@ -38,7 +39,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
