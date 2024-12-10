@@ -2834,7 +2834,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2885,7 +2885,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
@@ -2920,6 +2920,70 @@
         }
       }
     },
+    "/authz/roles/{id}/has-permission":{
+      "post": {
+        "summary": "Check whether role possesses this permission.",
+        "operationId": "hasPermission",
+        "x-serviceIds": [
+          "weaviate.authz.has.role.permission"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Permission"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission check was successful",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/roles/{id}/users": {
       "get": {
         "summary": "get users or a keys assigned to role",
@@ -2932,7 +2996,7 @@
         ],
         "parameters": [
           {
-            "description": "role ID",
+            "description": "role name",
             "in": "path",
             "name": "id",
             "required": true,
