@@ -46,36 +46,35 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
-
-	w := bufio.NewWriter(f)
+	segmentWriter := bufio.NewWriter(f)
 
 	var keys []segmentindex.Key
 	skipIndices := false
 
 	switch m.strategy {
 	case StrategyReplace:
-		if keys, err = m.flushDataReplace(w); err != nil {
+		if keys, err = m.flushDataReplace(segmentWriter); err != nil {
 			return err
 		}
 
 	case StrategySetCollection:
-		if keys, err = m.flushDataSet(w); err != nil {
+		if keys, err = m.flushDataSet(segmentWriter); err != nil {
 			return err
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(w); err != nil {
+		if keys, err = m.flushDataRoaringSet(segmentWriter); err != nil {
 			return err
 		}
 
 	case StrategyRoaringSetRange:
-		if keys, err = m.flushDataRoaringSetRange(w); err != nil {
+		if keys, err = m.flushDataRoaringSetRange(segmentWriter); err != nil {
 			return err
 		}
 		skipIndices = true
 
 	case StrategyMapCollection:
-		if keys, err = m.flushDataMap(w); err != nil {
+		if keys, err = m.flushDataMap(segmentWriter); err != nil {
 			return err
 		}
 
@@ -90,12 +89,13 @@ func (m *Memtable) flush() error {
 			ScratchSpacePath:    m.path + ".scratch.d",
 		}
 
-		if _, err := indices.WriteTo(w); err != nil {
+		if _, err := indices.WriteTo(segmentWriter); err != nil {
+			return err
 			return err
 		}
 	}
 
-	if err := w.Flush(); err != nil {
+	if err := segmentWriter.Flush(); err != nil {
 		return err
 	}
 
@@ -122,7 +122,7 @@ func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.CurrentSegmentVersion,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
@@ -199,7 +199,7 @@ func (m *Memtable) flushDataCollection(f io.Writer,
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.CurrentSegmentVersion,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
