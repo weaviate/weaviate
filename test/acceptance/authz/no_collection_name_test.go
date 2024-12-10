@@ -1,7 +1,11 @@
 package test
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -141,5 +145,249 @@ func TestWithoutCollectionName(t *testing.T) {
 		res, err := deleteObject(t, UUID2, customKey)
 		require.Error(t, err)
 		require.Nil(t, res)
+	})
+}
+
+func TestRefsWithoutCollectionNames(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	adminAuth := helper.CreateAuth(adminKey)
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRoleName := t.Name() + "role"
+
+	readDataAction := authorization.ReadData
+	updateDataAction := authorization.UpdateData
+	readCollectionsAction := authorization.ReadCollections
+	all := "*"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	articlesCls := articles.ArticlesClass()
+	paragraphsCls := articles.ParagraphsClass()
+
+	helper.DeleteClassWithAuthz(t, paragraphsCls.Class, adminAuth)
+	helper.DeleteClassWithAuthz(t, articlesCls.Class, adminAuth)
+	helper.CreateClassAuth(t, paragraphsCls, adminKey)
+	helper.CreateClassAuth(t, articlesCls, adminKey)
+	defer helper.DeleteClassWithAuthz(t, paragraphsCls.Class, adminAuth)
+	defer helper.DeleteClassWithAuthz(t, articlesCls.Class, adminAuth)
+
+	objs := []*models.Object{articles.NewParagraph().WithID(UUID1).Object(), articles.NewParagraph().WithID(UUID2).Object()}
+	objs = append(objs, articles.NewArticle().WithTitle("Article 1").WithID(UUID3).Object())
+	objs = append(objs, articles.NewArticle().WithTitle("Article 2").WithID(UUID4).Object())
+	helper.CreateObjectsBatchAuth(t, objs, adminKey)
+
+	addrefPermissionsClass := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
+		},
+	}
+	t.Run("Test add ref only class permissions - fail", func(t *testing.T) {
+		role := &models.Role{Name: &testRoleName, Permissions: addrefPermissionsClass}
+		helper.DeleteRole(t, adminKey, *role.Name)
+		helper.CreateRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := addRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.Error(t, err)
+		require.Nil(t, res)
+	})
+
+	addrefPermissionsAll := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &all},
+		},
+	}
+	t.Run("Test add ref all permissions - succeed", func(t *testing.T) {
+		deleteRole := &models.Role{Name: &testRoleName, Permissions: addrefPermissionsAll}
+		helper.DeleteRole(t, adminKey, *deleteRole.Name)
+		helper.CreateRole(t, adminKey, deleteRole)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := addRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
+
+	for _, permissions := range generateMissingLists(addrefPermissionsAll) {
+		t.Run("Test add ref - missing permissions", func(t *testing.T) {
+			deleteRole := &models.Role{Name: &testRoleName, Permissions: permissions}
+			helper.DeleteRole(t, adminKey, *deleteRole.Name)
+			helper.CreateRole(t, adminKey, deleteRole)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+			res, err := addRef(t, UUID3, "hasParagraphs", ref, customKey)
+			require.Error(t, err)
+			require.Nil(t, res)
+		})
+	}
+
+	updaterefPermissionsClass := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
+		},
+	}
+	t.Run("Test add ref only class permissions - fail", func(t *testing.T) {
+		role := &models.Role{Name: &testRoleName, Permissions: updaterefPermissionsClass}
+		helper.DeleteRole(t, adminKey, *role.Name)
+		helper.CreateRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.Error(t, err)
+		require.Nil(t, res)
+	})
+
+	updaterefPermissionsAll := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &all},
+		},
+	}
+	t.Run("Test update ref all permissions - succeed", func(t *testing.T) {
+		deleteRole := &models.Role{Name: &testRoleName, Permissions: updaterefPermissionsAll}
+		helper.DeleteRole(t, adminKey, *deleteRole.Name)
+		helper.CreateRole(t, adminKey, deleteRole)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
+
+	t.Run("Test update ref - missing permissions", func(t *testing.T) {
+		for _, permissions := range generateMissingLists(updaterefPermissionsAll) {
+			deleteRole := &models.Role{Name: &testRoleName, Permissions: permissions}
+			helper.DeleteRole(t, adminKey, *deleteRole.Name)
+			helper.CreateRole(t, adminKey, deleteRole)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+			res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+			require.Error(t, err)
+			require.Nil(t, res)
+		}
+	})
+
+	deleterefPermissionsClass := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &articlesCls.Class},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &paragraphsCls.Class},
+		},
+	}
+	t.Run("Test delete ref only class permissions - fail", func(t *testing.T) {
+		role := &models.Role{Name: &testRoleName, Permissions: deleterefPermissionsClass}
+		helper.DeleteRole(t, adminKey, *role.Name)
+		helper.CreateRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.Error(t, err)
+		require.Nil(t, res)
+	})
+
+	deleterefPermissionsAll := []*models.Permission{
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action: &updateDataAction,
+			Data:   &models.PermissionData{Collection: &all},
+		},
+		{
+			Action:      &readCollectionsAction,
+			Collections: &models.PermissionCollections{Collection: &all},
+		},
+	}
+	t.Run("Test delete ref all permissions - succeed", func(t *testing.T) {
+		deleteRole := &models.Role{Name: &testRoleName, Permissions: deleterefPermissionsAll}
+		helper.DeleteRole(t, adminKey, *deleteRole.Name)
+		helper.CreateRole(t, adminKey, deleteRole)
+		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+		res, err := deleteRef(t, UUID3, "hasParagraphs", ref, customKey)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
+
+	t.Run("Test delete ref - missing permissions", func(t *testing.T) {
+		for _, permissions := range generateMissingLists(deleterefPermissionsAll) {
+			deleteRole := &models.Role{Name: &testRoleName, Permissions: permissions}
+			helper.DeleteRole(t, adminKey, *deleteRole.Name)
+			helper.CreateRole(t, adminKey, deleteRole)
+			helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+
+			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
+			res, err := deleteRef(t, UUID3, "hasParagraphs", ref, customKey)
+			require.Error(t, err)
+			require.Nil(t, res)
+		}
 	})
 }

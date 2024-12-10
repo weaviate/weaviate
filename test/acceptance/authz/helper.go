@@ -52,7 +52,9 @@ func generateMissingLists(permissions []*models.Permission) [][]*models.Permissi
 	var result [][]*models.Permission
 
 	for i := range permissions {
-		missingList := append(permissions[:i], permissions[i+1:]...)
+		missingList := make([]*models.Permission, 0, len(permissions)-1)
+		missingList = append(missingList, permissions[:i]...)
+		missingList = append(missingList, permissions[i+1:]...)
 		result = append(result, missingList)
 	}
 
@@ -77,6 +79,21 @@ func updateObject(t *testing.T, id strfmt.UUID, object *models.Object, key strin
 func deleteObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
 	params := objects.NewObjectsDeleteParams().WithID(id)
 	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
+}
+
+func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
+	params := objects.NewObjectsReferencesCreateParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesCreate(params, helper.CreateAuth(key))
+}
+
+func updateRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesUpdateOK, error) {
+	params := objects.NewObjectsReferencesUpdateParams().WithBody(models.MultipleRef{ref}).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesUpdate(params, helper.CreateAuth(key))
+}
+
+func deleteRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesDeleteNoContent, error) {
+	params := objects.NewObjectsReferencesDeleteParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesDelete(params, helper.CreateAuth(key))
 }
 
 func String(s string) *string {
