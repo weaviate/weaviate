@@ -313,9 +313,14 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(index.distancerProvider,
+				uc.VectorCacheMaxObjects, cfg.Logger, store, cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}

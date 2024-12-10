@@ -854,7 +854,12 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			return nil, nil, err
 		}
 		for _, id := range ids {
-			docId, _ := h.cache.GetKeys(id)
+			var docId uint64
+			if !h.compressed.Load() {
+				docId, _ = h.cache.GetKeys(id)
+			} else {
+				docId, _ = h.compressor.GetKeys(id)
+			}
 			candidateSet[docId] = true
 		}
 	}
@@ -892,7 +897,22 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RLock()
 	vecIDs := h.docIDVectors[docID]
 	h.RUnlock()
-	docVecs, errs := h.multiVectorForID(context.TODO(), vecIDs)
+	docVecs := make([][]float32, len(vecIDs))
+	errs := make([]error, len(vecIDs))
+	if h.compressed.Load() {
+		slice := h.pools.tempVectors.Get(int(h.dims))
+		for i, vecID := range vecIDs {
+			vec, err := h.TempVectorForIDThunk(context.Background(), vecID, slice)
+			if err != nil {
+				return 0.0, errors.Wrap(err, "get vector for docID")
+			}
+			docVecs[i] = make([]float32, len(vec))
+			copy(docVecs[i], vec)
+		}
+		h.pools.tempVectors.Put(slice)
+	} else {
+		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
+	}
 
 	for _, err := range errs {
 		if err != nil {

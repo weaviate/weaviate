@@ -162,7 +162,11 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.Lock()
 			if docID >= h.maxDocID {
 				h.maxDocID = docID
-				h.cache.GrowMultiCache(docID)
+				if h.compressed.Load() {
+					h.compressor.GrowMultiCache(docID)
+				} else {
+					h.cache.GrowMultiCache(docID)
+				}
 			}
 			h.Unlock()
 		} else {
@@ -170,6 +174,14 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		}
 
 		ids := make([]uint64, numVectors)
+		for id := range ids {
+			ids[id] = counter + uint64(id)
+		}
+		if h.compressed.Load() {
+			h.compressor.PreloadMulti(docID, ids, vectors[i])
+		} else {
+			h.cache.PreloadMulti(docID, ids, vectors[i])
+		}
 		for j := range numVectors {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -187,7 +199,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			vector = h.normalizeVec(vector)
 
 			nodeId := counter
-			ids[j] = nodeId
 			counter++
 
 			node := &vertex{
@@ -206,7 +217,6 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			h.insertMetrics.total(globalBefore)
 		}
-		h.cache.PreloadMulti(docID, ids, vectors[i])
 
 	}
 
@@ -273,7 +283,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, vector)
 	} else {
 		if !h.multivector.Load() {
@@ -368,7 +378,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
 		if !h.multivector.Load() {

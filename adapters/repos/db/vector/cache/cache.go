@@ -19,7 +19,7 @@ import (
 const DefaultDeletionInterval = 3 * time.Second
 
 type MultiCache[T any] interface {
-	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
+	PreloadMulti(docID uint64, ids []uint64, vecs [][]T)
 	GetKeys(id uint64) (uint64, uint64)
 	GrowMultiCache(id uint64)
 }
