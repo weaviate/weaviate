@@ -150,12 +150,15 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVectors [][]float32, k 
 		if err != nil {
 			return nil, nil, err
 		}
-		h.RLock()
 		for _, id := range ids {
-			docId, _ := h.cache.GetKeys(id)
+			var docId uint64
+			if !h.compressed.Load() {
+				docId, _ = h.cache.GetKeys(id)
+			} else {
+				docId, _ = h.compressor.GetKeys(id)
+			}
 			candidateSet[docId] = true
 		}
-		h.RUnlock()
 	}
 
 	return h.computeLateInteraction(queryVectors, k, candidateSet)
