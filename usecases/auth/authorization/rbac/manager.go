@@ -13,6 +13,7 @@ package rbac
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -42,7 +43,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// dumb name of the role without permissions to make sure it does exists even if there was no permissions
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(InternalPlaceHolder), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(conv.InternalPlaceHolder), conv.PrefixRoleName(roleName)); err != nil {
 			return err
 		}
 		for _, policy := range policies {
@@ -59,8 +60,11 @@ func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy
 }
 
 func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	var casbinStoragePolicies [][][]string
-	casbinStoragePoliciesM := make(map[string]struct{})
+	var (
+		casbinStoragePolicies    [][][]string
+		casbinStoragePoliciesMap = make(map[string]struct{})
+	)
+
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
@@ -70,21 +74,8 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 
 		for _, p := range polices {
-			casbinStoragePoliciesM[p[1]] = struct{}{}
-		}
-
-		polices, err = m.casbin.GetNamedGroupingPolicy("g")
-		if err != nil {
-			return nil, err
-		}
-
-		for _, p := range polices {
-			// collect stale or empty roles
-			if _, ok := casbinStoragePoliciesM[p[1]]; !ok {
-				casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
-					p[1], InternalPlaceHolder, InternalPlaceHolder, "*",
-				}})
-			}
+			// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
+			casbinStoragePoliciesMap[p[0]] = struct{}{}
 		}
 
 	} else {
@@ -97,6 +88,29 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 				continue
 			}
 			casbinStoragePolicies = append(casbinStoragePolicies, polices)
+			for _, p := range polices {
+				// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
+				casbinStoragePoliciesMap[p[0]] = struct{}{}
+			}
+		}
+	}
+
+	polices, err := m.casbin.GetNamedGroupingPolicy("g")
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range polices {
+		// ignore builtin roles
+		if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
+			continue
+		}
+		// collect stale or empty roles
+		if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
+			// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
+			casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
+				p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
+			}})
 		}
 	}
 
@@ -179,7 +193,7 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
 		user := conv.TrimUserNamePrefix(pusers[idx])
-		if user == InternalPlaceHolder {
+		if user == conv.InternalPlaceHolder {
 			continue
 		}
 		users = append(users, user)

@@ -667,7 +667,7 @@ func TestAuthzEmptyRole(t *testing.T) {
 	})
 }
 
-func TestAuthzRoleAfterRemovingPermissions(t *testing.T) {
+func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 	var err error
 
 	adminUser := "admin-user"
@@ -711,10 +711,30 @@ func TestAuthzRoleAfterRemovingPermissions(t *testing.T) {
 		require.Equal(t, 4, len(roles))
 	})
 
-	t.Run("get role", func(t *testing.T) {
+	t.Run("get role after deleting permission", func(t *testing.T) {
 		role := helper.GetRoleByName(t, adminKey, customRole)
-		require.Equal(t, customRole, role.Name)
+		require.Equal(t, customRole, *role.Name)
 		require.Equal(t, 1, len(role.Permissions))
 		require.Nil(t, role.Permissions[0].Action)
+	})
+
+	t.Run("add permissions", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.AddPermissions(
+			authz.NewAddPermissionsParams().WithID(customRole).WithBody(authz.AddPermissionsBody{
+				Permissions: []*models.Permission{{
+					Action:      String(authorization.CreateCollections),
+					Collections: &models.PermissionCollections{Collection: String("*")},
+				}},
+			}),
+			clientAuth,
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("get role after adding permission", func(t *testing.T) {
+		role := helper.GetRoleByName(t, adminKey, customRole)
+		require.Equal(t, customRole, *role.Name)
+		require.Equal(t, 1, len(role.Permissions))
+		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 	})
 }
