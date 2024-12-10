@@ -160,7 +160,11 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 		}
 	}
 
-	return m.casbin.SavePolicy()
+	if err := m.casbin.SavePolicy(); err != nil {
+		return err
+	}
+
+	return m.casbin.InvalidateCache()
 }
 
 func (m *manager) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
