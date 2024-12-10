@@ -14,18 +14,19 @@ package hashtree
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 type Bitset struct {
 	size     int
-	bits     []int64
+	bits     []uint64
 	setCount int
 }
 
 func NewBitset(size int) *Bitset {
 	return &Bitset{
 		size: size,
-		bits: make([]int64, (size+63)/64),
+		bits: make([]uint64, (size+63)/64),
 	}
 }
 
@@ -63,6 +64,48 @@ func (bset *Bitset) IsSet(i int) bool {
 	return bset.bits[i/64]&(1<<(i%64)) != 0
 }
 
+func (bset *Bitset) All() []int {
+	r := make([]int, 0, bset.setCount)
+
+	for i := 0; i < len(bset.bits); i++ {
+		b := bset.bits[i]
+
+		for j := 0; j < 64; j++ {
+			if b&(1<<j) > 0 {
+				r = append(r, (i<<6)|j)
+			}
+		}
+	}
+
+	return r
+}
+
+func (bset *Bitset) Since(start, limit int) []int {
+	r := make([]int, 0, bset.setCount)
+
+	for i := start / 64; i < len(bset.bits); i++ {
+		b := bset.bits[i]
+
+		for j := 0; j < 64; j++ {
+			if b&(1<<j) > 0 {
+				v := (i << 6) | j
+
+				if v < start {
+					continue
+				}
+
+				r = append(r, v)
+
+				if len(r) == limit {
+					return r
+				}
+			}
+		}
+	}
+
+	return r
+}
+
 func (bset *Bitset) AllSet() bool {
 	return bset.SetCount() == bset.size
 }
@@ -73,7 +116,7 @@ func (bset *Bitset) SetCount() int {
 
 func (bset *Bitset) SetAll() *Bitset {
 	for i := 0; i < len(bset.bits); i++ {
-		bset.bits[i] = -1
+		bset.bits[i] = math.MaxUint64
 	}
 
 	bset.setCount = bset.size
@@ -120,11 +163,11 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 		return fmt.Errorf("invalid bset serialization")
 	}
 
-	bset.bits = make([]int64, n)
+	bset.bits = make([]uint64, n)
 
 	off := 8
 	for i := 0; i < n; i++ {
-		bset.bits[i] = int64(binary.BigEndian.Uint64(b[off:]))
+		bset.bits[i] = binary.BigEndian.Uint64(b[off:])
 		off += 8
 	}
 
@@ -134,7 +177,7 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 func (bset *Bitset) Clone() *Bitset {
 	clone := &Bitset{
 		size:     bset.size,
-		bits:     make([]int64, len(bset.bits)),
+		bits:     make([]uint64, len(bset.bits)),
 		setCount: bset.setCount,
 	}
 

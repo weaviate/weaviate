@@ -218,12 +218,18 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 		offset = NodesCount(level)
 	}
 
-	// TODO(jeroiraz): it may be more performant to iterate over the set positions in the discriminant
-	for i := 0; i < nodesAtLevel(level); i++ {
+	/*for i := 0; i < nodesAtLevel(level); i++ {
 		if discriminant.IsSet(offset + i) {
 			digests[n] = ht.nodes[offset+i]
 			n++
 		}
+	}*/
+
+	all := discriminant.Since(offset, nodesAtLevel(level))
+
+	for _, i := range all {
+		digests[n] = ht.nodes[i]
+		n++
 	}
 
 	return n, nil

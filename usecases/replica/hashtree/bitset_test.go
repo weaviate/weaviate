@@ -23,6 +23,7 @@ func TestBitSet(t *testing.T) {
 	bset := NewBitset(bsetSize)
 
 	require.Zero(t, bset.SetCount())
+	require.Empty(t, bset.All())
 
 	for i := 0; i < bsetSize; i++ {
 		require.False(t, bset.IsSet(i))
@@ -35,11 +36,20 @@ func TestBitSet(t *testing.T) {
 		require.True(t, bset.IsSet(i))
 	}
 
+	all := bset.All()
+	require.Len(t, all, bsetSize)
+
+	for j := 0; j < bsetSize; j++ {
+		require.Equal(t, j, all[j])
+	}
+
 	require.True(t, bset.AllSet())
 	require.Equal(t, bsetSize, bset.SetCount())
+	require.Len(t, bset.All(), bsetSize)
 
 	bset.Reset()
 	require.Zero(t, bset.SetCount())
+	require.Empty(t, bset.All())
 
 	require.Panics(t, func() {
 		bset.IsSet(bsetSize)
