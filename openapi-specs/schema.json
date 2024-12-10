@@ -2685,9 +2685,9 @@
         }
       }
     },
-    "/authz/roles/add-permissions":{
+    "/authz/roles/{id}/add-permissions":{
       "post": {
-        "summary": "Add permission to a role as an upsert. If the role doesn't exist then it will be created.",
+        "summary": "Add permission to a given role.",
         "operationId": "addPermissions",
         "x-serviceIds": [
           "weaviate.authz.add.role.permissions"
@@ -2697,16 +2697,19 @@
         ],
         "parameters": [
           {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "role name"
-                },
                 "permissions": {
                   "type":"array",
                   "items": {
@@ -2739,6 +2742,9 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "no role found"
+          },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
@@ -2754,7 +2760,7 @@
         }
       }
     },
-    "/authz/roles/remove-permissions":{
+    "/authz/roles/{id}/remove-permissions":{
       "post": {
         "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
         "operationId": "removePermissions",
@@ -2766,16 +2772,19 @@
         ],
         "parameters": [
           {
+            "description": "role name",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          },
+          {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "role name"
-                },
                 "permissions": {
                   "type":"array",
                   "items": {
@@ -2784,7 +2793,7 @@
                   "description": "permissions to remove from the role"
                 }
               },
-              "required": ["name", "permissions"]
+              "required": ["permissions"]
             }
           }
         ],
@@ -2806,6 +2815,9 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "no role found"
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3029,7 +3041,7 @@
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "no role found"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
