@@ -207,10 +207,10 @@ func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
 			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &all},
 		},
-		//{
-		//	Action: &readDataAction,
-		//	Data:   &models.PermissionData{Collection: &paragraphsCls.Class},
-		//},
+		{
+			Action: &readDataAction,
+			Data:   &models.PermissionData{Collection: &paragraphsCls.Class},
+		},
 		{
 			Action: &readDataAction,
 			Data:   &models.PermissionData{Collection: &articlesCls.Class},
