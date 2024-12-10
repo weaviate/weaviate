@@ -57,6 +57,12 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	if input.Class == "" {
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
