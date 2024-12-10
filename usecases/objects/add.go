@@ -99,7 +99,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, errors.Wrap(err, "invalid object")
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
+	authorizeAutoTenantCreate := func(className string, tenantNames []string) error {
+		return m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, tenantNames...)...)
+	}
+
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, authorizeAutoTenantCreate); err != nil {
 		return nil, err
 	}
 

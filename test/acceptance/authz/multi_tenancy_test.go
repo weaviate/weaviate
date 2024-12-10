@@ -12,15 +12,12 @@
 package test
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -37,18 +34,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviate().WithRBAC().WithApiKey().WithUserApiKey(existingUser, existingKey).WithUserApiKey(customUser, customKey).WithRbacAdmins(existingUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
@@ -57,7 +43,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	defer func() {
 		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
 		helper.DeleteRole(t, existingKey, testRoleName)
-		helper.ResetClient()
+		teardown()
 	}()
 
 	t.Run("setup", func(*testing.T) {
@@ -100,6 +86,73 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	})
 
 	t.Run("successfully create object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		helper.AssertRequestOk(t, nil, err, nil)
+	})
+}
+
+func TestAuthzAutoTenantCreation(t *testing.T) {
+	existingUser := "existing-user"
+	existingKey := "existing-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRoleName := "test-role"
+
+	adminAuth := helper.CreateAuth(existingKey)
+
+	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
+
+	cls := articles.ParagraphsClass()
+	tenant := "tenant"
+	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000001").WithTenant(tenant).Object()
+
+	defer func() {
+		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
+		helper.DeleteRole(t, existingKey, testRoleName)
+		teardown()
+	}()
+
+	t.Run("setup", func(*testing.T) {
+		cls.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: false,
+			AutoTenantCreation:   true,
+		}
+		helper.CreateClassAuth(t, cls, existingKey)
+	})
+
+	t.Run("create and assign role that can create objects in and read schema of tenant of collection", func(t *testing.T) {
+		helper.CreateRole(t, existingKey, &models.Role{
+			Name: String(testRoleName),
+			Permissions: []*models.Permission{
+				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(cls.Class).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
+			},
+		})
+		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
+		require.Nil(t, err)
+	})
+
+	t.Run("fail with 403 when trying to create an object in a non-existant tenant due to lacking authorization.CreateCollections for autoTenantCreation", func(t *testing.T) {
+		err := helper.CreateObjectAuth(t, obj, customKey)
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("add permission allowing to create schema of collection", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection(cls.Class).Permission(),
+			},
+		}), adminAuth)
+		require.Nil(t, err)
+	})
+
+	t.Run("successfully create object in tenant after adding permission for autoTenantCreation", func(t *testing.T) {
 		err := helper.CreateObjectAuth(t, obj, customKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
