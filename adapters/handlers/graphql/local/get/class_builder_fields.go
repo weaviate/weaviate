@@ -802,6 +802,8 @@ func extractGroupHitProperties(
 												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 											}
 										}
+									} else {
+										additionalGroupProperties = append(additionalGroupProperties, search.SelectProperty{Name: hf.Name.Value})
 									}
 								}
 							}
