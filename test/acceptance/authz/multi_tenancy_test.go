@@ -135,7 +135,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("fail with 403 when trying to create an object in a non-existant tenant due to lacking authorization.CreateCollections for autoTenantCreation", func(t *testing.T) {
+	t.Run("fail with 403 when trying to create an object in a non-existent tenant due to lacking authorization.CreateCollections for autoTenantCreation", func(t *testing.T) {
 		err := helper.CreateObjectAuth(t, obj, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
