@@ -23,8 +23,8 @@ import (
 	"strings"
 )
 
-// AddPermissionsURL generates an URL for the add permissions operation
-type AddPermissionsURL struct {
+// HasPermissionURL generates an URL for the has permission operation
+type HasPermissionURL struct {
 	ID string
 
 	_basePath string
@@ -35,7 +35,7 @@ type AddPermissionsURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AddPermissionsURL) WithBasePath(bp string) *AddPermissionsURL {
+func (o *HasPermissionURL) WithBasePath(bp string) *HasPermissionURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -43,21 +43,21 @@ func (o *AddPermissionsURL) WithBasePath(bp string) *AddPermissionsURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *AddPermissionsURL) SetBasePath(bp string) {
+func (o *HasPermissionURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *AddPermissionsURL) Build() (*url.URL, error) {
+func (o *HasPermissionURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles/{id}/add-permissions"
+	var _path = "/authz/roles/{id}/has-permission"
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("id is required on AddPermissionsURL")
+		return nil, errors.New("id is required on HasPermissionURL")
 	}
 
 	_basePath := o._basePath
@@ -70,7 +70,7 @@ func (o *AddPermissionsURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *AddPermissionsURL) Must(u *url.URL, err error) *url.URL {
+func (o *HasPermissionURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +81,17 @@ func (o *AddPermissionsURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *AddPermissionsURL) String() string {
+func (o *HasPermissionURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *AddPermissionsURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *HasPermissionURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on AddPermissionsURL")
+		return nil, errors.New("scheme is required for a full url on HasPermissionURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on AddPermissionsURL")
+		return nil, errors.New("host is required for a full url on HasPermissionURL")
 	}
 
 	base, err := o.Build()
@@ -105,6 +105,6 @@ func (o *AddPermissionsURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *AddPermissionsURL) StringFull(scheme, host string) string {
+func (o *HasPermissionURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

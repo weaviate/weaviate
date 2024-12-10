@@ -341,7 +341,7 @@ func NewGetUsersForRoleNotFound() *GetUsersForRoleNotFound {
 /*
 GetUsersForRoleNotFound describes a response with status code 404, with default header values.
 
-no role found for user
+no role found
 */
 type GetUsersForRoleNotFound struct {
 }

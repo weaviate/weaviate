@@ -49,7 +49,7 @@ func NewRemovePermissions(ctx *middleware.Context, handler RemovePermissionsHand
 }
 
 /*
-	RemovePermissions swagger:route POST /authz/roles/remove-permissions authz removePermissions
+	RemovePermissions swagger:route POST /authz/roles/{id}/remove-permissions authz removePermissions
 
 Remove permissions from a role. If this results in an empty role, the role will be deleted.
 */
@@ -92,10 +92,6 @@ func (o *RemovePermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model RemovePermissionsBody
 type RemovePermissionsBody struct {
 
-	// role name
-	// Required: true
-	Name *string `json:"name" yaml:"name"`
-
 	// permissions to remove from the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
@@ -105,10 +101,6 @@ type RemovePermissionsBody struct {
 func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateName(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := o.validatePermissions(formats); err != nil {
 		res = append(res, err)
 	}
@@ -116,15 +108,6 @@ func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *RemovePermissionsBody) validateName(formats strfmt.Registry) error {
-
-	if err := validate.Required("body"+"."+"name", "body", o.Name); err != nil {
-		return err
-	}
-
 	return nil
 }
 
