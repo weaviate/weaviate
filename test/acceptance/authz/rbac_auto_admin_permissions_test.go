@@ -13,37 +13,22 @@ package test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
 func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
-	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).
-		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer helper.ResetClient()
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
 
 	className := "ABC"
 	tenantNames := []string{

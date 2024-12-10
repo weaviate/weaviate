@@ -42,7 +42,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		for _, policy := range policies {
-			if _, err := m.casbin.AddNamedPolicy("p", roleName, policy.Resource, policy.Verb, policy.Domain); err != nil {
+			if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
 				return err
 			}
 		}
@@ -66,7 +66,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 	} else {
 		for _, name := range names {
-			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, name)
+			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
 			if err != nil {
 				return nil, err
 			}
@@ -80,9 +80,9 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	return conv.CasbinPolicies(casbinStoragePolicies...)
 }
 
-func (m *manager) RemovePermissions(role string, permissions []*authorization.Policy) error {
+func (m *manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	for _, permission := range permissions {
-		ok, err := m.casbin.RemoveNamedPolicy("p", role, permission.Resource, permission.Verb, permission.Domain)
+		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
 			return err
 		}
@@ -96,16 +96,28 @@ func (m *manager) RemovePermissions(role string, permissions []*authorization.Po
 	return m.casbin.InvalidateCache()
 }
 
+func (m *manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
+	return m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
+}
+
 func (m *manager) DeleteRoles(roles ...string) error {
-	for _, role := range roles {
-		ok, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, role)
+	for _, roleName := range roles {
+		// remove role
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return err
 		}
-		if !ok {
+		// remove role assignment
+		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
+		if err != nil {
+			return err
+		}
+
+		if !roleRemoved && !roleAssignmentsRemoved {
 			return nil // deletes are idempotent
 		}
 	}
+
 	if err := m.casbin.SavePolicy(); err != nil {
 		return err
 	}
@@ -114,10 +126,8 @@ func (m *manager) DeleteRoles(roles ...string) error {
 }
 
 func (m *manager) AddRolesForUser(user string, roles []string) error {
-	// userName := fmt.Sprintf("%s%s", userPrefix, user)
 	for _, role := range roles {
-		// roleName := fmt.Sprintf("%s%s", rolePrefix, role)
-		if _, err := m.casbin.AddRoleForUser(user, role); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(user), conv.PrefixRoleName(role)); err != nil {
 			return err
 		}
 	}
@@ -125,8 +135,8 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return m.casbin.SavePolicy()
 }
 
-func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
-	rolesNames, err := m.casbin.GetRolesForUser(user)
+func (m *manager) GetRolesForUser(userName string) (map[string][]authorization.Policy, error) {
+	rolesNames, err := m.casbin.GetRolesForUser(conv.PrefixUserName(userName))
 	if err != nil {
 		return nil, err
 	}
@@ -137,13 +147,22 @@ func (m *manager) GetRolesForUser(user string) (map[string][]authorization.Polic
 	return m.GetRoles(rolesNames...)
 }
 
-func (m *manager) GetUsersForRole(role string) ([]string, error) {
-	return m.casbin.GetUsersForRole(role)
+func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
+	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]string, len(pusers))
+	for idx := range pusers {
+		users[idx] = conv.TrimUserNamePrefix(pusers[idx])
+	}
+	return users, err
 }
 
-func (m *manager) RevokeRolesForUser(user string, roles ...string) error {
-	for _, role := range roles {
-		if _, err := m.casbin.DeleteRoleForUser(user, role); err != nil {
+func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
+	for _, roleName := range roles {
+		if _, err := m.casbin.DeleteRoleForUser(conv.PrefixUserName(userName), conv.PrefixRoleName(roleName)); err != nil {
 			return err
 		}
 	}
@@ -159,12 +178,12 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
 	if principal == nil {
-		return fmt.Errorf("user is unauthenticated")
+		return errors.NewUnauthenticated()
 	}
 
-	// TODO batch enforce
+	// TODO-RBAC: batch enforce
 	for _, resource := range resources {
-		allow, err := m.casbin.Enforce(principal.Username, resource, verb)
+		allow, err := m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
 		if err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action":         "authorize",
@@ -211,24 +230,42 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		return ""
 	}
 
-	if perm.Collection != nil && *perm.Collection != "" {
-		res += fmt.Sprintf("Collection: %s,", *perm.Collection)
+	if perm.Backups != nil && perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
+		res += fmt.Sprintf("Backups.Collection: %s,", *perm.Backups.Collection)
 	}
 
-	if perm.Tenant != nil && *perm.Tenant != "" {
-		res += fmt.Sprintf(" Tenant: %s,", *perm.Tenant)
+	if perm.Data != nil {
+		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
+			res += fmt.Sprintf(" Data.Collection: %s,", *perm.Data.Collection)
+		}
+		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
+			res += fmt.Sprintf(" Data.Tenant: %s,", *perm.Data.Tenant)
+		}
+		if perm.Data.Object != nil && *perm.Data.Object != "" {
+			res += fmt.Sprintf(" Data.Object: %s,", *perm.Data.Object)
+		}
 	}
 
-	if perm.Object != nil && *perm.Object != "" {
-		res += fmt.Sprintf(" Object: %s,", *perm.Object)
+	if perm.Nodes != nil {
+		if perm.Nodes.Verbosity != nil && *perm.Nodes.Verbosity != "" {
+			res += fmt.Sprintf(" Nodes.Verbosity: %s,", *perm.Nodes.Verbosity)
+		}
+		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
+			res += fmt.Sprintf(" Nodes.Collection: %s,", *perm.Nodes.Collection)
+		}
 	}
 
-	if perm.Role != nil && *perm.Role != "" {
-		res += fmt.Sprintf(" Role: %s,", *perm.Role)
+	if perm.Roles != nil && perm.Roles.Role != nil && *perm.Roles.Role != "" {
+		res += fmt.Sprintf(" Roles.Role: %s,", *perm.Roles.Role)
 	}
 
-	if perm.User != nil && *perm.User != "" {
-		res += fmt.Sprintf(" User: %s,", *perm.User)
+	if perm.Collections != nil {
+		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
+			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
+		}
+		if perm.Collections.Tenant != nil && *perm.Collections.Tenant != "" {
+			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Collections.Tenant)
+		}
 	}
 
 	if many := strings.Count(res, ","); many == 1 {

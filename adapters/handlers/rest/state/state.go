@@ -80,6 +80,7 @@ type State struct {
 	TenantActivity *tenantactivity.Handler
 
 	MetadataServer *metadata.Server
+	Migrator       *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

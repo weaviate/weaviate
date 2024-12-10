@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -367,19 +368,13 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		var currUpdateTime int64 // 0 means object doesn't exist on this node
+		var locallyDeleted bool
 
 		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
 		if err == nil {
 			currUpdateTime = localObj.LastUpdateTimeUnix()
-		} else if errors.Is(err, lsmkv.Deleted) && idx.Config.AsyncReplicationEnabled {
-			// TODO: A temporary limitation of async replication is that delete operations
-			// 		 are not propagated. Because of this, any deleted objects which are still
-			//		 found on any other node in the cluster will be written back to the nodes
-			//		 which successfully processed the delete. If we don't handle this limitation
-			// 		 in this manner, the node which is unaware of the delete will be an in
-			//		 infinite loop attempting to propagate the object.
-			err = nil
 		} else if errors.Is(err, lsmkv.Deleted) {
+			locallyDeleted = true
 			errDeleted, ok := err.(lsmkv.ErrDeleted)
 			if ok {
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
@@ -393,9 +388,42 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		}
 
 		if currUpdateTime != u.StaleUpdateTime {
-			// object changed and its state differs from recent known state
+			// a conflict is returned except for a particular situation
+			// that can be locally solved at this point:
+			// the node propagating the object change may have no information about
+			// the object from this node because it was deleted, it means that
+			// if a time-based resolution is used and the update was more recent
+			// than the deletion, the object update can be proccessed despite
+			// the fact `currUpdateTime == u.StaleUpdateTime` does not hold.
+			if !locallyDeleted ||
+				idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				currUpdateTime > u.LastUpdateTimeUnixMilli {
+				// object changed and its state differs from recent known state
+				r := replica.RepairResponse{
+					ID:         id.String(),
+					Deleted:    locallyDeleted,
+					UpdateTime: currUpdateTime,
+					Err:        "conflict",
+				}
+
+				result = append(result, r)
+				continue
+			}
+			// the object is locally deleted, the resolution strategy is time-based and
+			// the deletion was not made after the received update
+		}
+
+		// another validation is needed for backward-compatibility reasons:
+		// objects may have been deleted without a deletionTime, it means
+		// if an object is locally deleted currUpdateTime == 0
+		// so to avoid creating/updating the locally deleted object
+		// time-based strategy and a more recent creation/update is required
+		if !u.Deleted && locallyDeleted &&
+			(idx.Config.DeletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
+				currUpdateTime > u.LastUpdateTimeUnixMilli) {
 			r := replica.RepairResponse{
 				ID:         id.String(),
+				Deleted:    locallyDeleted,
 				UpdateTime: currUpdateTime,
 				Err:        "conflict",
 			}

@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -23,7 +25,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -52,12 +54,12 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	}
 
 	if tenant != "*" && m.autoSchemaManager.schemaManager.AllowImplicitTenantActivation(object.Class) {
-		resources := authorization.ShardsMetadata(class, tenant)
+		resources := authorization.CollectionsMetadata(class)
 		err := m.authorizer.Authorize(principal, authorization.UPDATE, resources...)
 		if err != nil {
 			statuses, innerErr := m.autoSchemaManager.schemaManager.TenantsShardsDontActivate(ctx, object.Class, tenant)
 			if innerErr != nil {
-				return nil, errors.NewForbidden(principal, authorization.UPDATE, resources...)
+				return nil, authErrs.NewForbidden(principal, authorization.UPDATE, resources...)
 			}
 			if statuses[tenant] == models.TenantActivityStatusCOLD {
 				return nil, err
@@ -94,11 +96,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+		return nil, errors.Wrap(err, "invalid object")
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal("%v", err)
+		return nil, err
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)

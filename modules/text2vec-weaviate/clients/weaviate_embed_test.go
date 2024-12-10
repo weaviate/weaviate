@@ -47,7 +47,7 @@ func TestClient(t *testing.T) {
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-Url", []string{server.URL})
 		res, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}})
 
 		assert.Nil(t, err)
@@ -67,7 +67,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		ctxWithClusterURL := context.WithValue(ctx, "X-Weaviate-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(ctx, "X-Weaviate-Cluster-Url", []string{server.URL})
 		defer cancel()
 
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
@@ -91,7 +91,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-URL", []string{server.URL})
+		ctxWithClusterURL := context.WithValue(context.Background(), "X-Weaviate-Cluster-Url", []string{server.URL})
 		_, _, _, err := c.Vectorize(ctxWithClusterURL, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
@@ -111,7 +111,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(), "X-Weaviate-Api-Key", []string{"some-key"})
-		ctxWithBothValues := context.WithValue(ctxWithValue, "X-Weaviate-Cluster-URL", []string{server.URL})
+		ctxWithBothValues := context.WithValue(ctxWithValue, "X-Weaviate-Cluster-Url", []string{server.URL})
 
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
@@ -232,7 +232,33 @@ func TestClient(t *testing.T) {
 		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Weaviate-Cluster-URL", err.Error())
+		assert.Equal(t, "cluster URL: no cluster URL found in request header: X-Weaviate-Cluster-Url", err.Error())
+	})
+
+	t.Run("TestVectorizeRequestBodyWithCustomDimensions", func(t *testing.T) {
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &weaviateEmbedUrlBuilder{
+				origin:   "http://example.com",
+				pathMask: "/v1/embeddings/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		dims := int64(256)
+		cfg := &fakeClassConfig{
+			classConfig: map[string]interface{}{
+				"dimensions": dims,
+			},
+		}
+
+		config := c.getVectorizationConfig(cfg)
+		reqBody := c.getEmbeddingsRequest([]string{"test text"}, false, config.Dimensions)
+
+		require.NotNil(t, reqBody.Dimensions)
+		require.Equal(t, int64(256), *reqBody.Dimensions)
+		require.Equal(t, []string{"test text"}, reqBody.Texts)
 	})
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAssignRoleSuccess(t *testing.T) {
@@ -31,7 +32,7 @@ func TestAssignRoleSuccess(t *testing.T) {
 
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleParams{
-		ID: "testUser",
+		ID: "user1",
 		Body: authz.AssignRoleBody{
 			Roles: []string{"testRole"},
 		},
@@ -42,9 +43,10 @@ func TestAssignRoleSuccess(t *testing.T) {
 	controller.On("AddRolesForUser", params.ID, params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
-		authorizer: authorizer,
-		controller: controller,
-		logger:     logger,
+		authorizer:     authorizer,
+		controller:     controller,
+		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+		logger:         logger,
 	}
 	res := h.assignRole(params, principal)
 	parsed, ok := res.(*authz.AssignRoleOK)
@@ -52,39 +54,40 @@ func TestAssignRoleSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
-func TestAssignRoleBadRequest(t *testing.T) {
+func TestAssignRoleOrUserNotFound(t *testing.T) {
 	type testCase struct {
 		name          string
 		params        authz.AssignRoleParams
 		principal     *models.Principal
-		expectedError string
 		existedRoles  map[string][]authorization.Policy
+		existedUsers  []string
 		callToGetRole bool
 	}
 
 	tests := []testCase{
 		{
-			name: "user id can not be empty",
+			name: "user not found",
 			params: authz.AssignRoleParams{
-				ID: "",
+				ID: "user_not_exist",
 				Body: authz.AssignRoleBody{
-					Roles: []string{"testRole"},
+					Roles: []string{"role1"},
 				},
 			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "user id can not be empty",
+			principal:    &models.Principal{Username: "user1"},
+			existedRoles: map[string][]authorization.Policy{},
+			existedUsers: []string{"user1"},
 		},
 		{
-			name: "empty role",
+			name: "role not found",
 			params: authz.AssignRoleParams{
-				ID: "testUser",
+				ID: "user1",
 				Body: authz.AssignRoleBody{
-					Roles: []string{""},
+					Roles: []string{"role1"},
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
-			expectedError: "one or more of the roles you want to assign doesn't exist",
 			existedRoles:  map[string][]authorization.Policy{},
+			existedUsers:  []string{"user1"},
 			callToGetRole: true,
 		},
 	}
@@ -95,10 +98,52 @@ func TestAssignRoleBadRequest(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
+
 			if tt.callToGetRole {
-				authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
 			}
+
+			h := &authZHandlers{
+				authorizer:     authorizer,
+				controller:     controller,
+				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
+				logger:         logger,
+			}
+			res := h.assignRole(tt.params, tt.principal)
+			_, ok := res.(*authz.AssignRoleNotFound)
+			assert.True(t, ok)
+		})
+	}
+}
+
+func TestAssignRoleBadRequest(t *testing.T) {
+	type testCase struct {
+		name          string
+		params        authz.AssignRoleParams
+		principal     *models.Principal
+		expectedError string
+	}
+
+	tests := []testCase{
+		{
+			name: "empty role",
+			params: authz.AssignRoleParams{
+				ID: "testUser",
+				Body: authz.AssignRoleBody{
+					Roles: []string{""},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "one or more of the roles you want to assign is empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewAuthorizer(t)
+			controller := mocks.NewController(t)
+			logger, _ := test.NewNullLogger()
 
 			h := &authZHandlers{
 				authorizer: authorizer,

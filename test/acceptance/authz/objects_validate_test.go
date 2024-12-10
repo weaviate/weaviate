@@ -28,16 +28,18 @@ import (
 )
 
 func TestAuthZObjectValidate(t *testing.T) {
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 	customUser := "custom-user"
-	customAuth := helper.CreateAuth("custom-key")
+	customKey := "custom-key"
+	customAuth := helper.CreateAuth(customKey)
 
 	readDataAction := authorization.ReadData
-	readSchemaAction := authorization.ReadSchema
+	readCollectionsAction := authorization.ReadCollections
 
-	helper.SetupClient("127.0.0.1:8081")
-	defer helper.ResetClient()
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	roleName := "AuthZObjectValidateTestRole"
 	className := "AuthZObjectValidateTest"
@@ -57,12 +59,12 @@ func TestAuthZObjectValidate(t *testing.T) {
 			Name: &roleName,
 			Permissions: []*models.Permission{
 				{
-					Action:     &readDataAction,
-					Collection: &className,
+					Action: &readDataAction,
+					Data:   &models.PermissionData{Collection: &className},
 				},
 				{
-					Action:     &readSchemaAction,
-					Collection: &className,
+					Action:      &readCollectionsAction,
+					Collections: &models.PermissionCollections{Collection: &className},
 				},
 			},
 		}
@@ -93,15 +95,12 @@ func TestAuthZObjectValidate(t *testing.T) {
 		helper.DeleteRole(t, adminKey, roleName)
 	})
 
-	actions := []string{readDataAction, readSchemaAction}
-	for _, action := range actions {
-		t.Run("Only rights for "+action, func(t *testing.T) {
+	perms := []*models.Permission{{Action: &readDataAction, Data: &models.PermissionData{Collection: &className}}, {Action: &readCollectionsAction, Collections: &models.PermissionCollections{Collection: &className}}}
+	for _, perm := range perms {
+		t.Run("Only rights for "+*perm.Action, func(t *testing.T) {
 			deleteRole := &models.Role{
-				Name: &roleName,
-				Permissions: []*models.Permission{{
-					Action:     &action,
-					Collection: &className,
-				}},
+				Name:        &roleName,
+				Permissions: []*models.Permission{perm},
 			}
 			helper.DeleteRole(t, adminKey, *deleteRole.Name)
 			helper.CreateRole(t, adminKey, deleteRole)

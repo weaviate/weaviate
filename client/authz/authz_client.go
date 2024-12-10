@@ -59,6 +59,8 @@ type ClientService interface {
 
 	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
 
+	HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error)
+
 	RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error)
 
 	RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error)
@@ -67,7 +69,7 @@ type ClientService interface {
 }
 
 /*
-AddPermissions adds permission to a role as an upsert if the role doesn t exist then it will be created
+AddPermissions adds permission to a given role
 */
 func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -77,7 +79,7 @@ func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.C
 	op := &runtime.ClientOperation{
 		ID:                 "addPermissions",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/add-permissions",
+		PathPattern:        "/authz/roles/{id}/add-permissions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -418,6 +420,45 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 }
 
 /*
+HasPermission checks whether role possesses this permission
+*/
+func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewHasPermissionParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "hasPermission",
+		Method:             "POST",
+		PathPattern:        "/authz/roles/{id}/has-permission",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &HasPermissionReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*HasPermissionOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for hasPermission: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
 RemovePermissions removes permissions from a role if this results in an empty role the role will be deleted
 */
 func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error) {
@@ -428,7 +469,7 @@ func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo run
 	op := &runtime.ClientOperation{
 		ID:                 "removePermissions",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/remove-permissions",
+		PathPattern:        "/authz/roles/{id}/remove-permissions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

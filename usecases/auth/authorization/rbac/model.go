@@ -15,9 +15,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/casbin/casbin/v2"
@@ -85,6 +87,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
 	enforcer.EnableCache(false)
+	enforcer.EnableLog(true)
 
 	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
@@ -103,23 +106,29 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	enforcer.AddNamedMatchingFunc("g", "regexMatch", casbinutil.RegexMatch)
 
 	// add pre existing roles
-	for name, verb := range authorization.BuiltInPolicies {
+	for name, verb := range conv.BuiltInPolicies {
 		if verb == "" {
 			continue
 		}
-		if _, err := enforcer.AddNamedPolicy("p", name, "*", verb, "*"); err != nil {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
 	}
 
 	for i := range conf.Admins {
-		if _, err := enforcer.AddRoleForUser(conf.Admins[i], authorization.Admin); err != nil {
+		if strings.TrimSpace(conf.Admins[i]) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Admins[i]), conv.PrefixRoleName(authorization.Admin)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}
 
 	for i := range conf.Viewers {
-		if _, err := enforcer.AddRoleForUser(conf.Viewers[i], authorization.Viewer); err != nil {
+		if strings.TrimSpace(conf.Viewers[i]) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conf.Viewers[i]), conv.PrefixRoleName(authorization.Viewer)); err != nil {
 			return nil, fmt.Errorf("add role for user: %w", err)
 		}
 	}

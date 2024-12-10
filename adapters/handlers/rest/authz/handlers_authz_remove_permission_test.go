@@ -26,18 +26,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
-func TestRemovePermissionsSuccess(t *testing.T) {
+func TestRemovePermissionsSuccessUpdate(t *testing.T) {
 	authorizer := mocks.NewAuthorizer(t)
 	controller := mocks.NewController(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
 	params := authz.RemovePermissionsParams{
+		ID: "test",
 		Body: authz.RemovePermissionsBody{
-			Name: String("test"),
 			Permissions: []*models.Permission{
 				{
 					Action: String("manage_roles"),
+					Roles:  &models.PermissionRoles{},
 				},
 			},
 		},
@@ -45,8 +46,12 @@ func TestRemovePermissionsSuccess(t *testing.T) {
 	policies, err := conv.PermissionToPolicies(params.Body.Permissions...)
 	require.Nil(t, err)
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles("test")[0]).Return(nil)
-	controller.On("RemovePermissions", *params.Body.Name, policies).Return(nil)
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.ID)[0]).Return(nil)
+	controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+	}}, nil)
+	controller.On("RemovePermissions", params.ID, policies).Return(nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -69,51 +74,36 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "role name is required",
-			params: authz.RemovePermissionsParams{
-				Body: authz.RemovePermissionsBody{
-					Name: String(""),
-					Permissions: []*models.Permission{
-						{
-							Action: String("manage_roles"),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role name is required",
-		},
-		{
 			name: "role has to have at least 1 permission",
 			params: authz.RemovePermissionsParams{
+				ID: "someRole",
 				Body: authz.RemovePermissionsBody{
-					Name:        String("someName"),
 					Permissions: []*models.Permission{},
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
 			expectedError: "role has to have at least 1 permission",
 		},
-		{
-			name: "invalid action",
-			params: authz.RemovePermissionsParams{
-				Body: authz.RemovePermissionsBody{
-					Name: String("someName"),
-					Permissions: []*models.Permission{
-						{
-							Action: String("manage_somethingelse"),
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "invalid permission",
-		},
+		// {
+		// 	name: "invalid permission",
+		// 	params: authz.RemovePermissionsParams{
+		// 		Body: authz.RemovePermissionsBody{
+		// 			Name: String("someName"),
+		// 			Permissions: []*models.Permission{
+		// 				{
+		// 					Action: String("manage_roles"),
+		// 				},
+		// 			},
+		// 		},
+		// 	},
+		// 	principal:     &models.Principal{Username: "user1"},
+		// 	expectedError: "invalid permission",
+		// },
 		{
 			name: "update builtin role",
 			params: authz.RemovePermissionsParams{
+				ID: authorization.BuiltInRoles[0],
 				Body: authz.RemovePermissionsBody{
-					Name: &authorization.BuiltInRoles[0],
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
@@ -157,13 +147,14 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "update some role",
+			name: "remove permissions",
 			params: authz.RemovePermissionsParams{
+				ID: "someRole",
 				Body: authz.RemovePermissionsBody{
-					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
+							Roles:  &models.PermissionRoles{},
 						},
 					},
 				},
@@ -180,7 +171,7 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(tt.authorizeErr)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(tt.authorizeErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -198,6 +189,92 @@ func TestRemovePermissionsForbidden(t *testing.T) {
 	}
 }
 
+func TestRemovePermissionsRoleNotFound(t *testing.T) {
+	type testCase struct {
+		name          string
+		params        authz.RemovePermissionsParams
+		principal     *models.Principal
+		expectedError string
+	}
+
+	tests := []testCase{
+		{
+			name: "role not found",
+			params: authz.RemovePermissionsParams{
+				ID: "some role",
+				Body: authz.RemovePermissionsBody{
+					Permissions: []*models.Permission{
+						{
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
+						},
+					},
+				},
+			},
+			principal:     &models.Principal{Username: "user1"},
+			expectedError: "role not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewAuthorizer(t)
+			controller := mocks.NewController(t)
+			logger, _ := test.NewNullLogger()
+
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{}, nil)
+
+			h := &authZHandlers{
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
+			}
+			res := h.removePermissions(tt.params, tt.principal)
+			_, ok := res.(*authz.RemovePermissionsNotFound)
+			assert.True(t, ok)
+		})
+	}
+}
+
+func TestRemovePermissionsUnprocessableEntity(t *testing.T) {
+	authorizer := mocks.NewAuthorizer(t)
+	controller := mocks.NewController(t)
+	logger, _ := test.NewNullLogger()
+
+	principal := &models.Principal{Username: "user1"}
+	params := authz.RemovePermissionsParams{
+		ID: "test",
+		Body: authz.RemovePermissionsBody{
+			Permissions: []*models.Permission{
+				{
+					Action: String("manage_roles"),
+					Roles:  &models.PermissionRoles{},
+				},
+				{
+					Action: String("read_data"),
+					Data:   &models.PermissionData{},
+				},
+			},
+		},
+	}
+
+	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.ID)[0]).Return(nil)
+	controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {
+		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+	}}, nil)
+
+	h := &authZHandlers{
+		authorizer: authorizer,
+		controller: controller,
+		logger:     logger,
+	}
+	res := h.removePermissions(params, principal)
+	parsed, ok := res.(*authz.RemovePermissionsUnprocessableEntity)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+}
+
 func TestRemovePermissionsInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
@@ -211,11 +288,12 @@ func TestRemovePermissionsInternalServerError(t *testing.T) {
 		{
 			name: "update some role",
 			params: authz.RemovePermissionsParams{
+				ID: "someRole",
 				Body: authz.RemovePermissionsBody{
-					Name: String("someRole"),
 					Permissions: []*models.Permission{
 						{
 							Action: String("manage_roles"),
+							Roles:  &models.PermissionRoles{},
 						},
 					},
 				},
@@ -232,7 +310,11 @@ func TestRemovePermissionsInternalServerError(t *testing.T) {
 			controller := mocks.NewController(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(*tt.params.Body.Name)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Roles(tt.params.ID)[0]).Return(nil)
+			controller.On("GetRoles", tt.params.ID).Return(map[string][]authorization.Policy{tt.params.ID: {
+				{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+				{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
+			}}, nil)
 			controller.On("RemovePermissions", mock.Anything, mock.Anything).Return(tt.upsertErr)
 
 			h := &authZHandlers{

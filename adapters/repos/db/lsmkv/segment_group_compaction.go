@@ -308,7 +308,20 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if err := c.Do(); err != nil {
 			return false, err
 		}
+	case segmentindex.StrategyInverted:
+		c := newCompactorInverted(f,
+			leftSegment.newInvertedCursorReusable(),
+			rightSegment.newInvertedCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
+		if sg.metrics != nil {
+			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+		}
+
+		if err := c.do(); err != nil {
+			return false, err
+		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}

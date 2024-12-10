@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -104,7 +105,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 		return nil
 	}
 
-	if err := s.vectorIndex.Add(ctx, status.docID, vector); err != nil {
+	if err := s.queue.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -131,8 +132,8 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range vectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-			if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 			}
 		}
@@ -162,7 +163,7 @@ func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
 }
 
 func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
+	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
@@ -186,11 +187,11 @@ func (s *Shard) updateVectorInVectorIndex(ctx context.Context, vector []float32,
 		return nil
 	}
 
-	if err := vectorIndex.Add(ctx, status.docID, vector); err != nil {
+	if err := queue.Insert(ctx, common.VectorRecord{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
-	if err := vectorIndex.Flush(); err != nil {
+	if err := queue.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
@@ -326,11 +327,7 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 
 	copy(objectDigest[:], uuidBytes)
 
-	if status.docIDChanged {
-		if status.oldUpdateTime < 1 {
-			return fmt.Errorf("invalid object previous update time")
-		}
-
+	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(token, objectDigest[:])
@@ -523,9 +520,22 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
-		return fmt.Errorf("put inverted indices props: %w", err)
+
+	// This change is related to the patching/update behavior under new inverted index implementation
+	// https://github.com/weaviate/weaviate/pull/6176
+	// - on the old implementation, patching a document would result on only changing the entries for the terms that were changed
+	// - on the new implementation, patching a document will result on inserting all terms into the newer segment
+	// The goal is to enable searching through the segments independently of the previous segments.
+	if prevObject != nil && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		if err := s.extendInvertedIndicesLSM(props, nilprops, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
+	} else {
+		if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
 	}
+
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {

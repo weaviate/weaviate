@@ -178,7 +178,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}

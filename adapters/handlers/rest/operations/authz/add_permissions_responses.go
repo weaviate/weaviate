@@ -164,6 +164,31 @@ func (o *AddPermissionsForbidden) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
+// AddPermissionsNotFoundCode is the HTTP code returned for type AddPermissionsNotFound
+const AddPermissionsNotFoundCode int = 404
+
+/*
+AddPermissionsNotFound no role found
+
+swagger:response addPermissionsNotFound
+*/
+type AddPermissionsNotFound struct {
+}
+
+// NewAddPermissionsNotFound creates AddPermissionsNotFound with default headers values
+func NewAddPermissionsNotFound() *AddPermissionsNotFound {
+
+	return &AddPermissionsNotFound{}
+}
+
+// WriteResponse to the client
+func (o *AddPermissionsNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(404)
+}
+
 // AddPermissionsUnprocessableEntityCode is the HTTP code returned for type AddPermissionsUnprocessableEntity
 const AddPermissionsUnprocessableEntityCode int = 422
 

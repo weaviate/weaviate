@@ -28,25 +28,25 @@ var deprecatedDataTypeAliases map[schema.DataType]schema.DataType = map[schema.D
 	schema.DataTypeStringArray: schema.DataTypeTextArray,
 }
 
-func ValidateFilters(fn func(string) (*models.Class, error), filters *LocalFilter) error {
+func ValidateFilters(authorizedGetClass func(string) (*models.Class, error), filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
 	cw := newClauseWrapper(filters.Root)
-	if err := validateClause(fn, cw); err != nil {
+	if err := validateClause(authorizedGetClass, cw); err != nil {
 		return err
 	}
 	cw.updateClause()
 	return nil
 }
 
-func validateClause(fn func(string) (*models.Class, error), cw *clauseWrapper) error {
+func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *clauseWrapper) error {
 	// check if nested
 	if cw.getOperands() != nil {
 		var errs []error
 
 		for i, child := range cw.getOperands() {
-			if err := validateClause(fn, child); err != nil {
+			if err := validateClause(authorizedGetClass, child); err != nil {
 				errs = append(errs, errors.Wrapf(err, "child operand at position %d", i))
 			}
 		}
@@ -66,7 +66,7 @@ func validateClause(fn func(string) (*models.Class, error), cw *clauseWrapper) e
 		return validateInternalPropertyClause(propName, cw)
 	}
 
-	class, err := fn(className.String())
+	class, err := authorizedGetClass(className.String())
 	if err != nil {
 		return err
 	}

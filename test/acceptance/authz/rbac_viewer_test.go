@@ -25,9 +25,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const UUID1 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168241")
+func TestAuthzViewerEndpoints(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+	viewerKey := "viewer-key"
+	viewerUser := "viewer-user"
 
-func TestViewerEndpoints(t *testing.T) {
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
+	defer down()
+
+	weaviateUrl := compose.GetWeaviate().URI()
+
 	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
 
 	endpoints := []struct {
@@ -37,7 +45,7 @@ func TestViewerEndpoints(t *testing.T) {
 		arrayReq bool
 		body     map[string][]byte
 	}{
-		{endpoint: "authz/roles", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"name\": \"n\", \"permissions\":[{\"action\": \"read_cluster\"}]}")}},
+		{endpoint: "authz/roles", methods: []string{"GET", "POST"}, success: []bool{true, false}, arrayReq: false, body: map[string][]byte{"POST": []byte("{\"name\": \"n\", \"permissions\":[{\"action\": \"read_cluster\", \"cluster\": {}}]}")}},
 		{endpoint: "authz/roles/id", methods: []string{"GET", "DELETE"}, success: []bool{true, false}, arrayReq: false},
 		{endpoint: "authz/roles/id/users", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
 		{endpoint: "authz/users/id/roles", methods: []string{"GET"}, success: []bool{true}, arrayReq: false},
@@ -89,17 +97,17 @@ func TestViewerEndpoints(t *testing.T) {
 					}
 
 					reqBody := bytes.NewBuffer(body)
-					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, reqBody)
+					req, err = http.NewRequest(method, fmt.Sprintf("http://%s/v1/%s", weaviateUrl, endpoint.endpoint), reqBody)
 					require.Nil(t, err)
 					req.Header.Set("Content-Type", "application/json")
 				} else if method == "DELETE" {
 					reqBody := strings.NewReader("[\n  \"\"\n]")
-					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, reqBody)
+					req, err = http.NewRequest(method, fmt.Sprintf("http://%s/v1/%s", weaviateUrl, endpoint.endpoint), reqBody)
 					require.Nil(t, err)
 					req.Header.Set("Content-Type", "application/json")
 
 				} else {
-					req, err = http.NewRequest(method, "http://localhost:8081/v1/"+endpoint.endpoint, nil)
+					req, err = http.NewRequest(method, fmt.Sprintf("http://%s/v1/%s", weaviateUrl, endpoint.endpoint), nil)
 					require.Nil(t, err)
 				}
 
