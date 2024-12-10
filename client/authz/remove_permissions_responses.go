@@ -63,6 +63,12 @@ func (o *RemovePermissionsReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewRemovePermissionsNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewRemovePermissionsUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -124,11 +130,11 @@ func (o *RemovePermissionsOK) Code() int {
 }
 
 func (o *RemovePermissionsOK) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK ", 200)
 }
 
 func (o *RemovePermissionsOK) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsOK ", 200)
 }
 
 func (o *RemovePermissionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,11 +187,11 @@ func (o *RemovePermissionsBadRequest) Code() int {
 }
 
 func (o *RemovePermissionsBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RemovePermissionsBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RemovePermissionsBadRequest) GetPayload() *models.ErrorResponse {
@@ -248,11 +254,11 @@ func (o *RemovePermissionsUnauthorized) Code() int {
 }
 
 func (o *RemovePermissionsUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized ", 401)
 }
 
 func (o *RemovePermissionsUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnauthorized ", 401)
 }
 
 func (o *RemovePermissionsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -305,11 +311,11 @@ func (o *RemovePermissionsForbidden) Code() int {
 }
 
 func (o *RemovePermissionsForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RemovePermissionsForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RemovePermissionsForbidden) GetPayload() *models.ErrorResponse {
@@ -324,6 +330,62 @@ func (o *RemovePermissionsForbidden) readResponse(response runtime.ClientRespons
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
+
+	return nil
+}
+
+// NewRemovePermissionsNotFound creates a RemovePermissionsNotFound with default headers values
+func NewRemovePermissionsNotFound() *RemovePermissionsNotFound {
+	return &RemovePermissionsNotFound{}
+}
+
+/*
+RemovePermissionsNotFound describes a response with status code 404, with default header values.
+
+no role found
+*/
+type RemovePermissionsNotFound struct {
+}
+
+// IsSuccess returns true when this remove permissions not found response has a 2xx status code
+func (o *RemovePermissionsNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this remove permissions not found response has a 3xx status code
+func (o *RemovePermissionsNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this remove permissions not found response has a 4xx status code
+func (o *RemovePermissionsNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this remove permissions not found response has a 5xx status code
+func (o *RemovePermissionsNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this remove permissions not found response a status code equal to that given
+func (o *RemovePermissionsNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the remove permissions not found response
+func (o *RemovePermissionsNotFound) Code() int {
+	return 404
+}
+
+func (o *RemovePermissionsNotFound) Error() string {
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound ", 404)
+}
+
+func (o *RemovePermissionsNotFound) String() string {
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsNotFound ", 404)
+}
+
+func (o *RemovePermissionsNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
@@ -373,11 +435,11 @@ func (o *RemovePermissionsUnprocessableEntity) Code() int {
 }
 
 func (o *RemovePermissionsUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *RemovePermissionsUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *RemovePermissionsUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -441,11 +503,11 @@ func (o *RemovePermissionsInternalServerError) Code() int {
 }
 
 func (o *RemovePermissionsInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RemovePermissionsInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/roles/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles/{id}/remove-permissions][%d] removePermissionsInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RemovePermissionsInternalServerError) GetPayload() *models.ErrorResponse {
@@ -470,10 +532,6 @@ swagger:model RemovePermissionsBody
 */
 type RemovePermissionsBody struct {
 
-	// role name
-	// Required: true
-	Name *string `json:"name"`
-
 	// permissions to remove from the role
 	// Required: true
 	Permissions []*models.Permission `json:"permissions"`
@@ -483,10 +541,6 @@ type RemovePermissionsBody struct {
 func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := o.validateName(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := o.validatePermissions(formats); err != nil {
 		res = append(res, err)
 	}
@@ -494,15 +548,6 @@ func (o *RemovePermissionsBody) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *RemovePermissionsBody) validateName(formats strfmt.Registry) error {
-
-	if err := validate.Required("body"+"."+"name", "body", o.Name); err != nil {
-		return err
-	}
-
 	return nil
 }
 
