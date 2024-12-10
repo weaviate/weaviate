@@ -408,7 +408,7 @@ func makeTenant(name, status string) models.Tenant {
 	}
 }
 
-// MakeTenantWithDataVersion creates a tenant with the given name, status, and belongsToNodes
+// MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
 func MakeTenantWithBelongsToNodes(name, status string, belongsToNodes []string) *models.TenantResponse {
 	return &models.TenantResponse{
 		Tenant:         makeTenant(name, status),

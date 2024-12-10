@@ -46,7 +46,6 @@ func (m *TenantResponse) UnmarshalJSON(raw []byte) error {
 	// AO1
 	var dataAO1 struct {
 		BelongsToNodes []string `json:"belongsToNodes"`
-
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -68,7 +67,6 @@ func (m TenantResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 	var dataAO1 struct {
 		BelongsToNodes []string `json:"belongsToNodes"`
-
 	}
 
 	dataAO1.BelongsToNodes = m.BelongsToNodes
