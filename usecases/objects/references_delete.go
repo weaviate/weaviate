@@ -53,6 +53,12 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 
 	deprecatedEndpoint := input.Class == ""
+	if deprecatedEndpoint {
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+	}
+
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
 	if err != nil {
 		return &Error{"cannot parse beacon", StatusBadRequest, err}
