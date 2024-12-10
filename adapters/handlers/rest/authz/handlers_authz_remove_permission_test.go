@@ -74,22 +74,6 @@ func TestRemovePermissionsBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "role name is required",
-			params: authz.RemovePermissionsParams{
-				ID: "",
-				Body: authz.RemovePermissionsBody{
-					Permissions: []*models.Permission{
-						{
-							Action: String("manage_roles"),
-							Roles:  &models.PermissionRoles{},
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role name is required",
-		},
-		{
 			name: "role has to have at least 1 permission",
 			params: authz.RemovePermissionsParams{
 				ID: "someRole",

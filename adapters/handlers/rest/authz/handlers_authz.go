@@ -110,10 +110,6 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 }
 
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
-	}
-
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
@@ -159,10 +155,6 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 }
 
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
-	}
-
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
@@ -271,10 +263,6 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
-	}
-
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -310,10 +298,6 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
-	}
-
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
@@ -337,10 +321,6 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 }
 
 func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
-	}
-
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
@@ -384,10 +364,6 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
-	}
-
 	if !h.userExists(params.ID) {
 		return authz.NewGetRolesForUserNotFound()
 	}
@@ -465,10 +441,6 @@ func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
-	}
-
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -489,10 +461,6 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
-	}
-
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))

@@ -147,22 +147,6 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "role name is required",
-			params: authz.AddPermissionsParams{
-				ID: "",
-				Body: authz.AddPermissionsBody{
-					Permissions: []*models.Permission{
-						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
-						},
-					},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "role name is required",
-		},
-		{
 			name: "role has to have at least 1 permission",
 			params: authz.AddPermissionsParams{
 				ID: "someName",
