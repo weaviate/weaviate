@@ -163,17 +163,15 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 }
 
 func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	//defer down()
-
-	helper.SetupClient("127.0.0.1:8081")
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	articlesCls := articles.ArticlesClass()
 	paragraphsCls := articles.ParagraphsClass()

@@ -15,6 +15,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/client/objects"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 
@@ -86,6 +89,9 @@ func TestWithoutCollectionName(t *testing.T) {
 
 		res, err := getObject(t, UUID2, customKey)
 		require.Error(t, err)
+		var unauthorized *objects.ObjectsGetForbidden
+		require.True(t, errors.As(err, &unauthorized))
+
 		require.Nil(t, res)
 	})
 
@@ -126,14 +132,11 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.CreateRole(t, adminKey, deleteRole)
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		obj2 := &models.Object{
-			ID: UUID2,
-			Properties: map[string]interface{}{
-				"prop": "updated",
-			},
-		}
-		res, err := updateObject(t, UUID2, obj2, customKey)
+		res, err := deleteObject(t, UUID2, customKey)
 		require.Error(t, err)
+		var unauthorized *objects.ObjectsDeleteForbidden
+		require.True(t, errors.As(err, &unauthorized))
+
 		require.Nil(t, res)
 	})
 
@@ -219,6 +222,9 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
 		res, err := addRef(t, UUID3, "hasParagraphs", ref, customKey)
 		require.Error(t, err)
+		var unauthorized *objects.ObjectsReferencesCreateForbidden
+		require.True(t, errors.As(err, &unauthorized))
+
 		require.Nil(t, res)
 	})
 
@@ -258,6 +264,9 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
 			res, err := addRef(t, UUID3, "hasParagraphs", ref, customKey)
 			require.Error(t, err)
+			var unauthorized *objects.ObjectsReferencesCreateForbidden
+			require.True(t, errors.As(err, &unauthorized))
+
 			require.Nil(t, res)
 		})
 	}
@@ -288,6 +297,9 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 
 		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
 		res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+		var unauthorized *objects.ObjectsReferencesUpdateForbidden
+		require.True(t, errors.As(err, &unauthorized))
+
 		require.Error(t, err)
 		require.Nil(t, res)
 	})
@@ -328,6 +340,9 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
 			res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
 			require.Error(t, err)
+			var unauthorized *objects.ObjectsReferencesUpdateForbidden
+			require.True(t, errors.As(err, &unauthorized))
+
 			require.Nil(t, res)
 		}
 	})
@@ -357,8 +372,11 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
 		ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
-		res, err := updateRef(t, UUID3, "hasParagraphs", ref, customKey)
+		res, err := deleteRef(t, UUID3, "hasParagraphs", ref, customKey)
 		require.Error(t, err)
+		var unauthorized *objects.ObjectsReferencesDeleteForbidden
+		require.True(t, errors.As(err, &unauthorized))
+
 		require.Nil(t, res)
 	})
 
@@ -398,6 +416,9 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 			ref := &models.SingleRef{Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", UUID1.String()))}
 			res, err := deleteRef(t, UUID3, "hasParagraphs", ref, customKey)
 			require.Error(t, err)
+			var unauthorized *objects.ObjectsReferencesDeleteForbidden
+			require.True(t, errors.As(err, &unauthorized))
+
 			require.Nil(t, res)
 		}
 	})
