@@ -499,8 +499,13 @@ func (c *convertedInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 
 			values[last], values[i] = values[i], values[last]
 			last++
-		} else if c.tombstonesToWrite.Contains(docId) {
-			c.statsDeletedDocs++
+		} else {
+			c.statsDeletedKeys++
+			if c.tombstonesToClean.Contains(docId) && !c.tombstonesToWrite.Contains(docId) {
+				c.statsDeletedDocsLaterSegment++
+				c.statsDeletedDocs++
+				c.tombstonesToWrite.Set(docId)
+			}
 		}
 
 	}
