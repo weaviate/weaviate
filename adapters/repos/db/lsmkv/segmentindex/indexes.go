@@ -30,7 +30,7 @@ type Indexes struct {
 	ScratchSpacePath    string
 }
 
-func (s Indexes) WriteTo(w io.Writer) (int64, error) {
+func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
