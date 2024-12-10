@@ -83,19 +83,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 		if err != nil {
 			return nil, err
 		}
-		for _, p := range polices {
-			// ignore builtin roles
-			if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
-				continue
-			}
-			// collect stale or empty roles
-			if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
-				// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
-				casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
-					p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
-				}})
-			}
-		}
+		casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 	} else {
 		for _, name := range names {
 			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
@@ -113,19 +101,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			if err != nil {
 				return nil, err
 			}
-			for _, p := range polices {
-				// ignore builtin roles
-				if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
-					continue
-				}
-				// collect stale or empty roles
-				if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
-					// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
-					casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
-						p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
-					}})
-				}
-			}
+			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 		}
 	}
 
@@ -336,4 +312,21 @@ func prettyStatus(value bool) string {
 		return "success"
 	}
 	return "failed"
+}
+
+func collectStaleRoles(polices [][]string, casbinStoragePoliciesMap map[string]struct{}, casbinStoragePolicies [][][]string) [][][]string {
+	for _, p := range polices {
+		// ignore builtin roles
+		if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
+			continue
+		}
+		// collect stale or empty roles
+		if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
+			// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
+			casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
+				p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
+			}})
+		}
+	}
+	return casbinStoragePolicies
 }
