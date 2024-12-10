@@ -19,11 +19,18 @@ import (
 	"io"
 )
 
-// HeaderSize describes the general offset in a segment until the data
-// starts, it is composed of 2 bytes for level, 2 bytes for version,
-// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
-// for the pointer to the index part
-const HeaderSize = 16
+const (
+	// HeaderSize describes the general offset in a segment until the data
+	// starts, it is composed of 2 bytes for level, 2 bytes for version,
+	// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
+	// for the pointer to the index part
+	HeaderSize = 16
+
+	// CurrentSegmentVersion represents the latest version of disk segment file.
+	// Version 1 is the current latest, and introduced support for integrity
+	// checks with checksums added to the segment files.
+	CurrentSegmentVersion = uint16(1)
+)
 
 type Header struct {
 	Level            uint16

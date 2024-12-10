@@ -183,7 +183,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		segmentName := path.Join(dirName, "my-segment.tmp")
 
 		header := &segmentindex.Header{
-			Version: 100, // only supported version as of writing this test is 0
+			Version: 100, // only supported versions as of writing this test are [0,1]
 		}
 
 		f, err := os.Create(segmentName)
@@ -206,7 +206,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		segmentName := path.Join(dirName, "my-segment.tmp")
 
 		header := &segmentindex.Header{
-			Version:  0,
+			Version:  segmentindex.CurrentSegmentVersion,
 			Strategy: segmentindex.Strategy(100), // this strategy doesn't exist
 		}
 

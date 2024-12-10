@@ -86,8 +86,8 @@ func (c *compactorMap) do() error {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
 	}
 
-	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
-		dataEnd); err != nil {
+	if err := c.writeHeader(c.currentLevel, segmentindex.CurrentSegmentVersion,
+		c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
