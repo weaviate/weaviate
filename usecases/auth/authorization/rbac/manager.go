@@ -42,7 +42,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// dumb name of the role without permissions to make sure it does exists even if there was no permissions
-		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName("wv_internal"), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(InternalPlaceHolder), conv.PrefixRoleName(roleName)); err != nil {
 			return err
 		}
 		for _, policy := range policies {
@@ -60,7 +60,7 @@ func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy
 
 func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
 	var casbinStoragePolicies [][][]string
-	var casbinStoragePoliciesM = make(map[string]struct{})
+	casbinStoragePoliciesM := make(map[string]struct{})
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
@@ -82,7 +82,7 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			// collect stale or empty roles
 			if _, ok := casbinStoragePoliciesM[p[1]]; !ok {
 				casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
-					p[1], "wv_internal", "wv_internal", "*",
+					p[1], InternalPlaceHolder, InternalPlaceHolder, "*",
 				}})
 			}
 		}
@@ -176,9 +176,13 @@ func (m *manager) GetUsersForRole(roleName string) ([]string, error) {
 		return nil, err
 	}
 
-	users := make([]string, len(pusers))
+	users := make([]string, 0, len(pusers))
 	for idx := range pusers {
-		users[idx] = conv.TrimUserNamePrefix(pusers[idx])
+		user := conv.TrimUserNamePrefix(pusers[idx])
+		if user == InternalPlaceHolder {
+			continue
+		}
+		users = append(users, user)
 	}
 	return users, err
 }

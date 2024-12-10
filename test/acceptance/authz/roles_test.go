@@ -639,3 +639,82 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 		require.True(t, res.Payload)
 	})
 }
+
+func TestAuthzEmptyRole(t *testing.T) {
+	var err error
+
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	customEmptyRole := "customEmpty"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
+
+	t.Run("create empty role", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name:        &customEmptyRole,
+				Permissions: []*models.Permission{},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("get all roles, shall be 4 for the newly created empty role", func(t *testing.T) {
+		roles := helper.GetRoles(t, adminKey)
+		require.Equal(t, 4, len(roles))
+	})
+}
+
+func TestAuthzRoleAfterRemovingPermissions(t *testing.T) {
+	var err error
+
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	customRole := "customRole"
+
+	clientAuth := helper.CreateAuth(adminKey)
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
+	defer down()
+
+	t.Run("create role", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.CreateRole(
+			authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &customRole,
+				Permissions: []*models.Permission{{
+					Action:      String(authorization.CreateCollections),
+					Collections: &models.PermissionCollections{Collection: String("*")},
+				}},
+			}),
+			clientAuth,
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("remove permissions", func(t *testing.T) {
+		_, err = helper.Client(t).Authz.RemovePermissions(
+			authz.NewRemovePermissionsParams().WithID(customRole).WithBody(authz.RemovePermissionsBody{
+				Permissions: []*models.Permission{{
+					Action:      String(authorization.CreateCollections),
+					Collections: &models.PermissionCollections{Collection: String("*")},
+				}},
+			}),
+			clientAuth,
+		)
+		require.Nil(t, err)
+	})
+
+	t.Run("get all roles, shall be 4 for the newly created empty role", func(t *testing.T) {
+		roles := helper.GetRoles(t, adminKey)
+		require.Equal(t, 4, len(roles))
+	})
+
+	t.Run("get role", func(t *testing.T) {
+		role := helper.GetRoleByName(t, adminKey, customRole)
+		require.Equal(t, customRole, role.Name)
+		require.Equal(t, 1, len(role.Permissions))
+		require.Nil(t, role.Permissions[0].Action)
+	})
+}
