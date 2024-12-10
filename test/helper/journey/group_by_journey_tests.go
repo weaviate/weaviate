@@ -13,6 +13,7 @@ package journey
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +43,16 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 		groupedBy := group["groupedBy"].(map[string]interface{})
 		groupedByValue := groupedBy["value"].(string)
 		return groupedByValue, result
+	}
+	getContents := func(t *testing.T, group map[string]interface{}) []string {
+		result := []string{}
+		hits := group["hits"].([]interface{})
+		for _, hit := range hits {
+			content, ok := hit.(map[string]interface{})["content"].(string)
+			require.True(t, ok, "hits{content} cannot be empty")
+			result = append(result, content)
+		}
+		return result
 	}
 	// test methods
 	create := func(t *testing.T, multishard bool) {
@@ -79,6 +90,7 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 							maxDistance
 							minDistance
 							hits {
+								content
 								_additional{
 									id
 									distance
@@ -123,6 +135,10 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			assert.Equal(t, groupsOrder[i], groupedBy)
 			for j := range ids {
 				assert.Equal(t, expectedResults[groupedBy][j], ids[j])
+			}
+			contents := getContents(t, group)
+			for _, content := range contents {
+				assert.True(t, strings.HasPrefix(content, "Content of Passage"))
 			}
 		}
 	}

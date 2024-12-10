@@ -1,7 +1,7 @@
 import pytest
 import weaviate
 import weaviate.classes as wvc
-from weaviate.rbac.models import RBAC
+from weaviate.rbac.models import Permissions
 from _pytest.fixtures import SubRequest
 from .conftest import _sanitize_role_name, RoleWrapperProtocol, generate_missing_permissions
 
@@ -36,8 +36,8 @@ def test_rbac_search(
 
     # with correct rights
     required_permissions = [
-        RBAC.permissions.collections(collection=col1.name, read_config=True),
-        RBAC.permissions.data(collection=col1.name, read=True),
+        Permissions.collections(collection=col1.name, read_config=True),
+        Permissions.data(collection=col1.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         col_no_rights = custom_client.collections.get(col1.name)  # no network call => no RBAC check
@@ -54,16 +54,16 @@ def test_rbac_search(
             if mt:
                 col_no_rights = col_no_rights.with_tenant("tenant1")
 
-            with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 col_no_rights.query.fetch_objects()
-            assert "forbidden" in e.value.args[0]
+            assert e.value.status_code == 7
 
     # rights for wrong collection
-    wrong_collection = RBAC.permissions.collections(collection=col2.name, read_config=True)
+    wrong_collection = Permissions.collections(collection=col2.name, read_config=True)
     with role_wrapper(admin_client, request, wrong_collection):
         col_no_rights = custom_client.collections.get(col1.name)  # no network call => no RBAC check
         if mt:
             col_no_rights = col_no_rights.with_tenant("tenant1")
-        with pytest.raises(weaviate.exceptions.WeaviateQueryException) as e:
+        with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
             col_no_rights.query.fetch_objects()
-        assert "forbidden" in e.value.args[0]
+        assert e.value.status_code == 7
