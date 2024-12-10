@@ -41,6 +41,10 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
+		// dumb name of the role without permissions to make sure it does exists even if there was no permissions
+		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName("wv_internal"), conv.PrefixRoleName(roleName)); err != nil {
+			return err
+		}
 		for _, policy := range policies {
 			if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
 				return err
@@ -55,8 +59,8 @@ func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy
 }
 
 func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	// TODO sort by name
 	var casbinStoragePolicies [][][]string
+	var casbinStoragePoliciesM = make(map[string]struct{})
 	if len(names) == 0 {
 		// get all roles
 		polices, err := m.casbin.GetNamedPolicy("p")
@@ -64,6 +68,25 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			return nil, err
 		}
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
+
+		for _, p := range polices {
+			casbinStoragePoliciesM[p[1]] = struct{}{}
+		}
+
+		polices, err = m.casbin.GetNamedGroupingPolicy("g")
+		if err != nil {
+			return nil, err
+		}
+
+		for _, p := range polices {
+			// collect stale or empty roles
+			if _, ok := casbinStoragePoliciesM[p[1]]; !ok {
+				casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
+					p[1], "wv_internal", "wv_internal", "*",
+				}})
+			}
+		}
+
 	} else {
 		for _, name := range names {
 			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
