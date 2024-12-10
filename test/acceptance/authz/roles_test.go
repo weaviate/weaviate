@@ -501,3 +501,140 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		})
 	})
 }
+
+func TestAuthzRolesHasPermission(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	customUser := "custom-user"
+	customKey := "custom-key"
+
+	testRole := "test-role"
+
+	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRole,
+			Permissions: []*models.Permission{{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}},
+		})
+	})
+
+	t.Run("true", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("false", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.DeleteCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.False(t, res.Payload)
+	})
+
+	t.Run("forbidden", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(customKey))
+		require.NotNil(t, err)
+		parsed, forbidden := err.(*authz.HasPermissionForbidden)
+		require.True(t, forbidden)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+}
+
+func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	testRole := "test-role"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	t.Run("StopNode-3", func(t *testing.T) {
+		require.Nil(t, compose.StopAt(ctx, 2, nil))
+	})
+
+	t.Run("create role", func(t *testing.T) {
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: &testRole,
+			Permissions: []*models.Permission{{
+				Action: &authorization.CreateCollections,
+				Collections: &models.PermissionCollections{
+					Collection: authorization.All,
+				},
+			}},
+		})
+	})
+
+	t.Run("permission in node 1", func(t *testing.T) {
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("permission in 2 without waiting", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviateNode2().URI())
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+
+	t.Run("StartNode-3", func(t *testing.T) {
+		require.Nil(t, compose.StartAt(ctx, 2))
+	})
+
+	t.Run("permission in 3 without waiting", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviateNode3().URI())
+		res, err := helper.Client(t).Authz.HasPermission(authz.NewHasPermissionParams().WithID(testRole).WithBody(&models.Permission{
+			Action: &authorization.CreateCollections,
+			Collections: &models.PermissionCollections{
+				Collection: authorization.All,
+			},
+		}), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		require.True(t, res.Payload)
+	})
+}
