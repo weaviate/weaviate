@@ -35,6 +35,8 @@ const (
 	// CRU allow all actions on a resource except DELETE
 	// this is internal for casbin to handle editor actions
 	CRU = "(C)|(R)|(U)"
+	// InternalPlaceHolder is a place holder to mark empty roles
+	InternalPlaceHolder = "wv_internal_empty"
 )
 
 var (
@@ -155,13 +157,8 @@ func CasbinData(collection, shard, object string) string {
 }
 
 func policy(permission *models.Permission) (*authorization.Policy, error) {
-	// TODO verify slice position to avoid panics
 	if permission.Action == nil {
-		return nil, fmt.Errorf("missing action")
-	}
-
-	if permission.Action == nil || *permission.Action == "no_action" {
-		return &authorization.Policy{}, nil
+		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
 	}
 	action, domain, found := strings.Cut(*permission.Action, "_")
 	if !found {
@@ -257,11 +254,8 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 func permission(policy []string) (*models.Permission, error) {
 	mapped := newPolicy(policy)
 
-	// "wv_internal_empty" is InternalPlaceHolder to handle empty, stale roles
-	if mapped.Resource == "" || mapped.Resource == "wv_internal_empty" {
-		return &models.Permission{
-			Action: authorization.String("no_action"),
-		}, nil
+	if mapped.Resource == InternalPlaceHolder {
+		return &models.Permission{}, nil
 	}
 
 	if !validVerb(mapped.Verb) {
