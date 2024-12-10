@@ -21,6 +21,7 @@ type ChecksumWriter interface {
 	io.Writer
 	N() int
 	Hash() []byte
+	HashWrite([]byte) (int, error)
 	Reset()
 }
 
@@ -44,6 +45,10 @@ func (wc *CRC32Writer) Write(p []byte) (n int, err error) {
 	wc.n += n
 	wc.hash.Write(p[:n])
 	return n, err
+}
+
+func (wc *CRC32Writer) HashWrite(p []byte) (int, error) {
+	return wc.hash.Write(p)
 }
 
 func (wc *CRC32Writer) N() int {
