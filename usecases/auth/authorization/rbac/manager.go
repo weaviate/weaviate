@@ -43,7 +43,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger
 func (m *manager) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
-		//e.g. : g, user:wv_internal_empty, role:roleName
+		// e.g. : g, user:wv_internal_empty, role:roleName
 		if _, err := m.casbin.AddRoleForUser(conv.PrefixUserName(conv.InternalPlaceHolder), conv.PrefixRoleName(roleName)); err != nil {
 			return err
 		}
