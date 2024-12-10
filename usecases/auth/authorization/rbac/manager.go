@@ -79,39 +79,53 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePoliciesMap[p[0]] = struct{}{}
 		}
 
+		polices, err = m.casbin.GetNamedGroupingPolicy("g")
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range polices {
+			// ignore builtin roles
+			if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
+				continue
+			}
+			// collect stale or empty roles
+			if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
+				// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
+				casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
+					p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
+				}})
+			}
+		}
 	} else {
 		for _, name := range names {
 			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
 			if err != nil {
 				return nil, err
 			}
-			if len(polices) == 0 {
-				continue
-			}
 			casbinStoragePolicies = append(casbinStoragePolicies, polices)
+
 			for _, p := range polices {
 				// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
 				casbinStoragePoliciesMap[p[0]] = struct{}{}
 			}
-		}
-	}
 
-	polices, err := m.casbin.GetNamedGroupingPolicy("g")
-	if err != nil {
-		return nil, err
-	}
-
-	for _, p := range polices {
-		// ignore builtin roles
-		if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
-			continue
-		}
-		// collect stale or empty roles
-		if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
-			// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
-			casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
-				p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
-			}})
+			polices, err = m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(name))
+			if err != nil {
+				return nil, err
+			}
+			for _, p := range polices {
+				// ignore builtin roles
+				if slices.Contains(authorization.BuiltInRoles, conv.TrimRoleNamePrefix(p[1])) {
+					continue
+				}
+				// collect stale or empty roles
+				if _, ok := casbinStoragePoliciesMap[p[1]]; !ok {
+					// e.g. policy line in casbin -> g, user:wv_internal_empty, role:roleName, that's why p[1]
+					casbinStoragePolicies = append(casbinStoragePolicies, [][]string{{
+						p[1], conv.InternalPlaceHolder, conv.InternalPlaceHolder, "*",
+					}})
+				}
+			}
 		}
 	}
 
