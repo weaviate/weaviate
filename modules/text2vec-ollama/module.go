@@ -104,7 +104,7 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	m.vectorizer = text2vecbase.New(client,
 		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
-		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
 	)
 	m.metaProvider = client
 
