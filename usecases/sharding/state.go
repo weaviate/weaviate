@@ -512,7 +512,6 @@ func (p Physical) DeepCopy() Physical {
 		OwnsPercentage: p.OwnsPercentage,
 		BelongsToNodes: belongsCopy,
 		Status:         p.Status,
-		DataVersion:    p.DataVersion,
 	}
 }
 
