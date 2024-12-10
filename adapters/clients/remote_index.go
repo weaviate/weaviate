@@ -32,26 +32,32 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 type RemoteIndex struct {
 	retryClient
+	metrics *metrics
 }
 
-func NewRemoteIndex(httpClient *http.Client, log logrus.FieldLogger) *RemoteIndex {
-	return &RemoteIndex{retryClient: retryClient{
-		client:  httpClient,
-		retryer: newRetryer(),
-		log:     log,
-	}}
+func NewRemoteIndex(httpClient *http.Client, metrics *monitoring.PrometheusMetrics, log logrus.FieldLogger) *RemoteIndex {
+	return &RemoteIndex{
+		retryClient: retryClient{
+			client:  httpClient,
+			retryer: newRetryer(),
+			log:     log,
+		},
+		metrics: newMetrics(metrics),
+	}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/objects"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -69,10 +75,12 @@ func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(res.Body)
 		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
@@ -93,7 +101,8 @@ func duplicateErr(in error, count int) []error {
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 	shardName string, objs []*storobj.Object, _ *additional.ReplicationProperties,
 ) []error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/objects"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -112,10 +121,12 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return duplicateErr(errors.Wrap(err, "send http request"), len(objs))
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
@@ -139,7 +150,8 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexName,
 	shardName string, refs objects.BatchReferences,
 ) []error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/references", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/references"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -158,10 +170,12 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return duplicateErr(errors.Wrap(err, "send http request"), len(refs))
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
@@ -198,8 +212,8 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 
 	selectPropsEncoded := base64.StdEncoding.EncodeToString(selectPropsBytes)
 	additionalEncoded := base64.StdEncoding.EncodeToString(additionalBytes)
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
+	endpoint := "/indices/%s/shards/%s/objects/%s"
+	path := fmt.Sprintf(endpoint, indexName, shardName, id)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 	q := url.Query()
@@ -214,10 +228,12 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return nil, errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode == http.StatusNotFound {
 		// this is a legitimate case - the requested ID doesn't exist, don't try
 		// to unmarshal anything
@@ -251,7 +267,8 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
+	endpoint := "/indices/%s/shards/%s/objects/%s?check_exists=true"
+	path := fmt.Sprintf(endpoint, indexName, shardName, id)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 	q := url.Query()
@@ -265,10 +282,12 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return false, errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode == http.StatusNotFound {
 		// this is a legitimate case - the requested ID doesn't exist, don't try
 		// to unmarshal anything
@@ -287,7 +306,8 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, deletionTime time.Time,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s/%d", indexName, shardName, id, deletionTime.UnixMilli())
+	endpoint := "/indices/%s/shards/%s/objects/%s/%d"
+	path := fmt.Sprintf(endpoint, indexName, shardName, id, deletionTime.UnixMilli())
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -298,10 +318,12 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode == http.StatusNotFound {
 		// this is a legitimate case - the requested ID doesn't exist, don't try
 		// to unmarshal anything, we can assume it was already deleted
@@ -320,7 +342,8 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName,
+	endpoint := "/indices/%s/shards/%s/objects/%s"
+	path := fmt.Sprintf(endpoint, indexName, shardName,
 		mergeDoc.ID)
 	method := http.MethodPatch
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -339,10 +362,12 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(res.Body)
 		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
@@ -362,7 +387,8 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
 
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/objects"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 	q := url.Query()
@@ -376,10 +402,12 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return nil, errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode == http.StatusNotFound {
 		// this is a legitimate case - the requested ID doesn't exist, don't try
 		// to unmarshal anything
@@ -441,6 +469,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	// send request
 	resp := &searchShardResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, 9)
+	// TODO how to metric?
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -486,6 +515,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	// send request
 	resp := &aggregateResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, 9)
+	// TODO how to metric?
 	return resp.Result, err
 }
 
@@ -497,7 +527,8 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "marshal request payload")
 	}
 
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/objects/_find"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -510,10 +541,12 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		return nil, errors.Wrap(err, "send http request")
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
@@ -540,7 +573,8 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/objects"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -561,11 +595,13 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 
 	res, err := c.client.Do(req)
 	if err != nil {
+		c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 		err := errors.Wrap(err, "send http request")
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
-
 	defer res.Body.Close()
+	c.metrics.remoteIndexRequest(res, endpoint)
+
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		err := errors.Errorf("unexpected status code %d (%s)", res.StatusCode, body)
@@ -596,7 +632,8 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (int64, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/queuesize"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -609,9 +646,11 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
@@ -639,7 +678,8 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/status"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -652,9 +692,11 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
@@ -686,7 +728,8 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
 	}
-	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s/status"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -700,9 +743,11 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
@@ -719,8 +764,8 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	defer payload.Close()
-	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
-		indexName, shardName, fileName)
+	endpoint := "/indices/%s/shards/%s/files/%s"
+	path := fmt.Sprintf(endpoint, indexName, shardName, fileName)
 
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -732,9 +777,11 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			shouldRetry := shouldRetry(code)
@@ -754,7 +801,8 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) CreateShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -766,9 +814,11 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusCreated {
 			body, _ := io.ReadAll(res.Body)
@@ -783,7 +833,8 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName)
+	endpoint := "/indices/%s/shards/%s:reinit"
+	path := fmt.Sprintf(endpoint, indexName, shardName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -795,9 +846,11 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)
@@ -813,7 +866,8 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	hostName, indexName string, dist scaler.ShardDist,
 ) error {
-	path := fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName)
+	endpoint := "/replicas/indices/%s/replication-factor:increase"
+	path := fmt.Sprintf(endpoint, indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -830,9 +884,11 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 
 		res, err := c.client.Do(req)
 		if err != nil {
+			c.metrics.remoteIndexRequestErr(hostName, method, endpoint)
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
+		c.metrics.remoteIndexRequest(res, endpoint)
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)

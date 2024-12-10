@@ -251,7 +251,7 @@ func TestRemoteIndexPutFile(t *testing.T) {
 
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	log, _ := test.NewNullLogger()
-	ri := NewRemoteIndex(httpClient, log)
+	ri := NewRemoteIndex(httpClient, nil, log)
 	ri.minBackOff = time.Millisecond * 1
 	ri.maxBackOff = time.Millisecond * 10
 	ri.timeoutUnit = time.Millisecond * 20

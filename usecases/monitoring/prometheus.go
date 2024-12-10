@@ -96,6 +96,8 @@ type PrometheusMetrics struct {
 	TombstoneReassignNeighbors    *prometheus.CounterVec
 	TombstoneDeleteListSize       *prometheus.GaugeVec
 
+	ClientRemoteIndexRequests *prometheus.CounterVec
+
 	Group bool
 }
 
@@ -472,6 +474,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "tombstone_delete_list_size",
 			Help: "Delete list size of tombstones",
 		}, []string{"class_name", "shard_name"}),
+		ClientRemoteIndexRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "client_remote_index_requests",
+			Help: "Number of requests to remote index",
+		}, []string{"destination_host", "status", "endpoint"}),
 	}
 }
 
