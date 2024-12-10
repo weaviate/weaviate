@@ -213,8 +213,8 @@ func NewFSM(cfg Config) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		})
 	}
-	var schemaManager *schema.SchemaManager
-	schemaManager = schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
+
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
 
 	return Store{
 		cfg:           cfg,
