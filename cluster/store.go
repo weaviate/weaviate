@@ -23,7 +23,6 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -142,11 +141,6 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
-
-	// ClassTenantDataEvents can have events published onto it when tenant changes like
-	// being frozen happen, with the goal of being able to alert the metadata nodes. This
-	// channel will be nil if the metadata server is not enabled.
-	ClassTenantDataEvents chan metadata.ClassTenant
 
 	AuthzController authorization.Controller
 }
