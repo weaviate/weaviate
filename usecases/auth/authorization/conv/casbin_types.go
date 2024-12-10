@@ -159,6 +159,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return nil, fmt.Errorf("missing action")
 	}
+
+	if permission.Action == nil || *permission.Action == "no_action" {
+		return &authorization.Policy{}, nil
+	}
 	action, domain, found := strings.Cut(*permission.Action, "_")
 	if !found {
 		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
@@ -252,6 +256,12 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 
 func permission(policy []string) (*models.Permission, error) {
 	mapped := newPolicy(policy)
+
+	if mapped.Resource == "" || mapped.Resource == "wv_internal" {
+		return &models.Permission{
+			Action: authorization.String("no_action"),
+		}, nil
+	}
 
 	if !validVerb(mapped.Verb) {
 		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
