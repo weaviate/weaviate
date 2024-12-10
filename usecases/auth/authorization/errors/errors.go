@@ -25,6 +25,17 @@ type Forbidden struct {
 	resources []string
 }
 
+type Unauthenticated struct{}
+
+func (u Unauthenticated) Error() string {
+	return "user is not authenticated"
+}
+
+// NewUnauthenticated creates an explicit Unauthenticated error
+func NewUnauthenticated() Unauthenticated {
+	return Unauthenticated{}
+}
+
 // NewForbidden creates an explicit Forbidden error with details about the
 // principal and the attempted access on a specific resource
 func NewForbidden(principal *models.Principal, verb string, resources ...string) Forbidden {

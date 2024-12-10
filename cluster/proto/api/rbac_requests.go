@@ -37,3 +37,12 @@ type RevokeRolesForUserRequest struct {
 	User  string
 	Roles []string
 }
+
+type QueryHasPermissionRequest struct {
+	Role       string
+	Permission *authorization.Policy
+}
+
+type QueryHasPermissionResponse struct {
+	HasPermission bool
+}
