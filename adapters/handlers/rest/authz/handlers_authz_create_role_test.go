@@ -186,16 +186,6 @@ func TestCreateRoleBadRequest(t *testing.T) {
 			expectedError: "role name is required",
 		},
 		{
-			name: "role has to have at least 1 permission",
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name:        String("newRole"),
-					Permissions: []*models.Permission{},
-				},
-			},
-			expectedError: "role has to have at least 1 permission",
-		},
-		{
 			name: "invalid permission",
 			params: authz.CreateRoleParams{
 				Body: &models.Role{

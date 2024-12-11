@@ -23,6 +23,7 @@ import (
 func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, error) {
 	rolesmap := make(map[string][]authorization.Policy)
 	for idx := range roles {
+		rolesmap[*roles[idx].Name] = []authorization.Policy{}
 		for _, permission := range roles[idx].Permissions {
 			policy, err := policy(permission)
 			if err != nil {
@@ -66,6 +67,9 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})
 		if err != nil {
 			return nil, err
+		}
+		if perm.Action == nil {
+			continue
 		}
 		permissions = append(permissions, perm)
 	}

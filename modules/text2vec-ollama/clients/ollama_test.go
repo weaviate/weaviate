@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func TestClient(t *testing.T) {
@@ -40,16 +40,18 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{
-				ApiEndpoint: "endpoint",
-				Model:       "model",
-			})
+		cfg := fakeClassConfig{
+			classConfig: map[string]interface{}{
+				"apiEndpoint": "endpoint",
+				"model":       "future-text-embed",
+			},
+		}
+		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, cfg)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -68,7 +70,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, _, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -87,8 +89,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{})
+		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Ollama API failed with error: nope, not gonna happen")
@@ -126,7 +127,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.NotNil(f.t, req)
 
 	embeddingResponse := &embeddingsResponse{
-		Embedding: []float32{0.1, 0.2, 0.3},
+		Embeddings: [][]float32{{0.1, 0.2, 0.3}},
 	}
 
 	outBytes, err := json.Marshal(embeddingResponse)
@@ -138,4 +139,65 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	apiEndpoint           string
+	modelID               string
+	properties            interface{}
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+	}
+	if f.apiEndpoint != "" {
+		classSettings["apiEndpoint"] = f.apiEndpoint
+	}
+	if f.modelID != "" {
+		classSettings["modelID"] = f.modelID
+	}
+	if f.properties != nil {
+		classSettings["properties"] = f.properties
+	}
+	for k, v := range f.classConfig {
+		classSettings[k] = v
+	}
+	return classSettings
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.Class()
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }
