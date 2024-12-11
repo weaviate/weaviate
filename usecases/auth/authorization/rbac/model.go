@@ -86,8 +86,7 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	if err != nil {
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
-	enforcer.EnableCache(false)
-	enforcer.EnableLog(true)
+	enforcer.EnableCache(true)
 
 	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
