@@ -188,6 +188,27 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 	}
 }
 
+func (i *indices) MaintenanceMode() http.Handler {
+	return i.auth.handleFunc(i.maintenanceModeHandler())
+}
+
+func (i *indices) maintenanceModeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		maintenanceMode := r.URL.Query().Get("maintenanceMode")
+		if maintenanceMode != "true" && maintenanceMode != "false" {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		if maintenanceMode == "true" {
+			i.maintenanceModeEnabled = true
+		} else {
+			i.maintenanceModeEnabled = false
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("maintenance mode set"))
+	}
+}
+
 func (i *indices) Indices() http.Handler {
 	return i.auth.handleFunc(i.indicesHandler())
 }
