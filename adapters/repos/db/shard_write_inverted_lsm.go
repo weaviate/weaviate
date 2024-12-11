@@ -12,9 +12,14 @@
 package db
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -265,6 +270,73 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
+var (
+	uniqueCounter    int
+	uniqueNumberLock = &sync.Mutex{}
+)
+
+func uniqueNumber() int {
+	uniqueNumberLock.Lock()
+	defer uniqueNumberLock.Unlock()
+	uniqueCounter = uniqueCounter + 1
+	return uniqueCounter
+}
+
+// GenerateRandomString generates a random string of the specified length
+func GenerateRandomString(length int) (string, error) {
+	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
+	bytes := make([]byte, length/2)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	// Convert the bytes to a hex string
+	return fmt.Sprintf("%v%v", hex.EncodeToString(bytes), uniqueNumber()), nil
+}
+
+// Empty the dimensions bucket, quickly and efficiently
+func (s *Shard) resetDimensionsLSM() error {
+	// Load the current one, or an empty one if it doesn't exist
+	err := s.store.CreateOrLoadBucket(context.Background(),
+		helpers.DimensionsBucketLSM,
+		s.memtableDirtyConfig(),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
+	)
+	if err != nil {
+		return fmt.Errorf("create dimensions bucket: %w", err)
+	}
+
+	// Fetch the actual bucket
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+	}
+
+	// Create random bucket name
+	name, err := GenerateRandomString(32)
+	if err != nil {
+		return errors.Wrap(err, "generate random bucket name")
+	}
+
+	// Create a new bucket with the random name
+	err = s.createDimensionsBucket(context.Background(), name)
+	if err != nil {
+		return errors.Wrap(err, "create temporary dimensions bucket")
+	}
+
+	// Replace the old bucket with the new one
+	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
+	if err != nil {
+		return errors.Wrap(err, "replace dimensions bucket")
+	}
+
+	return nil
+}
+
 // Key (dimensionality) | Value Doc IDs
 // 128 | 1,2,4,5,17
 // 128 | 1,2,4,5,17, Tombstone 4,
@@ -287,9 +359,13 @@ func (s *Shard) removeDimensionsForVecLSM(
 func (s *Shard) addToDimensionBucket(
 	dimLength int, docID uint64, vecName string, tombstone bool,
 ) error {
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("no bucket dimensions")
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
 	tv := []byte(vecName)

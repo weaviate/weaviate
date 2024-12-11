@@ -411,6 +411,11 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	l.shard.publishDimensionMetrics(ctx)
 }
 
+func (l *LazyLoadShard) resetDimensionsLSM() error {
+	l.mustLoad()
+	return l.shard.resetDimensionsLSM()
+}
+
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
