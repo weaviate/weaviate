@@ -36,6 +36,8 @@ const (
 	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
 
+const NumBuildInRoles = 2
+
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, auth)
@@ -52,7 +54,9 @@ func generateMissingLists(permissions []*models.Permission) [][]*models.Permissi
 	var result [][]*models.Permission
 
 	for i := range permissions {
-		missingList := append(permissions[:i], permissions[i+1:]...)
+		missingList := make([]*models.Permission, 0, len(permissions)-1)
+		missingList = append(missingList, permissions[:i]...)
+		missingList = append(missingList, permissions[i+1:]...)
 		result = append(result, missingList)
 	}
 
@@ -62,6 +66,31 @@ func generateMissingLists(permissions []*models.Permission) [][]*models.Permissi
 func createObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsCreateOK, error) {
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	return helper.Client(t).Objects.ObjectsCreate(params, helper.CreateAuth(key))
+}
+
+func getObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsGetOK, error) {
+	params := objects.NewObjectsGetParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsGet(params, helper.CreateAuth(key))
+}
+
+func deleteObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
+	params := objects.NewObjectsDeleteParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
+}
+
+func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
+	params := objects.NewObjectsReferencesCreateParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesCreate(params, helper.CreateAuth(key))
+}
+
+func updateRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesUpdateOK, error) {
+	params := objects.NewObjectsReferencesUpdateParams().WithBody(models.MultipleRef{ref}).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesUpdate(params, helper.CreateAuth(key))
+}
+
+func deleteRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesDeleteNoContent, error) {
+	params := objects.NewObjectsReferencesDeleteParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
+	return helper.Client(t).Objects.ObjectsReferencesDelete(params, helper.CreateAuth(key))
 }
 
 func String(s string) *string {
