@@ -279,8 +279,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		role := helper.GetRoleByName(t, adminKey, testRoleName)
 		require.NotNil(t, role)
 		require.Equal(t, testRoleName, *role.Name)
-		require.Equal(t, 1, len(role.Permissions))
-		require.Nil(t, role.Permissions[0].Action)
+		require.Equal(t, 0, len(role.Permissions))
 	})
 
 	t.Run("assign role to user", func(t *testing.T) {
@@ -699,8 +698,7 @@ func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 	t.Run("get role after deleting permission", func(t *testing.T) {
 		role := helper.GetRoleByName(t, adminKey, customRole)
 		require.Equal(t, customRole, *role.Name)
-		require.Equal(t, 1, len(role.Permissions))
-		require.Nil(t, role.Permissions[0].Action)
+		require.Equal(t, 0, len(role.Permissions))
 	})
 
 	t.Run("add permissions", func(t *testing.T) {

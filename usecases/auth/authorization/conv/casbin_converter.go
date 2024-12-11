@@ -68,6 +68,9 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		if err != nil {
 			return nil, err
 		}
+		if perm.Action == nil {
+			continue
+		}
 		permissions = append(permissions, perm)
 	}
 	return permissions, nil
