@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -276,6 +277,30 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
+func (s *Shard) resetDimensionsLSM() error {
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
+
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+	}
+
+	err = s.createDimensionsBucket(context.Background(), "temporary_dimensions_bucket")
+	if err != nil {
+		return errors.Wrap(err, "create temporary dimensions bucket")
+	}
+
+	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, "temporary_dimensions_bucket")
+	if err != nil {
+		return errors.Wrap(err, "replace dimensions bucket")
+	}
+
+	return nil
+}
+
 // Key (dimensionality) | Value Doc IDs
 // 128 | 1,2,4,5,17
 // 128 | 1,2,4,5,17, Tombstone 4,
@@ -298,9 +323,13 @@ func (s *Shard) removeDimensionsForVecLSM(
 func (s *Shard) addToDimensionBucket(
 	dimLength int, docID uint64, vecName string, tombstone bool,
 ) error {
+	err := s.addDimensionsProperty(context.Background())
+	if err != nil {
+		return errors.Wrap(err, "add dimensions property")
+	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("no bucket dimensions")
+		return errors.Errorf("addToDimensionBucket: no bucket dimensions")
 	}
 
 	tv := []byte(vecName)
