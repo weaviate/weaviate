@@ -156,6 +156,18 @@ func (f *fakeCache) CountVectors() int64 {
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetKeys(id uint64) (uint64, uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) GrowMultiCache(id uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
+	panic("not implemented")
+}
+
 func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
 	for i := range out {

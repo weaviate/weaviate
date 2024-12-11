@@ -83,6 +83,24 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
 }
 
+func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	if !h.multivector.Load() {
+		return nil, nil, errors.New("multivector search is not enabled")
+	}
+
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
+	vectors = h.normalizeVecs(vectors)
+	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
+		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
+		return h.flatMultiSearch(ctx, vectors, k, allowList)
+	}
+	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
+	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
+}
+
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
 // the search results contain all vector within the threshold specified by the
 // target distance.
@@ -795,7 +813,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	beforeRescore := time.Now()
-	if h.shouldRescore() {
+	if h.shouldRescore() && !h.multivector.Load() {
 		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
 			took := time.Since(beforeRescore)
@@ -806,10 +824,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	for res.Len() > k {
-		res.Pop()
+	if !h.multivector.Load() {
+		for res.Len() > k {
+			res.Pop()
+		}
 	}
-
 	ids := make([]uint64, res.Len())
 	dists := make([]float32, res.Len())
 
@@ -824,6 +843,99 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 	h.pools.pqResults.Put(res)
 	return ids, dists, nil
+}
+
+func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	kPrime := k
+	candidateSet := make(map[uint64]bool)
+	for _, vec := range queryVectors {
+		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, id := range ids {
+			var docId uint64
+			if !h.compressed.Load() {
+				docId, _ = h.cache.GetKeys(id)
+			} else {
+				docId, _ = h.compressor.GetKeys(id)
+			}
+			candidateSet[docId] = true
+		}
+	}
+	return h.computeLateInteraction(queryVectors, k, candidateSet)
+}
+
+func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]bool) ([]uint64, []float32, error) {
+	resultsQueue := priorityqueue.NewMin[any](1)
+	for docID := range candidateSet {
+		sim, err := h.computeScore(queryVectors, docID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resultsQueue.Insert(docID, sim)
+		if resultsQueue.Len() > k {
+			resultsQueue.Pop()
+		}
+	}
+
+	distances := make([]float32, resultsQueue.Len())
+	ids := make([]uint64, resultsQueue.Len())
+
+	i := len(ids) - 1
+	for resultsQueue.Len() > 0 {
+		element := resultsQueue.Pop()
+		ids[i] = element.ID
+		distances[i] = element.Dist
+		i--
+	}
+
+	return ids, distances, nil
+}
+
+func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
+	h.RLock()
+	vecIDs := h.docIDVectors[docID]
+	h.RUnlock()
+	docVecs := make([][]float32, len(vecIDs))
+	errs := make([]error, len(vecIDs))
+	if h.compressed.Load() {
+		slice := h.pools.tempVectors.Get(int(h.dims))
+		for i, vecID := range vecIDs {
+			vec, err := h.TempVectorForIDThunk(context.Background(), vecID, slice)
+			if err != nil {
+				return 0.0, errors.Wrap(err, "get vector for docID")
+			}
+			docVecs[i] = make([]float32, len(vec))
+			copy(docVecs[i], vec)
+		}
+		h.pools.tempVectors.Put(slice)
+	} else {
+		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
+	}
+
+	for _, err := range errs {
+		if err != nil {
+			return 0.0, errors.Wrap(err, "get vector for docID")
+		}
+	}
+
+	similarity := float32(0.0)
+
+	for _, searchVec := range searchVecs {
+		maxSim := float32(-math.MaxFloat32)
+
+		for _, docVec := range docVecs {
+			dist := h.distancerProvider.Step(searchVec, docVec)
+			if dist > maxSim {
+				maxSim = dist
+			}
+		}
+
+		similarity += maxSim
+	}
+
+	return similarity, nil
 }
 
 func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

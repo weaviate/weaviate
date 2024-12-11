@@ -65,6 +65,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -123,6 +127,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -201,6 +209,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					FilterStrategy: hnsw.FilterStrategyAcorn,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -267,6 +279,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,
