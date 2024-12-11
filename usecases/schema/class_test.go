@@ -496,7 +496,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -668,7 +668,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeSchemaManager.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -992,7 +992,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, _, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class, class.Class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1503,20 +1503,101 @@ func Test_DeleteClass(t *testing.T) {
 			},
 			expErr: false,
 		},
+		{
+			name:          "class delete should auto transform to GQL convention",
+			classToDelete: "c1", // all lower case form
+			existing: []*models.Class{
+				{Class: "C1", VectorIndexType: "hnsw"}, // GQL form
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: []*models.Class{
+				classWithDefaultsSet(t, "OtherClass"), // should still delete `C1` class name
+			},
+			expErr: false,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-			fakeSchemaManager.On("DeleteClass", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			// NOTE: mocking schema manager's `DeleteClass` (not handler's)
+			// underlying schemaManager should still work with canonical class name.
+			canonical := schema.UppercaseClassName(test.classToDelete)
+			fakeSchemaManager.On("DeleteClass", canonical).Return(nil)
 
+			// but layer above like handler's `DeleteClass` should work independent of case sensitivity.
 			err := handler.DeleteClass(ctx, nil, test.classToDelete)
 			if test.expErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expErrMsg)
 			} else {
 				require.Nil(t, err)
+			}
+			fakeSchemaManager.AssertExpectations(t)
+		})
+	}
+}
+
+func Test_GetConsistentClass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name       string
+		classToGet string
+		expErr     bool
+		expErrMsg  string
+		existing   []*models.Class
+		expected   *models.Class
+	}{
+		{
+			name:       "class exists",
+			classToGet: "C1",
+			existing: []*models.Class{
+				{Class: "C1", VectorIndexType: "hnsw"},
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: classWithDefaultsSet(t, "C1"),
+			expErr:   false,
+		},
+		{
+			name:       "class does not exist",
+			classToGet: "C1",
+			existing: []*models.Class{
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: &models.Class{}, // empty
+			expErr:   false,
+		},
+		{
+			name:       "class get should auto transform to GQL convention",
+			classToGet: "c1", // lowercase
+			existing: []*models.Class{
+				{Class: "C1", VectorIndexType: "hnsw"}, // original class is GQL form
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: classWithDefaultsSet(t, "C1"),
+			expErr:   false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+			// underlying schemaManager should still work with canonical class name.
+			canonical := schema.UppercaseClassName(test.classToGet)
+			fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, canonical, mock.Anything).Return(test.expected, nil)
+
+			// but layer above like `GetConsistentClass` should work independent of case sensitivity.
+			got, _, err := handler.GetConsistentClass(ctx, nil, test.classToGet, false)
+			if test.expErr {
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), test.expErrMsg)
+			} else {
+				require.Nil(t, err)
+				assert.Equal(t, got, test.expected)
 			}
 			fakeSchemaManager.AssertExpectations(t)
 		})

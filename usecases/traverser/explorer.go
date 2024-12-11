@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -37,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -65,10 +65,14 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
-		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, error)
+	MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+		findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, error)
 	TargetsFromSearchParam(className string, params interface{}) ([]string, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, string, error)
+	MultiCrossClassVectorFromSearchParam(ctx context.Context, param string,
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
@@ -76,6 +80,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
+	MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error)
 }
 
 type objectsSearcher interface {
@@ -129,10 +134,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 			Offset: 0,
 			Limit:  100,
 		}
-	}
-
-	if err := e.validateFilters(params.Filters); err != nil {
-		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
@@ -720,7 +721,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
 		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
-			paramName, paramValue, e.nearParamsVector.findVector,
+			paramName, paramValue, generictypes.FindVectorFn(e.nearParamsVector.findVector),
 		)
 		if err != nil {
 			return nil, "", errors.Errorf("vectorize params: %v", err)
@@ -732,11 +733,6 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 
 func (e *Explorer) GetSchema() schema.Schema {
 	return e.schemaGetter.GetSchemaSkipAuth()
-}
-
-func (e *Explorer) GetClassByName(className string) *models.Class {
-	s := e.GetSchema()
-	return s.GetClass(className)
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {

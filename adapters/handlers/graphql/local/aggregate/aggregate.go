@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -33,7 +34,7 @@ type ModulesProvider interface {
 
 // Build the Aggregate Kinds schema
 func Build(dbSchema *schema.Schema, config config.Config,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
 		return nil, utils.ErrEmptySchema
@@ -42,7 +43,7 @@ func Build(dbSchema *schema.Schema, config config.Config,
 	var err error
 	var localAggregateObjects *graphql.Object
 	if len(dbSchema.Objects.Classes) > 0 {
-		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider)
+		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
@@ -59,12 +60,12 @@ func Build(dbSchema *schema.Schema, config config.Config,
 }
 
 func classFields(databaseSchema []*models.Class,
-	config config.Config, modulesProvider ModulesProvider,
+	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
-		field, err := classField(class, class.Description, config, modulesProvider)
+		field, err := classField(class, class.Description, config, modulesProvider, authorizer)
 		if err != nil {
 			return nil, err
 		}
@@ -80,7 +81,7 @@ func classFields(databaseSchema []*models.Class,
 }
 
 func classField(class *models.Class, description string,
-	config config.Config, modulesProvider ModulesProvider,
+	config config.Config, modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Aggregate%s", class.Class)
 
@@ -129,7 +130,7 @@ func classField(class *models.Class, description string,
 			},
 			"hybrid": hybridArgument(fieldsObject, class, modulesProvider),
 		},
-		Resolve: makeResolveClass(modulesProvider, class),
+		Resolve: makeResolveClass(authorizer, modulesProvider, class),
 	}
 
 	if modulesProvider != nil {

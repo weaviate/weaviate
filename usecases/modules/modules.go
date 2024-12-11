@@ -273,7 +273,8 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
 		modulecapabilities.Text2MultiVec,
-		modulecapabilities.Ref2Vec:
+		modulecapabilities.Ref2Vec,
+		modulecapabilities.Text2ColBERT:
 		return true
 	default:
 		return false
@@ -301,12 +302,22 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 				}
 			}
 		}
+		for _, altName := range altNames {
+			if class.Vectorizer == altName {
+				return true
+			}
+		}
 		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
-		existsConfigForModule := moduleConfig[module] != nil
-		if existsConfigForModule {
+		if _, ok := moduleConfig[module]; ok {
 			return true
+		} else if len(altNames) > 0 {
+			for _, altName := range altNames {
+				if _, ok := moduleConfig[altName]; ok {
+					return true
+				}
+			}
 		}
 	}
 	// Allow Text2Text (QnA, Generative, Summarize, NER) modules to be registered to a given class
@@ -795,8 +806,6 @@ func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models
 	return moduleParams
 }
 
-// VectorFromSearchParam gets a vector for a given argument. This is used in
-// Get { Class() } for example
 func (p *Provider) TargetsFromSearchParam(className string, params interface{}) ([]string, error) {
 	class, err := p.getClass(className)
 	if err != nil {
@@ -810,8 +819,10 @@ func (p *Provider) TargetsFromSearchParam(className string, params interface{}) 
 	return targetVectors, nil
 }
 
+// VectorFromSearchParam gets a vector for a given argument. This is used in
+// Get { Class() } for example
 func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, error) {
 	class, err := p.getClass(className)
 	if err != nil {
@@ -821,30 +832,29 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-			var moduleName string
-			var vectorSearches modulecapabilities.ArgumentVectorForParams
-			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-				if p.isModuleNameEqual(mod, targetModule) {
-					moduleName = mod.Name()
-					vectorSearches = searcher.VectorSearches()
-				}
-			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
-				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
-					moduleName = targetModule
-					vectorSearches = dependencySearchers[targetModule]
-				}
-			}
-			if vectorSearches != nil {
-				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
-					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
-					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
-					}
-					return vector, nil
-				}
-			}
+		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual); found {
+			return vector, err
+		}
+	}
+
+	return nil, fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
+}
+
+// MultiVectorFromSearchParam gets a multi vector for a given argument. This is used in
+// Get { Class() } for example
+func (p *Provider) MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
+) ([][]float32, error) {
+	class, err := p.getClass(className)
+	if err != nil {
+		return nil, err
+	}
+
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
+
+	for _, mod := range p.GetAll() {
+		if found, vector, err := vectorFromSearchParam(ctx, class, mod, targetModule, targetVector, tenant, param, params, findVectorFn, p.isModuleNameEqual); found {
+			return vector, err
 		}
 	}
 
@@ -856,27 +866,27 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 // Explore() { } for example
 func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, string, error) {
 	for _, mod := range p.GetAll() {
-		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
-				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewCrossClassModuleConfig()
-					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
-					if err != nil {
-						return nil, "", errors.Errorf("vectorize params: %v", err)
-					}
-					targetVector, err := p.getTargetVector(nil, params)
-					if err != nil {
-						return nil, "", errors.Errorf("get target vector: %v", err)
-					}
-					if len(targetVector) > 0 {
-						return vector, targetVector[0], nil
-					}
-					return vector, "", nil
-				}
-			}
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector); found {
+			return vector, targetVector, err
+		}
+	}
+
+	return nil, "", fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params)
+}
+
+// MultiCrossClassVectorFromSearchParam gets a multi vector for a given argument without
+// being specific to any one class and it's configuration. This is used in
+// Explore() { } for example
+func (p *Provider) MultiCrossClassVectorFromSearchParam(ctx context.Context,
+	param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn[[][]float32],
+) ([][]float32, string, error) {
+	for _, mod := range p.GetAll() {
+		if found, vector, targetVector, err := crossClassVectorFromSearchParam(ctx, mod, param, params, findVectorFn, p.getTargetVector); found {
+			return vector, targetVector, err
 		}
 	}
 
@@ -926,16 +936,36 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 	for _, mod := range p.GetAll() {
 		if mod.Name() == targetModule {
 			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
-				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
-					// does not access any objects, therefore tenant is irrelevant
-					cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
-					return vectorizer.VectorizeInput(ctx, input, cfg)
+				if found, vector, err := vectorFromInput[[]float32](ctx, mod, class, input, targetModule); found {
+					return vector, err
 				}
 			}
 		}
 	}
 
 	return nil, fmt.Errorf("VectorFromInput was called without vectorizer on class %v for input %v", className, input)
+}
+
+func (p *Provider) MultiVectorFromInput(ctx context.Context,
+	className, input, targetVector string,
+) ([][]float32, error) {
+	class, err := p.getClass(className)
+	if err != nil {
+		return nil, err
+	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
+
+	for _, mod := range p.GetAll() {
+		if mod.Name() == targetModule {
+			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type(), p.getModuleAltNames(mod)) {
+				if found, vector, err := vectorFromInput[[][]float32](ctx, mod, class, input, targetModule); found {
+					return vector, err
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("MultiVectorFromInput was called without vectorizer on class %v for input %v", className, input)
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings
@@ -989,9 +1019,12 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 		if c, ok := module.(modulecapabilities.MetaProvider); ok {
 			meta, err := c.MetaInfo()
 			if err != nil {
-				return nil, err
+				metaInfos[module.Name()] = map[string]interface{}{
+					"error": err.Error(),
+				}
+			} else {
+				metaInfos[module.Name()] = meta
 			}
-			metaInfos[module.Name()] = meta
 		}
 	}
 	return metaInfos, nil
@@ -1035,4 +1068,15 @@ func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadClo
 		}
 	}
 	return nil, false
+}
+
+func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	var backends []modulecapabilities.BackupBackend
+	for _, mod := range p.GetAll() {
+		if backend, ok := mod.(modulecapabilities.BackupBackend); ok &&
+			mod.Type() == modulecapabilities.Backup {
+			backends = append(backends, backend)
+		}
+	}
+	return backends
 }

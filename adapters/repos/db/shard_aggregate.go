@@ -20,21 +20,19 @@ import (
 )
 
 func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
-	var queue *IndexQueue
+	var vectorIndex VectorIndex
 
 	// we only need the index queue for vector search
 	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.SearchVector != nil {
 		var err error
-		queue, err = s.getIndexQueue(params.TargetVector)
+		vectorIndex, err = s.getVectorIndex(params.TargetVector)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		queue = nil
 	}
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
-		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
+		s.index.stopwords, s.versioner.Version(), vectorIndex, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules).
 		Do(ctx)
 }

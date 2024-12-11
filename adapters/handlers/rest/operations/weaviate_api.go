@@ -71,8 +71,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
-		AuthzAddPermissionHandler: authz.AddPermissionHandlerFunc(func(params authz.AddPermissionParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.AddPermission has not yet been implemented")
+		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
 		AuthzAssignRoleHandler: authz.AssignRoleHandlerFunc(func(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRole has not yet been implemented")
@@ -125,6 +125,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzGetRolesHandler: authz.GetRolesHandlerFunc(func(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRoles has not yet been implemented")
 		}),
+		AuthzGetRolesForOwnUserHandler: authz.GetRolesForOwnUserHandlerFunc(func(params authz.GetRolesForOwnUserParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetRolesForOwnUser has not yet been implemented")
+		}),
 		AuthzGetRolesForUserHandler: authz.GetRolesForUserHandlerFunc(func(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.GetRolesForUser has not yet been implemented")
 		}),
@@ -136,6 +139,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		GraphqlGraphqlPostHandler: graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlPost has not yet been implemented")
+		}),
+		AuthzHasPermissionHandler: authz.HasPermissionHandlerFunc(func(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.HasPermission has not yet been implemented")
 		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
@@ -203,8 +209,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsValidateHandler: objects.ObjectsValidateHandlerFunc(func(params objects.ObjectsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsValidate has not yet been implemented")
 		}),
-		AuthzRemovedPermissionHandler: authz.RemovedPermissionHandlerFunc(func(params authz.RemovedPermissionParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation authz.RemovedPermission has not yet been implemented")
+		AuthzRemovePermissionsHandler: authz.RemovePermissionsHandlerFunc(func(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.RemovePermissions has not yet been implemented")
 		}),
 		AuthzRevokeRoleHandler: authz.RevokeRoleHandlerFunc(func(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RevokeRole has not yet been implemented")
@@ -244,6 +250,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		SchemaTenantsGetHandler: schema.TenantsGetHandlerFunc(func(params schema.TenantsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsGet has not yet been implemented")
+		}),
+		SchemaTenantsGetOneHandler: schema.TenantsGetOneHandlerFunc(func(params schema.TenantsGetOneParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.TenantsGetOne has not yet been implemented")
 		}),
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
@@ -326,8 +335,8 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
-	// AuthzAddPermissionHandler sets the operation handler for the add permission operation
-	AuthzAddPermissionHandler authz.AddPermissionHandler
+	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
+	AuthzAddPermissionsHandler authz.AddPermissionsHandler
 	// AuthzAssignRoleHandler sets the operation handler for the assign role operation
 	AuthzAssignRoleHandler authz.AssignRoleHandler
 	// BackupsBackupsCancelHandler sets the operation handler for the backups cancel operation
@@ -362,6 +371,8 @@ type WeaviateAPI struct {
 	AuthzGetRoleHandler authz.GetRoleHandler
 	// AuthzGetRolesHandler sets the operation handler for the get roles operation
 	AuthzGetRolesHandler authz.GetRolesHandler
+	// AuthzGetRolesForOwnUserHandler sets the operation handler for the get roles for own user operation
+	AuthzGetRolesForOwnUserHandler authz.GetRolesForOwnUserHandler
 	// AuthzGetRolesForUserHandler sets the operation handler for the get roles for user operation
 	AuthzGetRolesForUserHandler authz.GetRolesForUserHandler
 	// AuthzGetUsersForRoleHandler sets the operation handler for the get users for role operation
@@ -370,6 +381,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
+	// AuthzHasPermissionHandler sets the operation handler for the has permission operation
+	AuthzHasPermissionHandler authz.HasPermissionHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
@@ -414,8 +427,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsUpdateHandler objects.ObjectsUpdateHandler
 	// ObjectsObjectsValidateHandler sets the operation handler for the objects validate operation
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
-	// AuthzRemovedPermissionHandler sets the operation handler for the removed permission operation
-	AuthzRemovedPermissionHandler authz.RemovedPermissionHandler
+	// AuthzRemovePermissionsHandler sets the operation handler for the remove permissions operation
+	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
 	// AuthzRevokeRoleHandler sets the operation handler for the revoke role operation
 	AuthzRevokeRoleHandler authz.RevokeRoleHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
@@ -442,6 +455,8 @@ type WeaviateAPI struct {
 	SchemaTenantsDeleteHandler schema.TenantsDeleteHandler
 	// SchemaTenantsGetHandler sets the operation handler for the tenants get operation
 	SchemaTenantsGetHandler schema.TenantsGetHandler
+	// SchemaTenantsGetOneHandler sets the operation handler for the tenants get one operation
+	SchemaTenantsGetOneHandler schema.TenantsGetOneHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
@@ -537,8 +552,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
 	}
-	if o.AuthzAddPermissionHandler == nil {
-		unregistered = append(unregistered, "authz.AddPermissionHandler")
+	if o.AuthzAddPermissionsHandler == nil {
+		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
 	if o.AuthzAssignRoleHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleHandler")
@@ -591,6 +606,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzGetRolesHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesHandler")
 	}
+	if o.AuthzGetRolesForOwnUserHandler == nil {
+		unregistered = append(unregistered, "authz.GetRolesForOwnUserHandler")
+	}
 	if o.AuthzGetRolesForUserHandler == nil {
 		unregistered = append(unregistered, "authz.GetRolesForUserHandler")
 	}
@@ -602,6 +620,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.GraphqlGraphqlPostHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlPostHandler")
+	}
+	if o.AuthzHasPermissionHandler == nil {
+		unregistered = append(unregistered, "authz.HasPermissionHandler")
 	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
@@ -669,8 +690,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ObjectsObjectsValidateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsValidateHandler")
 	}
-	if o.AuthzRemovedPermissionHandler == nil {
-		unregistered = append(unregistered, "authz.RemovedPermissionHandler")
+	if o.AuthzRemovePermissionsHandler == nil {
+		unregistered = append(unregistered, "authz.RemovePermissionsHandler")
 	}
 	if o.AuthzRevokeRoleHandler == nil {
 		unregistered = append(unregistered, "authz.RevokeRoleHandler")
@@ -710,6 +731,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaTenantsGetHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsGetHandler")
+	}
+	if o.SchemaTenantsGetOneHandler == nil {
+		unregistered = append(unregistered, "schema.TenantsGetOneHandler")
 	}
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
@@ -830,7 +854,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/roles/add-permission"] = authz.NewAddPermission(o.context, o.AuthzAddPermissionHandler)
+	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -902,6 +926,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
+	o.handlers["GET"]["/authz/users/own-roles"] = authz.NewGetRolesForOwnUser(o.context, o.AuthzGetRolesForOwnUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
 	o.handlers["GET"]["/authz/users/{id}/roles"] = authz.NewGetRolesForUser(o.context, o.AuthzGetRolesForUserHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -915,6 +943,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/graphql"] = graphql.NewGraphqlPost(o.context, o.GraphqlGraphqlPostHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/authz/roles/{id}/has-permission"] = authz.NewHasPermission(o.context, o.AuthzHasPermissionHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1006,7 +1038,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/authz/roles/remove-permission"] = authz.NewRemovedPermission(o.context, o.AuthzRemovedPermissionHandler)
+	o.handlers["POST"]["/authz/roles/{id}/remove-permissions"] = authz.NewRemovePermissions(o.context, o.AuthzRemovePermissionsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1059,6 +1091,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema/{className}/tenants"] = schema.NewTenantsGet(o.context, o.SchemaTenantsGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/tenants/{tenantName}"] = schema.NewTenantsGetOne(o.context, o.SchemaTenantsGetOneHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}

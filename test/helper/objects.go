@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/batch"
@@ -52,9 +54,13 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	if err != nil {
-		return
-	}
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateClassAuth(t *testing.T, class *models.Class, key string) {
+	t.Helper()
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := Client(t).Schema.SchemaObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -64,6 +70,16 @@ func GetClass(t *testing.T, class string) *models.Class {
 	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }
 
 func UpdateClass(t *testing.T, class *models.Class) {
@@ -78,6 +94,14 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	return err
 }
@@ -108,6 +132,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 			Objects: objects,
 		})
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
+	t.Helper()
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
@@ -164,6 +199,13 @@ func DeleteClass(t *testing.T, class string) {
 	t.Helper()
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+	AssertRequestOk(t, delRes, err, nil)
+}
+
+func DeleteClassWithAuthz(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, authInfo)
 	AssertRequestOk(t, delRes, err, nil)
 }
 
@@ -284,6 +326,13 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateTenantsAuth(t *testing.T, class string, tenants []*models.Tenant, key string) {
+	t.Helper()
+	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsCreate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	t.Helper()
 	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
@@ -309,6 +358,13 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
+func GetOneTenant(t *testing.T, class, tenant string) (*schema.TenantsGetOneOK, error) {
+	t.Helper()
+	params := schema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)
+	resp, err := Client(t).Schema.TenantsGetOne(params, nil)
 	return resp, err
 }
 

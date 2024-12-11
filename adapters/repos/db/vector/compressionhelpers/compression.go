@@ -285,7 +285,7 @@ func NewHNSWPQCompressor(
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
 	err = quantizer.Fit(data)
@@ -318,7 +318,7 @@ func RestoreHNSWPQCompressor(
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger, 0,
 		allocChecker)
 	return pqVectorsCompressor, nil
 }
@@ -340,7 +340,7 @@ func NewBQCompressor(
 	}
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
-		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger, 0,
 		allocChecker)
 	return bqVectorsCompressor, nil
 }
@@ -363,7 +363,7 @@ func NewHNSWSQCompressor(
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	sqVectorsCompressor.cache.Grow(uint64(len(data)))
 	return sqVectorsCompressor, nil
@@ -391,7 +391,7 @@ func RestoreHNSWSQCompressor(
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	return sqVectorsCompressor, nil
 }

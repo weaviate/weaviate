@@ -23,11 +23,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, getClass func(string) *models.Class) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass func(string) (*models.Class, error)) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	// make sure collection exists
-	class := getClass(req.Collection)
+	class, err := authorizedGetClass(req.Collection)
+	if err != nil {
+		return params, err
+	}
 	if class == nil {
 		return objects.BatchDeleteParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
@@ -46,12 +49,12 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, getClass func(string
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, getClass, req.Collection)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
 	filter := &filters.LocalFilter{Root: &clause}
-	if err := filters.ValidateFilters(getClass, filter); err != nil {
+	if err := filters.ValidateFilters(authorizedGetClass, filter); err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
 	params.Filters = filter

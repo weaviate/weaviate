@@ -21,9 +21,10 @@ import (
 
 func (s *segment) getCollection(key []byte) ([]value, error) {
 	if s.strategy != segmentindex.StrategySetCollection &&
-		s.strategy != segmentindex.StrategyMapCollection {
-		return nil, fmt.Errorf("get only possible for strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+		s.strategy != segmentindex.StrategyMapCollection &&
+		s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("get only possible for strategies %q, %q and %q, got %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted, s.strategy)
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
@@ -52,6 +53,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
 		return nil, err
 	}
+	if s.strategy == segmentindex.StrategyInverted {
+		return s.collectionStratParseDataInverted(contentsCopy)
+	}
 
 	return s.collectionStratParseData(contentsCopy)
 }
@@ -79,6 +83,35 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 		offset += int(valueLen)
 
 		valueIndex++
+	}
+
+	return values, nil
+}
+
+func (s *segment) collectionStratParseDataInverted(in []byte) ([]value, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+
+	offset := 0
+
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	// offset += 8
+
+	values := make([]value, valuesLen)
+
+	nodes, _ := decodeAndConvertFromBlocks(in)
+
+	valueIndex := 0
+	for _, node := range nodes {
+		buf := make([]byte, 16)
+		copy(buf, node.Key)
+		copy(buf[8:], node.Value)
+		values[valueIndex].tombstone = node.Tombstone
+		values[valueIndex].value = buf
+
+		valueIndex++
+
 	}
 
 	return values, nil

@@ -18,6 +18,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -46,7 +48,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "AddObject",
 			additionalArgs:    []interface{}{(*models.Object)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
 			methodName:        "ValidateObject",
@@ -123,7 +125,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "Query",
 			additionalArgs:    []interface{}{new(QueryParams)},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Shards("", "")[0]},
+			expectedResources: []string{authorization.ShardsMetadata("", "")[0]},
 		},
 
 		{ // list objects is deprecated by query
@@ -160,7 +162,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Manager{}) {
+		for _, method := range allExportedMethods(&Manager{}, "") {
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -208,6 +210,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		expectedResources []string
 	}
 
+	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
+
 	tests := []testCase{
 		{
 			methodName: "AddObjects",
@@ -216,39 +220,30 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
-				[]*models.BatchReference{{}},
+				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: ""}},
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedResources: authorization.ShardsData("Class", ""),
 		},
 		{
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{},
+				(*int64)(nil),
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
-		},
-		{
-			methodName: "DeleteObjectsFromGRPC",
-			additionalArgs: []interface{}{
-				BatchDeleteParams{},
-				&additional.ReplicationProperties{},
-				"",
-			},
-			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.Shards("", ""),
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.ShardsData("", ""),
 		},
 	}
 
@@ -258,7 +253,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&BatchManager{}) {
+		// exception is public method for GRPC which has its own authorization check
+		for _, method := range allExportedMethods(&BatchManager{}, "DeleteObjectsFromGRPCAfterAuth", "AddObjectsGRPCAfterAuth") {
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -303,11 +299,17 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 	return
 }
 
-func allExportedMethods(subject interface{}) []string {
+func allExportedMethods(subject interface{}, exceptions ...string) []string {
 	var methods []string
 	subjectType := reflect.TypeOf(subject)
+methodLoop:
 	for i := 0; i < subjectType.NumMethod(); i++ {
 		name := subjectType.Method(i).Name
+		for j := range exceptions {
+			if name == exceptions[j] {
+				continue methodLoop
+			}
+		}
 		if name[0] >= 'A' && name[0] <= 'Z' {
 			methods = append(methods, name)
 		}

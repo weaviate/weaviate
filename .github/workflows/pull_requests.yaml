@@ -77,7 +77,7 @@ jobs:
         run: |
           echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.29.0
         env:
           # NOTE: needed because sometimes GHCR hits the rate limit AWS will be used instead
           TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db"
@@ -164,9 +164,34 @@ jobs:
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Modules-On-Demand-Tests-Check:
+    name: modules-on-demand-tests-check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    outputs:
+      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: check
+        name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[api]"* || "$commit_message" == "prepare release"* || "$commit_message" == *"[test]"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
+            echo "run_pipeline=false" >> $GITHUB_OUTPUT
+          fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -200,7 +225,8 @@ jobs:
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
@@ -357,7 +383,7 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
@@ -444,10 +470,6 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -457,11 +479,10 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh ${{ matrix.target }}
+        run: ./ci/push_docker.sh
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
-        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
@@ -470,10 +491,6 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
     name: push-docker-fast
     runs-on: ubuntu-latest-8-cores
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -483,11 +500,10 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh ${{ matrix.target }}
+        run: ./ci/push_docker.sh
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
-        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"

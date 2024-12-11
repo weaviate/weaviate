@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -68,6 +69,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		local:        n.name,
 	}
 
+	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
 		panic(err)
@@ -108,7 +110,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
-		n.repo, clusterapi.NewNoopAuthHandler(), false, logger)
+		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -278,6 +280,10 @@ func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabiliti
 	return backend, nil
 }
 
+func (f *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	return nil
+}
+
 type fakeBackupBackend struct {
 	sync.Mutex
 	backupsPath string
@@ -303,6 +309,10 @@ func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath strin
 			return path.Join(f.backupsPath, backupID)
 		}
 	}
+}
+
+func (f *fakeBackupBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {

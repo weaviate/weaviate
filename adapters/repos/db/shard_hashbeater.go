@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/interval"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -330,7 +331,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	shardName string, host string, initialToken, finalToken uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
-	const maxBatchSize = 1_000
+	const maxBatchSize = 100
 
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
 		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, maxBatchSize)
@@ -429,18 +430,48 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 				continue
 			}
 
+			var vectors models.Vectors
+
+			if replicaObj.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(replicaObj.Object.Vectors))
+				for i, v := range replicaObj.Object.Vectors {
+					vectors[i] = v
+				}
+			}
+
 			obj := &objects.VObject{
+				ID:              replicaObj.ID,
 				LatestObject:    &replicaObj.Object.Object,
 				Vector:          replicaObj.Object.Vector,
+				Vectors:         vectors,
 				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
 			}
 
 			mergeObjs = append(mergeObjs, obj)
 		}
 
-		_, err = s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
+		resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("propagating local objects: %w", err)
+		}
+
+		for _, r := range resp {
+			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
+
+			if !r.Deleted ||
+				s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				continue
+			}
+
+			if s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
+				(s.index.Config.DeletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+					r.UpdateTime > localDigestsByUUID[r.ID].UpdateTime) {
+
+				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
+				if err != nil {
+					return localObjects, remoteObjects, propagations, fmt.Errorf("deleting local objects: %w", err)
+				}
+			}
 		}
 
 		propagations += len(mergeObjs)

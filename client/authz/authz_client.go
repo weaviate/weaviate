@@ -41,7 +41,7 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	AddPermission(params *AddPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionCreated, error)
+	AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error)
 
 	AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error)
 
@@ -53,11 +53,15 @@ type ClientService interface {
 
 	GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error)
 
+	GetRolesForOwnUser(params *GetRolesForOwnUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForOwnUserOK, error)
+
 	GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error)
 
 	GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error)
 
-	RemovedPermission(params *RemovedPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovedPermissionCreated, error)
+	HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error)
+
+	RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error)
 
 	RevokeRole(params *RevokeRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RevokeRoleOK, error)
 
@@ -65,22 +69,22 @@ type ClientService interface {
 }
 
 /*
-AddPermission adds permission to a role it will be upsert if the role doesn t exists it will be created
+AddPermissions adds permission to a given role
 */
-func (a *Client) AddPermission(params *AddPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionCreated, error) {
+func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewAddPermissionParams()
+		params = NewAddPermissionsParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "addPermission",
+		ID:                 "addPermissions",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/add-permission",
+		PathPattern:        "/authz/roles/{id}/add-permissions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &AddPermissionReader{formats: a.formats},
+		Reader:             &AddPermissionsReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -93,18 +97,18 @@ func (a *Client) AddPermission(params *AddPermissionParams, authInfo runtime.Cli
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*AddPermissionCreated)
+	success, ok := result.(*AddPermissionsOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for addPermission: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for addPermissions: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-AssignRole assigns a role to a user or key
+AssignRole assigns a role to a user
 */
 func (a *Client) AssignRole(params *AssignRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AssignRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -299,7 +303,46 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-GetRolesForUser gets roles assigned to user or a key
+GetRolesForOwnUser gets roles assigned to own user
+*/
+func (a *Client) GetRolesForOwnUser(params *GetRolesForOwnUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForOwnUserOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesForOwnUserParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRolesForOwnUser",
+		Method:             "GET",
+		PathPattern:        "/authz/users/own-roles",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesForOwnUserReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesForOwnUserOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRolesForOwnUser: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRolesForUser gets roles assigned to user
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending
@@ -377,22 +420,22 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 }
 
 /*
-RemovedPermission removes permission from a role
+HasPermission checks whether role possesses this permission
 */
-func (a *Client) RemovedPermission(params *RemovedPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovedPermissionCreated, error) {
+func (a *Client) HasPermission(params *HasPermissionParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*HasPermissionOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewRemovedPermissionParams()
+		params = NewHasPermissionParams()
 	}
 	op := &runtime.ClientOperation{
-		ID:                 "removedPermission",
+		ID:                 "hasPermission",
 		Method:             "POST",
-		PathPattern:        "/authz/roles/remove-permission",
+		PathPattern:        "/authz/roles/{id}/has-permission",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &RemovedPermissionReader{formats: a.formats},
+		Reader:             &HasPermissionReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -405,13 +448,52 @@ func (a *Client) RemovedPermission(params *RemovedPermissionParams, authInfo run
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*RemovedPermissionCreated)
+	success, ok := result.(*HasPermissionOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for removedPermission: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for hasPermission: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+RemovePermissions removes permissions from a role if this results in an empty role the role will be deleted
+*/
+func (a *Client) RemovePermissions(params *RemovePermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RemovePermissionsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewRemovePermissionsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "removePermissions",
+		Method:             "POST",
+		PathPattern:        "/authz/roles/{id}/remove-permissions",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &RemovePermissionsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*RemovePermissionsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for removePermissions: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

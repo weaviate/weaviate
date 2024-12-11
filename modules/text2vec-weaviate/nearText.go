@@ -26,11 +26,11 @@ func (m *WeaviateEmbedModule) Arguments() map[string]modulecapabilities.GraphQLA
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *WeaviateEmbedModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *WeaviateEmbedModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

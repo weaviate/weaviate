@@ -24,7 +24,7 @@ import (
 func TestMaintenanceModeIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// NOTE leaving shards, db, and logger nil for now, fill in when needed
-	indices := clusterapi.NewIndices(nil, nil, noopAuth, true, nil)
+	indices := clusterapi.NewIndices(nil, nil, noopAuth, func() bool { return true }, nil)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 	server := httptest.NewServer(mux)

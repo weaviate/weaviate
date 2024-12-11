@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	"github.com/weaviate/weaviate/exp/metadata"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -46,10 +45,12 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC                  *oidc.Client
-	AnonymousAccess       *anonymous.Client
-	APIKey                *apikey.Client
-	Authorizer            authorization.Authorizer
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.Client
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
@@ -77,7 +78,7 @@ type State struct {
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
 
-	MetadataServer *metadata.Server
+	Migrator *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
