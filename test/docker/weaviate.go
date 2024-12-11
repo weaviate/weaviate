@@ -107,6 +107,7 @@ func startWeaviate(ctx context.Context,
 	rnd := time.Now().UnixNano()
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
+		Image:          weaviateImage,
 		Hostname:       containerName,
 		Name:           fmt.Sprintf("%s-%d", containerName, rnd),
 		Networks:       []string{fmt.Sprintf("%s-%d", containerName, rnd)},
