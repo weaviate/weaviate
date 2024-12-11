@@ -12,9 +12,11 @@
 package db
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -263,6 +265,29 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 		return fmt.Errorf("vector name can not be empty")
 	}
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
+}
+
+func (s *Shard) resetDimensionsLSM() error {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("no bucket dimensions")
+	}
+
+	dir := b.GetDir()
+
+	if err := b.Shutdown(context.Background()); err != nil {
+		s.index.logger.Errorf("stop lsmkv bucket: %s", err)
+		if !errors.Is(err, lsmkv.ErrAlreadyClosed) {
+			return errors.Wrap(err, "stop lsmkv bucket")
+		}
+	}
+
+	err := os.RemoveAll(dir)
+	if err != nil {
+		return errors.Wrapf(err, "remove lsm store at %s", dir)
+	}
+
+	return s.addDimensionsProperty(context.Background())
 }
 
 // Key (dimensionality) | Value Doc IDs
