@@ -26,6 +26,10 @@ const (
 	// for the pointer to the index part
 	HeaderSize = 16
 
+	// ChecksumSize describes the length of the segment file checksum.
+	// This is currently based on the CRC32 hashing algorithm.
+	ChecksumSize = 4
+
 	// CurrentSegmentVersion represents the latest version of disk segment file.
 	// Version 1 is the current latest, and introduced support for integrity
 	// checks with checksums added to the segment files.
@@ -128,9 +132,9 @@ func ParseHeader(r io.Reader) (*Header, error) {
 		return nil, err
 	}
 
-	if out.Version != 0 {
-		return nil, fmt.Errorf("unsupported version %d", out.Version)
-	}
+	//if out.Version != 0 {
+	//	return nil, fmt.Errorf("unsupported version %d", out.Version)
+	//}
 
 	if err := binary.Read(r, binary.LittleEndian, &out.Strategy); err != nil {
 		return nil, err

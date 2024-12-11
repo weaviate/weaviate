@@ -62,7 +62,9 @@ func (c *compactorReplace) do() error {
 		return fmt.Errorf("init: %w", err)
 	}
 
-	segmentFile := segmentindex.NewSegmentFile(c.bufw)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+	)
 
 	kis, err := c.writeKeys(segmentFile)
 	if err != nil {
@@ -180,7 +182,7 @@ func (c *compactorReplace) writeIndividualNode(f *segmentindex.SegmentFile,
 		secondaryIndexCount: c.secondaryIndexCount,
 		secondaryKeys:       secondaryKeys,
 	}
-	return segNode.KeyIndexAndWriteTo(f.ChecksumWriter())
+	return segNode.KeyIndexAndWriteTo(f.BodyWriter())
 }
 
 func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,

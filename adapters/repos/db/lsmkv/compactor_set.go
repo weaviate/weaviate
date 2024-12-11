@@ -62,7 +62,9 @@ func (c *compactorSet) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	segmentFile := segmentindex.NewSegmentFile(c.bufw)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+	)
 
 	kis, err := c.writeKeys(segmentFile)
 	if err != nil {
@@ -175,7 +177,7 @@ func (c *compactorSet) writeIndividualNode(f *segmentindex.SegmentFile,
 		values:     values,
 		primaryKey: key,
 		offset:     offset,
-	}).KeyIndexAndWriteTo(f.ChecksumWriter())
+	}).KeyIndexAndWriteTo(f.BodyWriter())
 }
 
 func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,

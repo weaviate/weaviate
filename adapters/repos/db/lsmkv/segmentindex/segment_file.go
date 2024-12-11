@@ -5,45 +5,117 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
+// SegmentFile facilitates the writing/reading of an LSM bucket segment file.
+//
+// These contents include the CRC32 checksum which is calculated based on the:
+//   - segment data
+//   - segment indexes
+//   - segment header
+//
+// The checksum is calculated using those components in that exact ordering.
+// This is because during compactions, the header is not actually known until
+// the compaction process is complete. So to accommodate this, all segment
+// checksum calculations are made using the header last.
+//
+// Usage:
+//
+//	To write a segment file, initialization and API are as follows:
+//	   ```
+//	   sf := NewSegmentFile(WithBufferedWriter(<some buffered writer>))
+//	   sf.WriterHeader(<some *Header>)
+//	   <some segment node>.WriteTo(sf.BodyWriter())
+//	   sf.WriteChecksum()
+//	   ```
+//
+//	To validate a segment file checksum, initialization and API are as follows:
+//	   ```
+//	   sf := NewSegmentFile(WithReader(<segment fd>))
+//	   sf.ValidateChecksum(<segment fd file info>)
+//	   ```
 type SegmentFile struct {
 	header         *Header
 	writer         *bufio.Writer
+	reader         *bufio.Reader
 	checksumWriter integrity.ChecksumWriter
+	checksumReader integrity.ChecksumReader
 }
 
-func NewSegmentFile(bufw *bufio.Writer) *SegmentFile {
-	return &SegmentFile{
-		writer:         bufw,
-		checksumWriter: integrity.NewCRC32Writer(bufw),
+type SegmentFileOption func(*SegmentFile)
+
+// WithBufferedWriter sets the desired segment file writer
+// This will typically wrap the segment *os.File
+func WithBufferedWriter(writer *bufio.Writer) SegmentFileOption {
+	return func(segmentFile *SegmentFile) {
+		segmentFile.writer = writer
+		segmentFile.checksumWriter = integrity.NewCRC32Writer(writer)
 	}
 }
 
-func (f *SegmentFile) ChecksumWriter() io.Writer {
+// WithReader sets the desired segment file reader.
+// This will typically be the segment *os.File.
+func WithReader(reader io.Reader) SegmentFileOption {
+	return func(segmentFile *SegmentFile) {
+		segmentFile.reader = bufio.NewReader(reader)
+		segmentFile.checksumReader = integrity.NewCRC32Reader(reader)
+	}
+}
+
+// NewSegmentFile creates a new instance of SegmentFile.
+// Be sure to include a writer or reader option depending on your needs.
+func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
+	s := &SegmentFile{}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// BodyWriter exposes the underlying writer which calculates the hash inline.
+// This method is used when writing the body of the segment, the user data
+// itself.
+//
+// Because there are many segment node types, and each exposes its own `WriteTo`
+// (or similar) method, it would be cumbersome to support each node type, in the
+// way we support WriteHeader and WriteIndexes. So this method exists to hook
+// into each segment node's `WriteTo` instead.
+//
+// This method uses the written data to further calculate the checksum.
+func (f *SegmentFile) BodyWriter() io.Writer {
 	return f.checksumWriter
 }
 
-func (f *SegmentFile) Flush() error {
-	if err := f.writer.Flush(); err != nil {
-		return fmt.Errorf("flush segmentfile: %w", err)
-	}
-	return nil
-}
-
+// WriteHeader writes the header struct to the underlying writer.
+// This method resets the internal hash, so that the header can be written
+// to the checksum last. For more details see SegmentFile.
 func (f *SegmentFile) WriteHeader(header *Header) (int64, error) {
-	// We save the header, and only write it to the checksum at the end
-	f.header = header
-	n, err := header.WriteTo(f.writer)
+	if f.writer == nil {
+		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
+			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
+	}
+
+	n, err := header.WriteTo(f.checksumWriter)
 	if err != nil {
 		return n, fmt.Errorf("write segment file header: %w", err)
 	}
+	// We save the header, and only write it to the checksum at the end
+	f.header = header
+	f.checksumWriter.Reset()
 	return n, nil
 }
 
+// WriteIndexes writes the indexes struct to the underlying writer.
+// This method uses the written data to further calculate the checksum.
 func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
+	if f.writer == nil {
+		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
+			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
+	}
+
 	n, err := indexes.WriteTo(f.checksumWriter)
 	if err != nil {
 		return n, fmt.Errorf("write segment file indexes: %w", err)
@@ -51,18 +123,95 @@ func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
 	return n, nil
 }
 
+// WriteChecksum writes checksum itself to the segment file.
+// As mentioned elsewhere in SegmentFile, the header is added to the checksum last.
+// This method finally adds the header to the hash, and then writes the resulting
+// checksum to the segment file.
 func (f *SegmentFile) WriteChecksum() (int64, error) {
-	b := bytes.NewBuffer(make([]byte, HeaderSize))
-	if _, err := f.header.WriteTo(b); err != nil {
-		return 0, fmt.Errorf(
-			"serialize segment header to write to checksum hash: %w", err)
+	if f.writer == nil {
+		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
+			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
-	if _, err := f.checksumWriter.HashWrite(b.Bytes()); err != nil {
-		return 0, fmt.Errorf("write segment header to checksum hash: %w", err)
+
+	if err := f.addHeaderToChecksum(); err != nil {
+		return 0, err
 	}
+
 	n, err := f.writer.Write(f.checksumWriter.Hash())
 	if err != nil {
 		return int64(n), fmt.Errorf("write segment file checksum: %w", err)
 	}
+
+	if err := f.writer.Flush(); err != nil {
+		return int64(n), fmt.Errorf("flush segmentfile: %w", err)
+	}
+
 	return int64(n), nil
+}
+
+// ValidateChecksum determines if a segment's content matches its checksum
+func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
+	if f.reader == nil {
+		return fmt.Errorf(" SegmentFile not initialized with a reader, " +
+			"try adding one with segmentindex.WithReader(io.Reader)")
+	}
+
+	f.checksumReader = integrity.NewCRC32Reader(f.reader)
+
+	var header [HeaderSize]byte
+	_, err := f.reader.Read(header[:])
+	if err != nil {
+		return fmt.Errorf("read segment file header: %w", err)
+	}
+
+	var (
+		buffer    = make([]byte, 4096) // Buffer for chunked reads
+		dataSize  = info.Size() - HeaderSize - ChecksumSize
+		remaining = dataSize
+	)
+
+	for remaining > 0 {
+		toRead := int64(len(buffer))
+		if remaining < toRead {
+			toRead = remaining
+		}
+
+		n, err := f.checksumReader.Read(buffer[:toRead])
+		if err != nil {
+			return fmt.Errorf("read segment file: %w", err)
+		}
+
+		remaining -= int64(n)
+	}
+
+	var checksumBytes [ChecksumSize]byte
+	_, err = f.reader.Read(checksumBytes[:])
+	if err != nil {
+		return fmt.Errorf("read segment file checksum: %w", err)
+	}
+
+	f.reader.Reset(bytes.NewReader(header[:]))
+	_, err = f.checksumReader.Read(make([]byte, HeaderSize))
+	if err != nil {
+		return fmt.Errorf("add header to checksum: %w", err)
+	}
+
+	computedChecksum := f.checksumReader.Hash()
+	if !bytes.Equal(computedChecksum, checksumBytes[:]) {
+		return fmt.Errorf("invalid checksum")
+	}
+
+	return nil
+}
+
+func (f *SegmentFile) addHeaderToChecksum() error {
+	b := bytes.NewBuffer(nil)
+	if _, err := f.header.WriteTo(b); err != nil {
+		return fmt.Errorf(
+			"serialize segment header to write to checksum hash: %w", err)
+	}
+	if _, err := f.checksumWriter.HashWrite(b.Bytes()); err != nil {
+		return fmt.Errorf("write segment header to checksum hash: %w", err)
+	}
+	return nil
 }

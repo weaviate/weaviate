@@ -45,7 +45,7 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		ki, err := sn.KeyIndexAndWriteTo(f.ChecksumWriter(), totalWritten)
+		ki, err := sn.KeyIndexAndWriteTo(f.BodyWriter(), totalWritten)
 		if err != nil {
 			return nil, fmt.Errorf("write node %d: %w", i, err)
 		}

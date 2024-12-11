@@ -98,7 +98,9 @@ func (c *Compactor) Do() error {
 		return fmt.Errorf("init: %w", err)
 	}
 
-	segmentFile := segmentindex.NewSegmentFile(c.bufw)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+	)
 
 	kis, err := c.writeNodes(segmentFile)
 	if err != nil {
@@ -161,7 +163,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key,
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
-		bufw:             f.ChecksumWriter(),
+		bufw:             f.BodyWriter(),
 		cleanupDeletions: c.cleanupDeletions,
 		emptyBitmap:      sroar.NewBitmap(),
 	}
