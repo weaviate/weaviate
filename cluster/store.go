@@ -631,6 +631,10 @@ func (st *Store) raftConfig() *raft.Config {
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
+	// no duplicate legacy metrics.
+	// https://github.com/hashicorp/raft/pull/630
+	cfg.NoLegacyTelemetry = true
+
 	return cfg
 }
 

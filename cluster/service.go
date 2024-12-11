@@ -18,12 +18,14 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/bootstrap"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -65,15 +67,20 @@ func New(cfg Config) *Service {
 			cfg.Logger.Warnf("raft fqdn lookup configured but unable to resolve node %s to an IP, fallbacking to %s", cfg.NodeID, raftAdvertisedAddress)
 		}
 	}
-	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+
 	fsm := NewFSM(cfg)
-	raft := NewRaft(cfg.NodeSelector, &fsm, cl)
+	raft := NewRaft(cfg.NodeSelector, &fsm, client)
+
+	svrMetrics := monitoring.NewServerMetrics("weaviate_raft", prometheus.DefaultRegisterer)
+	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+
 	return &Service{
 		Raft:              raft,
 		raftAddr:          raftAdvertisedAddress,
 		config:            &cfg,
-		rpcClient:         cl,
-		rpcServer:         rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
+		rpcClient:         client,
+		rpcServer:         svr,
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),
