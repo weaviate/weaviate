@@ -83,8 +83,16 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
-	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects)
+	batchObjects, maxSchemaVersion, err := b.validateAndGetVector(ctx, principal, objects, repl)
+	if err != nil {
+		return nil, fmt.Errorf("validate and get vector: %w", err)
+	}
+
+	authorizeAutoTenantCreate := func(className string, tenantNames []string) error {
+		return b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, tenantNames...)...)
+	}
+
+	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, authorizeAutoTenantCreate)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}
@@ -114,7 +122,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties,
-) (BatchObjects, uint64) {
+) (BatchObjects, uint64, error) {
 	var (
 		now          = time.Now().UnixNano() / int64(time.Millisecond)
 		batchObjects = make(BatchObjects, len(objects))
@@ -206,5 +214,5 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 	}
 
-	return batchObjects, maxSchemaVersion
+	return batchObjects, maxSchemaVersion, nil
 }

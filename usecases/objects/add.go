@@ -39,7 +39,9 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	)
 	if object != nil {
 		class = object.Class
-		tenant = object.Tenant
+		if object.Tenant != "" {
+			tenant = object.Tenant
+		}
 	}
 
 	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
@@ -82,7 +84,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, errors.Wrap(err, "invalid object")
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
+	authorizeAutoTenantCreate := func(className string, tenantNames []string) error {
+		return m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, tenantNames...)...)
+	}
+
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, authorizeAutoTenantCreate); err != nil {
 		return nil, err
 	}
 
@@ -143,6 +149,8 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	} else if err != nil {
 		switch err.(type) {
 		case ErrInvalidUserInput:
+			return "", err
+		case ErrForbidden:
 			return "", err
 		case ErrMultiTenancy:
 			// This may be fine, the class is configured to create non-existing tenants.

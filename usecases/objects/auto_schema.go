@@ -510,7 +510,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 }
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
-	principal *models.Principal, objects []*models.Object,
+	principal *models.Principal, objects []*models.Object, authorizeAutoTenantCreate func(string, []string) error,
 ) (uint64, int, error) {
 	classTenants := make(map[string]map[string]struct{})
 
@@ -548,11 +548,17 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			!vclass.Class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
+		names := make([]string, len(tenantNames))
 		tenants := make([]*models.Tenant, len(tenantNames))
 		i := 0
 		for name := range tenantNames {
+			names[i] = name
 			tenants[i] = &models.Tenant{Name: name}
 			i++
+		}
+		err := authorizeAutoTenantCreate(className, names)
+		if err != nil {
+			return 0, totalTenants, err
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
 			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
