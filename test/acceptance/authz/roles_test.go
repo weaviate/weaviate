@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -479,15 +478,12 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("get role by name after adding permission Node1", func(t *testing.T) {
-			// EventuallyWithT to handle EC in RAFT reads
-			require.EventuallyWithT(t, func(collect *assert.CollectT) {
-				role := helper.GetRoleByName(t, adminKey, testRole)
-				require.NotNil(t, role)
-				require.Equal(t, testRole, *role.Name)
-				require.Equal(t, 2, len(role.Permissions))
-				require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
-				require.Equal(t, deleteCollectionsAction, *role.Permissions[1].Action)
-			}, 3*time.Second, 500*time.Millisecond)
+			role := helper.GetRoleByName(t, adminKey, testRole)
+			require.NotNil(t, role)
+			require.Equal(t, testRole, *role.Name)
+			require.Equal(t, 2, len(role.Permissions))
+			require.Equal(t, createCollectionsAction, *role.Permissions[0].Action)
+			require.Equal(t, deleteCollectionsAction, *role.Permissions[1].Action)
 		})
 	})
 }

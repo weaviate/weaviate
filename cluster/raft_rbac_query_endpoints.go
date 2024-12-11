@@ -21,15 +21,87 @@ import (
 )
 
 func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	return s.store.authZManager.GetRoles(names...)
+	req := cmd.QueryGetRolesRequest{
+		Roles: names,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_ROLES,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryGetRolesResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Roles, nil
 }
 
 func (s *Raft) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
-	return s.store.authZManager.GetRolesForUser(user)
+	req := cmd.QueryGetRolesForUserRequest{
+		User: user,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryGetRolesForUserResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Roles, nil
 }
 
 func (s *Raft) GetUsersForRole(role string) ([]string, error) {
-	return s.store.authZManager.GetUsersForRole(role)
+	req := cmd.QueryGetUsersForRoleRequest{
+		Role: role,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_USERS_FOR_ROLE,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryGetUsersForRoleResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Users, nil
 }
 
 // HasPermission returns consistent permissions check by asking the leader
