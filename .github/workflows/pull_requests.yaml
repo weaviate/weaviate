@@ -237,8 +237,7 @@ jobs:
           "--only-module-generative-aws",
           "--only-module-multi2vec-cohere",
           "--only-module-generative-cohere",
-          "--only-module-generative-openai",
-          "--only-module-generative-anthropic"
+          "--only-module-generative-openai"
         ]
     steps:
       - uses: actions/checkout@v4
