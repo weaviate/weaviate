@@ -295,3 +295,53 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 	require.Zero(t, diffCount)
 }
+
+func BenchmarkCompactHashtreeWorstCaseDiffCalculation(b *testing.B) {
+	capacity := uint64(math.MaxUint64)
+	height := 16
+
+	// worst case comparison is when the two hash trees differs at every leaf
+	// in this benchark the first hashtree is populated in such a way
+	// every leaf receives an entry while the second hashtree is just
+	// an empty hashtree
+
+	ht1, err := NewCompactHashTree(capacity, height)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	leavesCount := LeavesCount(height)
+	groupSize := capacity / uint64(leavesCount)
+	extendedGroupSize := groupSize + 1
+	extendedGroupsCount := int(capacity % uint64(leavesCount))
+	leavesCountInExtendedGroups := uint64(extendedGroupsCount) * extendedGroupSize
+	nodesCount := NodesCount(height)
+
+	for i := 0; i < leavesCount; i++ {
+		ml := uint64(i) * extendedGroupSize
+
+		if uint64(i) > leavesCountInExtendedGroups {
+			ml += uint64(extendedGroupsCount)
+		}
+
+		ht1.AggregateLeafWith(ml, []byte(fmt.Sprintf("element_%d", i)))
+	}
+
+	ht2, err := NewCompactHashTree(math.MaxUint64, 16)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		d, err := ht1.Diff(ht2)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if d.SetCount() != nodesCount {
+			b.Fatal("no matching differences")
+		}
+	}
+}

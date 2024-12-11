@@ -43,6 +43,34 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) (levelD
 
 	n := 0
 
+	/*	all := discriminant.Since(offset, nodesAtLevel(l))
+
+		for _, node := range all {
+			if digests1[n] == digests2[n] {
+				n++
+				discriminant.Unset(node)
+				continue
+			} else {
+				levelDiffCount++
+			}
+
+			n++
+
+			leftChild := 2*node + 1
+			rightChild := 2*node + 2
+
+			if discriminant.Size() <= rightChild {
+				// node is a leaf
+				continue
+			}
+
+			discriminant.Set(leftChild)
+			discriminant.Set(rightChild)
+		}*/
+
+	// Note: this second iteration approach is less efficient
+	// when comparing similar hashtrees
+
 	for j := 0; j < nodesAtLevel(l); j++ {
 		node := offset + j
 
