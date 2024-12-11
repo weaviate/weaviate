@@ -130,7 +130,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 
 	t.Run("get all roles to check if i have perm.", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 3, len(roles))
+		require.Equal(t, NumBuildInRoles, len(roles))
 	})
 
 	t.Run("fail to create builtin role", func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 3, len(roles))
+		require.Equal(t, NumBuildInRoles, len(roles))
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	t.Run("get all roles after create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 4, len(roles))
+		require.Equal(t, NumBuildInRoles+1, len(roles))
 	})
 
 	t.Run("get role by name", func(t *testing.T) {
@@ -323,7 +323,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 
 	t.Run("get all roles after delete", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 3, len(roles))
+		require.Equal(t, NumBuildInRoles, len(roles))
 	})
 
 	t.Run("get non-existent role by name", func(t *testing.T) {
@@ -372,7 +372,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 
 	t.Run("get all roles before create", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 3, len(roles))
+		require.Equal(t, NumBuildInRoles, len(roles))
 	})
 
 	t.Run("create role", func(t *testing.T) {
@@ -431,7 +431,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 	t.Run("add role while 1 node is down", func(t *testing.T) {
 		t.Run("get all roles before create", func(t *testing.T) {
 			roles := helper.GetRoles(t, adminKey)
-			require.Equal(t, 3, len(roles))
+			require.Equal(t, NumBuildInRoles, len(roles))
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -456,7 +456,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 
 		t.Run("get all roles after create", func(t *testing.T) {
 			roles := helper.GetRoles(t, adminKey)
-			require.Equal(t, 4, len(roles))
+			require.Equal(t, NumBuildInRoles+1, len(roles))
 		})
 
 		t.Run("get role by name", func(t *testing.T) {
@@ -647,7 +647,7 @@ func TestAuthzEmptyRole(t *testing.T) {
 
 	t.Run("get all roles, shall be 4 for the newly created empty role", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 4, len(roles))
+		require.Equal(t, NumBuildInRoles+1, len(roles))
 	})
 }
 
@@ -690,9 +690,9 @@ func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("get all roles, shall be 4 for the newly created empty role", func(t *testing.T) {
+	t.Run("get all roles, shall be 3 for the newly created empty role", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 4, len(roles))
+		require.Equal(t, NumBuildInRoles+1, len(roles))
 	})
 
 	t.Run("get role after deleting permission", func(t *testing.T) {
