@@ -15,7 +15,6 @@ package cuvs_index
 
 import (
 	"context"
-
 	"sync"
 
 	cuvs "github.com/rapidsai/cuvs/go"
@@ -68,7 +67,6 @@ type cuvs_index struct {
 	cuvsResource    *cuvs.Resource
 	cuvsExtendCount uint64
 	cuvsNumExtends  uint64
-	searchBatcher   *SearchBatcher
 
 	// rescore             int64
 	// bq                  compressionhelpers.BinaryQuantizer
@@ -107,10 +105,8 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 }
 
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
-
 	// Stub implementation
 	return [][]uint64{}, [][]float32{}, nil
-
 }
 
 func (index *cuvs_index) PostStartup() {
@@ -188,5 +184,4 @@ func (index *cuvs_index) QueryVectorDistancer(queryVector []float32) common.Quer
 }
 
 func (index *cuvs_index) Dump(labels ...string) {
-
 }
