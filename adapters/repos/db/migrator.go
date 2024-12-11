@@ -686,8 +686,16 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
+		err := index.ForEachShard(func(name string, shard ShardLike) error {
+			return shard.resetDimensionsLSM()
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithField("error", err).Warn("could not reset vector dimensions")
+			return err
+		}
+
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
+		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
 			if shard.hasTargetVectors() {
 				for vecName, vec := range object.Vectors {
@@ -701,7 +709,9 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 				}
 			}
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
+			m.logger.WithField("action", "reindex").WithField("error", err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}
