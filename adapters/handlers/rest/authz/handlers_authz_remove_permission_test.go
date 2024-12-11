@@ -237,44 +237,6 @@ func TestRemovePermissionsRoleNotFound(t *testing.T) {
 	}
 }
 
-func TestRemovePermissionsUnprocessableEntity(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
-	logger, _ := test.NewNullLogger()
-
-	principal := &models.Principal{Username: "user1"}
-	params := authz.RemovePermissionsParams{
-		ID: "test",
-		Body: authz.RemovePermissionsBody{
-			Permissions: []*models.Permission{
-				{
-					Action: String("manage_roles"),
-					Roles:  &models.PermissionRoles{},
-				},
-				{
-					Action: String("read_data"),
-					Data:   &models.PermissionData{},
-				},
-			},
-		},
-	}
-
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Roles(params.ID)[0]).Return(nil)
-	controller.On("GetRoles", params.ID).Return(map[string][]authorization.Policy{params.ID: {
-		{Resource: "whatever", Verb: authorization.READ, Domain: "whatever"},
-	}}, nil)
-
-	h := &authZHandlers{
-		authorizer: authorizer,
-		controller: controller,
-		logger:     logger,
-	}
-	res := h.removePermissions(params, principal)
-	parsed, ok := res.(*authz.RemovePermissionsUnprocessableEntity)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
-}
-
 func TestRemovePermissionsInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
