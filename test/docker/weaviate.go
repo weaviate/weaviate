@@ -69,7 +69,7 @@ func startWeaviate(ctx context.Context,
 				"GIT_REVISION": &gitHash,
 			},
 			PrintBuildLog: true,
-			KeepImage:     false,
+			KeepImage:     true,
 		}
 	}
 	containerName := Weaviate1
@@ -110,9 +110,9 @@ func startWeaviate(ctx context.Context,
 		Image:          weaviateImage,
 		Hostname:       containerName,
 		Name:           fmt.Sprintf("%s-%d", containerName, rnd),
-		Networks:       []string{fmt.Sprintf("%s-%d", containerName, rnd)},
+		Networks:       []string{fmt.Sprintf("%s-%d", networkName, rnd)},
 		NetworkAliases: map[string][]string{
-			networkName: {fmt.Sprintf("%s-%d", containerName, rnd)},
+			networkName: {fmt.Sprintf("%s-%d", networkName, rnd)},
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,
