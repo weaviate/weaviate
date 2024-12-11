@@ -45,7 +45,9 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
-	segmentFile := segmentindex.NewSegmentFile(bufio.NewWriter(f))
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
+	)
 
 	var keys []segmentindex.Key
 	skipIndices := false
@@ -97,10 +99,6 @@ func (m *Memtable) flush() error {
 		return err
 	}
 
-	if err := segmentFile.Flush(); err != nil {
-		return err
-	}
-
 	if err := f.Sync(); err != nil {
 		return err
 	}
@@ -147,7 +145,7 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 			secondaryIndexCount: m.secondaryIndices,
 		}
 
-		ki, err := segNode.KeyIndexAndWriteTo(f.ChecksumWriter())
+		ki, err := segNode.KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
@@ -219,7 +217,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 			values:     node.values,
 			primaryKey: node.key,
 			offset:     totalWritten,
-		}).KeyIndexAndWriteTo(f.ChecksumWriter())
+		}).KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}

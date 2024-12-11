@@ -54,7 +54,9 @@ func (p *segmentCleanerReplace) do(shouldAbort cyclemanager.ShouldAbortCallback)
 		return fmt.Errorf("init: %w", err)
 	}
 
-	segmentFile := segmentindex.NewSegmentFile(p.bufw)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(p.bufw),
+	)
 
 	indexKeys, err := p.writeKeys(segmentFile, shouldAbort)
 	if err != nil {
@@ -125,7 +127,7 @@ func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
 		}
 		nodeCopy := node
 		nodeCopy.offset = offset
-		indexKey, err = nodeCopy.KeyIndexAndWriteTo(f.ChecksumWriter())
+		indexKey, err = nodeCopy.KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			break
 		}

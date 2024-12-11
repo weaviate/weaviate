@@ -41,7 +41,7 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		_, err = f.ChecksumWriter().Write(sn.ToBuffer())
+		_, err = f.BodyWriter().Write(sn.ToBuffer())
 		if err != nil {
 			return nil, fmt.Errorf("write segment node %d: %w", i, err)
 		}
