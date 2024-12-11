@@ -53,7 +53,7 @@ func setupTestIndex(t *testing.T) (*cuvs_index, string, func(), *lsmkv.Store) {
 
 	tempDir := t.TempDir()
 	store, err := lsmkv.New(filepath.Join(tempDir, "store"), tempDir, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 
 	logger := logrus.New()
@@ -118,7 +118,7 @@ func TestPersistence(t *testing.T) {
 	store.Shutdown(context.Background())
 
 	store, err = lsmkv.New(filepath.Join(tempDir, "store"), tempDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
 	defer store.Shutdown(context.Background())
 

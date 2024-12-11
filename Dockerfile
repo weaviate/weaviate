@@ -126,6 +126,10 @@ ARG EXTRA_BUILD_ARGS=""
 RUN echo $CGO_LDFLAGS
 RUN echo $CGO_CFLAGS 
 
+RUN ls .
+RUN ls /
+
+# WORKDIR /go/src/github.com/weaviate/weaviate  # Add this line
 
 # Fix the build command - note the quotes and flags organization
 RUN  GOOS=linux GOARCH=$TARGETARCH CGO_ENABLED=1 go build $EXTRA_BUILD_ARGS \
@@ -135,7 +139,7 @@ RUN  GOOS=linux GOARCH=$TARGETARCH CGO_ENABLED=1 go build $EXTRA_BUILD_ARGS \
     -X github.com/weaviate/weaviate/usecases/build.Revision=$GIT_REVISION \
     -X github.com/weaviate/weaviate/usecases/build.BuildUser=$BUILD_USER \
     -X github.com/weaviate/weaviate/usecases/build.BuildDate=$BUILD_DATE" \
-    -o /weaviate ./cmd/weaviate
+    -o /weaviate /cmd/weaviate-server
 
 RUN ls /weaviate
 
@@ -145,10 +149,10 @@ FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 as weaviate_cuvs
 # Don't need Go in runtime stage if you're just running the binary
 # Copy just the built binary and libraries
 COPY --from=cuvs_server_builder /weaviate /bin/weaviate
-COPY --from=cuvs_server_builder /opt/lib /opt/lib
+COPY --from=cuvs_server_builder /opt/cuvs/lib /opt/cuvs/lib
 
 # Set environment variables
-ENV LD_LIBRARY_PATH=/opt/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/opt/cuvs/lib:$LD_LIBRARY_PATH
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 

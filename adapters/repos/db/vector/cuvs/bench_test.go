@@ -74,7 +74,7 @@ var paretoConfigurations [](func(indexParams *cagra.IndexParams, searchParams *c
 func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagra.SearchParams, b *testing.B) BenchResult {
 	logger, _ := test.NewNullLogger()
 
-	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	defer store.Shutdown(context.Background())
 
 	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams, RootPath: b.TempDir()}, cuvsEnt.UserConfig{}, store)
@@ -370,7 +370,7 @@ func BenchmarkDataset(b *testing.B) {
 	b.StopTimer()
 
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		b.Fatal("failed to create store")
 	}
