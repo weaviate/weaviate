@@ -204,8 +204,8 @@ func Normalize_Temp(vector []float32) []float32 {
 	return newVector
 }
 
-func (index *cuvs_index) Add(id uint64, vector []float32) error {
-	return index.AddBatch(context.Background(), []uint64{id}, [][]float32{vector})
+func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) error {
+	return index.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]float32) error {
@@ -373,7 +373,7 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
 	vector = Normalize_Temp(vector)
@@ -590,7 +590,7 @@ func (index *cuvs_index) Dump(labels ...string) {
 }
 
 // searchbyvectordistance
-func (index *cuvs_index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (index *cuvs_index) SearchByVectorDistance(ctx context.Context, vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	return []uint64{}, []float32{}, nil
 }
 
@@ -625,6 +625,16 @@ func CheckGpuMemory() error {
 	}
 	return nil
 }
+
+func (index *cuvs_index) Stats() (common.IndexStats, error) {
+	return &CuvsStats{}, errors.New("Stats() is not implemented for cuvs index")
+}
+
+func (s *CuvsStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
+}
+
+type CuvsStats struct{}
 
 func (index *cuvs_index) Shutdown(ctx context.Context) error {
 	err := index.cuvs_internals.cuvsIndex.Close()
@@ -704,6 +714,9 @@ func (index *cuvs_index) Compressed() bool {
 
 func (index *cuvs_index) ValidateBeforeInsert(vector []float32) error {
 	return nil
+}
+
+func (index *cuvs_index) Iterate(fn func(id uint64) bool) {
 }
 
 func (index *cuvs_index) DistanceBetweenVectors(x, y []float32) (float32, error) {
