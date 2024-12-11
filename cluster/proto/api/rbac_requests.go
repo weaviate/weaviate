@@ -46,3 +46,27 @@ type QueryHasPermissionRequest struct {
 type QueryHasPermissionResponse struct {
 	HasPermission bool
 }
+
+type QueryGetRolesRequest struct {
+	Roles []string
+}
+
+type QueryGetRolesResponse struct {
+	Roles map[string][]authorization.Policy
+}
+
+type QueryGetRolesForUserRequest struct {
+	User string
+}
+
+type QueryGetRolesForUserResponse struct {
+	Roles map[string][]authorization.Policy
+}
+
+type QueryGetUsersForRoleRequest struct {
+	Role string
+}
+
+type QueryGetUsersForRoleResponse struct {
+	Users []string
+}

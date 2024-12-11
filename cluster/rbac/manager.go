@@ -32,16 +32,61 @@ func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Mana
 	return &Manager{authZ: authZ, logger: logger}
 }
 
-func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
-	return m.authZ.GetRoles(names...)
+func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.QueryGetRolesRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	roles, err := m.authZ.GetRoles(subCommand.Roles...)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetRolesResponse{Roles: roles}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
 }
 
-func (m *Manager) GetRolesForUser(user string) (map[string][]authorization.Policy, error) {
-	return m.authZ.GetRolesForUser(user)
+func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.QueryGetRolesForUserRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	roles, err := m.authZ.GetRolesForUser(subCommand.User)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetRolesForUserResponse{Roles: roles}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
 }
 
-func (m *Manager) GetUsersForRole(role string) ([]string, error) {
-	return m.authZ.GetUsersForRole(role)
+func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.QueryGetUsersForRoleRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	users, err := m.authZ.GetUsersForRole(subCommand.Role)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.QueryGetUsersForRoleResponse{Users: users}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
 }
 
 func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {

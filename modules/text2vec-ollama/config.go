@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/modules/qna-openai/config"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -25,7 +25,7 @@ import (
 
 func (m *OllamaModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
+		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}
 }
 
@@ -33,8 +33,8 @@ func (m *OllamaModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"skip":                  !vectorizer.DefaultPropertyIndexed,
-		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
+		"skip":                  !ent.DefaultPropertyIndexed,
+		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
 	}
 }
 
