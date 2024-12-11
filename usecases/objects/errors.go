@@ -110,6 +110,23 @@ func (e ErrMultiTenancy) Unwrap() error {
 	return e.err
 }
 
+type ErrForbidden struct {
+	err error
+}
+
+func (e ErrForbidden) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrForbidden) Unwrap() error {
+	return e.err
+}
+
+// NewErrForbidden with error signature
+func NewErrForbidden(err error) ErrForbidden {
+	return ErrForbidden{err}
+}
+
 // NewErrMultiTenancy with error signature
 func NewErrMultiTenancy(err error) ErrMultiTenancy {
 	return ErrMultiTenancy{err}

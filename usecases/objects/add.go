@@ -150,6 +150,8 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 		switch err.(type) {
 		case ErrInvalidUserInput:
 			return "", err
+		case ErrForbidden:
+			return "", err
 		case ErrMultiTenancy:
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on

@@ -98,7 +98,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		} else if errors.As(err, &autherrs.Forbidden{}) {
+		} else if errors.As(err, &uco.ErrForbidden{}) {
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else {
