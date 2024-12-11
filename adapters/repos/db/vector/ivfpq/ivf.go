@@ -108,17 +108,17 @@ func (i *leave) search(codes [][]byte, dists [][]float32, k int, heap *priorityq
 
 type IvfPQ struct {
 	pq             *compressionhelpers.ProductQuantizer
-	bq             compressionhelpers.BinaryQuantizer
-	compressedVecs [][]uint64
+	compressor     *compressionhelpers.ScalarQuantizer
+	compressedVecs [][]byte
 	invertedIndex  invertedIndexNode
 }
 
 func NewIvf(vectors [][]float32, distancer distancer.Provider) *IvfPQ {
-	segments := 12
+	segments := 4
 	cfg := hnsw.PQConfig{
 		Enabled:       true,
 		Segments:      segments,
-		Centroids:     256,
+		Centroids:     128,
 		TrainingLimit: 10_000,
 		Encoder: hnsw.PQEncoder{
 			Type:         hnsw.PQEncoderTypeKMeans,
@@ -132,48 +132,48 @@ func NewIvf(vectors [][]float32, distancer distancer.Provider) *IvfPQ {
 	pq.Fit(vectors)
 	ivf := &IvfPQ{
 		pq:             pq,
-		bq:             compressionhelpers.NewBinaryQuantizer(distancer),
+		compressor:     compressionhelpers.NewScalarQuantizer(vectors, distancer),
 		invertedIndex:  newInvertedIndex(0, segments, common.NewDefaultShardedLocks()),
-		compressedVecs: make([][]uint64, 1_000_000),
+		compressedVecs: make([][]byte, 1_000_000),
 	}
 	return ivf
 }
 
 func (ivf *IvfPQ) Add(id uint64, vector []float32) {
 	code := ivf.pq.Encode(vector)
-	ivf.compressedVecs[id] = ivf.bq.Encode(vector)
+	ivf.compressedVecs[id] = ivf.compressor.Encode(vector)
 	ivf.invertedIndex.add(code, id)
 }
 
 func (ivf *IvfPQ) SearchByVector(ctx context.Context, searchVec []float32, k int) ([]uint64, []float32, error) {
 	codes, dists := ivf.pq.SortCodes(searchVec)
-	factor := 500
-	bqFactor := 100
+	factor := 1000
+	compressedK := 13
 	heap := priorityqueue.NewMax[byte](k * factor)
 	ivf.invertedIndex.search(codes, dists, k*factor, heap, 0)
-	bqheap := priorityqueue.NewMax[byte](k * bqFactor)
-	bqdistancer := ivf.bq.NewDistancer(searchVec)
-	for bqheap.Len() < k*bqFactor {
+	cheap := priorityqueue.NewMax[byte](compressedK)
+	cdistancer := ivf.compressor.NewDistancer(searchVec)
+	for cheap.Len() < compressedK {
 		element := heap.Pop()
-		d, _ := bqdistancer.Distance(ivf.compressedVecs[element.ID])
-		bqheap.Insert(element.ID, d)
+		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
+		cheap.Insert(element.ID, d)
 	}
 	for heap.Len() > 0 {
 		element := heap.Pop()
-		d, _ := bqdistancer.Distance(ivf.compressedVecs[element.ID])
-		if d < bqheap.Top().Dist {
-			bqheap.Pop()
-			bqheap.Insert(element.ID, d)
+		d, _ := cdistancer.Distance(ivf.compressedVecs[element.ID])
+		if d < cheap.Top().Dist {
+			cheap.Pop()
+			cheap.Insert(element.ID, d)
 		}
 	}
 
-	ids := make([]uint64, k*bqFactor)
-	dist := make([]float32, k*bqFactor)
+	ids := make([]uint64, compressedK)
+	dist := make([]float32, compressedK)
 
-	j := k * bqFactor
-	for bqheap.Len() > 0 {
+	j := compressedK
+	for cheap.Len() > 0 {
 		j--
-		elem := bqheap.Pop()
+		elem := cheap.Pop()
 		ids[j] = elem.ID
 		dist[j] = elem.Dist
 	}
