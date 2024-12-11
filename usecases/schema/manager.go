@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	restContext "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -341,16 +342,6 @@ func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...st
 	return m.activateTenantIfInactive(ctx, class, status)
 }
 
-func (m *Manager) TenantsShardsDontActivate(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	slices.Sort(tenants)
-	tenants = slices.Compact(tenants)
-	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
-	if err != nil {
-		return nil, err
-	}
-	return status, nil
-}
-
 // OptimisticTenantStatus tries to query the local state first. It is
 // optimistic that the state has already propagated correctly. If the state is
 // unexpected, i.e. either the tenant is not found at all or the status is
@@ -411,10 +402,12 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
+	inactiveTenants := make([]string, 0, len(status))
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+			inactiveTenants = append(inactiveTenants, tenant)
 		}
 	}
 
@@ -423,7 +416,14 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	principal := restContext.GetPrincipalFromContext(ctx)
+	resources := authorization.ShardsMetadata(class, inactiveTenants...)
+	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

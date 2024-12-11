@@ -64,10 +64,6 @@ type schemaManager interface {
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
-
-	TenantsShardsDontActivate(ctx context.Context, class string, tenants ...string) (map[string]string, error)
-
-	AllowImplicitTenantActivation(class string) bool
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

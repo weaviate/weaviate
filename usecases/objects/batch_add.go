@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -150,20 +149,6 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 		if schemaVersion > maxSchemaVersion {
 			maxSchemaVersion = schemaVersion
-		}
-
-		if obj.Tenant != "*" && b.autoSchemaManager.schemaManager.AllowImplicitTenantActivation(obj.Class) {
-			resources := authorization.ShardsMetadata(obj.Class, obj.Tenant)
-			err := b.authorizer.Authorize(principal, authorization.UPDATE, resources...)
-			if err != nil {
-				statuses, innerErr := b.autoSchemaManager.schemaManager.TenantsShardsDontActivate(ctx, obj.Class, obj.Tenant)
-				if innerErr != nil {
-					return nil, 0, authErrs.NewForbidden(principal, authorization.UPDATE, resources...)
-				}
-				if statuses[obj.Tenant] == models.TenantActivityStatusCOLD {
-					return nil, 0, err
-				}
-			}
 		}
 
 		if obj.ID == "" {

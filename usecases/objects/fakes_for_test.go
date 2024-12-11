@@ -178,14 +178,6 @@ func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	return 0, nil
 }
 
-func (f *fakeSchemaManager) TenantsShardsDontActivate(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	return nil, nil
-}
-
-func (f *fakeSchemaManager) AllowImplicitTenantActivation(class string) bool {
-	return false
-}
-
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
 }
