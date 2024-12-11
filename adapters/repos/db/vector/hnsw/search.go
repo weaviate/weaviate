@@ -813,7 +813,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	beforeRescore := time.Now()
-	if h.shouldRescore() {
+	if h.shouldRescore() && !h.multivector.Load() {
 		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
 			took := time.Since(beforeRescore)
