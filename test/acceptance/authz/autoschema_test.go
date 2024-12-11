@@ -29,6 +29,7 @@ import (
 )
 
 func TestAutoschemaAuthZ(t *testing.T) {
+	t.Parallel()
 	customUser := "custom-user"
 	customKey := "custom-key"
 	adminKey := "admin-key"

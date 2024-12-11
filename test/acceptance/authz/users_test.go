@@ -22,6 +22,7 @@ import (
 )
 
 func TestAuthzRolesForUsers(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -56,6 +57,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 }
 
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin"
 	adminKey := "admin"
 	similar := "similarRoleKeyUserName"

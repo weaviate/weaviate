@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -103,14 +104,14 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	rnd := time.Now().UnixNano()
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
-		Image:          weaviateImage,
 		Hostname:       containerName,
-		Name:           containerName,
-		Networks:       []string{networkName},
+		Name:           fmt.Sprintf("%s-%d", containerName, rnd),
+		Networks:       []string{fmt.Sprintf("%s-%d", containerName, rnd)},
 		NetworkAliases: map[string][]string{
-			networkName: {containerName},
+			networkName: {fmt.Sprintf("%s-%d", containerName, rnd)},
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,

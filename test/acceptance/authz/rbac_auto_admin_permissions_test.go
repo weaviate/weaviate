@@ -24,6 +24,7 @@ import (
 )
 
 func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
+	t.Parallel()
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 

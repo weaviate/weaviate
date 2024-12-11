@@ -26,6 +26,7 @@ import (
 )
 
 func TestAuthzGetOwnRole(t *testing.T) {
+	t.Parallel()
 	var err error
 
 	customUser := "custom-user"
@@ -69,6 +70,7 @@ func TestAuthzGetOwnRole(t *testing.T) {
 }
 
 func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
+	t.Parallel()
 	customUser := "custom-admin-user"
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
@@ -117,6 +119,7 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 }
 
 func TestAuthzBuiltInRolesJourney(t *testing.T) {
+	t.Parallel()
 	var err error
 
 	adminUser := "admin-user"
@@ -195,6 +198,7 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesJourney(t *testing.T) {
+	t.Parallel()
 	var err error
 
 	adminUser := "existing-user"
@@ -350,6 +354,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 }
 
 func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -403,6 +408,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 }
 
 func TestAuthzRolesMultiNodeJourney(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -488,6 +494,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermission(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -548,6 +555,7 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 }
 
 func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 
@@ -625,6 +633,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 }
 
 func TestAuthzEmptyRole(t *testing.T) {
+	t.Parallel()
 	var err error
 
 	adminUser := "admin-user"
@@ -652,6 +661,7 @@ func TestAuthzEmptyRole(t *testing.T) {
 }
 
 func TestAuthzRoleRemoveToEmptyAndAddPermission(t *testing.T) {
+	t.Parallel()
 	var err error
 
 	adminUser := "admin-user"

@@ -29,6 +29,7 @@ import (
 )
 
 func TestAuthZBackupsManageJourney(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 

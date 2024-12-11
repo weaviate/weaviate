@@ -26,6 +26,7 @@ import (
 )
 
 func TestAuthzViewerEndpoints(t *testing.T) {
+	t.Parallel()
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 	viewerKey := "viewer-key"
