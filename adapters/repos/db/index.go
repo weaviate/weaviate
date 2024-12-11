@@ -58,6 +58,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -667,7 +668,14 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	shardName, err := i.determineObjectShard(ctx, object.ID(), object.Object.Tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {
@@ -1051,6 +1059,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return nil, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
 		default:
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1139,7 +1149,14 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	for pos, id := range query {
 		shardName, err := i.determineObjectShard(ctx, strfmt.UUID(id.ID), tenant)
 		if err != nil {
-			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+			switch err.(type) {
+			case objects.ErrMultiTenancy:
+				return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+			case authErrs.Forbidden:
+				return nil, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			default:
+				return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+			}
 		}
 
 		group := byShard[shardName]
@@ -1211,6 +1228,8 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
 			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return false, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
 		default:
 			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1775,7 +1794,14 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {
@@ -1945,7 +1971,14 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	shardName, err := i.determineObjectShard(ctx, merge.ID, tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {

@@ -12,15 +12,21 @@
 package test
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestAuthzAutoTenantActivation(t *testing.T) {
@@ -35,8 +41,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	adminAuth := helper.CreateAuth(existingKey)
 
 	// _, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
-
 	helper.SetupClient("localhost:8080")
+	helper.SetupGRPCClient(t, "localhost:50051")
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
@@ -63,6 +69,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 			Name: String(testRoleName),
 			Permissions: []*models.Permission{
 				helper.NewDataPermission().WithAction(authorization.CreateData).WithCollection(cls.Class).Permission(),
+				helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(cls.Class).Permission(),
 				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
 			},
 		})
@@ -73,10 +80,19 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
 		err := helper.CreateObjectAuth(t, obj, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsCreateUnprocessableEntity)
+		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
 		require.True(t, forbidden)
-		t.Log(parsed.Payload.Error[0].Message)
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
+	t.Run("fail with grpc when trying to search an inactivate tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+		_, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
+			Collection: cls.Class,
+			Tenant:     tenant,
+		})
+		require.NotNil(t, err)
+		require.Equal(t, status.Code(err), codes.PermissionDenied)
 	})
 
 	t.Run("add permission allowing to update schema of collection", func(t *testing.T) {
@@ -91,6 +107,16 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("successfully create object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		err := helper.CreateObjectAuth(t, obj, customKey)
 		helper.AssertRequestOk(t, nil, err, nil)
+	})
+
+	t.Run("successfully search object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
+		resp, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
+			Collection: cls.Class,
+			Tenant:     tenant,
+		})
+		require.Nil(t, err)
+		require.NotNil(t, resp)
 	})
 }
 
