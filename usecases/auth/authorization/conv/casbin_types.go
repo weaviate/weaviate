@@ -42,7 +42,6 @@ const (
 var (
 	BuiltInPolicies = map[string]string{
 		authorization.Viewer: authorization.READ,
-		authorization.Editor: CRU,
 		authorization.Admin:  CRUD,
 	}
 	actions = map[string]string{
