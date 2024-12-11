@@ -125,16 +125,14 @@ var (
 
 var (
 	Viewer       = "viewer"
-	Editor       = "editor"
 	Admin        = "admin"
-	BuiltInRoles = []string{Viewer, Editor, Admin}
+	BuiltInRoles = []string{Viewer, Admin}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
 	// Admin : aka basically super Admin or root
 	BuiltInPermissions = map[string][]*models.Permission{
 		Viewer: viewerPermissions(),
-		Editor: editorPermissions(),
 		Admin:  adminPermissions(),
 	}
 )
@@ -391,27 +389,6 @@ func viewerPermissions() []*models.Permission {
 	perms := []*models.Permission{}
 	for _, action := range availableWeaviateActions {
 		if strings.ToUpper(action)[0] != READ[0] {
-			continue
-		}
-
-		perms = append(perms, &models.Permission{
-			Action:      &action,
-			Backups:     AllBackups,
-			Data:        AllData,
-			Nodes:       AllNodes,
-			Roles:       AllRoles,
-			Collections: AllCollections,
-		})
-	}
-
-	return perms
-}
-
-// editor : can create/read/update everything , roles, users, schema, data
-func editorPermissions() []*models.Permission {
-	perms := []*models.Permission{}
-	for _, action := range availableWeaviateActions {
-		if strings.ToUpper(action)[0] == DELETE[0] {
 			continue
 		}
 
