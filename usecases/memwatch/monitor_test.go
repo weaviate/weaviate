@@ -164,7 +164,6 @@ func TestMappings(t *testing.T) {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close()
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
@@ -178,9 +177,10 @@ func TestMappings(t *testing.T) {
 				require.Nil(t, m.CheckMappingAndReserve(1, 0))
 				data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 				require.Nil(t, err)
-
-				defer syscall.Munmap(data)
+				require.Nil(t, syscall.Munmap(data))
 			}
+
+			require.Nil(t, file.Close())
 		}
 
 		switch runtime.GOOS {
@@ -203,7 +203,7 @@ func TestMappings(t *testing.T) {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close()
+
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
@@ -214,7 +214,8 @@ func TestMappings(t *testing.T) {
 			data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 			require.Nil(t, err)
 
-			defer syscall.Munmap(data)
+			require.Nil(t, syscall.Munmap(data))
+			require.Nil(t, file.Close())
 		}
 	})
 
