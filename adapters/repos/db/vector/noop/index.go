@@ -151,6 +151,10 @@ func (i *Index) Compressed() bool {
 	return false
 }
 
+func (i *Index) Multivector() bool {
+	return false
+}
+
 func (i *Index) AlreadyIndexed() uint64 {
 	return 0
 }
