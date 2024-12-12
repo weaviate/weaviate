@@ -65,7 +65,7 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
 	for idx, c := range d.containers {
 		if c.name == container {
-			if err := c.container.Terminate(ctx); err != nil {
+			if err := c.container.Terminate(ctx); err != nil && !strings.Contains(err.Error(), "is already in progress") {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
 			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
