@@ -221,4 +221,4 @@ require (
 
 go 1.22
 
-replace github.com/hashicorp/raft => github.com/weaviate/raft v0.0.0-20241210082714-bfb17ceb03db
+replace github.com/hashicorp/raft => github.com/weaviate/raft v0.0.0-20241212111053-e58f601c3a22
