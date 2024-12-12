@@ -33,6 +33,10 @@ const (
 	// SegmentV1 is the current latest version, and introduced support
 	// for integrity checks with checksums added to the segment files.
 	SegmentV1 = uint16(1)
+
+	// CurrentSegmentVersion is used to ensure that the parsed header
+	// version does not exceed the highest valid version.
+	CurrentSegmentVersion = SegmentV1
 )
 
 type Header struct {
@@ -131,9 +135,9 @@ func ParseHeader(r io.Reader) (*Header, error) {
 		return nil, err
 	}
 
-	//if out.Version != 0 {
-	//	return nil, fmt.Errorf("unsupported version %d", out.Version)
-	//}
+	if out.Version > CurrentSegmentVersion {
+		return nil, fmt.Errorf("unsupported version %d", out.Version)
+	}
 
 	if err := binary.Read(r, binary.LittleEndian, &out.Strategy); err != nil {
 		return nil, err
