@@ -44,12 +44,13 @@ type indices struct {
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all indices requests just return a 418
-	maintenanceModeEnabled bool
-	regexpObjects          *regexp.Regexp
-	regexpObjectsOverwrite *regexp.Regexp
-	regexObjectsDigest     *regexp.Regexp
-	regexpObjectsSearch    *regexp.Regexp
-	regexpObjectsFind      *regexp.Regexp
+	isMaintenanceModeEnabled func() bool
+	isClusterReady           func() bool
+	regexpObjects            *regexp.Regexp
+	regexpObjectsOverwrite   *regexp.Regexp
+	regexObjectsDigest       *regexp.Regexp
+	regexpObjectsSearch      *regexp.Regexp
+	regexpObjectsFind        *regexp.Regexp
 
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
@@ -148,7 +149,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled bool, logger logrus.FieldLogger) *indices {
+func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() bool, isClusterReady func() bool, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:          regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -167,7 +168,8 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled bool, lo
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
-		maintenanceModeEnabled:    maintenanceModeEnabled,
+		isMaintenanceModeEnabled:  maintenanceModeEnabled,
+		isClusterReady:            isClusterReady,
 		logger:                    logger,
 	}
 }
@@ -179,10 +181,15 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if i.maintenanceModeEnabled {
+		if i.isMaintenanceModeEnabled() {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
+		if !i.isClusterReady() {
+			http.Error(w, "503 Not ready yet", http.StatusServiceUnavailable)
+			return
+		}
+
 		// NOTE if you update any of these handler methods/paths, also update the indices_test.go
 		// TestMaintenanceModeIndices test to include the new methods/paths.
 		switch {
