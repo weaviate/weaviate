@@ -32,6 +32,7 @@ import (
 )
 
 func TestAuthZGraphQLRefs(t *testing.T) {
+	t.Parallel()
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 
@@ -163,6 +164,7 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 }
 
 func TestAuthZGraphQLRefsGroupBy(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)

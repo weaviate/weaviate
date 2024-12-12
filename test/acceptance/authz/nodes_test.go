@@ -25,6 +25,7 @@ import (
 )
 
 func TestAuthzNodes(t *testing.T) {
+	t.Parallel()
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 

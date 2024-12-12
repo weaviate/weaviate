@@ -30,6 +30,7 @@ import (
 
 // Test create + delete - update does not seem to work without classname and we should not fix it
 func TestWithoutCollectionName(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)
@@ -163,6 +164,7 @@ func TestWithoutCollectionName(t *testing.T) {
 }
 
 func TestRefsWithoutCollectionNames(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)

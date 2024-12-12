@@ -25,6 +25,7 @@ import (
 )
 
 func TestCollectEndpoints(t *testing.T) {
+	t.Parallel()
 	// print all endpoints grouped  by method
 	col, err := newCollector()
 	require.Nil(t, err)
@@ -32,6 +33,7 @@ func TestCollectEndpoints(t *testing.T) {
 }
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
+	t.Parallel()
 	adminKey := "admin-Key"
 	adminUser := "admin-User"
 	customKey := "custom-key"

@@ -26,6 +26,7 @@ import (
 )
 
 func TestAuthZBatchObjREST(t *testing.T) {
+	t.Parallel()
 	adminUser := "admin-user"
 	adminKey := "admin-key"
 	adminAuth := helper.CreateAuth(adminKey)

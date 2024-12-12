@@ -28,6 +28,7 @@ import (
 )
 
 func TestAuthZGraphQLSingleTenancy(t *testing.T) {
+	t.Parallel()
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 
@@ -171,6 +172,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 }
 
 func TestAuthZGraphQLMultiTenancy(t *testing.T) {
+	t.Parallel()
 	adminUser := "existing-user"
 	adminKey := "existing-key"
 
