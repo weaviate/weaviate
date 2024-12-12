@@ -510,18 +510,18 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	_, v, buffer, err = b.disk.getBySecondaryIntoMemory(pos, key, buffer)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// additional validation to ensure the primary key has not been marked as deleted
-	pkv, err := b.get(k)
-	if err != nil {
-		return nil, nil, err
-	} else if pkv == nil {
-		return nil, buffer, nil
-	}
+	// pkv, err := b.get(k)
+	// if err != nil {
+	// 	return nil, nil, err
+	// } else if pkv == nil {
+	// 	return nil, buffer, nil
+	// }
 
 	return v, buffer, nil
 }
