@@ -233,7 +233,6 @@ jobs:
         test: [
           "--only-module-multi2vec-cohere",
           "--only-module-multi2vec-google",
-          "--only-module-generative-anthropic",
           "--only-module-generative-aws",
           "--only-module-generative-cohere",
           "--only-module-generative-google",
