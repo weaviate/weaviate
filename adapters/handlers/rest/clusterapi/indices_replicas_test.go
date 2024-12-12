@@ -95,6 +95,7 @@ func TestClusterNotReadyReplicatedIndices(t *testing.T) {
 			assert.Nil(t, err)
 			res, err := http.DefaultClient.Do(req)
 			assert.Nil(t, err)
+			defer res.Body.Close()
 			assert.Equal(t, notReadyExpectedHTTPStatus, res.StatusCode)
 		})
 	}
