@@ -183,14 +183,7 @@ func TestMappings(t *testing.T) {
 			require.Nil(t, file.Close())
 		}
 
-		switch runtime.GOOS {
-		case "linux":
-			// any further mapping should fail
-			require.NotNil(t, m.CheckMappingAndReserve(1, 60))
-		case "darwin":
-			// any further mapping should not fail
-			require.Nil(t, m.CheckMappingAndReserve(1, 60))
-		}
+		require.Nil(t, m.CheckMappingAndReserve(1, 60))
 	})
 
 	t.Run("check mappings for dummy", func(t *testing.T) {
