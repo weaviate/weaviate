@@ -206,7 +206,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		segmentName := path.Join(dirName, "my-segment.tmp")
 
 		header := &segmentindex.Header{
-			Version:  segmentindex.CurrentSegmentVersion,
+			Version:  segmentindex.SegmentV1,
 			Strategy: segmentindex.Strategy(100), // this strategy doesn't exist
 		}
 

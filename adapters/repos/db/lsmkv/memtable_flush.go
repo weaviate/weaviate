@@ -122,7 +122,7 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.CurrentSegmentVersion,
+		Version:          segmentindex.SegmentV1,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
@@ -199,7 +199,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.CurrentSegmentVersion,
+		Version:          segmentindex.SegmentV1,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}

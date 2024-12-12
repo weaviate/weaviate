@@ -86,7 +86,7 @@ func (c *compactorSet) do() error {
 	}
 
 	if err := c.writeHeader(segmentFile, c.currentLevel,
-		segmentindex.CurrentSegmentVersion, c.secondaryIndexCount, dataEnd); err != nil {
+		segmentindex.SegmentV1, c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
@@ -209,10 +209,23 @@ func (c *compactorSet) writeHeader(f *segmentindex.SegmentFile,
 		Strategy:         segmentindex.StrategySetCollection,
 		IndexStart:       startOfIndex,
 	}
+	// We have to write directly to compactor writer,
+	// since it has seeked back to start. The following
+	// call to f.WriteHeader will not write again.
+	if _, err := h.WriteTo(c.w); err != nil {
+		return err
+	}
 
 	if _, err := f.WriteHeader(h); err != nil {
 		return err
 	}
+
+	// We need to seek back to the end so we can write a checksum
+	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end after writing header: %w", err)
+	}
+
+	c.bufw.Reset(c.w)
 
 	return nil
 }

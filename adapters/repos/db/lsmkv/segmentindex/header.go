@@ -30,10 +30,9 @@ const (
 	// This is currently based on the CRC32 hashing algorithm.
 	ChecksumSize = 4
 
-	// CurrentSegmentVersion represents the latest version of disk segment file.
-	// Version 1 is the current latest, and introduced support for integrity
-	// checks with checksums added to the segment files.
-	CurrentSegmentVersion = uint16(1)
+	// SegmentV1 is the current latest version, and introduced support
+	// for integrity checks with checksums added to the segment files.
+	SegmentV1 = uint16(1)
 )
 
 type Header struct {
