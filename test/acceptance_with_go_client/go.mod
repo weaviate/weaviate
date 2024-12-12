@@ -97,7 +97,7 @@ require (
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/memberlist v0.5.1 // indirect
-	github.com/hashicorp/raft v1.7.1 // indirect
+	github.com/hashicorp/raft v1.7.2-0.20241212131917-a5bc06ccef1d // indirect
 	github.com/ikawaha/kagome-dict v1.1.0 // indirect
 	github.com/ikawaha/kagome-dict-ko v0.2.1 // indirect
 	github.com/ikawaha/kagome-dict/ipa v1.2.0 // indirect
