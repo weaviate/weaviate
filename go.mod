@@ -35,8 +35,8 @@ require (
 	go.opentelemetry.io/otel v1.29.0 // indirect
 	golang.org/x/net v0.29.0
 	golang.org/x/oauth2 v0.23.0
-	golang.org/x/sync v0.8.0
-	golang.org/x/sys v0.25.0
+	golang.org/x/sync v0.10.0
+	golang.org/x/sys v0.28.0
 	gonum.org/v1/gonum v0.12.0
 	google.golang.org/api v0.198.0
 	google.golang.org/grpc v1.66.2
@@ -77,7 +77,7 @@ require (
 	github.com/weaviate/sroar v0.0.8
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
-	golang.org/x/text v0.18.0
+	golang.org/x/text v0.21.0
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
@@ -208,7 +208,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	go.uber.org/goleak v1.2.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	golang.org/x/crypto v0.27.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240827150818-7e3bb234dfed // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
