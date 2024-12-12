@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
-	defaultChunkSize = 100 * 1024 * 1024
+	// defaultChunkSize is the maximum size of each chunk file. Defaults to 10MB.
+	defaultChunkSize = 10 * 1024 * 1024
 
 	// defaultStaleTimeout is the duration after which a partial chunk is considered stale.
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
