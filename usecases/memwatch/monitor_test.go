@@ -149,7 +149,7 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
-	t.Run("check mappings", func(t *testing.T) {
+	t.Run("check mappings, by open many file mappings and close them only after the test is done", func(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
@@ -159,6 +159,8 @@ func TestMappings(t *testing.T) {
 		mappingsLeft := getMaxMemoryMappings() - currentMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
 		path := t.TempDir()
+		fileMemoryMap := make(map[*os.File][]byte)
+
 		// use up available mappings
 		for i := 0; i < int(mappingsLeft)+5; i++ {
 			m.Refresh(true)
@@ -169,6 +171,7 @@ func TestMappings(t *testing.T) {
 
 			fileInfo, err := file.Stat()
 			require.Nil(t, err)
+			fileMemoryMap[file] = []byte{}
 
 			// there might be other processes that use mappings
 			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
@@ -177,20 +180,35 @@ func TestMappings(t *testing.T) {
 				require.Nil(t, m.CheckMappingAndReserve(1, 0))
 				data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 				require.Nil(t, err)
+				fileMemoryMap[file] = data
+			}
+		}
+
+		for file, data := range fileMemoryMap {
+			if len(data) > 0 {
 				require.Nil(t, syscall.Munmap(data))
 			}
 
 			require.Nil(t, file.Close())
 		}
 
-		require.Nil(t, m.CheckMappingAndReserve(1, 60))
+		switch runtime.GOOS {
+		case "linux":
+			// any further mapping should fail
+			require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+		case "darwin":
+			// any further mapping should not fail
+			require.Nil(t, m.CheckMappingAndReserve(1, 60))
+		}
 	})
 
-	t.Run("check mappings for dummy", func(t *testing.T) {
+	t.Run("check mappings for dummy, by open many file mappings and close them only after the test is done", func(t *testing.T) {
 		m := NewDummyMonitor()
 		m.Refresh(true)
 
 		path := t.TempDir()
+		fileMemoryMap := make(map[*os.File][]byte)
+
 		// use many mappings, dummy monitor should never block
 		for i := 0; i < 100; i++ {
 			m.Refresh(true)
@@ -206,7 +224,10 @@ func TestMappings(t *testing.T) {
 			require.Nil(t, m.CheckMappingAndReserve(1, 1))
 			data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 			require.Nil(t, err)
+			fileMemoryMap[file] = data
+		}
 
+		for file, data := range fileMemoryMap {
 			require.Nil(t, syscall.Munmap(data))
 			require.Nil(t, file.Close())
 		}
