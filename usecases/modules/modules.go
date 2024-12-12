@@ -267,6 +267,14 @@ func (p *Provider) IsReranker(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextReranker
 }
 
+func (p *Provider) IsMultiVector(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Text2ColBERT
+}
+
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,

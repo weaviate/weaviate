@@ -119,6 +119,10 @@ func (i *Index) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (i *Index) ValidateMultiBeforeInsert(vector [][]float32) error {
+	return nil
+}
+
 func (i *Index) PostStartup() {
 }
 

@@ -86,7 +86,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	maxDocID := s.Counter().Get()
 
-	var batch []common.VectorRecord
+	var batch []common.VectorRec
 	err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
 		if vectorIndex.ContainsNode(id) {
 			return nil
@@ -95,7 +95,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 			return nil
 		}
 
-		rec := common.VectorRecord{
+		rec := &common.Vector[[]float32]{
 			ID:     id,
 			Vector: vector,
 		}
@@ -138,6 +138,38 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 }
 
 func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector []float32) error) error {
+	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
+		var vector []float32
+		if targetVector == "" {
+			vector = obj.Vector
+		} else {
+			if len(obj.Vectors) > 0 {
+				vector = obj.Vectors[targetVector]
+			}
+		}
+		err := fn(obj.DocID, vector)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *Shard) iterateOnLSMMultiVectors(ctx context.Context, fromID uint64, targetVector string, fn func(id uint64, vector [][]float32) error) error {
+	return s.iterateOnLSMObjects(ctx, fromID, func(obj *storobj.Object) error {
+		var vector [][]float32
+		if len(obj.MultiVectors) > 0 {
+			vector = obj.MultiVectors[targetVector]
+		}
+		err := fn(obj.DocID, vector)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (s *Shard) iterateOnLSMObjects(ctx context.Context, fromID uint64, fn func(obj *storobj.Object) error) error {
 	maxDocID := s.Counter().Get()
 	bucket := s.Store().Bucket(helpers.ObjectsBucketLSM)
 
@@ -160,18 +192,8 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
-		id := obj.DocID
 
-		var vector []float32
-		if targetVector == "" {
-			vector = obj.Vector
-		} else {
-			if len(obj.Vectors) > 0 {
-				vector = obj.Vectors[targetVector]
-			}
-		}
-
-		err = fn(id, vector)
+		err = fn(obj)
 		if err != nil {
 			return err
 		}
@@ -224,7 +246,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	var added, deleted int
 
-	var batch []common.VectorRecord
+	var batch []common.VectorRec
 
 	// add non-indexed vectors to the queue
 	err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
@@ -237,7 +259,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 			return nil
 		}
 
-		rec := common.VectorRecord{
+		rec := &common.Vector[[]float32]{
 			ID:     id,
 			Vector: vector,
 		}
@@ -258,7 +280,41 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "iterate on LSM")
+		return errors.Wrap(err, "iterate on LSM vectors")
+	}
+	// TODO:colbert check if we need to have an information if a given vector index is multi vector one
+	err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(id uint64, vector [][]float32) error {
+		visited.Visit(id)
+
+		if vectorIndex.ContainsNode(id) {
+			return nil
+		}
+		if len(vector) == 0 {
+			return nil
+		}
+
+		rec := &common.Vector[[][]float32]{
+			ID:     id,
+			Vector: vector,
+		}
+		added++
+
+		batch = append(batch, rec)
+
+		if len(batch) < 1000 {
+			return nil
+		}
+
+		err = q.Insert(ctx, batch...)
+		if err != nil {
+			return err
+		}
+
+		batch = batch[:0]
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "iterate on LSM multi vectors")
 	}
 
 	if len(batch) > 0 {
