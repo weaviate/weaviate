@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -34,7 +35,10 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 func (d *DockerCompose) Terminate(ctx context.Context) error {
 	var errs error
 	for _, c := range d.containers {
-		if err := c.container.Terminate(ctx); err != nil {
+		// TODO : remove this once issue got resolved in testcontainers
+		// this because the timeout is too short and hardcoded
+		// ref https://github.com/testcontainers/testcontainers-go/blob/35bf0cd0707d6ff21a8e7c7fdb39c5dfa560f142/docker.go#L309
+		if err := c.container.Terminate(ctx); err != nil && !strings.Contains(err.Error(), "is already in progress") {
 			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
 		}
 	}
