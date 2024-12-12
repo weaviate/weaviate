@@ -75,9 +75,23 @@ type diskIndex interface {
 	QuantileKeys(q int) [][]byte
 }
 
+type segmentConfig struct {
+	mmapContents              bool
+	useBloomFilter            bool
+	calcCountNetAdditions     bool
+	overwriteDerived          bool
+	disableChecksumValidation bool
+}
+
+// newSegment creates a new segment structure, representing an LSM disk segment.
+//
+// This function is partially copied by a function called preComputeSegmentMeta.
+// Any changes made here should likely be made in preComputeSegmentMeta as well,
+// and vice versa. This is absolutely not ideal, but in the short time I was able
+// to consider this, I wasn't able to find a way to unify the two -- there are
+// subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
-	existsLower existsOnLowerSegmentsFn, mmapContents bool,
-	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
+	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (_ *segment, err error) {
 	defer func() {
 		p := recover()
@@ -113,7 +127,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 {
+	if header.Version >= segmentindex.SegmentV1 && !cfg.disableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
@@ -142,9 +156,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:                logger,
 		metrics:               metrics,
 		size:                  size,
-		mmapContents:          mmapContents,
-		useBloomFilter:        useBloomFilter,
-		calcCountNetAdditions: calcCountNetAdditions,
+		mmapContents:          cfg.mmapContents,
+		useBloomFilter:        cfg.useBloomFilter,
+		calcCountNetAdditions: cfg.calcCountNetAdditions,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -166,12 +180,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, overwriteDerived); err != nil {
+		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, overwriteDerived); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
 			return nil, err
 		}
 	}

@@ -27,8 +27,14 @@ import (
 // result this can be run without the need to obtain any locks. All files
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
+//
+// This function is a partial copy of what happens in newSegment(). Any changes
+// made here should likely be made in newSegment, and vice versa. This is
+// absolutely not ideal, but in the short time I was able to consider this, I wasn't
+// able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
+	disableChecksumValidation bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -67,7 +73,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 {
+	if header.Version >= segmentindex.SegmentV1 && !disableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
