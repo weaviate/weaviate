@@ -19,16 +19,18 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepairObjectDeleteScenario(t *testing.T) {
-	t.Skip()
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
+	t := suite.T()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -67,7 +69,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		node := 2 + rand.Intn(clusterSize-1)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, node)
+			common.StopNodeAt(ctx, t, compose, node)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
@@ -88,11 +90,11 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 				}
 			}
 
-			createObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
+			common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			startNodeAt(ctx, t, compose, node)
+			common.StartNodeAt(ctx, t, compose, node)
 			time.Sleep(time.Second)
 		})
 	}
@@ -107,7 +109,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		node := 2 + rand.Intn(clusterSize-1)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, node)
+			common.StopNodeAt(ctx, t, compose, node)
 		})
 
 		objectNotDeletedAt[id] = node
@@ -131,29 +133,29 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, replica.Quorum)
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			startNodeAt(ctx, t, compose, node)
+			common.StartNodeAt(ctx, t, compose, node)
 			time.Sleep(time.Second)
 		})
 	}
 
 	// wait for some time for async replication to repair missing object
-	time.Sleep(3 * time.Second)
-
 	t.Run("assert each node has all the objects at its latest version when object was not deleted", func(t *testing.T) {
-		for i, id := range paragraphIDs[:paragraphCount] {
-			node, notDeleted := objectNotDeletedAt[id]
-			if notDeleted {
-				resp, err := getObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.One)
-				require.NoError(t, err)
-				require.Equal(t, id, resp.ID)
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for i, id := range paragraphIDs[:paragraphCount] {
+				node, notDeleted := objectNotDeletedAt[id]
+				if notDeleted {
+					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.One)
+					require.NoError(ct, err)
+					require.Equal(ct, id, resp.ID)
 
-				props := resp.Properties.(map[string]interface{})
-				props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
-			} else {
-				resp, err := objectExistsCL(t, compose.GetWeaviateNode(1+(node+1)%clusterSize).URI(), paragraphClass.Class, id, replica.Quorum)
-				require.NoError(t, err)
-				require.False(t, resp)
+					props := resp.Properties.(map[string]interface{})
+					props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
+				} else {
+					resp, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(1+(node+1)%clusterSize).URI(), paragraphClass.Class, id, replica.Quorum)
+					require.NoError(ct, err)
+					require.False(ct, resp)
+				}
 			}
-		}
+		}, 10*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 }
