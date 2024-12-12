@@ -331,6 +331,56 @@ func TestQueueDecodeTask(t *testing.T) {
 		err = q.w.Promote()
 		require.NoError(t, err)
 	})
+
+	t.Run("restart", func(t *testing.T) {
+		exec := discardExecutor()
+		q := makeQueueSize(t, s, exec, 50)
+
+		pushMany(t, q, 1, 100, 200, 300, 400, 500, 600)
+
+		entries, err := os.ReadDir(q.dir)
+		require.NoError(t, err)
+		require.Len(t, entries, 2)
+
+		err = q.Close()
+		require.NoError(t, err)
+
+		q, err = NewDiskQueue(DiskQueueOptions{
+			ID:           "test_queue",
+			Scheduler:    s,
+			Logger:       newTestLogger(),
+			Dir:          q.dir,
+			TaskDecoder:  &mockTaskDecoder{},
+			StaleTimeout: 500 * time.Millisecond,
+			ChunkSize:    50,
+		})
+		require.NoError(t, err)
+
+		err = q.Init()
+		require.NoError(t, err)
+
+		batch, err := q.DequeueBatch()
+		require.NoError(t, err)
+		require.NotNil(t, batch)
+		require.Len(t, batch.Tasks, 3)
+
+		for i := 0; i < 3; i++ {
+			task := batch.Tasks[i]
+			require.NotNil(t, task)
+			require.Equal(t, uint8(1), task.Op())
+			require.Equal(t, uint64(100*(i+1)), task.Key())
+		}
+
+		require.Equal(t, int64(6), q.Size())
+
+		// decoding more tasks should return nil
+		batch, err = q.DequeueBatch()
+		require.NoError(t, err)
+		require.Nil(t, batch)
+
+		err = q.Close()
+		require.NoError(t, err)
+	})
 }
 
 func newTestLogger() logrus.FieldLogger {
