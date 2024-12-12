@@ -39,6 +39,7 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup()
 	Compressed() bool
+	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	// ContainsNode returns true if the index contains the node with the given id.

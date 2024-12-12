@@ -188,6 +188,10 @@ func (index *flat) Compressed() bool {
 	return index.compression != compressionNone
 }
 
+func (index *flat) Multivector() bool {
+	return false
+}
+
 func (index *flat) getBucketName() string {
 	if index.targetVector != "" {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, index.targetVector)

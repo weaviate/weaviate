@@ -71,6 +71,7 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup()
 	Compressed() bool
+	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
@@ -222,6 +223,12 @@ func (dynamic *dynamic) Compressed() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.Compressed()
+}
+
+func (dynamic *dynamic) Multivector() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Multivector()
 }
 
 func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {

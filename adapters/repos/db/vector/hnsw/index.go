@@ -738,6 +738,10 @@ func (h *hnsw) Compressed() bool {
 	return h.compressed.Load()
 }
 
+func (h *hnsw) Multivector() bool {
+	return h.multivector.Load()
+}
+
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }
