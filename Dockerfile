@@ -36,7 +36,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # This image gets grpc health check probe
 FROM golang:1.22-alpine AS grpc_health_probe_builder
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.34
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.35
 RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
 
 ###############################################################################
