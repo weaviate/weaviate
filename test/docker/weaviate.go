@@ -68,7 +68,7 @@ func startWeaviate(ctx context.Context,
 				"GITHASH":    &gitHash,
 			},
 			PrintBuildLog: true,
-			KeepImage:     false,
+			KeepImage:     true,
 		}
 	}
 	containerName := Weaviate1
@@ -106,11 +106,9 @@ func startWeaviate(ctx context.Context,
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
-		Hostname:       containerName,
-		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
-			networkName: {containerName},
+			networkName: {networkName},
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,
