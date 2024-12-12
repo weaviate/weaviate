@@ -611,8 +611,6 @@ github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKy
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa h1:yavIOSoUOUfmYlESRiyT4mqVI/thhNm10pS9LDdf62c=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa/go.mod h1:2REGzzHg/U0Olsn/1ok6QfqAE/vDuKvb/j2eLrOIP8A=
-github.com/weaviate/raft v0.0.0-20241212111053-e58f601c3a22 h1:lNdqvbNheCtyywGZthIohg5nnU2Tj4vSVEuURivss4U=
-github.com/weaviate/raft v0.0.0-20241212111053-e58f601c3a22/go.mod h1:hUeiEwQQR/Nk2iKDD0dkEhklSsu3jcAcqvPzPoZSAEM=
 github.com/weaviate/s5cmd/v2 v2.0.1 h1:NLsBemDEeUa1pcqVAGl5Y2quKH8EFpkz/Z8n4s620hg=
 github.com/weaviate/s5cmd/v2 v2.0.1/go.mod h1:JEoBF8SXVwK8qoaRKi0fPA4qi4OFmr+iVgc4XO3l/Zs=
 github.com/weaviate/sroar v0.0.8 h1:BUHeYdgX1M36tzhHc3WoaDrZGXOyk9aWAlC6QXstXYM=
