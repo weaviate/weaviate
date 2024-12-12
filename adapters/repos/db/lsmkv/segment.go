@@ -109,15 +109,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-<<<<<<< HEAD
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.CurrentSegmentVersion {
-=======
 	if header.Version >= segmentindex.SegmentV1 {
->>>>>>> 5a03f4ebe (validate segment checksums after compactions)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)

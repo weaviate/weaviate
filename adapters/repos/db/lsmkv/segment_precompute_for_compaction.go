@@ -63,23 +63,15 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-<<<<<<< HEAD
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
-=======
+	}
+
 	if header.Version >= segmentindex.SegmentV1 {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
-	}
-
-	switch header.Strategy {
-	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
-	default:
-		return nil, fmt.Errorf("unsupported strategy in segment")
->>>>>>> 5a03f4ebe (validate segment checksums after compactions)
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
