@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -106,6 +107,9 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
+	withWeaviateOIDC              bool
+	withWeaviateOIDCIssuer        string
+	withWeaviateOIDCClientId      string
 	withWeaviateApiKey            bool
 	weaviateApiKeyUsers           []ApiKeyUser
 	withWeaviateRbac              bool
@@ -437,6 +441,13 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithOIDC(issuer, clientId string) *Compose {
+	d.withWeaviateOIDC = true
+	d.withWeaviateOIDCIssuer = issuer
+	d.withWeaviateOIDCClientId = clientId
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -690,7 +701,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready", "")
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -781,6 +792,21 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		}
 	}
 
+	localOIDCPort := ""
+	if d.withWeaviateOIDC {
+		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
+		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = d.withWeaviateOIDCClientId
+		settings["AUTHENTICATION_OIDC_ISSUER"] = d.withWeaviateOIDCIssuer
+		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "sub"
+		settings["AUTHENTICATION_OIDC_SCOPES"] = "openid"
+		parsedURL, err := url.Parse(d.withWeaviateOIDCIssuer)
+		if err != nil {
+			return nil, err
+		}
+
+		localOIDCPort = parsedURL.Port()
+	}
+
 	if d.withAutoschema {
 		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
@@ -804,7 +830,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"))
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"), localOIDCPort)
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -820,7 +846,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"), localOIDCPort)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -837,7 +863,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"), localOIDCPort)
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

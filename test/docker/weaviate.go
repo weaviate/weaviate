@@ -13,6 +13,9 @@ package docker
 
 import (
 	"context"
+	"fmt"
+	"github.com/docker/docker/api/types/container"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -36,7 +39,7 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
 	weaviateImage, hostname string, exposeGRPCPort bool,
-	wellKnownEndpoint string,
+	wellKnownEndpoint string, localOIDCPort string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -95,14 +98,16 @@ func startWeaviate(ctx context.Context,
 	httpPort := nat.Port("8080/tcp")
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
-		wait.ForListeningPort(httpPort),
-		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
+		wait.ForListeningPort(httpPort).WithStartupTimeout(1 * time.Minute),
+		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort).WithStartupTimeout(1 * time.Minute),
 	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+
+	os.Setenv("TESTCONTAINERS_GO_LOG", "DEBUG")
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -134,12 +139,29 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
+	if localOIDCPort != "" {
+		oidcPort := nat.Port(localOIDCPort + "/tcp")
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(oidcPort).WithStartupTimeout(1*time.Minute))
+		req.HostConfigModifier = func(hostConfig *container.HostConfig) {
+			hostConfig.NetworkMode = "host"
+		}
+		req.Networks = []string{}                  // Explicitly set no networks
+		req.NetworkAliases = map[string][]string{} // Clear any network aliases
+	}
+
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 		Reuse:            false,
 	})
 	if err != nil {
+		if c != nil {
+			logs, _ := c.Logs(ctx)
+
+			// Print or analyze logs
+			logContent, _ := io.ReadAll(logs)
+			fmt.Println(string(logContent))
+		}
 		return nil, err
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
