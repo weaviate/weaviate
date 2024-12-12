@@ -43,6 +43,11 @@ type SegmentFile struct {
 	reader         *bufio.Reader
 	checksumWriter integrity.ChecksumWriter
 	checksumReader integrity.ChecksumReader
+	// flag to indicate if the segment file is empty.
+	// this is necessary, because in the case of
+	// compactions, we don't want to re-write the header
+	// when it is later re-written
+	writtenTo bool
 }
 
 type SegmentFileOption func(*SegmentFile)
@@ -86,6 +91,7 @@ func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 //
 // This method uses the written data to further calculate the checksum.
 func (f *SegmentFile) BodyWriter() io.Writer {
+	f.writtenTo = true
 	return f.checksumWriter
 }
 
@@ -98,14 +104,24 @@ func (f *SegmentFile) WriteHeader(header *Header) (int64, error) {
 			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
 	}
 
-	n, err := header.WriteTo(f.checksumWriter)
-	if err != nil {
-		return n, fmt.Errorf("write segment file header: %w", err)
-	}
-	// We save the header, and only write it to the checksum at the end
 	f.header = header
-	f.checksumWriter.Reset()
-	return n, nil
+	// If this is a memtable flush, we want to write the header up front.
+	// If this is a compaction, the dummy header already exists, and will
+	// be overwritten through a different writer. In that case, all we care
+	// about is saving the header pointer, so we can add it to the hash when
+	// WriteChecksum is called.
+	if !f.writtenTo {
+		n, err := header.WriteTo(f.checksumWriter)
+		if err != nil {
+			return n, fmt.Errorf("write segment file header: %w", err)
+		}
+		// We save the header, and only write it to the checksum at the end
+		f.checksumWriter.Reset()
+		f.writtenTo = true
+		return n, nil
+	}
+
+	return 0, nil
 }
 
 // WriteIndexes writes the indexes struct to the underlying writer.
@@ -120,6 +136,7 @@ func (f *SegmentFile) WriteIndexes(indexes *Indexes) (int64, error) {
 	if err != nil {
 		return n, fmt.Errorf("write segment file indexes: %w", err)
 	}
+	f.writtenTo = true
 	return n, nil
 }
 

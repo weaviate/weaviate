@@ -49,6 +49,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
+	size := fileInfo.Size()
 
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
@@ -62,8 +63,23 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
+<<<<<<< HEAD
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
+=======
+	if header.Version >= segmentindex.SegmentV1 {
+		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+			return nil, fmt.Errorf("validate segment %q: %w", path, err)
+		}
+	}
+
+	switch header.Strategy {
+	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
+		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
+	default:
+		return nil, fmt.Errorf("unsupported strategy in segment")
+>>>>>>> 5a03f4ebe (validate segment checksums after compactions)
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
@@ -86,7 +102,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
-		segmentEndPos:         uint64(fileInfo.Size()),
+		segmentEndPos:         uint64(size),
+		size:                  size,
 		strategy:              header.Strategy,
 		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:            header.IndexStart,

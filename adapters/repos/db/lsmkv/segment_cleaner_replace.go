@@ -42,7 +42,7 @@ func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		cursor:              cursor,
 		keyExistsFn:         keyExistsFn,
-		version:             segmentindex.CurrentSegmentVersion,
+		version:             segmentindex.SegmentV1,
 		level:               level,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
@@ -170,10 +170,22 @@ func (p *segmentCleanerReplace) writeHeader(f *segmentindex.SegmentFile,
 		Strategy:         segmentindex.StrategyReplace,
 		IndexStart:       startOfIndex,
 	}
+	// We have to write directly to compactor writer,
+	// since it has seeked back to start. The following
+	// call to f.WriteHeader will not write again.
+	if _, err := h.WriteTo(p.w); err != nil {
+		return err
+	}
 
 	if _, err := f.WriteHeader(h); err != nil {
 		return err
 	}
+
+	if _, err := p.w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end after writing header: %w", err)
+	}
+
+	p.bufw.Reset(p.w)
 
 	return nil
 }
