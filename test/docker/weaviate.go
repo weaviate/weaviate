@@ -135,7 +135,7 @@ func startWeaviate(ctx context.Context,
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
-		Reuse:            true,
+		Reuse:            false,
 	})
 	if err != nil {
 		return nil, err
