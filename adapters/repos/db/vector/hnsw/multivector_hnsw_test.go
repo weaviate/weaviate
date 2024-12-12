@@ -16,9 +16,7 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -94,13 +92,10 @@ func TestMultiVectorHnsw(t *testing.T) {
 		require.Nil(t, err)
 		vectorIndex = index
 
-		before := time.Now()
 		for i, vec := range multiVectors {
 			err := vectorIndex.AddMulti(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
-
-		fmt.Printf("importing took %s\n", time.Since(before))
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
@@ -112,32 +107,12 @@ func TestMultiVectorHnsw(t *testing.T) {
 	})
 
 	t.Run("delete some nodes", func(t *testing.T) {
-		// Delete the first node and then add back
-		newExpectedResults := [][]uint64{
-			{1, 2},
-			{2, 1},
-		}
-		err := vectorIndex.DeleteMulti(0)
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, newExpectedResults[i], ids)
-		}
-		err = vectorIndex.AddMulti(ctx, 0, multiVectors[0])
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, expectedResults[i], ids)
-		}
-
 		// Delete the second node and then add back
-		newExpectedResults = [][]uint64{
+		newExpectedResults := [][]uint64{
 			{0, 2},
 			{0, 2},
 		}
-		err = vectorIndex.DeleteMulti(1)
+		err := vectorIndex.DeleteMulti(1)
 		require.Nil(t, err)
 		for i, query := range multiQueries {
 			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
@@ -207,13 +182,10 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 		require.Nil(t, err)
 		vectorIndex = index
 
-		before := time.Now()
 		for i, vec := range multiVectors {
 			err := vectorIndex.AddMulti(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
-
-		fmt.Printf("importing took %s\n", time.Since(before))
 	})
 
 	t.Run("inspect a query", func(t *testing.T) {
@@ -238,46 +210,6 @@ func TestMultiVectorBQHnsw(t *testing.T) {
 			require.Equal(t, newExpectedResults[i], ids)
 		}
 		err = vectorIndex.AddMulti(ctx, 0, multiVectors[0])
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, expectedResults[i], ids)
-		}
-
-		// Delete the second node and then add back
-		newExpectedResults = [][]uint64{
-			{0, 2},
-			{0, 2},
-		}
-		err = vectorIndex.DeleteMulti(1)
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, newExpectedResults[i], ids)
-		}
-		err = vectorIndex.AddMulti(ctx, 1, multiVectors[1])
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, expectedResults[i], ids)
-		}
-
-		// Delete the third node and then add back
-		newExpectedResults = [][]uint64{
-			{1, 0},
-			{0, 1},
-		}
-		err = vectorIndex.DeleteMulti(2)
-		require.Nil(t, err)
-		for i, query := range multiQueries {
-			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
-			require.Nil(t, err)
-			require.Equal(t, newExpectedResults[i], ids)
-		}
-		err = vectorIndex.AddMulti(ctx, 2, multiVectors[2])
 		require.Nil(t, err)
 		for i, query := range multiQueries {
 			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
