@@ -62,7 +62,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/go-hclog v1.6.3
-	github.com/hashicorp/raft v1.7.1
+	github.com/hashicorp/raft v1.7.2-0.20241212131917-a5bc06ccef1d
 	github.com/hashicorp/raft-boltdb/v2 v2.3.0
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.0
@@ -220,5 +220,3 @@ require (
 )
 
 go 1.22
-
-replace github.com/hashicorp/raft => github.com/weaviate/raft v0.0.0-20241212111053-e58f601c3a22
