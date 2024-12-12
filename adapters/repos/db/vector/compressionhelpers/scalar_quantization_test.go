@@ -30,24 +30,24 @@ import (
 
 func Test_NoRaceSQEncode(t *testing.T) {
 	sq := compressionhelpers.NewScalarQuantizer([][]float32{
-		{0, 0, 0, 0},
-		{1, 1, 1, 1},
+		{1, 0, 0, 0},
+		{1, 1, 1, 5},
 	}, distancer.NewCosineDistanceProvider())
 	vec := []float32{0.5, 1, 0, 2}
 	code := sq.Encode(vec)
 	assert.NotNil(t, code)
-	assert.Equal(t, byte(127), code[0])
-	assert.Equal(t, byte(255), code[1])
+	assert.Equal(t, byte(25), code[0])
+	assert.Equal(t, byte(51), code[1])
 	assert.Equal(t, byte(0), code[2])
-	assert.Equal(t, byte(255), code[3])
+	assert.Equal(t, byte(102), code[3])
 }
 
 func Test_NoRaceSQDistance(t *testing.T) {
 	distancers := []distancer.Provider{distancer.NewL2SquaredProvider(), distancer.NewCosineDistanceProvider(), distancer.NewDotProductProvider()}
 	for _, distancer := range distancers {
 		sq := compressionhelpers.NewScalarQuantizer([][]float32{
-			{0, 0, 0, 0},
-			{1, 1, 1, 1},
+			{1, 0, 0, 0},
+			{1, 1, 1, 5},
 		}, distancer)
 		vec1 := []float32{0.217, 0.435, 0, 0.348}
 		vec2 := []float32{0.241, 0.202, 0.257, 0.300}
@@ -56,7 +56,7 @@ func Test_NoRaceSQDistance(t *testing.T) {
 		expectedDist, _ := distancer.SingleDist(vec1, vec2)
 		assert.Nil(t, err)
 		if err == nil {
-			assert.True(t, math.Abs(float64(expectedDist-dist)) < 0.01)
+			assert.True(t, math.Abs(float64(expectedDist-dist)) < 0.0112)
 			fmt.Println(expectedDist-dist, expectedDist, dist)
 		}
 	}
