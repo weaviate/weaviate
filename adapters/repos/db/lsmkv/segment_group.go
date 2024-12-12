@@ -63,11 +63,12 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents            bool
-	keepTombstones          bool // see bucket for more datails
-	useBloomFilter          bool // see bucket for more datails
-	calcCountNetAdditions   bool // see bucket for more datails
-	compactLeftOverSegments bool // see bucket for more datails
+	mmapContents              bool
+	keepTombstones            bool // see bucket for more details
+	useBloomFilter            bool // see bucket for more details
+	calcCountNetAdditions     bool // see bucket for more details
+	compactLeftOverSegments   bool // see bucket for more details
+	disableChecksumValidation bool
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -79,17 +80,18 @@ type SegmentGroup struct {
 }
 
 type sgConfig struct {
-	dir                   string
-	strategy              string
-	mapRequiresSorting    bool
-	monitorCount          bool
-	mmapContents          bool
-	keepTombstones        bool
-	useBloomFilter        bool
-	calcCountNetAdditions bool
-	forceCompaction       bool
-	maxSegmentSize        int64
-	cleanupInterval       time.Duration
+	dir                       string
+	strategy                  string
+	mapRequiresSorting        bool
+	monitorCount              bool
+	mmapContents              bool
+	keepTombstones            bool
+	useBloomFilter            bool
+	calcCountNetAdditions     bool
+	forceCompaction           bool
+	maxSegmentSize            int64
+	cleanupInterval           time.Duration
+	disableChecksumValidation bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -103,23 +105,24 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                make([]*segment, len(list)),
-		dir:                     cfg.dir,
-		logger:                  logger,
-		metrics:                 metrics,
-		monitorCount:            cfg.monitorCount,
-		mapRequiresSorting:      cfg.mapRequiresSorting,
-		strategy:                cfg.strategy,
-		mmapContents:            cfg.mmapContents,
-		keepTombstones:          cfg.keepTombstones,
-		useBloomFilter:          cfg.useBloomFilter,
-		calcCountNetAdditions:   cfg.calcCountNetAdditions,
-		compactLeftOverSegments: cfg.forceCompaction,
-		maxSegmentSize:          cfg.maxSegmentSize,
-		cleanupInterval:         cfg.cleanupInterval,
-		allocChecker:            allocChecker,
-		lastCompactionCall:      now,
-		lastCleanupCall:         now,
+		segments:                  make([]*segment, len(list)),
+		dir:                       cfg.dir,
+		logger:                    logger,
+		metrics:                   metrics,
+		monitorCount:              cfg.monitorCount,
+		mapRequiresSorting:        cfg.mapRequiresSorting,
+		strategy:                  cfg.strategy,
+		mmapContents:              cfg.mmapContents,
+		keepTombstones:            cfg.keepTombstones,
+		useBloomFilter:            cfg.useBloomFilter,
+		calcCountNetAdditions:     cfg.calcCountNetAdditions,
+		compactLeftOverSegments:   cfg.forceCompaction,
+		maxSegmentSize:            cfg.maxSegmentSize,
+		cleanupInterval:           cfg.cleanupInterval,
+		disableChecksumValidation: cfg.disableChecksumValidation,
+		allocChecker:              allocChecker,
+		lastCompactionCall:        now,
+		lastCleanupCall:           now,
 	}
 
 	segmentIndex := 0
@@ -192,7 +195,13 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			// there is no need of bloom filters nor net addition counter re-calculation
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+				segmentConfig{
+					mmapContents:              sg.mmapContents,
+					useBloomFilter:            sg.useBloomFilter,
+					calcCountNetAdditions:     sg.calcCountNetAdditions,
+					overwriteDerived:          false,
+					disableChecksumValidation: sg.disableChecksumValidation,
+				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
@@ -234,7 +243,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		segment, err := newSegment(rightSegmentPath, logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+			segmentConfig{
+				mmapContents:              sg.mmapContents,
+				useBloomFilter:            sg.useBloomFilter,
+				calcCountNetAdditions:     sg.calcCountNetAdditions,
+				overwriteDerived:          true,
+				disableChecksumValidation: sg.disableChecksumValidation,
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
 		}
@@ -298,7 +314,13 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+			segmentConfig{
+				mmapContents:              sg.mmapContents,
+				useBloomFilter:            sg.useBloomFilter,
+				calcCountNetAdditions:     sg.calcCountNetAdditions,
+				overwriteDerived:          false,
+				disableChecksumValidation: sg.disableChecksumValidation,
+			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
@@ -351,7 +373,13 @@ func (sg *SegmentGroup) add(path string) error {
 	newSegmentIndex := len(sg.segments)
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+		segmentConfig{
+			mmapContents:              sg.mmapContents,
+			useBloomFilter:            sg.useBloomFilter,
+			calcCountNetAdditions:     sg.calcCountNetAdditions,
+			overwriteDerived:          true,
+			disableChecksumValidation: sg.disableChecksumValidation,
+		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
 	}
