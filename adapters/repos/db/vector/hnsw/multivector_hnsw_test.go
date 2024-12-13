@@ -16,6 +16,7 @@ package hnsw
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -80,8 +81,10 @@ func TestMultiVectorHnsw(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewDotProductProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				docID, relativeID := vectorIndex.cache.GetKeys(id)
-				return multiVectors[docID][relativeID], nil
+				return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+			},
+			MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+				return multiVectors[id], nil
 			},
 		}, ent.UserConfig{
 			MaxConnections: maxConnections,

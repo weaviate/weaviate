@@ -100,15 +100,12 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID common.VectorForID[float32]
-	// TODO:colbert
-	// multiVecForID             common.VectorForID[[]float32]
-	TempVectorForIDThunk common.TempVectorForID[float32]
-	// TODO:colbert
-	// TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
-	multiVectorForID    common.MultiVectorForID
-	trackDimensionsOnce sync.Once
-	dims                int32
+	vectorForID               common.VectorForID[float32]
+	TempVectorForIDThunk      common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	multiVectorForID          common.MultiVectorForID
+	trackDimensionsOnce       sync.Once
+	dims                      int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -248,7 +245,7 @@ func New(cfg Config, uc ent.UserConfig,
 	var vectorCache cache.Cache[float32]
 
 	if uc.Multivector.Enabled {
-		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
 		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
@@ -294,16 +291,17 @@ func New(cfg Config, uc ent.UserConfig,
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,
 
-		randFunc:             rand.Float64,
-		compressActionLock:   &sync.RWMutex{},
-		className:            cfg.ClassName,
-		VectorForIDThunk:     cfg.VectorForIDThunk,
-		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
-		pqConfig:             uc.PQ,
-		bqConfig:             uc.BQ,
-		sqConfig:             uc.SQ,
-		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
-		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
+		randFunc:                  rand.Float64,
+		compressActionLock:        &sync.RWMutex{},
+		className:                 cfg.ClassName,
+		VectorForIDThunk:          cfg.VectorForIDThunk,
+		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
+		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
+		pqConfig:                  uc.PQ,
+		bqConfig:                  uc.BQ,
+		sqConfig:                  uc.SQ,
+		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
