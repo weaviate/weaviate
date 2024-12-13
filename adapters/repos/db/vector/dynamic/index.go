@@ -52,6 +52,7 @@ type MultiVectorIndex interface {
 	DeleteMulti(id ...uint64) error
 	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	GetKeys(id uint64) (uint64, uint64, error)
+	ValidateMultiBeforeInsert(vector [][]float32) error
 }
 
 type VectorIndex interface {
@@ -103,7 +104,7 @@ type dynamic struct {
 	className             string
 	prometheusMetrics     *monitoring.PrometheusMetrics
 	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID
+	tempVectorForIDThunk  common.TempVectorForID[float32]
 	distanceProvider      distancer.Provider
 	makeCommitLoggerThunk hnsw.MakeCommitLogger
 	threshold             uint64
@@ -351,6 +352,12 @@ func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.ValidateBeforeInsert(vector)
+}
+
+func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ValidateMultiBeforeInsert(vector)
 }
 
 func (dynamic *dynamic) PostStartup() {
