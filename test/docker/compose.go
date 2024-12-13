@@ -121,6 +121,7 @@ type Compose struct {
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
 	withAutoschema                bool
+	withMockOIDC                  bool
 	weaviateEnvs                  map[string]string
 	removeEnvs                    map[string]struct{}
 }
@@ -437,6 +438,11 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMockOIDC() *Compose {
+	d.withMockOIDC = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -658,6 +664,16 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startRerankerTransformers(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", RerankerTransformers)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withMockOIDC {
+		container, err := startMockOIDC(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v
