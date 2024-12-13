@@ -88,8 +88,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	var batch []common.VectorRecord
 
-	switch vectorIndex.Multivector() {
-	case true:
+	if vectorIndex.Multivector() {
 		err = s.iterateOnLSMMultiVectors(ctx, from, targetVector, func(id uint64, vector [][]float32) error {
 			if vectorIndex.ContainsNode(id) {
 				return nil
@@ -121,7 +120,7 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 		if err != nil {
 			return errors.Wrap(err, "iterate on LSM multi vectors")
 		}
-	default:
+	} else {
 		err = s.iterateOnLSMVectors(ctx, from, targetVector, func(id uint64, vector []float32) error {
 			if vectorIndex.ContainsNode(id) {
 				return nil
@@ -183,11 +182,7 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 				vector = obj.Vectors[targetVector]
 			}
 		}
-		err := fn(obj.DocID, vector)
-		if err != nil {
-			return err
-		}
-		return nil
+		return fn(obj.DocID, vector)
 	})
 }
 
@@ -197,11 +192,7 @@ func (s *Shard) iterateOnLSMMultiVectors(ctx context.Context, fromID uint64, tar
 		if len(obj.MultiVectors) > 0 {
 			vector = obj.MultiVectors[targetVector]
 		}
-		err := fn(obj.DocID, vector)
-		if err != nil {
-			return err
-		}
-		return nil
+		return fn(obj.DocID, vector)
 	})
 }
 
@@ -284,8 +275,8 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 
 	var batch []common.VectorRecord
 
-	switch vectorIndex.Multivector() {
-	case true:
+	if vectorIndex.Multivector() {
+		// add non-indexed multi vectors to the queue
 		err = s.iterateOnLSMMultiVectors(ctx, 0, targetVector, func(id uint64, vector [][]float32) error {
 			visited.Visit(id)
 
@@ -319,7 +310,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		if err != nil {
 			return errors.Wrap(err, "iterate on LSM multi vectors")
 		}
-	default:
+	} else {
 		// add non-indexed vectors to the queue
 		err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
 			visited.Visit(id)
