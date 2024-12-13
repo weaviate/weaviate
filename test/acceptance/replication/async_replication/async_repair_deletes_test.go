@@ -145,15 +145,21 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 				node, notDeleted := objectNotDeletedAt[id]
 				if notDeleted {
 					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.One)
-					require.NoError(ct, err)
-					require.Equal(ct, id, resp.ID)
+					assert.NoError(ct, err)
+					assert.NotNil(t, resp)
+
+					if resp == nil {
+						continue
+					}
+
+					assert.Equal(ct, id, resp.ID)
 
 					props := resp.Properties.(map[string]interface{})
 					props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
 				} else {
 					resp, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(1+(node+1)%clusterSize).URI(), paragraphClass.Class, id, replica.Quorum)
-					require.NoError(ct, err)
-					require.False(ct, resp)
+					assert.NoError(ct, err)
+					assert.False(ct, resp)
 				}
 			}
 		}, 10*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")

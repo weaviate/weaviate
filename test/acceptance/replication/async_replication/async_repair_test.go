@@ -188,12 +188,18 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
 		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
-		require.Nil(t, err)
-		require.True(t, exists)
+		assert.Nil(t, err)
+		assert.True(t, exists)
 
 		resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
-		require.Nil(t, err)
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+
+		if resp == nil {
+			return
+		}
+
 		assert.Equal(t, replaceObj.ID, resp.ID)
 		assert.Equal(t, replaceObj.Class, resp.Class)
 		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
