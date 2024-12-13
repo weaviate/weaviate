@@ -418,7 +418,7 @@ type CacheKeys struct {
 type shardedMultipleLockCache[T float32 | uint64] struct {
 	shardedLocks        *common.ShardedRWLocks
 	cache               [][][]T
-	multipleVectorForID common.VectorForID[T]
+	multipleVectorForID common.MultipleVectorForID[T]
 	normalizeOnRead     bool
 	maxSize             int64
 	count               int64
@@ -434,15 +434,16 @@ type shardedMultipleLockCache[T float32 | uint64] struct {
 	maintenanceLock sync.RWMutex
 }
 
-func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[float32], maxSize int,
+func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
-	multipleVecForIDValue := func(ctx context.Context, id uint64) ([]float32, error) {
-		vec, err := multipleVecForID(ctx, id)
+	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]float32, error) {
+		vecs, err := multipleVecForID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
+		vec := vecs[relativeID]
 		if normalizeOnRead {
 			vec = distancer.Normalize(vec)
 		}
@@ -478,7 +479,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 	allocChecker memwatch.AllocChecker,
 ) Cache[uint64] {
-	multipleVecForIDValue := func(ctx context.Context, id uint64) ([]uint64, error) {
+	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]uint64, error) {
 		vec, err := multipleVecForID(ctx, id)
 		if err != nil {
 			return nil, err
@@ -604,7 +605,7 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 		}
 	}
 
-	vec, err := s.multipleVectorForID(ctx, id)
+	vec, err := s.multipleVectorForID(ctx, docID, relativeID)
 	if err != nil {
 		return nil, err
 	}
