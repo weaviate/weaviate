@@ -752,6 +752,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 	enterrors.GoWrapper(
 		func() {
+			// cleanup unfinished backups on startup
+			// Wait 5 minutes for permissions to propagate for GCS
+			time.Sleep(5 * time.Minute)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			backupScheduler.CleanupUnfinishedBackups(ctx)
