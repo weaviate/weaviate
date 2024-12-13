@@ -44,6 +44,9 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if h.multivector.Load() {
+		return errors.Errorf("AddBatch called on multivector index")
+	}
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -102,6 +105,121 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.insertMetrics.total(globalBefore)
 	}
+	return nil
+}
+
+func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !h.multivector.Load() {
+		return errors.Errorf("AddMultiBatch called on non-multivector index")
+	}
+	if len(docIDs) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes does not match")
+	}
+	if len(docIDs) == 0 {
+		return errors.Errorf("insertBatch called with empty lists")
+	}
+
+	h.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+	})
+
+	for i, docID := range docIDs {
+		numVectors := len(vectors[i])
+		levels := make([]int, numVectors)
+		for j := range numVectors {
+			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+		}
+
+		h.Lock()
+		counter := h.vecIDcounter
+		h.vecIDcounter += uint64(numVectors)
+		h.Unlock()
+
+		maxId := counter + uint64(numVectors)
+
+		h.RLock()
+		if maxId >= uint64(len(h.nodes)) {
+			h.RUnlock()
+			h.Lock()
+			if maxId >= uint64(len(h.nodes)) {
+				err := h.growIndexToAccomodateNode(maxId, h.logger)
+				if err != nil {
+					h.Unlock()
+					return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
+				}
+			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
+		}
+
+		h.RLock()
+		if docID >= h.maxDocID {
+			h.RUnlock()
+			h.Lock()
+			if docID >= h.maxDocID {
+				h.maxDocID = docID
+				if h.compressed.Load() {
+					h.compressor.GrowMultiCache(docID)
+				} else {
+					h.cache.GrowMultiCache(docID)
+				}
+			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
+		}
+
+		ids := make([]uint64, numVectors)
+		for id := range ids {
+			ids[id] = counter + uint64(id)
+		}
+		if h.compressed.Load() {
+			h.compressor.PreloadMulti(docID, ids, vectors[i])
+		} else {
+			h.cache.PreloadMulti(docID, ids, vectors[i])
+		}
+		for j := range numVectors {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
+			vector := vectors[i][j]
+
+			globalBefore := time.Now()
+			if len(vector) == 0 {
+				return errors.Errorf("insert called with nil-vector")
+			}
+
+			h.metrics.InsertVector()
+
+			vector = h.normalizeVec(vector)
+
+			nodeId := counter
+			counter++
+
+			node := &vertex{
+				id:    uint64(nodeId),
+				level: levels[j],
+			}
+
+			h.Lock()
+			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
+			h.Unlock()
+
+			err := h.addOne(ctx, vector, node)
+			if err != nil {
+				return err
+			}
+
+			h.insertMetrics.total(globalBefore)
+		}
+
+	}
+
 	return nil
 }
 
@@ -165,10 +283,12 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, vector)
 	} else {
-		h.cache.Preload(node.id, vector)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, vector)
+		}
 	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
@@ -227,6 +347,10 @@ func (h *hnsw) Add(ctx context.Context, id uint64, vector []float32) error {
 	return h.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
+func (h *hnsw) AddMulti(ctx context.Context, id uint64, vector [][]float32) error {
+	return h.AddMultiBatch(ctx, []uint64{id}, [][][]float32{vector})
+}
+
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
@@ -254,10 +378,12 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
-		h.cache.Preload(node.id, nodeVec)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, nodeVec)
+		}
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)
