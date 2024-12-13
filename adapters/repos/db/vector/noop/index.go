@@ -35,7 +35,17 @@ func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) e
 	return nil
 }
 
+func (i *Index) AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error {
+	// silently ignore
+	return nil
+}
+
 func (i *Index) Add(ctx context.Context, id uint64, vector []float32) error {
+	// silently ignore
+	return nil
+}
+
+func (i *Index) AddMulti(ctx context.Context, docId uint64, vector [][]float32) error {
 	// silently ignore
 	return nil
 }
@@ -45,7 +55,16 @@ func (i *Index) Delete(id ...uint64) error {
 	return nil
 }
 
+func (i *Index) DeleteMulti(id ...uint64) error {
+	// silently ignore
+	return nil
+}
+
 func (i *Index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+}
+
+func (i *Index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
@@ -69,6 +88,10 @@ func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callbac
 		return fmt.Errorf("unrecognized vector index config: %T", updated)
 
 	}
+}
+
+func (i *Index) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("cannot get keys from a class not vector-indexed")
 }
 
 func (i *Index) Drop(context.Context) error {
@@ -125,6 +148,10 @@ func (i *Index) ShouldCompressFromConfig(config schemaConfig.VectorIndexConfig) 
 }
 
 func (i *Index) Compressed() bool {
+	return false
+}
+
+func (i *Index) Multivector() bool {
 	return false
 }
 
