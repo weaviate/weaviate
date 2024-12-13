@@ -267,3 +267,10 @@ func NewDefaultUserConfig() UserConfig {
 	uc.SetDefaults()
 	return uc
 }
+
+func NewDefaultMultiVectorUserConfig() UserConfig {
+	uc := UserConfig{}
+	uc.SetDefaults()
+	uc.Multivector = MultivectorConfig{Enabled: true}
+	return uc
+}
