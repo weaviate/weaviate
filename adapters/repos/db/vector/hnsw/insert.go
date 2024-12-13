@@ -40,6 +40,23 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
+		return nil
+	}
+
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
+		return fmt.Errorf("new node has a multi vector with length %v. "+
+			"Existing nodes have vectors with length %v", len(vector), dims)
+	}
+
+	return nil
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
