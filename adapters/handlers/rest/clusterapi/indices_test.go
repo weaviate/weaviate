@@ -24,7 +24,7 @@ import (
 func TestMaintenanceModeIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// NOTE leaving shards, db, and logger nil for now, fill in when needed
-	indices := clusterapi.NewIndices(nil, nil, noopAuth, true, nil)
+	indices := clusterapi.NewIndices(nil, nil, noopAuth, func() bool { return true }, func() bool { return true }, nil)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
@@ -62,7 +62,53 @@ func TestMaintenanceModeIndices(t *testing.T) {
 			res, err := http.DefaultClient.Do(req)
 			assert.Nil(t, err)
 			defer res.Body.Close()
-			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
+			assert.Equal(t, maintenanceModeExpectedHTTPStatus, res.StatusCode)
+		})
+	}
+}
+
+func TestClusterNotReady(t *testing.T) {
+	noopAuth := clusterapi.NewNoopAuthHandler()
+	// NOTE leaving shards, db, and logger nil for now, fill in when needed
+	indices := clusterapi.NewIndices(nil, nil, noopAuth, func() bool { return false }, func() bool { return false }, nil)
+	mux := http.NewServeMux()
+	mux.Handle("/indices/", indices.Indices())
+	server := httptest.NewServer(mux)
+
+	defer server.Close()
+
+	notReadyExpectedHTTPStatus := http.StatusServiceUnavailable
+	requestURL := func(suffix string) string {
+		return fmt.Sprintf("%s/indices/MyClass/shards/myshard%s", server.URL, suffix)
+	}
+	indicesTestRequests := []indicesTestRequest{
+		{"POST", "/objects/_search"},
+		{"POST", "/objects/_find"},
+		{"POST", "/objects/_aggregations"},
+		{"PUT", "/objects:overwrite"},
+		{"GET", "/objects:digest"},
+		{"GET", "/objects/deadbeef"},
+		{"DELETE", "/objects/deadbeef"},
+		{"PATCH", "/objects/deadbeef"},
+		{"GET", "/objects"},
+		{"POST", "/objects"},
+		{"DELETE", "/objects"},
+		{"POST", "/references"},
+		{"GET", "/queuesize"},
+		{"GET", "/status"},
+		{"POST", "/status"},
+		{"POST", "/files/myfile"},
+		{"POST", ""},
+		{"PUT", ":reinit"},
+	}
+	for _, testRequest := range indicesTestRequests {
+		t.Run(fmt.Sprintf("%s on %s returns not ready status", testRequest.method, testRequest.suffix), func(t *testing.T) {
+			req, err := http.NewRequest(testRequest.method, requestURL(testRequest.suffix), nil)
+			assert.Nil(t, err)
+			res, err := http.DefaultClient.Do(req)
+			assert.Nil(t, err)
+			defer res.Body.Close()
+			assert.Equal(t, notReadyExpectedHTTPStatus, res.StatusCode)
 		})
 	}
 }
