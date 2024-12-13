@@ -204,6 +204,10 @@ func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
 	return d.getContainerByName(OllamaGenerative)
 }
 
+func (d *DockerCompose) GetMockOIDC() *DockerContainer {
+	return d.getContainerByName(MockOIDC)
+}
+
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	for _, c := range d.containers {
 		if c.name == name {
