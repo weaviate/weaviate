@@ -785,6 +785,10 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
+	return nil
+}
+
 func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
