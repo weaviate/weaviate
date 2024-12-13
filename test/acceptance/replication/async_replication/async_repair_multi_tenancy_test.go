@@ -132,7 +132,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 	t.Run("validate async object propagation", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
-			require.Len(ct, resp, objectCount)
+			assert.Len(ct, resp, objectCount)
 		}, 40*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 }
