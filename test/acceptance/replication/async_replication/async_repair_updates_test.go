@@ -101,12 +101,18 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", n), func(t *testing.T) {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-				require.EqualValues(ct, len(paragraphIDs), count)
+				assert.EqualValues(ct, len(paragraphIDs), count)
 
 				for i, id := range paragraphIDs {
 					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class, id, replica.One)
-					require.NoError(ct, err)
-					require.Equal(ct, id, resp.ID)
+					assert.NoError(ct, err)
+					assert.NotNil(t, resp)
+
+					if resp == nil {
+						continue
+					}
+
+					assert.Equal(ct, id, resp.ID)
 
 					props := resp.Properties.(map[string]interface{})
 					props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
