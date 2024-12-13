@@ -26,11 +26,11 @@ func (m *HuggingFaceModule) Arguments() map[string]modulecapabilities.GraphQLArg
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *HuggingFaceModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *HuggingFaceModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 )

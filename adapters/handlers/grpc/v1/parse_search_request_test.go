@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 
@@ -241,11 +242,11 @@ func TestGRPCRequest(t *testing.T) {
 					Query:           "nearvecquery",
 					FusionAlgorithm: 1,
 					NearVectorParams: &searchparams.NearVector{
-						VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}},
-						Certainty:       1.0,
-						Distance:        1.0,
-						WithDistance:    true,
-						TargetVectors:   []string{"custom"},
+						Vectors:       [][]float32{{1, 2, 3}},
+						Certainty:     1.0,
+						Distance:      1.0,
+						WithDistance:  true,
+						TargetVectors: []string{"custom"},
 					},
 					TargetVectors: []string{"custom"},
 				},
@@ -371,8 +372,8 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           search.SelectProperties{},
 				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
-					TargetVectors:   []string{"custom"},
-					VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}},
+					TargetVectors: []string{"custom"},
+					Vectors:       [][]float32{{1, 2, 3}},
 				},
 			},
 			error: false,
@@ -407,8 +408,8 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           search.SelectProperties{},
 				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
-					VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}, "first": {1, 2, 3}},
-					TargetVectors:   []string{"custom", "first"},
+					Vectors:       [][]float32{{1, 2, 3}, {1, 2, 3}},
+					TargetVectors: []string{"custom", "first"},
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
 			}, error: false,
@@ -584,7 +585,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -654,7 +655,7 @@ func TestGRPCRequest(t *testing.T) {
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
-				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3, Properties: defaultTestClassProps},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
@@ -1367,22 +1368,44 @@ func TestGRPCRequest(t *testing.T) {
 			error: true,
 		},
 		{
-			name: "group by",
+			name: "group by normal prop",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
 				NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: &pb.PropertiesRequest{},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: search.SelectProperties{{Name: "name", IsPrimitive: true, IsObject: false}},
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
 					Group:   true,
 				},
-				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"": {1, 2, 3}}},
-				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
+				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name", Properties: search.SelectProperties{{Name: "name", IsPrimitive: true, IsObject: false}}},
+			},
+			error: false,
+		},
+		{
+			name: "group by ref prop",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVector{Vector: []float32{1, 2, 3}},
+				Properties: &pb.PropertiesRequest{},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}},
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
 			},
 			error: false,
 		},
@@ -1547,8 +1570,8 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
-				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1567,8 +1590,8 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Average, Weights: map[string]float32{"first": 0.5, "second": 0.5}},
-				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Average, Weights: []float32{0.5, 0.5}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1587,8 +1610,8 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
-				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.8}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1643,8 +1666,8 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: map[string]float32{"first": 1, "second": 1}},
-				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1688,7 +1711,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}, TargetVectors: []string{"default"}},
 			},
 			error: false,
 		},
@@ -1707,7 +1730,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: true,
 				},
-				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}, TargetVectors: []string{"default"}},
 			},
 			error: false,
 		},
@@ -1727,14 +1750,64 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
-				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:          &pb.Targets{TargetVectors: []string{"first", "first", "second"}},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "first", VectorBytes: byteVector([]float32{2, 3, 4})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with weights",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:          &pb.Targets{TargetVectors: []string{"first", "first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, WeightsForTargets: []*pb.WeightsForTarget{{Target: "first", Weight: 0.1}, {Target: "first", Weight: 0.9}, {Target: "second", Weight: 0.5}}},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "first", VectorBytes: byteVector([]float32{2, 3, 4})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.9, 0.5}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
 			},
 			error: false,
 		},
 	}
 
-	parser := NewParser(false, scheme.GetClass)
+	getClass := func(name string) (*models.Class, error) {
+		class := scheme.GetClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("class %s not found", name)
+		}
+		return class, nil
+	}
+
+	parser := NewParser(false, getClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})

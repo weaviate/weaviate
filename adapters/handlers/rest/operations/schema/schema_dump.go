@@ -46,6 +46,8 @@ func NewSchemaDump(ctx *middleware.Context, handler SchemaDumpHandler) *SchemaDu
 	SchemaDump swagger:route GET /schema schema schemaDump
 
 Dump the current the database schema.
+
+Fetch an array of all collection definitions from the schema.
 */
 type SchemaDump struct {
 	Context *middleware.Context

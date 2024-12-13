@@ -27,37 +27,38 @@ import (
 )
 
 func TestHnswIndex(t *testing.T) {
+	ctx := context.Background()
 	index := createEmptyHnswIndexForTests(t, testVectorForID)
 
 	for i, vec := range testVectors {
-		err := index.Add(uint64(i), vec)
+		err := index.Add(ctx, uint64(i), vec)
 		require.Nil(t, err)
 	}
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, _, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{6, 7, 8}, res)
 	})
 
 	t.Run("searching within cluster 2 with a scope larger than the cluster", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{
 			3, 5, 4, // cluster 2
@@ -68,12 +69,13 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching with negative value of k", func(t *testing.T) {
 		position := 0
-		_, _, err := index.knnSearchByVector(testVectors[position], -1, 36, nil)
+		_, _, err := index.knnSearchByVector(ctx, testVectors[position], -1, 36, nil)
 		require.Error(t, err)
 	})
 }
 
 func TestHnswIndexGrow(t *testing.T) {
+	ctx := context.Background()
 	vector := []float32{0.1, 0.2}
 	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
 		return vector, nil
@@ -86,7 +88,7 @@ func TestHnswIndexGrow(t *testing.T) {
 		// we get: panic: runtime error: index out of range [25001] with length 25000
 		// in order to avoid this, insertInitialElement method is now able
 		// to grow it's size at initial state
-		err := index.Add(uint64(cache.InitialSize+1), vector)
+		err := index.Add(ctx, uint64(cache.InitialSize+1), vector)
 		require.Nil(t, err)
 	})
 
@@ -96,14 +98,14 @@ func TestHnswIndexGrow(t *testing.T) {
 		// panic: runtime error: index out of range [170001] with length 170001
 		vector := []float32{0.11, 0.22}
 		id := uint64(5*cache.InitialSize + 1)
-		err := index.Add(id, vector)
+		err := index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to 5001
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 		// try to add a vector with id: 8001
 		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
-		err = index.Add(id, vector)
+		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		// index should grow to at least 8001
 		assert.GreaterOrEqual(t, len(index.nodes), 8001)
@@ -115,19 +117,19 @@ func TestHnswIndexGrow(t *testing.T) {
 		sizeBefore := len(index.nodes)
 		cacheBefore := index.cache.Len()
 		idDontGrowIndex := uint64(6*cache.InitialSize - 1)
-		err := index.Add(idDontGrowIndex, vector)
+		err := index.Add(ctx, idDontGrowIndex, vector)
 		require.Nil(t, err)
 		assert.Equal(t, sizeBefore, len(index.nodes))
 		assert.Equal(t, cacheBefore, index.cache.Len())
 		// should increase nodes
 		id := uint64(8*cache.InitialSize + 1)
-		err = index.Add(id, vector)
+		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		assert.GreaterOrEqual(t, len(index.nodes), int(id))
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(id))
 		// should increase nodes when a much greater id is passed
 		id = uint64(20*cache.InitialSize + 22)
-		err = index.Add(id, vector)
+		err = index.Add(ctx, id, vector)
 		require.Nil(t, err)
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
@@ -189,13 +191,13 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index
 }
 
 func TestHnswIndexContainsNode(t *testing.T) {
+	ctx := context.Background()
 	t.Run("should return false if index is empty", func(t *testing.T) {
 		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
 			t.Fatalf("vecForID should not be called on empty index")
@@ -211,7 +213,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 		require.True(t, index.ContainsNode(5))
@@ -223,7 +225,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 		require.False(t, index.ContainsNode(100))
@@ -235,7 +237,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 		err := index.Delete(5)
@@ -245,6 +247,7 @@ func TestHnswIndexContainsNode(t *testing.T) {
 }
 
 func TestHnswIndexIterate(t *testing.T) {
+	ctx := context.Background()
 	t.Run("should not run callback on empty index", func(t *testing.T) {
 		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
 			t.Fatalf("vecForID should not be called on empty index")
@@ -263,7 +266,7 @@ func TestHnswIndexIterate(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
@@ -283,7 +286,7 @@ func TestHnswIndexIterate(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
@@ -307,7 +310,7 @@ func TestHnswIndexIterate(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
@@ -335,7 +338,7 @@ func TestHnswIndexIterate(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 
@@ -362,7 +365,7 @@ func TestHnswIndexIterate(t *testing.T) {
 		}
 		index := createEmptyHnswIndexForTests(t, vecForIDFn)
 		for i, vec := range testVectors {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 

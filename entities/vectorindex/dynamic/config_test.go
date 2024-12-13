@@ -64,6 +64,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -121,6 +126,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -166,6 +176,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 							"type": hnsw.PQEncoderTypeKMeans,
 						},
 					},
+					"filterStrategy": hnsw.FilterStrategyAcorn,
 				},
 			},
 			expected: UserConfig{
@@ -196,6 +207,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultSQEnabled,
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					FilterStrategy: hnsw.FilterStrategyAcorn,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -261,6 +277,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultSQEnabled,
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					FilterStrategy: hnsw.DefaultFilterStrategy,
+					Multivector: hnsw.MultivectorConfig{
+						Enabled:     hnsw.DefaultMultivectorEnabled,
+						Aggregation: hnsw.DefaultMultivectorAggregation,
 					},
 				},
 				FlatUC: flat.UserConfig{

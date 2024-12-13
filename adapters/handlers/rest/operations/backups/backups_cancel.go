@@ -45,6 +45,8 @@ func NewBackupsCancel(ctx *middleware.Context, handler BackupsCancelHandler) *Ba
 /*
 	BackupsCancel swagger:route DELETE /backups/{backend}/{id} backups backupsCancel
 
+# Cancel backup
+
 Cancel created backup with specified ID
 */
 type BackupsCancel struct {

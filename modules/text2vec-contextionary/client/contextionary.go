@@ -266,7 +266,7 @@ func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMa
 			return nil, nil, fmt.Errorf("could not get vector from remote: %v", err)
 		}
 
-		return nil, nil, vectorizer.NewErrNoUsableWordsf(st.Message())
+		return nil, nil, vectorizer.NewErrNoUsableWordsf("%s", st.Message())
 	}
 
 	return vectorFromProto(res)

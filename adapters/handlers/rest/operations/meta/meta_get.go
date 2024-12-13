@@ -47,7 +47,7 @@ func NewMetaGet(ctx *middleware.Context, handler MetaGetHandler) *MetaGet {
 
 Returns meta information of the current Weaviate instance.
 
-Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
+Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
 type MetaGet struct {
 	Context *middleware.Context

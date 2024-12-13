@@ -12,6 +12,7 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,37 +47,33 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 			},
 		}
 		tests := []struct {
-			name            string
-			generativeModel string
+			name               string
+			generativeModel    string
+			absentModuleConfig bool
 		}{
+			// AI21 Labs
 			{
-				name:            "cohere.command-text-v14",
-				generativeModel: "cohere.command-text-v14",
+				name:            "ai21.j2-ultra-v1",
+				generativeModel: "ai21.j2-ultra-v1",
 			},
 			{
-				name:            "cohere.command-light-text-v14",
-				generativeModel: "cohere.command-light-text-v14",
+				name:            "ai21.j2-mid-v1",
+				generativeModel: "ai21.j2-mid-v1",
+			},
+			// Amazon
+			{
+				name:            "amazon.titan-text-lite-v1",
+				generativeModel: "amazon.titan-text-lite-v1",
 			},
 			{
-				name:            "cohere.command-r-v1:0",
-				generativeModel: "cohere.command-r-v1:0",
+				name:            "amazon.titan-text-express-v1",
+				generativeModel: "amazon.titan-text-express-v1",
 			},
 			{
-				name:            "cohere.command-r-plus-v1:0",
-				generativeModel: "cohere.command-r-plus-v1:0",
+				name:            "amazon.titan-text-premier-v1:0",
+				generativeModel: "amazon.titan-text-premier-v1:0",
 			},
-			{
-				name:            "anthropic.claude-v2",
-				generativeModel: "anthropic.claude-v2",
-			},
-			{
-				name:            "anthropic.claude-v2:1",
-				generativeModel: "anthropic.claude-v2:1",
-			},
-			{
-				name:            "anthropic.claude-instant-v1",
-				generativeModel: "anthropic.claude-instant-v1",
-			},
+			// Anthropic
 			{
 				name:            "anthropic.claude-3-sonnet-20240229-v1:0",
 				generativeModel: "anthropic.claude-3-sonnet-20240229-v1:0",
@@ -86,25 +83,36 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "anthropic.claude-3-haiku-20240307-v1:0",
 			},
 			{
-				name:            "ai21.j2-ultra-v1",
-				generativeModel: "ai21.j2-ultra-v1",
+				name:            "anthropic.claude-v2:1",
+				generativeModel: "anthropic.claude-v2:1",
 			},
 			{
-				name:            "ai21.j2-mid-v1",
-				generativeModel: "ai21.j2-mid-v1",
+				name:            "anthropic.claude-v2",
+				generativeModel: "anthropic.claude-v2",
 			},
 			{
-				name:            "amazon.titan-text-lite-v1",
-				generativeModel: "amazon.titan-text-lite-v1",
+				name:            "anthropic.claude-instant-v1",
+				generativeModel: "anthropic.claude-instant-v1",
+			},
+			// Cohere
+			{
+				name:            "cohere.command-r-v1:0",
+				generativeModel: "cohere.command-r-v1:0",
 			},
 			{
-				name:            "amazon.titan-text-premier-v1:0",
-				generativeModel: "amazon.titan-text-premier-v1:0",
+				name:            "cohere.command-r-plus-v1:0",
+				generativeModel: "cohere.command-r-plus-v1:0",
+			},
+			// Meta
+			{
+				name:            "meta.llama3-8b-instruct-v1:0",
+				generativeModel: "meta.llama3-8b-instruct-v1:0",
 			},
 			{
-				name:            "amazon.titan-text-express-v1",
-				generativeModel: "amazon.titan-text-express-v1",
+				name:            "meta.llama3-70b-instruct-v1:0",
+				generativeModel: "meta.llama3-70b-instruct-v1:0",
 			},
+			// Mistral AI
 			{
 				name:            "mistral.mistral-7b-instruct-v0:2",
 				generativeModel: "mistral.mistral-7b-instruct-v0:2",
@@ -118,30 +126,23 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 				generativeModel: "mistral.mistral-large-2402-v1:0",
 			},
 			{
-				name:            "meta.llama3-8b-instruct-v1:0",
-				generativeModel: "meta.llama3-8b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama3-70b-instruct-v1:0",
-				generativeModel: "meta.llama3-70b-instruct-v1:0",
-			},
-			{
-				name:            "meta.llama2-13b-chat-v1",
-				generativeModel: "meta.llama2-13b-chat-v1",
-			},
-			{
-				name:            "meta.llama2-70b-chat-v1",
-				generativeModel: "meta.llama2-70b-chat-v1",
+				name:               "absent module config",
+				generativeModel:    "ai21.j2-mid-v1",
+				absentModuleConfig: true,
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					"generative-aws": map[string]interface{}{
-						"service": "bedrock",
-						"region":  region,
-						"model":   tt.generativeModel,
-					},
+				if tt.absentModuleConfig {
+					t.Log("skipping adding module config configuration to class")
+				} else {
+					class.ModuleConfig = map[string]interface{}{
+						"generative-aws": map[string]interface{}{
+							"service": "bedrock",
+							"region":  region,
+							"model":   tt.generativeModel,
+						},
+					}
 				}
 				// create schema
 				helper.CreateClass(t, class)
@@ -162,26 +163,35 @@ func testGenerativeAWS(rest, grpc, region string) func(t *testing.T) {
 					}
 				})
 				// generative task
-				t.Run("create a tweet", func(t *testing.T) {
-					planets.CreateTweetTest(t, class.Class)
-				})
+				if tt.absentModuleConfig {
+					t.Log("skipping create tweet tests with default values as e2e tests rely on specific AWS settings")
+				} else {
+					t.Run("create a tweet", func(t *testing.T) {
+						planets.CreateTweetTest(t, class.Class)
+					})
+					t.Run("create a tweet using grpc", func(t *testing.T) {
+						planets.CreateTweetTestGRPC(t, class.Class)
+					})
+				}
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "aws:{temperature:0.1}"
+					if tt.absentModuleConfig {
+						params = fmt.Sprintf("aws:{temperature:0.1 service:\"bedrock\" region:\"%s\" model:\"%s\"}", region, tt.generativeModel)
+					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
-				t.Run("create a tweet using grpc", func(t *testing.T) {
-					planets.CreateTweetTestGRPC(t, class.Class)
-				})
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					params := &pb.GenerativeProvider_Aws{
-						Aws: &pb.GenerativeAWS{
-							Model:       grpchelper.ToPtr(tt.generativeModel),
-							Temperature: grpchelper.ToPtr(0.9),
-						},
+					aws := &pb.GenerativeAWS{
+						Model:       grpchelper.ToPtr(tt.generativeModel),
+						Temperature: grpchelper.ToPtr(0.9),
+					}
+					if tt.absentModuleConfig {
+						aws.Region = grpchelper.ToPtr(region)
+						aws.Service = grpchelper.ToPtr("bedrock")
 					}
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
 						ReturnMetadata: false, // no metadata for aws
-						Kind:           params,
+						Kind:           &pb.GenerativeProvider_Aws{Aws: aws},
 					})
 				})
 			})

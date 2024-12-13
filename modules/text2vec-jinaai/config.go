@@ -26,6 +26,8 @@ func (m *JinaAIModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 		"model":              ent.DefaultJinaAIModel,
+		"baseURL":            ent.DefaultBaseURL,
+		"dimensions":         &ent.DefaultDimensions,
 	}
 }
 

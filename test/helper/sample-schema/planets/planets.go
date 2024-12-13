@@ -179,9 +179,6 @@ func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.Ge
 			if params.GetMistral() != nil {
 				require.NotEmpty(t, metadata.GetMistral())
 			}
-			if params.GetOctoai() != nil {
-				require.NotEmpty(t, metadata.GetOctoai())
-			}
 			if params.GetOpenai() != nil {
 				require.NotEmpty(t, metadata.GetOpenai())
 			}

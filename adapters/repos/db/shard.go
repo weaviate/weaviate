@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -69,6 +70,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status // Return the shard status
 	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
+	SetStatusReadonly(reason string) error                                              // Set shard status to readonly with reason
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
 	Counter() *indexcounter.Counter
@@ -87,8 +89,8 @@ type ShardLike interface {
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateAsyncReplication(ctx context.Context, enabled bool) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
-	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
-	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
+	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
+	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
@@ -102,30 +104,31 @@ type ShardLike interface {
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	Queue() *IndexQueue
-	Queues() map[string]*IndexQueue
+	Queue() *VectorIndexQueue
+	Queues() map[string]*VectorIndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
-	PreloadQueue(targetVector string) error
+	ConvertQueue(targetVector string) error
+	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
-	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) // Check if an object was deleted
-	VectorIndex() VectorIndex                                     // Get the vector index
-	VectorIndexes() map[string]VectorIndex                        // Get the vector indexes
+	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
+	VectorIndex() VectorIndex                                                // Get the vector index
+	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
 	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
-	isReadOnly() bool
+	isReadOnly() error
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
 	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
-	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
-	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
+	prepareDeleteObject(context.Context, string, strfmt.UUID, time.Time) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []strfmt.UUID, time.Time, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
 	commitReplication(context.Context, string, *shardTransfer) interface{}
@@ -150,14 +153,14 @@ type ShardLike interface {
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
-	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
+	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
-	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
-	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
-	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
+	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
+	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
+	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
@@ -177,8 +180,9 @@ type ShardLike interface {
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
 	class             *models.Class
-	queue             *IndexQueue
-	queues            map[string]*IndexQueue
+	queue             *VectorIndexQueue
+	queues            map[string]*VectorIndexQueue
+	scheduler         *queue.Scheduler
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
@@ -204,7 +208,7 @@ type Shard struct {
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
 
-	status              storagestate.Status
+	status              ShardStatus
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 
@@ -262,13 +266,6 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 
 func (s *Shard) pathHashTree() string {
 	return path.Join(s.path(), "hashtree")
-}
-
-func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
-	if targetVector != "" {
-		return s.vectorIndexes[targetVector]
-	}
-	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
@@ -619,12 +616,17 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
+func (s *Shard) segmentCleanupConfig() lsmkv.BucketOption {
+	return lsmkv.WithSegmentsCleanupInterval(
+		time.Duration(s.index.Config.SegmentsCleanupIntervalSeconds) * time.Second)
+}
+
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
+	err := s.SetStatusReadonly("UpdateVectorIndexConfig")
 	if err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
@@ -635,10 +637,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
+	if err := s.SetStatusReadonly("UpdateVectorIndexConfig"); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 

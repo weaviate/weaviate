@@ -55,7 +55,7 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 		for err := range ch {
 			errs = append(errs, err.Error())
 		}
-		return errors.Errorf(strings.Join(errs, ", "))
+		return errors.New(strings.Join(errs, ", "))
 	}
 	return nil
 }

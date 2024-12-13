@@ -124,19 +124,20 @@ func (p *Physical) ActivityStatus() string {
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
+	if f, n := replFactor, len(names); f > int64(n) {
+		return nil, fmt.Errorf("could not find enough weaviate nodes for replication: %d available, %d requested", len(names), f)
+	}
+
 	out := &State{
 		Config:              config,
 		IndexID:             id,
 		localNodeName:       nodeLocalName,
 		PartitioningEnabled: partitioningEnabled,
 	}
+
 	if partitioningEnabled {
 		out.Physical = make(map[string]Physical, 128)
 		return out, nil
-	}
-
-	if f, n := replFactor, len(names); f > int64(n) {
-		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
 
 	if err := out.initPhysical(names, replFactor); err != nil {

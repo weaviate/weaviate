@@ -16,6 +16,7 @@ package asm
 //   go generate
 
 //go:generate goat ../c/hamming_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/hamming_bitwise_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
 	"unsafe"
@@ -99,4 +100,20 @@ func Hamming(x []float32, y []float32) float32 {
 		unsafe.Pointer(&l))
 
 	return res
+}
+
+func HammingBitwise(x []uint64, y []uint64) float32 {
+	l := len(x)
+
+	var res uint64
+	hamming_bitwise(
+		// The slice header contains the address of the underlying array.
+		// We only need to cast it to a pointer.
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		// The C function expects pointers to the result and the length of the arrays.
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return float32(res)
 }

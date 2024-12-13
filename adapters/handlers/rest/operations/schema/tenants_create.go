@@ -45,7 +45,9 @@ func NewTenantsCreate(ctx *middleware.Context, handler TenantsCreateHandler) *Te
 /*
 	TenantsCreate swagger:route POST /schema/{className}/tenants schema tenantsCreate
 
-Create a new tenant for a specific class
+# Create a new tenant
+
+Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.
 */
 type TenantsCreate struct {
 	Context *middleware.Context

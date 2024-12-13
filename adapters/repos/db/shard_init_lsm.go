@@ -121,7 +121,9 @@ func (s *Shard) initLSMStore() error {
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
+		s.cycleCallbacks.compactionCallbacks,
+		s.cycleCallbacks.compactionAuxCallbacks,
+		s.cycleCallbacks.flushCallbacks)
 	if err != nil {
 		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
 	}
@@ -141,6 +143,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

@@ -16,7 +16,7 @@ require (
 	github.com/go-openapi/strfmt v0.21.3
 	github.com/go-openapi/swag v0.22.3
 	github.com/go-openapi/validate v0.21.0
-	github.com/golang-jwt/jwt/v4 v4.5.0
+	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/memberlist v0.5.1
 	github.com/jessevdk/go-flags v1.4.0
@@ -51,9 +51,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.36
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.34
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.17.0
+	github.com/casbin/casbin/v2 v2.99.0
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/coreos/go-oidc/v3 v3.10.0
 	github.com/edsrzf/mmap-go v1.1.0
+	github.com/felixge/httpsnoop v1.0.4
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.13.0
@@ -62,18 +64,21 @@ require (
 	github.com/hashicorp/raft v1.7.1
 	github.com/hashicorp/raft-boltdb/v2 v2.3.0
 	github.com/ikawaha/kagome-dict-ko v0.2.1
+	github.com/ikawaha/kagome-dict/ipa v1.2.0
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
+	github.com/prometheus/common v0.60.0
 	github.com/tailor-inc/graphql v0.4.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/weaviate/fgprof v0.0.0-20240724124431-aab99fd9c876
+	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/s5cmd/v2 v2.0.1
-	github.com/weaviate/sroar v0.0.4
+	github.com/weaviate/sroar v0.0.8
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/text v0.18.0
+	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
 
@@ -103,7 +108,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.31.0 // indirect
 	github.com/aws/smithy-go v1.21.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
+	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cheggaaa/pb/v3 v3.1.4 // indirect
 	github.com/cilium/ebpf v0.11.0 // indirect
@@ -120,7 +127,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
-	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
@@ -178,7 +184,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
@@ -204,7 +209,6 @@ require (
 	go.uber.org/goleak v1.2.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/crypto v0.27.0 // indirect
-	golang.org/x/time v0.6.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240827150818-7e3bb234dfed // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect

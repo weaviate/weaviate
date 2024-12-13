@@ -28,13 +28,13 @@ const (
 )
 
 const (
-	DefaultVectorizeClassName      = false
-	DefaultPropertyIndexed         = true
-	DefaultVectorizePropertyName   = false
-	DefaultApiEndpoint             = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID                 = "textembedding-gecko@001"
-	DefaultGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaultGenerativeAIModelID     = "embedding-001"
+	DefaultVectorizeClassName    = false
+	DefaultPropertyIndexed       = true
+	DefaultVectorizePropertyName = false
+	DefaultApiEndpoint           = "us-central1-aiplatform.googleapis.com"
+	DefaultModelID               = "textembedding-gecko@001"
+	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
+	DefaulAIStudioModelID        = "embedding-001"
 )
 
 var availableGoogleModels = []string{
@@ -50,7 +50,7 @@ var availableGoogleModels = []string{
 }
 
 var availableGenerativeAIModels = []string{
-	DefaultGenerativeAIModelID,
+	DefaulAIStudioModelID,
 	"text-embedding-004",
 }
 
@@ -62,7 +62,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:               cfg,
-		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "text2vec-google", []string{"text2vec-palm"}),
+		BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "text2vec-google", []string{"text2vec-palm"}, []string{modelIDProperty}),
 	}
 }
 
@@ -74,7 +74,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.ModelID()
-	if apiEndpoint == DefaultGenerativeAIApiEndpoint {
+	if apiEndpoint == DefaultAIStudioEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
@@ -109,8 +109,8 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 }
 
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
-	if apiEndpoint == DefaultGenerativeAIApiEndpoint {
-		return DefaultGenerativeAIModelID
+	if apiEndpoint == DefaultAIStudioEndpoint {
+		return DefaulAIStudioModelID
 	}
 	return DefaultModelID
 }

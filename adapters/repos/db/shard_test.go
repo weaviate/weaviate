@@ -67,11 +67,12 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	t.Run("mark shard readonly and fail to insert", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReadOnly.String())
+		err := shd.SetStatusReadonly("testing")
 		require.Nil(t, err)
 
 		err = shd.PutObject(ctx, testObject(className))
-		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
+		require.Contains(t, err.Error(), storagestate.ErrStatusReadOnly.Error())
+		require.Contains(t, err.Error(), "testing")
 	})
 
 	t.Run("mark shard ready and insert successfully", func(t *testing.T) {
@@ -230,7 +231,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -291,7 +292,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -367,14 +368,14 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 func TestShard_RepairIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
-	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
 
 	tests := []struct {
 		name           string
 		targetVector   string
 		cfg            schemaConfig.VectorIndexConfig
 		idxOpt         func(*Index)
-		getQueue       func(ShardLike) *IndexQueue
+		getQueue       func(ShardLike) *VectorIndexQueue
 		getVectorIndex func(ShardLike) VectorIndex
 	}{
 		{
@@ -382,7 +383,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			"",
 			hnsw.UserConfig{},
 			nil,
-			func(s ShardLike) *IndexQueue {
+			func(s ShardLike) *VectorIndexQueue {
 				return s.Queue()
 			},
 			func(s ShardLike) VectorIndex {
@@ -397,7 +398,7 @@ func TestShard_RepairIndex(t *testing.T) {
 				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
 				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
 			},
-			func(s ShardLike) *IndexQueue {
+			func(s ShardLike) *VectorIndexQueue {
 				return s.Queues()["foo"]
 			},
 			func(s ShardLike) VectorIndex {
@@ -409,7 +410,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			"",
 			flat.NewDefaultUserConfig(),
 			nil,
-			func(s ShardLike) *IndexQueue {
+			func(s ShardLike) *VectorIndexQueue {
 				return s.Queue()
 			},
 			func(s ShardLike) VectorIndex {

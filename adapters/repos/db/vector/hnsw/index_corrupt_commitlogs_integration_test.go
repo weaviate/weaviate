@@ -31,6 +31,7 @@ import (
 )
 
 func TestStartupWithCorruptCondenseFiles(t *testing.T) {
+	ctx := context.Background()
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -67,15 +68,14 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		index = idx
 	})
 
 	t.Run("add data", func(t *testing.T) {
 		for i, vec := range data {
-			err := index.Add(uint64(i), vec)
+			err := index.Add(ctx, uint64(i), vec)
 			require.Nil(t, err)
 		}
 	})
@@ -119,14 +119,13 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 			MaxConnections:         100,
 			EFConstruction:         100,
 			CleanupIntervalSeconds: 0,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		index = idx
 	})
 
 	t.Run("verify querying works", func(t *testing.T) {
-		res, _, err := index.SearchByVector([]float32{0.08, 0.08}, 100, nil)
+		res, _, err := index.SearchByVector(ctx, []float32{0.08, 0.08}, 100, nil)
 		require.Nil(t, err)
 		assert.Len(t, res, 8)
 	})

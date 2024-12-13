@@ -31,9 +31,21 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantTemperature float64
 		wantTopP        float64
 		wantTopK        int
-
-		wantErr error
+		wantEndpoint    string
+		wantErr         error
 	}{
+		{
+			name: "default settings",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{},
+			},
+			wantMaxTokens:   nil,
+			wantTemperature: 1.0,
+			wantTopP:        1,
+			wantTopK:        math.MaxInt64,
+			wantEndpoint:    "",
+			wantErr:         nil,
+		},
 		{
 			name: "Happy flow",
 			cfg: fakeClassConfig{
@@ -45,8 +57,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTemperature: 1.0,
 			wantTopP:        1,
 			wantTopK:        math.MaxInt64,
-
-			wantErr: nil,
+			wantEndpoint:    "https://foo.bar.com",
+			wantErr:         nil,
 		},
 		{
 			name: "Everything non default configured",
@@ -63,8 +75,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTemperature: 0.5,
 			wantTopP:        3,
 			wantTopK:        1,
-
-			wantErr: nil,
+			wantEndpoint:    "https://foo.bar.com",
+			wantErr:         nil,
 		},
 		{
 			name: "Wrong maxTokens configured",
@@ -120,13 +132,14 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, tt.wantErr, ic.Validate(nil).Error())
+				assert.Error(t, tt.wantErr, ic.Validate(nil))
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTopP, ic.TopP())
 				assert.Equal(t, tt.wantTopK, ic.TopK())
-
+				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
 			}
 		})
 	}

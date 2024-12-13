@@ -17,6 +17,7 @@ import (
 )
 
 type Params struct {
+	Endpoint         string
 	Model            string
 	FrequencyPenalty *float64
 	Logprobs         *bool
@@ -35,6 +36,8 @@ func extract(field *ast.ObjectField) interface{} {
 	if ok {
 		for _, f := range fields {
 			switch f.Name.Value {
+			case "Endpoint":
+				out.Endpoint = gqlparser.GetValueAsStringOrEmpty(f)
 			case "model":
 				out.Model = gqlparser.GetValueAsStringOrEmpty(f)
 			case "frequencyPenalty":

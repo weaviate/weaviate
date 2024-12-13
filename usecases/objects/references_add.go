@@ -16,13 +16,16 @@ import (
 	"errors"
 	"fmt"
 
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -37,8 +40,18 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
 			additional.Properties{}, nil, tenant)
 		if err != nil {
@@ -52,10 +65,6 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 		input.Class = objectRes.Object().Class
 	}
-	path := authorization.Objects(input.Class, input.ID)
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
-		return &Error{path, StatusForbidden, err}
-	}
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -68,6 +77,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
 		}
+		var forbidden autherrs.Forbidden
+		if errors.As(err, &forbidden) {
+			return &Error{"validate inputs", StatusForbidden, err}
+		}
+
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 
@@ -81,6 +95,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 			input.Ref.Beacon = toBeacon
 			targetRef.Class = string(toClass)
 		}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(targetRef.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	if err := input.validateExistence(ctx, validator, tenant, targetRef); err != nil {
@@ -171,8 +188,8 @@ func (req *AddReferenceInput) validate(
 	if err != nil {
 		return nil, nil, 0, err
 	}
-
 	vclass := vclasses[req.Class]
+
 	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 

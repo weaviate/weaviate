@@ -66,6 +66,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantErr.Error(), err.Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantModel, ic.Model())
 			}
 		})

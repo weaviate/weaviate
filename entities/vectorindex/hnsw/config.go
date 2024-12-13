@@ -31,6 +31,11 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
+	FilterStrategySweeping = "sweeping"
+	FilterStrategyAcorn    = "acorn"
+
+	DefaultFilterStrategy = FilterStrategySweeping
+
 	// Fail validation if those criteria are not met
 	MinmumMaxConnections = 4
 	MinmumEFConstruction = 4
@@ -38,20 +43,22 @@ const (
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool     `json:"skip"`
-	CleanupIntervalSeconds int      `json:"cleanupIntervalSeconds"`
-	MaxConnections         int      `json:"maxConnections"`
-	EFConstruction         int      `json:"efConstruction"`
-	EF                     int      `json:"ef"`
-	DynamicEFMin           int      `json:"dynamicEfMin"`
-	DynamicEFMax           int      `json:"dynamicEfMax"`
-	DynamicEFFactor        int      `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
-	Distance               string   `json:"distance"`
-	PQ                     PQConfig `json:"pq"`
-	BQ                     BQConfig `json:"bq"`
-	SQ                     SQConfig `json:"sq"`
+	Skip                   bool              `json:"skip"`
+	CleanupIntervalSeconds int               `json:"cleanupIntervalSeconds"`
+	MaxConnections         int               `json:"maxConnections"`
+	EFConstruction         int               `json:"efConstruction"`
+	EF                     int               `json:"ef"`
+	DynamicEFMin           int               `json:"dynamicEfMin"`
+	DynamicEFMax           int               `json:"dynamicEfMax"`
+	DynamicEFFactor        int               `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects  int               `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int               `json:"flatSearchCutoff"`
+	Distance               string            `json:"distance"`
+	PQ                     PQConfig          `json:"pq"`
+	BQ                     BQConfig          `json:"bq"`
+	SQ                     SQConfig          `json:"sq"`
+	FilterStrategy         string            `json:"filterStrategy"`
+	Multivector            MultivectorConfig `json:"multivector"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -95,6 +102,11 @@ func (u *UserConfig) SetDefaults() {
 		Enabled:       DefaultSQEnabled,
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  DefaultSQRescoreLimit,
+	}
+	u.FilterStrategy = DefaultFilterStrategy
+	u.Multivector = MultivectorConfig{
+		Enabled:     DefaultMultivectorEnabled,
+		Aggregation: DefaultMultivectorAggregation,
 	}
 }
 
@@ -191,6 +203,16 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 		return uc, err
 	}
 
+	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
+		uc.FilterStrategy = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := parseMultivectorMap(asMap, &uc.Multivector); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -208,6 +230,10 @@ func (u *UserConfig) validate() error {
 			"efConstruction must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
 		))
+	}
+
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
 	}
 
 	if len(errMsgs) > 0 {

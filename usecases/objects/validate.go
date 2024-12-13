@@ -25,7 +25,7 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.VALIDATE, authorization.OBJECTS)
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(obj.Class, obj.Tenant, obj.ID))
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
 	if err != nil {
-		return NewErrInvalidUserInput("invalid object: %v", err)
+		return err
 	}
 
 	return nil

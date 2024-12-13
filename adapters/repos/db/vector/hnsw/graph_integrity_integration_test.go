@@ -29,6 +29,7 @@ import (
 )
 
 func TestGraphIntegrity(t *testing.T) {
+	ctx := context.Background()
 	dimensions := 300
 	size := 1000
 	efConstruction := 128
@@ -61,7 +62,7 @@ func TestGraphIntegrity(t *testing.T) {
 		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
+		}, cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -80,7 +81,7 @@ func TestGraphIntegrity(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := uint64(i*workerCount) + uint64(workerID)
-					err := vectorIndex.Add(originalIndex, vec)
+					err := vectorIndex.Add(ctx, originalIndex, vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)

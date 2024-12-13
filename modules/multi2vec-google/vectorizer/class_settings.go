@@ -53,7 +53,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{
 		cfg:  cfg,
-		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-google", []string{"multi2vec-palm"}),
+		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-google", []string{"multi2vec-palm"}, nil),
 	}
 }
 

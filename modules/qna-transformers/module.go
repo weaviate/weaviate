@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	qnaadditional "github.com/weaviate/weaviate/modules/qna-transformers/additional"
@@ -38,9 +39,9 @@ func New() *QnAModule {
 type QnAModule struct {
 	qna                          qnaClient
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.DependencySearcher
+	searcher                     modulecapabilities.DependencySearcher[[]float32]
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	nearTextDependencies         []modulecapabilities.Dependency
+	nearTextDependencies         []modulecapabilities.Dependency[[]float32]
 	askTextTransformer           modulecapabilities.TextTransform
 }
 
@@ -91,13 +92,13 @@ func (m *QnAModule) InitExtension(modules []modulecapabilities.Module) error {
 }
 
 func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
-	nearTextDependencies := []modulecapabilities.Dependency{}
+	nearTextDependencies := []modulecapabilities.Dependency[[]float32]{}
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
 		}
 		var argument modulecapabilities.GraphQLArgument
-		var searcher modulecapabilities.VectorForParams
+		var searcher modulecapabilities.VectorForParams[[]float32]
 		if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 			if arg != nil && arg.Arguments() != nil {
 				if nearTextArg, ok := arg.Arguments()["nearText"]; ok {
@@ -105,7 +106,7 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 				}
 			}
 		}
-		if arg, ok := module.(modulecapabilities.Searcher); ok {
+		if arg, ok := module.(modulecapabilities.Searcher[[]float32]); ok {
 			if arg != nil && arg.VectorSearches() != nil {
 				if nearTextSearcher, ok := arg.VectorSearches()["nearText"]; ok {
 					searcher = nearTextSearcher
@@ -140,9 +141,16 @@ func (m *QnAModule) initAdditional(ctx context.Context, timeout time.Duration,
 		return errors.Errorf("required variable QNA_INFERENCE_API is not set")
 	}
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("QNA_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	client := clients.New(uri, timeout, logger)
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote vectorizer")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote vectorizer")
+		}
 	}
 
 	m.qna = client

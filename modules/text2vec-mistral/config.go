@@ -25,6 +25,8 @@ import (
 func (m *MistralModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
+		"baseURL":            ent.DefaultBaseURL,
+		"model":              ent.DefaultMistralModel,
 	}
 }
 

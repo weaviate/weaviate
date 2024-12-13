@@ -92,7 +92,7 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	}
 
 	if len(g.params.SearchVector) > 0 {
-		ids, _, err = g.vectorSearch(allowList, g.params.SearchVector)
+		ids, _, err = g.vectorSearch(ctx, allowList, g.params.SearchVector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to perform vector search: %w", err)
 		}
@@ -129,7 +129,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		res, dists, err := g.objectVectorSearch(vec, allowList)
+		res, dists, err := g.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)
 		}

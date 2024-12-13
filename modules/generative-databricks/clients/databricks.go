@@ -36,6 +36,9 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildEndpointFn(endpoint string) (string, error) {
+	if endpoint == "" {
+		return "", fmt.Errorf("endpoint cannot be empty")
+	}
 	return endpoint, nil
 }
 
@@ -74,16 +77,15 @@ func (v *databricks) GenerateAllResults(ctx context.Context, textProperties []ma
 }
 
 func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	oaiUrl, err := v.buildDatabricksEndpoint(ctx, settings)
+	oaiUrl, err := v.buildDatabricksEndpoint(ctx, params.Endpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
 
-	input, err := v.generateInput(prompt, params, settings)
+	input, err := v.generateInput(prompt, params)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate input")
 	}
@@ -121,7 +123,7 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
@@ -164,6 +166,9 @@ func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interfac
 		params = p
 	}
 
+	if params.Endpoint == "" {
+		params.Endpoint = settings.Endpoint()
+	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature()
 		params.Temperature = &temperature
@@ -191,20 +196,28 @@ func (v *databricks) getDebugInformation(debug bool, prompt string) *modulecapab
 
 func (v *databricks) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"databricks": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{databricksparams.Name: map[string]interface{}{"usage": usage}}
 	}
 	return nil
 }
 
-func (v *databricks) buildDatabricksEndpoint(ctx context.Context, settings config.ClassSettings) (string, error) {
-	endpoint, _ := v.buildEndpoint(settings.Endpoint())
-	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
-		endpoint = headerEndpoint
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[databricksparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
-	return endpoint, nil
+	return nil
 }
 
-func (v *databricks) generateInput(prompt string, params databricksparams.Params, settings config.ClassSettings) (generateInput, error) {
+func (v *databricks) buildDatabricksEndpoint(ctx context.Context, endpoint string) (string, error) {
+	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
+		return headerEndpoint, nil
+	}
+	return v.buildEndpoint(endpoint)
+}
+
+func (v *databricks) generateInput(prompt string, params databricksparams.Params) (generateInput, error) {
 	var input generateInput
 	messages := []message{{
 		Role:    "user",
@@ -349,4 +362,8 @@ func (c *databricksCode) UnmarshalJSON(data []byte) (err error) {
 	}
 	*c = databricksCode(str)
 	return nil
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

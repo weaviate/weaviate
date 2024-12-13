@@ -47,7 +47,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func run(dirName string, logger *logrus.Logger, compression string, vectorCache bool,
+func run(ctx context.Context, dirName string, logger *logrus.Logger, compression string, vectorCache bool,
 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
 	extraVectorsForDelete [][]float32, allowIds []uint64,
 	distancer distancer.Provider, concurrentCacheReads int,
@@ -57,7 +57,9 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	runId := uuid.New().String()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0, 0, err
 	}
@@ -98,11 +100,11 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	}
 
 	compressionhelpers.ConcurrentlyWithError(logger, uint64(vectors_size), func(id uint64) error {
-		return index.Add(id, vectors[id])
+		return index.Add(ctx, id, vectors[id])
 	})
 
 	for i := range extraVectorsForDelete {
-		index.Add(uint64(vectors_size+i), extraVectorsForDelete[i])
+		index.Add(ctx, uint64(vectors_size+i), extraVectorsForDelete[i])
 	}
 
 	for i := range extraVectorsForDelete {
@@ -131,7 +133,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	err = nil
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
-		results, _, _ := index.SearchByVector(queries[i], k, allowList)
+		results, _, _ := index.SearchByVector(ctx, queries[i], k, allowList)
 
 		since := time.Since(before)
 		len := len(results)
@@ -163,6 +165,7 @@ func hasDuplicates(results []uint64) bool {
 }
 
 func Test_NoRaceFlatIndex(t *testing.T) {
+	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -194,7 +197,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					t.Run("recall", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -203,7 +206,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer, 0)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -234,7 +237,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer, 0)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -243,7 +246,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall on filtered with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer, 0)
+						recall, latency, err := run(ctx, dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer, 0)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -286,13 +289,16 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 				Enabled: tt.bq, Cache: tt.cache, RescoreLimit: 10,
 			}
 			store, err := lsmkv.New(dirName, dirName, logger, nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop())
 			require.Nil(t, err)
 
 			distancr := distancer.NewCosineDistanceProvider()
 
 			index, err := New(Config{
 				ID:               "id",
+				RootPath:         t.TempDir(),
 				DistanceProvider: distancr,
 			}, flatent.UserConfig{
 				PQ: pq,
@@ -300,7 +306,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}, store)
 			require.Nil(t, err)
 
-			index.Add(uint64(0), []float32{-2, 0})
+			index.Add(context.TODO(), uint64(0), []float32{-2, 0})
 
 			dist := index.QueryVectorDistancer([]float32{0, 0})
 			require.NotNil(t, dist)
@@ -316,6 +322,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 }
 
 func TestConcurrentReads(t *testing.T) {
+	ctx := context.Background()
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
@@ -340,7 +347,7 @@ func TestConcurrentReads(t *testing.T) {
 	for i := range concurrentReads {
 		t.Run("concurrent reads: "+strconv.Itoa(concurrentReads[i]), func(t *testing.T) {
 			targetRecall := float32(0.8)
-			recall, latency, err := run(dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
+			recall, latency, err := run(ctx, dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer, concurrentReads[i])
 			require.Nil(t, err)
 
 			fmt.Println(recall, latency)

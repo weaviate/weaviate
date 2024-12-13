@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 
+# NOTES:
+# 1. This script is used only in case of emergencies when our CI pipelines fail to generate release binaries.
+# 2. This script generates only linux binaries. We use different script for Mac binaries (`tools/dev/goreleaser_and_sign.sh`)
+
 set -eou pipefail
 
+OS=${GOOS:-"linux"}
+
 BUILD_ARTIFACTS_DIR="build_artifacts"
-GIT_HASH=$(git rev-parse --short HEAD)
+GIT_REVISION=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
+VPREFIX="github.com/weaviate/weaviate/usecases/build"
+
+BUILD_TAGS="-X ${VPREFIX}.Branch=${GIT_BRANCH} -X ${VPREFIX}.Revision=${GIT_REVISION} -X ${VPREFIX}.BuildUser=$(whoami)@$(hostname) -X ${VPREFIX}.BuildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 function main() {
   cd ./cmd/weaviate-server
@@ -48,7 +59,7 @@ function build_binary() {
   arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
 
   echo_green "Building linux/${arch} binary..."
-  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'  -X github.com/weaviate/weaviate/usecases/config.ImageTag='${VERSION}'
+  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
   step_complete
 
   cd $arch_dir

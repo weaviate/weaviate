@@ -14,12 +14,9 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -28,134 +25,104 @@ import (
 
 type fakeBatchClient struct {
 	defaultResetRate int
+	defaultRPM       int
+	defaultTPM       int
+	rateLimit        *modulecomponents.RateLimits
+}
+
+func (c *fakeBatchClient) VectorizeQuery(ctx context.Context, input []string, cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[[]float32], error) {
+	panic("implement me")
 }
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
-	if len(text) == 0 {
-		panic("Vectorize() called with empty text array")
-	}
+
+	var reqError error
+
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
-	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+	if c.rateLimit == nil {
+		c.rateLimit = &modulecomponents.RateLimits{LastOverwrite: time.Now(), RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+	} else {
+		c.rateLimit.ResetTokens = time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)
+	}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
-			errors[i] = fmt.Errorf(text[i][6:])
+			errors[i] = fmt.Errorf("%s", text[i][6:])
 			continue
 		}
 
 		tok := len("tokens ")
 		if len(text[i]) >= tok && text[i][:tok] == "tokens " {
 			rate, _ := strconv.Atoi(text[i][tok:])
-			rateLimit.RemainingTokens = rate
-			rateLimit.LimitTokens = 2 * rate
-		}
-
-		azureTok := len("azure_tokens ")
-		if len(text[i]) >= azureTok && text[i][:azureTok] == "azure_tokens " {
-			rate, _ := strconv.Atoi(text[i][azureTok:])
-			header := make(http.Header)
-			header.Add("x-ratelimit-remaining-tokens", strconv.Itoa(rate))
-			rateLimit = ent.GetRateLimitsFromHeader(header)
-		}
-
-		req := len("requests ")
-		if len(text[i]) >= req && text[i][:req] == "requests " {
+			c.rateLimit.RemainingTokens = rate
+			c.rateLimit.LimitTokens = 2 * rate
+		} else if req := len("requests "); len(text[i]) >= req && text[i][:req] == "requests " {
 			reqs, _ := strconv.Atoi(strings.Split(text[i][req:], " ")[0])
-			rateLimit.RemainingRequests = reqs
-			rateLimit.LimitRequests = 2 * reqs
-		}
-
-		if len(text[i]) >= len("wait ") && text[i][:5] == "wait " {
+			c.rateLimit.RemainingRequests = reqs
+			c.rateLimit.LimitRequests = 2 * reqs
+		} else if reqErr := len("ReqError "); len(text[i]) >= reqErr && text[i][:reqErr] == "ReqError " {
+			reqError = fmt.Errorf("%v", strings.Split(text[i][reqErr:], " ")[0])
+		} else if len(text[i]) >= len("wait ") && text[i][:5] == "wait " {
 			wait, _ := strconv.Atoi(text[i][5:])
 			time.Sleep(time.Duration(wait) * time.Millisecond)
+		} else {
+			// refresh the remaining token
+			secondsSinceLastRefresh := time.Since(c.rateLimit.LastOverwrite)
+			fraction := secondsSinceLastRefresh.Seconds() / time.Until(c.rateLimit.ResetTokens).Seconds()
+			if fraction > 1 {
+				c.rateLimit.RemainingTokens = c.rateLimit.LimitTokens
+			} else {
+				c.rateLimit.RemainingTokens += int(float64(c.rateLimit.LimitTokens) * fraction / float64(c.defaultResetRate))
+			}
+			if len(text[i]) > c.rateLimit.LimitTokens || len(text[i]) > c.rateLimit.RemainingTokens {
+				errors[i] = fmt.Errorf("text too long for vectorization from provider: got %v, total limit: %v, remaining: %v", len(text[i]), c.rateLimit.LimitTokens, c.rateLimit.RemainingTokens)
+			}
+
 		}
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
-
-	return &modulecomponents.VectorizationResult{
+	c.rateLimit.LastOverwrite = time.Now()
+	return &modulecomponents.VectorizationResult[[]float32]{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, rateLimit, nil
-}
-
-func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
+	}, c.rateLimit, 0, reqError
 }
 
 func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+	return &modulecomponents.RateLimits{RemainingTokens: c.defaultTPM, RemainingRequests: c.defaultRPM, LimitTokens: c.defaultTPM, LimitRequests: c.defaultRPM, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 
 func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	return [32]byte{}
 }
 
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{}
-}
-
-func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	return [32]byte{}
-}
-
-type FakeClassConfig struct {
+type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f FakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) PropertyIndexed(property string) bool {
+	return !((property == f.skippedProperty) || (property == f.excludedProperty))
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	if propName == f.skippedProperty {
 		return map[string]interface{}{
 			"skip": true,
@@ -174,10 +141,22 @@ func (f FakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
 
-func (f FakeClassConfig) Tenant() string {
+func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (f FakeClassConfig) TargetVector() string {
+func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) VectorizeClassName() bool {
+	return f.classConfig["vectorizeClassName"].(bool)
+}
+
+func (f fakeClassConfig) VectorizePropertyName(propertyName string) bool {
+	return f.vectorizePropertyName
+}
+
+func (f fakeClassConfig) Properties() []string {
+	return nil
 }

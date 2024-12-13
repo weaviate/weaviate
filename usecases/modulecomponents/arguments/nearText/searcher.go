@@ -19,39 +19,45 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/types"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-type Searcher struct {
-	vectorizer vectorizer
-	movements  *movements
+type Searcher[T types.Embedding] struct {
+	vectorizer vectorizer[T]
+	movements  *movements[T]
 }
 
-func NewSearcher(vectorizer vectorizer) *Searcher {
-	return &Searcher{vectorizer, newMovements()}
+func NewSearcher[T types.Embedding](vectorizer vectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer, newMovements[T]()}
 }
 
-type vectorizer interface {
-	Texts(ctx context.Context, input []string, cfg moduletools.ClassConfig) ([]float32, error)
+type vectorizer[T types.Embedding] interface {
+	Texts(ctx context.Context, input []string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearText"] = s.vectorForNearTextParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearText"] = &vectorForParams[T]{s.vectorizer, s.movements}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{}, className string,
-	findVectorFn modulecapabilities.FindVectorFn,
+type vectorForParams[T types.Embedding] struct {
+	vectorizer vectorizer[T]
+	movements  *movements[T]
+}
+
+func (s *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) (T, error) {
 	return s.vectorFromNearTextParam(ctx, params.(*NearTextParams), className, findVectorFn, cfg)
 }
 
-func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (s *vectorForParams[T]) vectorFromNearTextParam(ctx context.Context,
+	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+) (T, error) {
 	tenant := cfg.Tenant()
 	vector, err := s.vectorizer.Texts(ctx, params.Values, cfg)
 	if err != nil {
@@ -91,13 +97,13 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	return vector, nil
 }
 
-func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
+func (s *vectorForParams[T]) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
 	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig, tenant string,
-) ([]float32, error) {
-	var objectVectors [][]float32
+) (T, error) {
+	var objectVectors []T
 
 	if len(values) > 0 {
 		moveToVector, err := s.vectorizer.Texts(ctx, values, cfg)
@@ -121,7 +127,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, _, err := findVectorFn(ctx, className, id, tenant, cfg.TargetVector())
+			vector, _, err := findVectorFn.FindVector(ctx, className, id, tenant, cfg.TargetVector())
 			if err != nil {
 				return nil, err
 			}

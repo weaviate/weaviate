@@ -95,6 +95,29 @@ func (h *hnsw) Delete(ids ...uint64) error {
 	return nil
 }
 
+func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
+	before := time.Now()
+	defer h.metrics.TrackDelete(before, "total")
+
+	for _, docID := range docIDs {
+		h.RLock()
+		vecIDs := h.docIDVectors[docID]
+		h.RUnlock()
+
+		for _, id := range vecIDs {
+			if err := h.Delete(id); err != nil {
+				return err
+			}
+		}
+		h.Lock()
+		delete(h.docIDVectors, docID)
+		h.Unlock()
+
+	}
+
+	return nil
+}
+
 func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
@@ -303,12 +326,12 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.metrics.StartTombstoneCycle()
 
 	executed = true
-	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
+	if ok, err := h.reassignNeighborsOf(h.shutdownCtx, deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
-	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	h.reassignNeighbor(h.shutdownCtx, h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -407,14 +430,14 @@ func tombstoneDeletionConcurrency() int {
 	return concurrency
 }
 
-func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
+func (h *hnsw) reassignNeighborsOf(ctx context.Context, deleteList helpers.AllowList,
+	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
-	h.resetLock.Lock()
-	defer h.resetLock.Unlock()
 
-	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch := make(chan uint64)
@@ -441,12 +464,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
+					h.resetLock.RLock()
 					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+						if _, err := h.reassignNeighbor(ctx, deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
 							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
 						}
 					}
+					h.resetLock.RUnlock()
 				}
 			}
 		})
@@ -496,6 +521,7 @@ LOOP:
 }
 
 func (h *hnsw) reassignNeighbor(
+	ctx context.Context,
 	neighbor uint64,
 	deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
@@ -549,7 +575,7 @@ func (h *hnsw) reassignNeighbor(
 	// the new recursive implementation no longer needs an entrypoint, so we can
 	// just pass this dummy value to make the neighborFinderConnector happy
 	dummyEntrypoint := uint64(0)
-	if err := h.reconnectNeighboursOf(neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
+	if err := h.reconnectNeighboursOf(ctx, neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

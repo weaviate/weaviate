@@ -12,12 +12,26 @@
 package rest
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/build"
 )
 
 type WeaviateJSONFormatter struct {
-	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.JSONFormatter
+	gitHash, imageTag, serverVersion, goVersion string
+}
+
+func NewWeaviateJSONFormatter() logrus.Formatter {
+	return &WeaviateJSONFormatter{
+		&logrus.JSONFormatter{},
+		build.Revision,
+		build.Branch,
+		build.Version,
+		build.GoVersion,
+	}
 }
 
 func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
@@ -29,8 +43,18 @@ func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
 }
 
 type WeaviateTextFormatter struct {
-	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.TextFormatter
+	gitHash, imageTag, serverVersion, goVersion string
+}
+
+func NewWeaviateTextFormatter() logrus.Formatter {
+	return &WeaviateTextFormatter{
+		&logrus.TextFormatter{},
+		build.Revision,
+		build.Branch,
+		build.Version,
+		build.GoVersion,
+	}
 }
 
 func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
@@ -39,4 +63,29 @@ func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
 	e.Data["build_wv_version"] = wf.serverVersion
 	e.Data["build_go_version"] = wf.goVersion
 	return wf.TextFormatter.Format(e)
+}
+
+var logLevelNotRecognized = errors.New("log level not recognized")
+
+// logLevelFromString converts a string to a logrus log level, returns a logLevelNotRecognized
+// error if the string is not recognized. level is case insensitive.
+func logLevelFromString(level string) (logrus.Level, error) {
+	switch strings.ToLower(level) {
+	case "panic":
+		return logrus.PanicLevel, nil
+	case "fatal":
+		return logrus.FatalLevel, nil
+	case "error":
+		return logrus.ErrorLevel, nil
+	case "warn", "warning":
+		return logrus.WarnLevel, nil
+	case "info":
+		return logrus.InfoLevel, nil
+	case "debug":
+		return logrus.DebugLevel, nil
+	case "trace":
+		return logrus.TraceLevel, nil
+	default:
+		return 0, logLevelNotRecognized
+	}
 }

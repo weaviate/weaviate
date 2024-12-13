@@ -134,7 +134,13 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
-		return nil, nil, lsmkv.Deleted
+		if len(in) < 9 {
+			return nil, nil, lsmkv.Deleted
+		}
+
+		valueLength := binary.LittleEndian.Uint64(in[1:9])
+
+		return nil, nil, errorFromTombstonedValue(in[9 : 9+valueLength])
 	}
 
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
@@ -142,4 +148,33 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	pkLength := binary.LittleEndian.Uint32(in[9+valueLength:])
 
 	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
+}
+
+func (s *segment) exists(key []byte) (bool, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		return false, fmt.Errorf("exists only possible for strategy %q", StrategyReplace)
+	}
+
+	before := time.Now()
+
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
+		s.bloomFilterMetrics.trueNegative(before)
+		return false, nil
+	}
+
+	_, err := s.index.Get(key)
+
+	if err == nil {
+		if s.useBloomFilter {
+			s.bloomFilterMetrics.truePositive(before)
+		}
+		return true, nil
+	}
+	if errors.Is(err, lsmkv.NotFound) {
+		if s.useBloomFilter {
+			s.bloomFilterMetrics.falsePositive(before)
+		}
+		return false, nil
+	}
+	return false, err
 }

@@ -47,7 +47,7 @@ func NewObjectsClassPut(ctx *middleware.Context, handler ObjectsClassPutHandler)
 
 # Update a class object based on its uuid
 
-Update an individual data object based on its class and uuid.
+Update an object based on its uuid and collection. This (`put`) method replaces the object with the provided object.
 */
 type ObjectsClassPut struct {
 	Context *middleware.Context

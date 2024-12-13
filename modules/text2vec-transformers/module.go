@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -36,10 +37,10 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizer[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.Searcher[[]float32]
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
@@ -113,9 +114,16 @@ func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Du
 		uriQuery = uriCommon
 	}
 
+	waitForStartup := true
+	if envWaitForStartup := os.Getenv("TRANSFORMERS_WAIT_FOR_STARTUP"); envWaitForStartup != "" {
+		waitForStartup = entcfg.Enabled(envWaitForStartup)
+	}
+
 	client := clients.New(uriPassage, uriQuery, timeout, logger)
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote vectorizer")
+	if waitForStartup {
+		if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
+			return errors.Wrap(err, "init remote vectorizer")
+		}
 	}
 
 	m.vectorizer = vectorizer.New(client)
@@ -183,6 +191,6 @@ func (m *TransformersModule) VectorizableProperties(cfg moduletools.ClassConfig)
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 )

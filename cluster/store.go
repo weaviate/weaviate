@@ -23,11 +23,14 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -105,8 +108,10 @@ type Config struct {
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
 	NodeToAddressResolver  resolver.NodeToAddress
-	Logger                 *logrus.Logger
-	Voter                  bool
+	// NodeSelector is the memberlist interface to RAFT
+	NodeSelector cluster.NodeSelector
+	Logger       *logrus.Logger
+	Voter        bool
 
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
@@ -126,6 +131,9 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
+	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
+	// unnecessary
+	EnableOneNodeRecovery bool
 	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
 	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
 	// WARNING: This should be run on *actual* one node cluster only.
@@ -133,6 +141,8 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
+
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -175,6 +185,10 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	authZManager *rbac.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -200,13 +214,16 @@ func NewFSM(cfg Config) Store {
 		})
 	}
 
+	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
+
 	return Store{
 		cfg:           cfg,
 		log:           cfg.Logger,
 		candidates:    make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schemaManager,
+		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 
@@ -256,7 +273,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
+	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
+	// node cluster
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
@@ -356,12 +375,12 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			// serialize snapshot
 			b, c, err := schema.LegacySnapshot(st.cfg.NodeID, legacySchema)
 			if err != nil {
-				return fmt.Errorf("create snapshot: %s" + err.Error())
+				return fmt.Errorf("create snapshot: %w", err)
 			}
 			b.Index = st.raft.LastIndex()
 			b.Term = 1
 			if err := st.raft.Restore(b, c, timeout); err != nil {
-				return fmt.Errorf("raft restore: %w" + err.Error())
+				return fmt.Errorf("raft restore: %w", err)
 			}
 			return nil
 		}
@@ -518,7 +537,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 // see Store.candidates.
 //
 // The value of "last_store_log_applied_index" is the index of the last applied command found when
-// the store was opened, see Store.lastAppliedIndexOnStart.
+// the store was opened, see Store.lastAppliedIndexToDB.
 //
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
@@ -720,8 +739,13 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return err
 	}
 
+	recoveryConfig := st.cfg
+	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
+	// the restore to avoid any data change.
+	recoveryConfig.MetadataOnlyVoters = true
+	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           st.cfg,
+		cfg:           recoveryConfig,
 		log:           st.log,
 		raftResolver:  st.raftResolver,
 		raftTransport: st.raftTransport,

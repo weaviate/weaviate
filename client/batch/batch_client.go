@@ -53,7 +53,7 @@ type ClientService interface {
 /*
 BatchObjectsCreate creates new objects based on a object template as a batch
 
-Register new Objects in bulk. Provided meta-data and schema values are validated.
+Create new objects in bulk. <br/><br/>Meta-data and schema values are validated. <br/><br/>**Note: idempotence of `/batch/objects`**: <br/>`POST /batch/objects` is idempotent, and will overwrite any existing object given the same id.
 */
 func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -94,7 +94,7 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 /*
 BatchObjectsDelete deletes objects based on a match filter as a batch
 
-Delete Objects in bulk that match a certain filter.
+Batch delete objects that match a particular filter. <br/><br/>The request body takes a single `where` filter and will delete all objects matched. <br/><br/>Note that there is a limit to the number of objects to be deleted at once using this filter, in order to protect against unexpected memory surges and very-long-running requests. The default limit is 10,000 and may be configured by setting the `QUERY_MAXIMUM_RESULTS` environment variable. <br/><br/>Objects are deleted in the same order that they would be returned in an equivalent Get query. To delete more objects than the limit, run the same query multiple times.
 */
 func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -135,7 +135,7 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 /*
 BatchReferencesCreate creates new cross references between arbitrary classes in bulk
 
-Register cross-references between any class items (objects or objects) in bulk.
+Batch create cross-references between collections items (objects or objects) in bulk.
 */
 func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error) {
 	// TODO: Validate the params before sending

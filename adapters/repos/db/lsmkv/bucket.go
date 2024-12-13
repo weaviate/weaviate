@@ -14,21 +14,27 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -123,6 +129,11 @@ type Bucket struct {
 	// optional segment size limit. If set, a compaction will skip segments that
 	// sum to more than the specified value.
 	maxSegmentSize int64
+
+	// optional segments cleanup interval. If set, segments will be cleaned of
+	// redundant obsolete data, that was deleted or updated in newer segments
+	// (currently supported only in buckets of REPLACE strategy)
+	segmentsCleanupInterval time.Duration
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -184,11 +195,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
+			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
+	b.desiredStrategy = b.strategy
 	// Actual strategy is stored in segment files. In case it is SetCollection,
 	// while new implementation uses bitmaps and supposed to be RoaringSet,
 	// bucket and segmentgroup strategy is changed back to SetCollection
@@ -212,6 +225,17 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategyMapCollection
+	}
+
+	// Inverted segments share a lot of their logic as the MapCollection,
+	// and the main difference is in the way they store their data.
+	// Setting the desired strategy to Inverted will make sure that we can
+	// distinguish between the two strategies for search.
+	// The changes only apply when we have segments on disk,
+	// as the memtables will always be created with the MapCollection strategy.
+	if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		b.desiredStrategy = StrategyInverted
 	}
 
 	b.disk = sg
@@ -325,14 +349,26 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 // secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
+	if time.Since(beforeFlushLock) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeFlushLock)).
+			WithField("action", "lsm_bucket_get_acquire_flush_lock").
+			Debugf("Waited more than 100ms to obtain a flush lock during get")
+	}
 	defer b.flushLock.RUnlock()
 
 	return b.get(key)
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	beforeMemtable := time.Now()
 	v, err := b.active.get(key)
+	if time.Since(beforeMemtable) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeMemtable)).
+			WithField("action", "lsm_bucket_get_active_memtable").
+			Debugf("Waited more than 100ms to retrieve object from memtable")
+	}
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
@@ -349,7 +385,13 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	}
 
 	if b.flushing != nil {
+		beforeFlushMemtable := time.Now()
 		v, err := b.flushing.get(key)
+		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
+			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
+				WithField("action", "lsm_bucket_get_flushing_memtable").
+				Debugf("Waited over 100ms to retrieve object from flushing memtable")
+		}
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -616,49 +658,69 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // There are 3 different locations that we need to check for the key
 // in this order: active memtable, flushing memtable, and disk
 // segment
-func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	if !b.keepTombstones {
-		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
-	switch err {
-	case nil:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	case lsmkv.NotFound:
-		// We can still check flushing and disk
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
 
 	if b.flushing != nil {
 		_, err := b.flushing.get(key)
-		switch err {
-		case nil:
-			return false, nil
-		case lsmkv.Deleted:
-			return true, nil
-		case lsmkv.NotFound:
-			// We can still check disk
-		default:
-			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		if err == nil {
+			return false, time.Time{}, nil
 		}
+		if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
 	}
 
 	_, err = b.disk.getErrDeleted(key)
-	switch err {
-	case nil, lsmkv.NotFound:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
 }
 
 type MapListOptionConfig struct {
@@ -697,8 +759,14 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	segments := [][]MapPair{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	// before := time.Now()
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	if err != nil {
 		return nil, err
 	}
 
@@ -707,33 +775,77 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 			return nil, ctx.Err()
 		}
 
-		segmentDecoded := make([]MapPair, len(disk[i]))
-		for j, v := range disk[i] {
-			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+		propLengths := make(map[uint64]uint32)
+		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+			if err != nil {
 				return nil, err
 			}
-			// Read "broken" tombstones with length 12 but a non-tombstone value
-			// Related to Issue #4125
-			// TODO: Remove the extra check, as it may interfere future in-disk format changes
-			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
-		segments = append(segments, segmentDecoded)
+
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			// Inverted segments have a slightly different internal format
+			// and separate property lengths that need to be read.
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
+					return nil, err
+				}
+				docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
+				// check if there are any tombstones between the i and len(disk) segments
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
+						segmentDecoded[j].Tombstone = true
+						break
+					}
+				}
+				// put the property length in the value from the "external" property lengths
+				binary.LittleEndian.PutUint32(segmentDecoded[j].Value[4:], math.Float32bits(float32(propLengths[docId])))
+
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				// Read "broken" tombstones with length 12 but a non-tombstone value
+				// Related to Issue #4125
+				// TODO: Remove the extra check, as it may interfere future in-disk format changes
+				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
+			}
+		}
+		if len(segmentDecoded) > 0 {
+			segments = append(segments, segmentDecoded)
+		}
 	}
+
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
-
-		segments = append(segments, v)
+		if len(v) > 0 {
+			segments = append(segments, v)
+		}
 	}
 
+	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
-	segments = append(segments, v)
+	if len(v) > 0 {
+		segments = append(segments, v)
+	}
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
@@ -745,6 +857,38 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	return newSortedMapMerger().do(ctx, segments)
+}
+
+func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, error) {
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	for i, segment := range segmentsDisk {
+		if segment.strategy == segmentindex.StrategyInverted {
+			tombstones, err := segment.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[i] = tombstones
+			hasTombstones = true
+		}
+	}
+	if hasTombstones {
+
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
+	}
+	return allTombstones, nil
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is
@@ -822,6 +966,17 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.setTombstone(key, opts...)
+}
+
+func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if !b.keepTombstones {
+		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
+	}
+
+	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not
@@ -923,6 +1078,15 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
+	// Searchable buckets are flushed using the inverted index strategy,
+	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
+	// Memtables in memory are always created using the Map strategy.
+	// See the desiredStrategy for more information on why this only matters
+	// for searchable buckets and at flush time.
+	if strings.Contains(b.active.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+		b.active.flushStrategy = StrategyInverted
+	}
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		return err
@@ -1014,6 +1178,50 @@ func (b *Bucket) isReadOnly() bool {
 	return b.status == storagestate.StatusReadOnly
 }
 
+// FlushAndSwitch is the main way to flush a memtable, replace it with a new
+// one, and make sure that the flushed segment gets added to the segment group.
+//
+// Flushing and adding a segment can take considerable time, which is why the
+// whole process is designed to be non-blocking.
+//
+// To achieve a non-blocking flush, the process is split into four parts:
+//
+//  1. atomicallySwitchMemtable: A new memtable is created, the previous
+//     memtable is moved from "active" to "flushing". This switch is blocking
+//     (holds b.flushLock.Lock()), but extremely fast, as we essentially just
+//     switch a pointer.
+//
+//  2. flush: The previous memtable is flushed to disk. This may take
+//     considerable time as we are I/O-bound. This is done "in the
+//     background"meaning that it does not block any CRUD operations for the
+//     user. It only blocks the flush process itself, meaning only one flush per
+//     bucket can happen simultaneously. This is by design.
+//
+//  3. initAndPrecomputeNewSegment: (Newly added in
+//     https://github.com/weaviate/weaviate/pull/5943, early October 2024). After
+//     the previous flush step the segment can now be initialized. However, to
+//     make it usable for real life, we still need to compute metadata, such as
+//     bloom filters (all types) and net count additions (only Replace type).
+//     Bloom filters can be calculated in isolation and are therefore fairly
+//     trivial. Net count additions on the other hand are more complex, as they
+//     depend on all previous segments. Calculating net count additions can take
+//     a considerable amount of time, especially as the buckets grow larger. As a
+//     result, we need to provide two guarantees: (1) the calculation is
+//     non-blocking from a user's POV and (2) for the duration of the
+//     calculation, the segment group is considered stable, i.e. no other
+//     segments are added, removed, or merged. We can achieve this by holding a
+//     `b.disk.maintenanceLock.RLock()` which prevents modification of the
+//     segments array, but does not block user operation (which are themselves
+//     RLock-holders on that same Lock).
+//
+//  4. atomicallyAddDiskSegmentAndRemoveFlushing: The previous method returned
+//     a fully initialized segment that has not yet been added to the segment
+//     group. This last step is the counter part to the first step and again
+//     blocking, but fast. It adds the segment to the segment group  which at
+//     this point is just a simple array append. At the same time it removes the
+//     "flushing" memtable. It holds the `b.flushLock.Lock()` making this
+//     operation atomic, but blocking.
+//
 // FlushAndSwitch is typically called periodically and does not require manual
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
@@ -1027,11 +1235,25 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
+	// Searchable buckets are flushed using the inverted index strategy,
+	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
+	// Memtables in memory are always created using the Map strategy.
+	// See the desiredStrategy for more information on why this only matters
+	// for searchable buckets and at flush time.
+	if strings.Contains(b.flushing.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+		b.flushing.flushStrategy = StrategyInverted
+	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
+	segment, err := b.initAndPrecomputeNewSegment()
+	if err != nil {
+		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
@@ -1048,7 +1270,20 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
+func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+	// Note that this operation does not require the flush lock, i.e. it can
+	// happen in the background and we can accept new writes will this
+	// pre-compute is happening.
+	path := b.flushing.path
+	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	if err != nil {
+		return nil, err
+	}
+
+	return segment, nil
+}
+
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1057,8 +1292,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 		return nil
 	}
 
-	path := b.flushing.path
-	if err := b.disk.add(path + ".db"); err != nil {
+	if err := b.disk.addInitializedSegment(seg); err != nil {
 		return err
 	}
 	b.flushing = nil
@@ -1111,8 +1345,13 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	allTombstones, err := b.loadAllTombstones(segmentsDisk)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1120,11 +1359,33 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		propLengths := make(map[uint64]uint32)
+		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+			if err != nil {
+				return nil, err
+			}
+		}
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
-			if err := segmentDecoded[j].FromBytes(v.value, v.tombstone, propBoost); err != nil {
-				return nil, err
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				docId := binary.BigEndian.Uint64(v.value[:8])
+				propLen := propLengths[docId]
+				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
+					return nil, err
+				}
+				// check if there are any tombstones between the i and len(disk) segments
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
+						segmentDecoded[j].Frequency = 0
+						break
+					}
+				}
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, v.tombstone, propBoost); err != nil {
+					return nil, err
+				}
 			}
 		}
 		segments = append(segments, segmentDecoded)
@@ -1166,4 +1427,150 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
+}
+
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]terms.TermInterface, *sync.RWMutex, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	lock := &b.disk.maintenanceLock
+	// The lock is necessary, as data is being read from the disk during blockmax wand search.
+	// BlockMax is ran outside this function, so, the lock is returned to the caller.
+	// Panics at this level are caught and the lock is released in the defer function.
+	// The lock is released after the blockmax search is done, and panics are also handled.
+	lock.RLock()
+
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+			lock.RUnlock()
+		}
+	}()
+
+	segmentsDisk := b.disk.segments
+	output := make([][]terms.TermInterface, len(segmentsDisk)+2)
+	idfs := make([]float64, len(query))
+
+	// flusing memtable
+	output[len(segmentsDisk)] = make([]terms.TermInterface, 0, len(query))
+
+	// active memtable
+	output[len(segmentsDisk)+1] = make([]terms.TermInterface, 0, len(query))
+
+	for i, queryTerm := range query {
+		key := []byte(queryTerm)
+		n := uint64(0)
+
+		flushing := terms.NewTerm(queryTerm, i, propertyBoost, config)
+		active := terms.NewTerm(queryTerm, i, propertyBoost, config)
+		if b.flushing != nil {
+			mapPairs, err := b.flushing.getMap(key)
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return nil, lock, err
+			}
+			n2, err := addDataToTerm(mapPairs, filterDocIds, flushing)
+			if err != nil {
+				return nil, lock, err
+			}
+			n += n2
+			if n2 > 0 {
+				output[len(segmentsDisk)] = append(output[len(segmentsDisk)], flushing)
+			}
+		}
+
+		if b.active != nil {
+			mapPairs, err := b.active.getMap(key)
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return nil, lock, err
+			}
+			n2, err := addDataToTerm(mapPairs, filterDocIds, active)
+			if err != nil {
+				return nil, lock, err
+			}
+			n += n2
+			if n2 > 0 {
+				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
+			}
+		}
+
+		for _, segment := range segmentsDisk {
+			if segment.strategy == segmentindex.StrategyInverted && segment.hasKey(key) {
+				n += segment.getDocCount(key)
+			}
+		}
+
+		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+		flushing.SetIdf(idfs[i])
+		active.SetIdf(idfs[i])
+
+	}
+
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+
+	if b.flushing != nil {
+		tombstones, err := b.flushing.GetTombstones()
+		if err != nil {
+			return nil, lock, err
+		}
+		allTombstones[len(segmentsDisk)] = tombstones
+
+	}
+
+	tombstones, err := b.active.GetTombstones()
+	if err != nil {
+		return nil, lock, err
+	}
+	allTombstones[len(segmentsDisk)+1] = tombstones
+
+	for i, segment := range segmentsDisk {
+		tombstones, err := segment.GetTombstones()
+		if err != nil {
+			return nil, lock, err
+		}
+
+		allTombstones[i] = tombstones
+	}
+
+	for j, segment := range segmentsDisk {
+		output[j] = make([]terms.TermInterface, 0, len(query))
+		for i, key := range query {
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], filterDocIds, averagePropLength, config)
+			if term != nil {
+				output[j] = append(output[j], term)
+			}
+		}
+	}
+	return output, lock, nil
+}
+
+func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *terms.Term) (uint64, error) {
+	n := uint64(0)
+	data := make([]terms.DocPointerWithScore, 0, len(mem))
+
+	for _, v := range mem {
+		if v.Tombstone {
+			continue
+		}
+		n++
+		if len(v.Value) < 8 {
+			// b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+			continue
+		}
+		d := terms.DocPointerWithScore{}
+		if err := d.FromKeyVal(v.Key, v.Value, false, 1.0); err != nil {
+			return 0, err
+		}
+		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
+			continue
+		}
+		data = append(data, d)
+
+	}
+	if len(data) == 0 {
+		return n, nil
+	}
+	term.Data = data
+	term.SetPosPointer(0)
+	term.SetIdPointer(term.Data[0].Id)
+	return n, nil
 }

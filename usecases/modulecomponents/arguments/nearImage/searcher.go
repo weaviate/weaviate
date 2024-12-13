@@ -19,45 +19,40 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
-type Searcher struct {
-	vectorizer imgVectorizer
+type Searcher[T types.Embedding] struct {
+	vectorizer imgVectorizer[T]
 }
 
-func NewSearcher(vectorizer imgVectorizer) *Searcher {
-	return &Searcher{vectorizer}
+func NewSearcher[T types.Embedding](vectorizer imgVectorizer[T]) *Searcher[T] {
+	return &Searcher[T]{vectorizer}
 }
 
-type imgVectorizer interface {
+type imgVectorizer[T types.Embedding] interface {
 	VectorizeImage(ctx context.Context,
-		id, image string, cfg moduletools.ClassConfig) ([]float32, error)
+		id, image string, cfg moduletools.ClassConfig) (T, error)
 }
 
-func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	vectorSearches := map[string]modulecapabilities.VectorForParams{}
-	vectorSearches["nearImage"] = s.vectorForNearImageParam
+func (s *Searcher[T]) VectorSearches() map[string]modulecapabilities.VectorForParams[T] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[T]{}
+	vectorSearches["nearImage"] = &vectorForParams[T]{s.vectorizer}
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearImageParam(ctx context.Context, params interface{},
-	className string,
-	findVectorFn modulecapabilities.FindVectorFn,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	return s.vectorFromNearImageParam(ctx, params.(*NearImageParams), className, findVectorFn, cfg)
+type vectorForParams[T types.Embedding] struct {
+	vectorizer imgVectorizer[T]
 }
 
-func (s *Searcher) vectorFromNearImageParam(ctx context.Context,
-	params *NearImageParams, className string, findVectorFn modulecapabilities.FindVectorFn,
+func (v *vectorForParams[T]) VectorForParams(ctx context.Context, params interface{}, className string,
+	findVectorFn modulecapabilities.FindVectorFn[T],
 	cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	// find vector for given search query
+) (T, error) {
 	searchID := fmt.Sprintf("search_%v", time.Now().UnixNano())
-	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, params.Image, cfg)
+	vector, err := v.vectorizer.VectorizeImage(ctx, searchID, params.(*NearImageParams).Image, cfg)
 	if err != nil {
 		return nil, errors.Errorf("vectorize image: %v", err)
 	}
-
 	return vector, nil
 }

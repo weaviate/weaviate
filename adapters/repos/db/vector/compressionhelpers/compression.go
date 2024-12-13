@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/pkg/errors"
@@ -43,11 +44,15 @@ type CommitLogger interface {
 type VectorCompressor interface {
 	Drop() error
 	GrowCache(size uint64)
+	GrowMultiCache(id uint64)
 	SetCacheMaxSize(size int64)
 	GetCacheMaxSize() int64
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vector []float32)
+	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
+	GetKeys(id uint64) (uint64, uint64)
 	Prefetch(id uint64)
+	CountVectors() int64
 	PrefillCache()
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
@@ -76,8 +81,16 @@ func (compressor *quantizedVectorsCompressor[T]) GrowCache(size uint64) {
 	compressor.cache.Grow(size)
 }
 
+func (compressor *quantizedVectorsCompressor[T]) GrowMultiCache(id uint64) {
+	compressor.cache.GrowMultiCache(id)
+}
+
 func (compressor *quantizedVectorsCompressor[T]) SetCacheMaxSize(size int64) {
 	compressor.cache.UpdateMaxSize(size)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) CountVectors() int64 {
+	return compressor.cache.CountVectors()
 }
 
 func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {
@@ -104,6 +117,24 @@ func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []flo
 	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
+	compressedVectors := make([][]T, len(vecs))
+	for i, vector := range vecs {
+		compressedVectors[i] = compressor.quantizer.Encode(vector)
+	}
+	for i, id := range ids {
+		idBytes := make([]byte, 8)
+		compressor.storeId(idBytes, id)
+		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVectors[i]))
+		compressor.cache.Grow(id)
+	}
+	compressor.cache.PreloadMulti(docID, ids, compressedVectors)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) GetKeys(id uint64) (uint64, uint64) {
+	return compressor.cache.GetKeys(id)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Prefetch(id uint64) {
@@ -206,7 +237,6 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	before := time.Now()
-	count := 0
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
@@ -214,53 +244,41 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []T
-	}
 
-	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
-	// this slice dynamically should be quite cheap compared to other operations
-	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	parallel := 2 * runtime.GOMAXPROCS(0)
 	maxID := uint64(0)
+	vecs := make([]VecAndID[T], 0, 10_000)
 
-	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-
-		if len(k) == 0 {
-			compressor.logger.WithFields(logrus.Fields{
-				"action": "hnsw_compressed_vector_cache_prefill",
-				"len":    len(v),
-				"lenk":   len(k),
-			}).Warn("skipping compressed vector with unexpected length")
-			continue
-		}
-
-		count++
-
-		id := compressor.loadId(k)
-		vc := make([]byte, len(v))
-		copy(vc, v)
-
-		vecs = append(vecs, vec{id: id, vec: compressor.quantizer.FromCompressedBytes(vc)})
-		if id > maxID {
-			maxID = id
-		}
-
+	it := NewParallelIterator(
+		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
+		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
+		compressor.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
 	}
-	cursor.Close()
+
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	for i := range vecs {
+		if vecs[i].Id > maxID {
+			maxID = vecs[i].Id
+		}
+	}
 
 	compressor.cache.Grow(maxID)
 
 	for _, vec := range vecs {
-		compressor.cache.Preload(vec.id, vec.vec)
+		compressor.cache.Preload(vec.Id, vec.Vec)
 	}
 
 	took := time.Since(before)
 	compressor.logger.WithFields(logrus.Fields{
 		"action": "hnsw_compressed_vector_cache_prefill",
-		"count":  count,
+		"count":  len(vecs),
+		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache")
 }
@@ -292,7 +310,7 @@ func NewHNSWPQCompressor(
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
 	err = quantizer.Fit(data)
@@ -325,7 +343,7 @@ func RestoreHNSWPQCompressor(
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger, 0,
 		allocChecker)
 	return pqVectorsCompressor, nil
 }
@@ -347,6 +365,28 @@ func NewBQCompressor(
 	}
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger, 0,
+		allocChecker)
+	return bqVectorsCompressor, nil
+}
+
+func NewBQMultiCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	quantizer := NewBinaryQuantizer(distance)
+	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
+		quantizer:       &quantizer,
+		compressedStore: store,
+		storeId:         binary.BigEndian.PutUint64,
+		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
+	}
+	bqVectorsCompressor.initCompressedStore()
+	bqVectorsCompressor.cache = cache.NewShardedMultiUInt64LockCache(
 		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
 		allocChecker)
 	return bqVectorsCompressor, nil
@@ -370,7 +410,7 @@ func NewHNSWSQCompressor(
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	sqVectorsCompressor.cache.Grow(uint64(len(data)))
 	return sqVectorsCompressor, nil
@@ -398,7 +438,7 @@ func RestoreHNSWSQCompressor(
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	return sqVectorsCompressor, nil
 }

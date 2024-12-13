@@ -45,6 +45,8 @@ func NewTenantExists(ctx *middleware.Context, handler TenantExistsHandler) *Tena
 /*
 	TenantExists swagger:route HEAD /schema/{className}/tenants/{tenantName} schema tenantExists
 
+# Check whether a tenant exists
+
 Check if a tenant exists for a specific class
 */
 type TenantExists struct {

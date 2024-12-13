@@ -95,7 +95,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						},
 					},
 				},
-				expectedError: "validate: failed to get class: SomeClass, with err=<nil>",
+				expectedError: "validate: failed to get class: SomeClass",
 			},
 			{
 				input: &models.BatchDelete{
@@ -173,7 +173,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DryRun, test.input.Output, nil, "")
+			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DeletionTimeUnixMilli, test.input.DryRun, test.input.Output, nil, "")
 			assert.Equal(t, test.expectedError, err.Error())
 		}
 	})

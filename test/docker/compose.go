@@ -32,10 +32,12 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
-	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
+	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
+	modmulti2vecvoyageai "github.com/weaviate/weaviate/modules/multi2vec-voyageai"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -45,10 +47,10 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
-	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -104,6 +106,11 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
+	withWeaviateApiKey            bool
+	weaviateApiKeyUsers           []ApiKeyUser
+	withWeaviateRbac              bool
+	weaviateRbacAdmins            []string
+	weaviateRbacViewers           []string
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -113,9 +120,7 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
-	withOctoAIVectorizer          bool
-	withOctoAIGenerative          bool
-	withOctoAIApiKey              string
+	withAutoschema                bool
 	weaviateEnvs                  map[string]string
 	removeEnvs                    map[string]struct{}
 }
@@ -153,13 +158,6 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 func (d *Compose) WithText2VecOllama() *Compose {
 	d.withOllamaVectorizer = true
 	d.enableModules = append(d.enableModules, modollama.Name)
-	return d
-}
-
-func (d *Compose) WithText2VecOctoAI(apiKey string) *Compose {
-	d.withOctoAIApiKey = apiKey
-	d.withOctoAIVectorizer = true
-	d.enableModules = append(d.enableModules, modoctoai.Name)
 	return d
 }
 
@@ -229,6 +227,24 @@ func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2veccohere.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecVoyageAI(apiKey string) *Compose {
+	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecvoyageai.Name)
+	return d
+}
+
+func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -261,7 +277,8 @@ func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecVoyageAI() *Compose {
+func (d *Compose) WithText2VecVoyageAI(apiKey string) *Compose {
+	d.weaviateEnvs["VOYAGEAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modvoyageai.Name)
 	return d
 }
@@ -282,6 +299,11 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 
 func (d *Compose) WithText2VecHuggingFace() *Compose {
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
 	return d
 }
 
@@ -333,13 +355,6 @@ func (d *Compose) WithGenerativeAnyscale() *Compose {
 func (d *Compose) WithGenerativeOllama() *Compose {
 	d.withOllamaGenerative = true
 	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
-	return d
-}
-
-func (d *Compose) WithGenerativeOctoAI(apiKey string) *Compose {
-	d.withOctoAIApiKey = apiKey
-	d.withOctoAIGenerative = true
-	d.enableModules = append(d.enableModules, modgenerativeoctoai.Name)
 	return d
 }
 
@@ -422,11 +437,52 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithApiKey() *Compose {
+	d.withWeaviateApiKey = true
+	return d
+}
+
+func (d *Compose) WithUserApiKey(username, key string) *Compose {
+	if !d.withWeaviateApiKey {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateApiKeyUsers = append(d.weaviateApiKeyUsers, ApiKeyUser{
+		Username: username,
+		Key:      key,
+	})
+	return d
+}
+
+func (d *Compose) WithRBAC() *Compose {
+	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	return d
+}
+
+func (d *Compose) WithRbacViewers(usernames ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewers = append(d.weaviateRbacViewers, usernames...)
+	return d
+}
+
 func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
 	for _, name := range names {
 		d.removeEnvs[name] = struct{}{}
 	}
+	return d
+}
 
+func (d *Compose) WithAutoschema() *Compose {
+	d.withAutoschema = true
 	return d
 }
 
@@ -575,9 +631,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withGoogleApiKey != "" {
 		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
 	}
-	if d.withOctoAIApiKey != "" {
-		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
-	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)
 		container, err := startM2VBind(ctx, networkName, image)
@@ -697,6 +750,39 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+	}
+
+	if d.withWeaviateApiKey {
+		usernames := make([]string, 0, len(d.weaviateApiKeyUsers))
+		keys := make([]string, 0, len(d.weaviateApiKeyUsers))
+
+		for _, user := range d.weaviateApiKeyUsers {
+			usernames = append(usernames, user.Username)
+			keys = append(keys, user.Key)
+		}
+		if len(keys) > 0 {
+			settings["AUTHENTICATION_APIKEY_ALLOWED_KEYS"] = strings.Join(keys, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+		if len(usernames) > 0 {
+			settings["AUTHENTICATION_APIKEY_USERS"] = strings.Join(usernames, ",")
+			settings["AUTHENTICATION_APIKEY_ENABLED"] = "true"
+		}
+	}
+
+	if d.withWeaviateRbac {
+		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+
+		if len(d.weaviateRbacAdmins) > 0 {
+			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		}
+		if len(d.weaviateRbacViewers) > 0 {
+			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
+		}
+	}
+
+	if d.withAutoschema {
+		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
 
 	settings["RAFT_PORT"] = "8300"

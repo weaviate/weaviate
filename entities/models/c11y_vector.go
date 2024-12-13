@@ -22,7 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// C11yVector A Vector in the Contextionary
+// C11yVector A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.
 //
 // swagger:model C11yVector
 type C11yVector []float32

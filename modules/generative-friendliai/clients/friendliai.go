@@ -112,7 +112,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode == 404 {
@@ -170,7 +170,16 @@ func (v *friendliai) getDebugInformation(debug bool, prompt string) *modulecapab
 
 func (v *friendliai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"friendliai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{friendliparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[friendliparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -253,4 +262,8 @@ type usage struct {
 
 type friendliApiError struct {
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

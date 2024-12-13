@@ -14,16 +14,18 @@ package lsmkv
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -306,7 +308,20 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if err := c.Do(); err != nil {
 			return false, err
 		}
+	case segmentindex.StrategyInverted:
+		c := newCompactorInverted(f,
+			leftSegment.newInvertedCursorReusable(),
+			rightSegment.newInvertedCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
+		if sg.metrics != nil {
+			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+		}
+
+		if err := c.do(); err != nil {
+			return false, err
+		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
@@ -342,31 +357,77 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
 
+	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
+	if err != nil {
+		return fmt.Errorf("replace compacted segments (blocking): %w", err)
+	}
+
+	if err := sg.deleteOldSegmentsNonBlocking(oldL, oldR); err != nil {
+		// don't abort if the delete fails, we can still continue (albeit
+		// without freeing disk space that should have been freed). The
+		// compaction itself was successful.
+		sg.logger.WithError(err).WithFields(logrus.Fields{
+			"action":     "lsm_replace_compacted_segments_delete_files",
+			"file_left":  oldL.path,
+			"file_right": oldR.path,
+		}).Error("failed to delete file already marked for deletion")
+	}
+
+	return nil
+}
+
+const replaceSegmentWarnThreshold = 300 * time.Millisecond
+
+func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
+	old1, old2 int, precomputedFiles []string,
+) (*segment, *segment, error) {
+	// We need a maintenanceLock.Lock() to switch segments, however, we can't
+	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
+	// would mean that if any RLock() holder still holds the lock, all future
+	// RLock() holders would be blocked until we release the Lock() again.
+	//
+	// Typical RLock() holders are user operations that are short-lived. However,
+	// the flush routine also requires an RLock() and could potentially hold it
+	// for minutes. This is problematic, so we need to synchronize with the flush
+	// routine by obtaining the flushVsCompactLock.
+	//
+	// This gives us the guarantee that – until we have released the
+	// flushVsCompactLock – no flush routine will try to obtain a long-lived
+	// maintenanceLock.RLock().
+	sg.flushVsCompactLock.Lock()
+	defer sg.flushVsCompactLock.Unlock()
+
+	start := time.Now()
+	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.Lock()
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			Debug("compaction took more than 100ms to acquire maintenance lock")
+	}
 	defer sg.maintenanceLock.Unlock()
 
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
 	if err := rightSegment.close(); err != nil {
-		return errors.Wrap(err, "close disk segment")
+		return nil, nil, errors.Wrap(err, "close disk segment")
 	}
 
-	if err := leftSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := leftSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	if err := rightSegment.drop(); err != nil {
-		return errors.Wrap(err, "drop disk segment")
+	if err := rightSegment.markForDeletion(); err != nil {
+		return nil, nil, errors.Wrap(err, "drop disk segment")
 	}
 
-	err = fsync(sg.dir)
+	err := fsync(sg.dir)
 	if err != nil {
-		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+		return nil, nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
 
 	sg.segments[old1] = nil
@@ -379,7 +440,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	for i, path := range precomputedFiles {
 		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
 		if err != nil {
-			return errors.Wrap(err, "strip .tmp extension of new segment")
+			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
 
 		if i == 0 {
@@ -391,12 +452,46 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
 		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 	if err != nil {
-		return errors.Wrap(err, "create new segment")
+		return nil, nil, errors.Wrap(err, "create new segment")
 	}
 
 	sg.segments[old2] = seg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
+
+	sg.observeReplaceCompactedDuration(start, old1, leftSegment, rightSegment)
+	return leftSegment, rightSegment, nil
+}
+
+func (sg *SegmentGroup) observeReplaceCompactedDuration(
+	start time.Time, segmentIdx int, left, right *segment,
+) {
+	// observe duration - warn if it took too long
+	took := time.Since(start)
+	fields := sg.logger.WithFields(logrus.Fields{
+		"action":        "lsm_replace_compacted_segments_blocking",
+		"segment_index": segmentIdx,
+		"path_left":     left.path,
+		"path_right":    right.path,
+		"took":          took,
+	})
+	msg := fmt.Sprintf("replacing compacted segments took %s", took)
+	if took > replaceSegmentWarnThreshold {
+		fields.Warn(msg)
+	} else {
+		fields.Debug(msg)
+	}
+}
+
+func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+	// At this point those segments are no longer used, so we can drop them
+	// without holding the maintenance lock and therefore not block readers.
+
+	for pos, seg := range segments {
+		if err := seg.dropMarked(); err != nil {
+			return fmt.Errorf("drop segment at pos %d: %w", pos, err)
+		}
+	}
 
 	return nil
 }
@@ -417,36 +512,32 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	sg.monitorSegments()
-
-	compacted, err := sg.compactOnce()
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("compaction failed")
-	}
-
-	if compacted {
-		return true
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
-		return false
-	}
-}
-
-func (sg *SegmentGroup) Len() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return len(sg.segments)
-}
-
 func (sg *SegmentGroup) monitorSegments() {
 	if sg.metrics == nil || sg.metrics.groupClasses {
+		return
+	}
+
+	// Keeping metering to only the critical buckets helps
+	// cut down on noise when monitoring
+	if sg.metrics.criticalBucketsOnly {
+		bucket := path.Base(sg.dir)
+		if bucket != helpers.ObjectsBucketLSM &&
+			bucket != helpers.VectorsCompressedBucketLSM {
+			return
+		}
+		if bucket == helpers.ObjectsBucketLSM {
+			sg.metrics.ObjectsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		if bucket == helpers.VectorsCompressedBucketLSM {
+			sg.metrics.CompressedVecsBucketSegments.With(prometheus.Labels{
+				"strategy": sg.strategy,
+				"path":     sg.dir,
+			}).Set(float64(sg.Len()))
+		}
+		sg.reportSegmentStats()
 		return
 	}
 
@@ -454,7 +545,10 @@ func (sg *SegmentGroup) monitorSegments() {
 		"strategy": sg.strategy,
 		"path":     sg.dir,
 	}).Set(float64(sg.Len()))
+	sg.reportSegmentStats()
+}
 
+func (sg *SegmentGroup) reportSegmentStats() {
 	stats := sg.segmentLevelStats()
 	stats.fillMissingLevels()
 	stats.report(sg.metrics, sg.strategy, sg.dir)

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -626,6 +628,16 @@ func getFakeModulesProvider() ModulesProvider {
 	return newFakeModulesProvider()
 }
 
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+	return nil
+}
+
+func getFakeAuthorizer() authorization.Authorizer {
+	return &fakeAuthorizer{}
+}
+
 func newMockResolver() *mockResolver {
 	return newMockResolverWithVectorizer(config.VectorizerModuleText2VecContextionary)
 }
@@ -633,7 +645,7 @@ func newMockResolver() *mockResolver {
 func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 	logger, _ := test.NewNullLogger()
 	simpleSchema := test_helper.CreateSimpleSchema(vectorizer)
-	field, err := Build(&simpleSchema, logger, getFakeModulesProvider())
+	field, err := Build(&simpleSchema, logger, getFakeModulesProvider(), getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -647,7 +659,7 @@ func newMockResolverWithVectorizer(vectorizer string) *mockResolver {
 
 func newMockResolverWithNoModules() *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, logger, nil)
+	field, err := Build(&test_helper.SimpleSchema, logger, nil, getFakeAuthorizer())
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -662,6 +674,32 @@ func newMockResolverWithNoModules() *mockResolver {
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	// order is random due to map access, sort to make tests deterministic
+	if params.NearVector != nil && params.NearVector.TargetVectors != nil && params.NearVector.Vectors != nil {
+		tv := targetsAndVectors{targets: params.NearVector.TargetVectors, vectors: params.NearVector.Vectors}
+		sort.Sort(tv)
+		params.NearVector.TargetVectors = tv.targets
+		params.NearVector.Vectors = tv.vectors
+	}
+
 	args := m.Called(params)
 	return args.Get(0).([]interface{}), args.Error(1)
+}
+
+type targetsAndVectors struct {
+	targets []string
+	vectors [][]float32
+}
+
+func (t targetsAndVectors) Len() int {
+	return len(t.targets)
+}
+
+func (t targetsAndVectors) Swap(i, j int) {
+	t.targets[i], t.targets[j] = t.targets[j], t.targets[i]
+	t.vectors[i], t.vectors[j] = t.vectors[j], t.vectors[i]
+}
+
+func (t targetsAndVectors) Less(i, j int) bool {
+	return t.targets[i] < t.targets[j]
 }

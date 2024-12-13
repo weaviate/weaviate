@@ -12,9 +12,9 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -36,20 +36,32 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr           error
 	}{
 		{
+			name: "default settings",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{},
+			},
+			wantService:       "bedrock",
+			wantRegion:        "",
+			wantModel:         "",
+			wantMaxTokenCount: 8192,
+			wantTemperature:   0,
+			wantTopP:          1,
+		},
+		{
 			name: "happy flow - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
 					"region":  "us-east-1",
-					"model":   "amazon.titan-tg1-large",
+					"model":   "ai21.j2-ultra-v1",
 				},
 			},
 			wantService:       "bedrock",
 			wantRegion:        "us-east-1",
-			wantModel:         "amazon.titan-tg1-large",
+			wantModel:         "ai21.j2-ultra-v1",
 			wantMaxTokenCount: 8192,
-			wantStopSequences: []string{},
-			wantTemperature:   0,
+			wantStopSequences: nil,
+			wantTemperature:   0.7,
 			wantTopP:          1,
 		},
 		{
@@ -75,7 +87,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"service":       "bedrock",
 					"region":        "us-east-1",
-					"model":         "amazon.titan-tg1-large",
+					"model":         "amazon.titan-text-lite-v1",
 					"maxTokenCount": 1,
 					"stopSequences": []string{"test", "test2"},
 					"temperature":   0.2,
@@ -84,7 +96,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantService:       "bedrock",
 			wantRegion:        "us-east-1",
-			wantModel:         "amazon.titan-tg1-large",
+			wantModel:         "amazon.titan-text-lite-v1",
 			wantMaxTokenCount: 1,
 			wantStopSequences: []string{"test", "test2"},
 			wantTemperature:   0.2,
@@ -113,11 +125,11 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"service":     "bedrock",
 					"region":      "us-east-1",
-					"model":       "amazon.titan-tg1-large",
+					"model":       "amazon.titan-text-lite-v1",
 					"temperature": 2,
 				},
 			},
-			wantErr: errors.Errorf("temperature has to be float value between 0 and 1"),
+			wantErr: fmt.Errorf("temperature has to be float value between 0 and 1"),
 		},
 		{
 			name: "wrong maxTokenCount",
@@ -125,11 +137,11 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"service":       "bedrock",
 					"region":        "us-east-1",
-					"model":         "amazon.titan-tg1-large",
+					"model":         "amazon.titan-text-lite-v1",
 					"maxTokenCount": 9000,
 				},
 			},
-			wantErr: errors.Errorf("maxTokenCount has to be an integer value between 1 and 8096"),
+			wantErr: fmt.Errorf("maxTokenCount has to be an integer value between 1 and 8096"),
 		},
 		{
 			name: "wrong topP",
@@ -137,11 +149,11 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
 					"region":  "us-east-1",
-					"model":   "amazon.titan-tg1-large",
+					"model":   "amazon.titan-text-lite-v1",
 					"topP":    2000,
 				},
 			},
-			wantErr: errors.Errorf("topP has to be an integer value between 0 and 1"),
+			wantErr: fmt.Errorf("topP has to be an integer value between 0 and 1"),
 		},
 	}
 	for _, tt := range tests {
@@ -150,6 +162,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
 			} else {
+				assert.NoError(t, ic.Validate(nil))
 				assert.Equal(t, tt.wantService, ic.Service())
 				assert.Equal(t, tt.wantRegion, ic.Region())
 				assert.Equal(t, tt.wantModel, ic.Model())

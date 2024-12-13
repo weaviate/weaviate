@@ -103,8 +103,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -121,7 +120,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 		wg := sync.WaitGroup{}
 		worker := func(jobs chan tuple) {
 			for job := range jobs {
-				index.Add(job.id, job.vec)
+				index.Add(ctx, job.id, job.vec)
 			}
 
 			wg.Done()
@@ -238,8 +237,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
-		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, tombstoneCleanupCallbacks, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx

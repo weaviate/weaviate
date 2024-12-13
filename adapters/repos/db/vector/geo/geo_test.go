@@ -23,6 +23,7 @@ import (
 )
 
 func TestGeoJourney(t *testing.T) {
+	ctx := context.Background()
 	elements := []models.GeoCoordinates{
 		{ // coordinates of munich
 			Latitude:  ptFloat32(48.13743),
@@ -44,19 +45,18 @@ func TestGeoJourney(t *testing.T) {
 		DisablePersistence: true,
 		RootPath:           "doesnt-matter-persistence-is-off",
 	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
 	t.Run("importing all", func(t *testing.T) {
 		for id, coordinates := range elements {
-			err := geoIndex.Add(uint64(id), &coordinates)
+			err := geoIndex.Add(ctx, uint64(id), &coordinates)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("importing an invalid object", func(t *testing.T) {
-		err := geoIndex.Add(9000, &models.GeoCoordinates{})
+		err := geoIndex.Add(ctx, 9000, &models.GeoCoordinates{})
 		assert.Equal(t, "invalid arguments: latitude must be set", err.Error())
 	})
 

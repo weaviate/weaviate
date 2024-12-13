@@ -389,7 +389,7 @@ func refsAsBatch(in []*models.Object, propName string) objects.BatchReferences {
 	return out
 }
 
-func createParams(className string, weights map[string]float32) dto.GetParams {
+func createParams(className string, weights []float32) dto.GetParams {
 	targetCombination := &dto.TargetCombination{Type: dto.Minimum}
 	if weights != nil {
 		targetCombination = &dto.TargetCombination{Type: dto.Sum, Weights: weights}

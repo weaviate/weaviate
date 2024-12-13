@@ -57,7 +57,9 @@ type ClientService interface {
 }
 
 /*
-BackupsCancel Cancel created backup with specified ID
+BackupsCancel cancels backup
+
+Cancel created backup with specified ID
 */
 func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCancelNoContent, error) {
 	// TODO: Validate the params before sending
@@ -96,7 +98,9 @@ func (a *Client) BackupsCancel(params *BackupsCancelParams, authInfo runtime.Cli
 }
 
 /*
-BackupsCreate Starts a process of creating a backup for a set of classes
+BackupsCreate starts a backup process
+
+Start creating a backup for a set of collections. <br/><br/>Notes: <br/>- Weaviate uses gzip compression by default. <br/>- Weaviate stays usable while a backup process is ongoing.
 */
 func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -135,7 +139,9 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 }
 
 /*
-BackupsCreateStatus Returns status of backup creation attempt for a set of classes
+BackupsCreateStatus gets backup process status
+
+Returns status of backup creation attempt for a set of collections. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using this endpoint.
 */
 func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -174,7 +180,9 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 }
 
 /*
-BackupsList List all backups in progress
+BackupsList lists backups in progress
+
+[Coming soon] List all backups in progress not implemented yet.
 */
 func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsListOK, error) {
 	// TODO: Validate the params before sending
@@ -213,7 +221,9 @@ func (a *Client) BackupsList(params *BackupsListParams, authInfo runtime.ClientA
 }
 
 /*
-BackupsRestore Starts a process of restoring a backup for a set of classes
+BackupsRestore starts a restoration process
+
+Starts a process of restoring a backup for a set of collections. <br/><br/>Any backup can be restored to any machine, as long as the number of nodes between source and target are identical.<br/><br/>Requrements:<br/><br/>- None of the collections to be restored already exist on the target restoration node(s).<br/>- The node names of the backed-up collections' must match those of the target restoration node(s).
 */
 func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error) {
 	// TODO: Validate the params before sending
@@ -252,7 +262,9 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 }
 
 /*
-BackupsRestoreStatus Returns status of a backup restoration attempt for a set of classes
+BackupsRestoreStatus gets restore process status
+
+Returns status of a backup restoration attempt for a set of classes. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using the this endpoint.
 */
 func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error) {
 	// TODO: Validate the params before sending

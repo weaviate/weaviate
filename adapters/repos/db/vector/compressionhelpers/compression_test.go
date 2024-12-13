@@ -18,9 +18,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
@@ -111,5 +114,40 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		d, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
 		assert.Nil(t, err)
 		assert.Equal(t, float32(2), d)
+	})
+
+	t.Run("don't panic when vector dimensions are mismatched", func(t *testing.T) {
+		var (
+			config = hnsw.PQConfig{
+				Enabled:  true,
+				Segments: 1,
+				Encoder: hnsw.PQEncoder{
+					Type:         hnsw.PQEncoderTypeKMeans,
+					Distribution: hnsw.PQEncoderDistributionLogNormal,
+				},
+				Centroids: 1,
+			}
+			dist         = distancer.NewCosineDistanceProvider()
+			dims         = 3
+			cacheMaxObjs = 4
+			trainingData = [][]float32{
+				{0.0, 0.1, 0.2},
+			}
+		)
+
+		var (
+			storedVec     = []float32{0.0, 0.1, 0.2}
+			mismatchedVec = []float32{0.0, 0.1}
+		)
+
+		compressor, err := compressionhelpers.NewHNSWPQCompressor(
+			config, dist, dims, cacheMaxObjs, nil, trainingData,
+			testinghelpers.NewDummyStore(t),
+			memwatch.NewDummyMonitor(),
+		)
+		require.Nil(t, err)
+		d, _ := compressor.NewDistancer(storedVec)
+		_, err = d.DistanceToFloat(mismatchedVec)
+		assert.EqualError(t, err, "2 vs 3: vector lengths don't match")
 	})
 }

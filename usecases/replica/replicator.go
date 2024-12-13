@@ -68,7 +68,7 @@ type Replicator struct {
 func NewReplicator(className string,
 	stateGetter shardingState,
 	nodeResolver nodeResolver,
-	objectDeletionConflictResolution string,
+	deletionStrategy string,
 	client Client,
 	l logrus.FieldLogger,
 ) *Replicator {
@@ -85,7 +85,7 @@ func NewReplicator(className string,
 		resolver:    resolver,
 		log:         l,
 		Finder: NewFinder(className, resolver, client, l,
-			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, objectDeletionConflictResolution),
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime, deletionStrategy),
 	}
 }
 
@@ -163,12 +163,13 @@ func (r *Replicator) MergeObject(ctx context.Context,
 func (r *Replicator) DeleteObject(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
+	deletionTime time.Time,
 	l ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, schemaVersion)
+		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -231,13 +232,14 @@ func (r *Replicator) PutObjects(ctx context.Context,
 func (r *Replicator) DeleteObjects(ctx context.Context,
 	shard string,
 	uuids []strfmt.UUID,
+	deletionTime time.Time,
 	dryRun bool,
 	l ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, dryRun, schemaVersion)
+		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}

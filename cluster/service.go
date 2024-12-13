@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -47,7 +46,7 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(selector cluster.NodeSelector, cfg Config) *Service {
+func New(cfg Config) *Service {
 	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	// When using FQDN lookup we might want to advertise a different IP than the one we'll be listening on.
 	// This address is then sent to raft peers as the address this node listen on.
@@ -68,7 +67,7 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 	}
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 	fsm := NewFSM(cfg)
-	raft := NewRaft(selector, &fsm, cl)
+	raft := NewRaft(cfg.NodeSelector, &fsm, cl)
 	return &Service{
 		Raft:              raft,
 		raftAddr:          raftAdvertisedAddress,
@@ -123,7 +122,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
 		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w", err)
+			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
 		}
 	} else {
 		bs := bootstrap.NewBootstrapper(

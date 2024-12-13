@@ -51,22 +51,22 @@ type generativeParser interface {
 }
 
 type Parser struct {
-	generative generativeParser
-	getClass   func(string) *models.Class
+	generative         generativeParser
+	authorizedGetClass func(string) (*models.Class, error)
 }
 
-func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
+func NewParser(uses127Api bool, authorizedGetClass func(string) (*models.Class, error)) *Parser {
 	return &Parser{
-		generative: generative.NewParser(uses127Api),
-		getClass:   getClass,
+		generative:         generative.NewParser(uses127Api),
+		authorizedGetClass: authorizedGetClass,
 	}
 }
 
 func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class := p.getClass(req.Collection)
-	if class == nil {
-		return dto.GetParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
+	class, err := p.authorizedGetClass(req.Collection)
+	if err != nil {
+		return out, err
 	}
 
 	out.ClassName = req.Collection
@@ -88,7 +88,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -330,12 +330,12 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(p.getClass, filter); err != nil {
+		if err := filters.ValidateFilters(p.authorizedGetClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
@@ -349,7 +349,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.GroupBy != nil {
-		groupBy, err := extractGroupBy(req.GroupBy, &out)
+		groupBy, err := extractGroupBy(req.GroupBy, &out, class)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -371,21 +371,42 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	return out, nil
 }
 
-func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.GroupBy, error) {
+func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams, class *models.Class) (*searchparams.GroupBy, error) {
 	if len(groupIn.Path) != 1 {
 		return nil, fmt.Errorf("groupby path can only have one entry, received %v", groupIn.Path)
 	}
 
-	groupOut := &searchparams.GroupBy{
-		Property:        groupIn.Path[0],
-		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
-		Groups:          int(groupIn.NumberOfGroups),
-	}
+	groupByProp := groupIn.Path[0]
 
 	// add the property in case it was not requested as return prop - otherwise it is not resolved
-	if out.Properties.FindProperty(groupOut.Property) == nil {
-		out.Properties = append(out.Properties, search.SelectProperty{Name: groupOut.Property, IsPrimitive: true})
+	if out.Properties.FindProperty(groupByProp) == nil {
+		dataType, err := schema.GetPropertyDataType(class, groupByProp)
+		if err != nil || dataType == nil {
+			return nil, err
+		}
+		isPrimitive := true
+		if *dataType == schema.DataTypeCRef {
+			isPrimitive = false
+		}
+		out.Properties = append(out.Properties, search.SelectProperty{Name: groupByProp, IsPrimitive: isPrimitive})
 	}
+
+	var additionalGroupProperties []search.SelectProperty
+	for _, prop := range out.Properties {
+		additionalGroupHitProp := search.SelectProperty{Name: prop.Name}
+		additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, prop.Refs...)
+		additionalGroupHitProp.IsPrimitive = prop.IsPrimitive
+		additionalGroupHitProp.IsObject = prop.IsObject
+		additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+	}
+
+	groupOut := &searchparams.GroupBy{
+		Property:        groupByProp,
+		ObjectsPerGroup: int(groupIn.ObjectsPerGroup),
+		Groups:          int(groupIn.NumberOfGroups),
+		Properties:      additionalGroupProperties,
+	}
+
 	out.AdditionalProperties.NoProps = false
 
 	return groupOut, nil
@@ -472,32 +493,29 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	}
 
 	var combinationType dto.TargetCombinationType
-	weights := make(map[string]float32, len(in.Weights))
+	weights := make([]float32, len(in.TargetVectors))
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0 / float32(len(in.TargetVectors))
+		for i := range in.TargetVectors {
+			weights[i] = 1.0 / float32(len(in.TargetVectors))
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0
+		for i := range in.TargetVectors {
+			weights[i] = 1.0
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
-		if len(in.Weights) != len(in.TargetVectors) {
-			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
 		combinationType = dto.ManualWeights
-		for k, v := range in.Weights {
-			weights[k] = v
+		if err := extractWeights(in, weights); err != nil {
+			return nil, err
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE:
 		combinationType = dto.RelativeScore
-		for k, v := range in.Weights {
-			weights[k] = v
+		if err := extractWeights(in, weights); err != nil {
+			return nil, err
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED:
 		combinationType = dto.DefaultTargetCombinationType
@@ -505,6 +523,35 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
+}
+
+func extractWeights(in *pb.Targets, weights []float32) error {
+	if in.WeightsForTargets != nil {
+		if len(in.WeightsForTargets) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for i, v := range in.WeightsForTargets {
+			if v.Target != in.TargetVectors[i] {
+				return fmt.Errorf("target vector %s not found in target vectors", v.Target)
+			}
+			weights[i] = v.Weight
+		}
+		return nil
+	} else {
+		if len(in.Weights) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for k, v := range in.Weights {
+			ind := indexOf(in.TargetVectors, k)
+			if ind == -1 {
+				return fmt.Errorf("target vector %s not found in target vectors", k)
+			}
+			weights[ind] = v
+		}
+		return nil
+	}
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
@@ -566,7 +613,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 
 	if moveAwayReq := Move; moveAwayReq != nil {
 		moveAwayOut.Force = moveAwayReq.Force
-		if moveAwayReq.Uuids != nil && len(moveAwayReq.Uuids) > 0 {
+		if len(moveAwayReq.Uuids) > 0 {
 			moveAwayOut.Objects = make([]nearText2.ObjectMove, len(moveAwayReq.Uuids))
 			for i, objUUid := range moveAwayReq.Uuids {
 				uuidFormat, err := uuid.Parse(objUUid)
@@ -585,13 +632,13 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(getClass, className)
+		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -600,13 +647,13 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 
 	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors, vectorSearch)
+		return extractPropertiesRequestDeprecated(reqProps, authorizedGetClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(getClass, className)
+		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -625,9 +672,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class := getClass(className)
-		if class == nil {
-			return nil, fmt.Errorf("could not find class %s in schema", className)
+		class, err := authorizedGetClass(className)
+		if err != nil {
+			return nil, err
 		}
 
 		for _, prop := range reqProps.RefProperties {
@@ -650,23 +697,27 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
+			linkedClass, err := authorizedGetClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -697,12 +748,12 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
 	props := make([]search.SelectProperty, 0)
-	if reqProps.NonRefProperties != nil && len(reqProps.NonRefProperties) > 0 {
+	if len(reqProps.NonRefProperties) > 0 {
 		for _, prop := range reqProps.NonRefProperties {
 			props = append(props, search.SelectProperty{
 				Name:        schema.LowercaseFirstLetter(prop),
@@ -712,10 +763,10 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 		}
 	}
 
-	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
-		class := getClass(className)
-		if class == nil {
-			return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+	if len(reqProps.RefProperties) > 0 {
+		class, err := authorizedGetClass(className)
+		if err != nil {
+			return nil, err
 		}
 
 		for _, prop := range reqProps.RefProperties {
@@ -741,20 +792,24 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
+			linkedClass, err := authorizedGetClass(linkedClassName)
+			if err != nil {
+				return nil, err
+			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
+				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -778,7 +833,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 		}
 	}
 
-	if reqProps.ObjectProperties != nil && len(reqProps.ObjectProperties) > 0 {
+	if len(reqProps.ObjectProperties) > 0 {
 		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
 	}
 
@@ -789,7 +844,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	selectProps := make([]search.SelectProperty, 0)
 	for _, prop := range props {
 		nestedProps := make([]search.SelectProperty, 0)
-		if prop.PrimitiveProperties != nil && len(prop.PrimitiveProperties) > 0 {
+		if len(prop.PrimitiveProperties) > 0 {
 			for _, primitive := range prop.PrimitiveProperties {
 				nestedProps = append(nestedProps, search.SelectProperty{
 					Name:        schema.LowercaseFirstLetter(primitive),
@@ -798,7 +853,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 				})
 			}
 		}
-		if prop.ObjectProperties != nil && len(prop.ObjectProperties) > 0 {
+		if len(prop.ObjectProperties) > 0 {
 			nestedProps = append(nestedProps, extractNestedProperties(prop.ObjectProperties)...)
 		}
 		selectProps = append(selectProps, search.SelectProperty{
@@ -856,13 +911,12 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(getClass func(string) *models.Class, className string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(authorizedGetClass func(string) (*models.Class, error), className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
-	class := getClass(className)
-	if class == nil {
-		return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+	class, err := authorizedGetClass(className)
+	if err != nil {
+		return nil, err
 	}
-
 	for _, prop := range class.Properties {
 		dt, err := schema.GetPropertyDataType(class, prop.Name)
 		if err != nil {
@@ -1099,20 +1153,40 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	targetsPerVector := make(map[string][]float32, len(targetVectorsTmp))
+	vectors := make([][]float32, len(targetVectorsTmp))
 	if vector != nil {
-		for _, target := range targetVectorsTmp {
-			targetsPerVector[target] = vector
+		for i := range targetVectorsTmp {
+			vectors[i] = vector
 		}
+	} else if nv.VectorForTargets != nil {
+		if len(nv.VectorForTargets) != len(targetVectorsTmp) {
+			return nil, fmt.Errorf("near_vector: vector for target must have the same lengths as target vectors")
+		}
+
+		for i := range nv.VectorForTargets {
+			if nv.VectorForTargets[i].Name != targetVectorsTmp[i] {
+				var allNames []string
+				for k := range nv.VectorForTargets {
+					allNames = append(allNames, nv.VectorForTargets[k].Name)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
+			}
+			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+		}
+
 	} else if nv.VectorPerTarget != nil {
 		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
 			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
 		}
-		for _, target := range targetVectorsTmp {
+		for i, target := range targetVectorsTmp {
 			if vec, ok := nv.VectorPerTarget[target]; ok {
-				targetsPerVector[target] = byteops.Float32FromByteVector(vec)
+				vectors[i] = byteops.Float32FromByteVector(vec)
 			} else {
-				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
+				var allNames []string
+				for k := range nv.VectorPerTarget {
+					allNames = append(allNames, k)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 		}
 	} else {
@@ -1120,9 +1194,18 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 	}
 
 	return &searchparams.NearVector{
-		VectorPerTarget: targetsPerVector,
-		TargetVectors:   targetVectors,
+		Vectors:       vectors,
+		TargetVectors: targetVectors,
 	}, nil
+}
+
+func indexOf(slice []string, value string) int {
+	for i, v := range slice {
+		if v == value {
+			return i
+		}
+	}
+	return -1
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user

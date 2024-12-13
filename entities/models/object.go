@@ -36,14 +36,14 @@ type Object struct {
 	// Class of the Object, defined in the schema.
 	Class string `json:"class,omitempty"`
 
-	// Timestamp of creation of this Object in milliseconds since epoch UTC.
+	// (Response only) Timestamp of creation of this object in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 	// ID of the Object.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
-	// Timestamp of the last Object update in milliseconds since epoch UTC.
+	// (Response only) Timestamp of the last object update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
 	// properties

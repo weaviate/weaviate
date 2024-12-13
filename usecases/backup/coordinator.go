@@ -61,8 +61,8 @@ type participantStatus struct {
 	Reason   string
 }
 
-// selector is used to select participant nodes
-type selector interface {
+// Selector is used to select participant nodes
+type Selector interface {
 	// Shards gets all nodes on which this class is sharded
 	Shards(ctx context.Context, class string) ([]string, error)
 	// ListClasses returns a list of all existing classes
@@ -90,11 +90,11 @@ type selector interface {
 // - The coordinator will try to repair previous DBROs whenever it is possible
 type coordinator struct {
 	// dependencies
-	selector     selector
+	selector     Selector
 	client       client
 	schema       schemaManger
 	log          logrus.FieldLogger
-	nodeResolver nodeResolver
+	nodeResolver NodeResolver
 
 	// state
 	Participants map[string]participantStatus
@@ -110,11 +110,11 @@ type coordinator struct {
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
 func newCoordinator(
-	selector selector,
+	selector Selector,
 	client client,
 	schema schemaManger,
 	log logrus.FieldLogger,
-	nodeResolver nodeResolver,
+	nodeResolver NodeResolver,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -165,7 +165,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -189,15 +189,19 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 
-	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+	overrideBucket := req.Bucket
+	overridePath := req.Path
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
-		return fmt.Errorf("cannot init meta file: %w", err)
+		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
 	statusReq := StatusRequest{
 		Method:  OpCreate,
 		ID:      req.ID,
 		Backend: req.Backend,
+		Bucket:  req.Bucket,
+		Path:    req.Path,
 	}
 
 	f := func() {
@@ -205,7 +209,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -229,7 +233,7 @@ func (c *coordinator) Restore(
 ) error {
 	req.Method = OpRestore
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
 
@@ -244,22 +248,25 @@ func (c *coordinator) Restore(
 		return err
 	}
 
+	overrideBucket := req.Bucket
+	overridePath := req.Path
+
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
 		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -313,20 +320,22 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	if req.Method == OpRestore {
 		filename = GlobalRestoreFile
 	}
+
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename)
+	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
 	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, filename)
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
+		path := st.Path
+		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)
 	}
 
-	return &Status{
-		Path:        store.HomeDir(),
+	status := &Status{
+		Path:        store.HomeDir(store.bucket, store.path),
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,
 		Err:         meta.Error,
-	}, nil
+	}
+	return status, nil
 }
 
 // canCommit asks candidates if they agree to participate in DBRO
@@ -386,6 +395,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 					Duration:    _BookingPeriod,
 					NodeMapping: nodeMapping,
 					Compression: req.Compression,
+					Bucket:      req.Bucket,
+					Path:        req.Path,
 				},
 			}
 		}

@@ -23,6 +23,7 @@ import (
 )
 
 func Test_FlatDimensions(t *testing.T) {
+	ctx := context.TODO()
 	store := testinghelpers.NewDummyStore(t)
 	rootPath := t.TempDir()
 	defer store.Shutdown(context.Background())
@@ -43,14 +44,22 @@ func Test_FlatDimensions(t *testing.T) {
 		require.Equal(t, int32(0), index.dims)
 	})
 
+	t.Run("metadata is closed after index creation", func(t *testing.T) {
+		require.Nil(t, index.metadata, "metadata file should be closed")
+	})
+
 	t.Run("dimensions updated", func(t *testing.T) {
-		err = index.Add(1, []float32{1, 2, 3})
+		err = index.Add(ctx, 1, []float32{1, 2, 3})
 		require.Nil(t, err)
 		require.Equal(t, int32(3), index.dims)
 	})
 
+	t.Run("metadata is closed after insert", func(t *testing.T) {
+		require.Nil(t, index.metadata, "metadata file should be closed")
+	})
+
 	t.Run("error when adding vector with wrong dimensions", func(t *testing.T) {
-		err = index.Add(2, []float32{1, 2, 3, 4})
+		err = index.Add(ctx, 2, []float32{1, 2, 3, 4})
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
@@ -75,7 +84,7 @@ func Test_FlatDimensions(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, index.dims, int32(3))
 
-		err = index.Add(2, []float32{1, 2, 3, 4})
+		err = index.Add(ctx, 2, []float32{1, 2, 3, 4})
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
@@ -94,13 +103,14 @@ func Test_FlatDimensions(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, index.dims, int32(3))
 
-		err = index.Add(2, []float32{1, 2, 3, 4})
+		err = index.Add(ctx, 2, []float32{1, 2, 3, 4})
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
 }
 
 func Test_FlatDimensionsTargetVector(t *testing.T) {
+	ctx := context.TODO()
 	store := testinghelpers.NewDummyStore(t)
 	rootPath := t.TempDir()
 	defer store.Shutdown(context.Background())
@@ -123,7 +133,7 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	})
 
 	t.Run("dimensions updated", func(t *testing.T) {
-		err = index.Add(1, []float32{1, 2})
+		err = index.Add(ctx, 1, []float32{1, 2})
 		require.Nil(t, err)
 		require.Equal(t, int32(2), index.dims)
 	})
@@ -142,7 +152,7 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, index.dims, int32(2))
 
-		err = index.Add(2, []float32{1, 2, 3, 4})
+		err = index.Add(ctx, 2, []float32{1, 2, 3, 4})
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})

@@ -39,17 +39,17 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "maxTokens",
 					Type:        graphql.Int,
 				},
-				"topK": &graphql.InputObjectFieldConfig{
-					Description: "topK",
-					Type:        graphql.Int,
+				"stopSequences": &graphql.InputObjectFieldConfig{
+					Description: "stopSequences",
+					Type:        graphql.NewList(graphql.String),
 				},
 				"topP": &graphql.InputObjectFieldConfig{
 					Description: "topP",
 					Type:        graphql.Float,
 				},
-				"stopSequences": &graphql.InputObjectFieldConfig{
-					Description: "stopSequences",
-					Type:        graphql.NewList(graphql.String),
+				"topK": &graphql.InputObjectFieldConfig{
+					Description: "topK",
+					Type:        graphql.Int,
 				},
 			},
 		}),

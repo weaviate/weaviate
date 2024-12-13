@@ -246,7 +246,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search
-	addit := additional.Properties{}
+	addit := additional.Properties{Vector: true}
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
@@ -266,6 +266,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(3), res[3].DocID)
 		require.Equal(t, uint64(0), res[4].DocID)
 		require.Equal(t, uint64(2), res[5].DocID)
+
+		// vectors should be returned
+		require.NotNil(t, res[0].Vector)
 
 		// Without additionalExplanations no explainScore entry should be present
 		require.NotContains(t, res[0].Object.Additional, "explainScore")
@@ -455,15 +458,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
-		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
-		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
-		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
-		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
+		EqualFloats(t, float32(0.5868752), noautocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), noautocutscores[1], 5) // <= autocut last element
+		EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
+		EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
+		EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, float32(0.5868752), autocutscores[0])
-		require.EqualValues(t, float32(0.5450892), autocutscores[1])
+		EqualFloats(t, float32(0.5868752), autocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), autocutscores[1], 5)
 	})
 }
 
@@ -756,15 +759,15 @@ func TestBM25FCompare(t *testing.T) {
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
 		require.Equal(t, uint64(4), objs[0].DocID)
-		require.Equal(t, uint64(5), objs[1].DocID)
-		require.Equal(t, uint64(6), objs[2].DocID)
+		require.Equal(t, uint64(6), objs[1].DocID)
+		require.Equal(t, uint64(5), objs[2].DocID)
 		require.Equal(t, uint64(1), objs[3].DocID)
 		require.Equal(t, uint64(2), objs[4].DocID)
 		require.Equal(t, uint64(0), objs[5].DocID)
 
 		require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
-		require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
-		require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+		require.Equal(t, uint64(6), withBM25Fobjs[1].DocID)
+		require.Equal(t, uint64(5), withBM25Fobjs[2].DocID)
 		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
 		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
 		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)

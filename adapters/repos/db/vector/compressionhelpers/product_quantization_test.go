@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -215,4 +216,31 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 			assert.Equal(t, code, uint8(i))
 		}
 	})
+}
+
+func Test_PQDistanceError(t *testing.T) {
+	distanceProvider := distancer.NewL2SquaredProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 256,
+		Segments:  128,
+	}
+
+	q, err := compressionhelpers.NewProductQuantizer(
+		cfg,
+		distanceProvider,
+		128,
+		logger,
+	)
+	require.NoError(t, err)
+
+	_, err = q.DistanceBetweenCompressedVectors(nil, nil)
+	require.Error(t, err)
+	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
+	assert.EqualError(t, err, msg)
 }

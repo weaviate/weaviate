@@ -47,7 +47,7 @@ func NewObjectsClassReferencesPut(ctx *middleware.Context, handler ObjectsClassR
 
 Replace all references to a class-property.
 
-Update all references of a property of a data object.
+Replace **all** references in cross-reference property of an object.
 */
 type ObjectsClassReferencesPut struct {
 	Context *middleware.Context

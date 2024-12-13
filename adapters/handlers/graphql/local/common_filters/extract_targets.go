@@ -50,35 +50,54 @@ func ExtractTargets(source map[string]interface{}) ([]string, *dto.TargetCombina
 		}
 
 		weightsGQL, ok := targetsGql["weights"]
-		var weightsIn map[string]float64
+		var weightsIn map[string]interface{}
 		if ok {
-			weightsIn = weightsGQL.(map[string]float64)
+			weightsIn = weightsGQL.(map[string]interface{})
 		}
 
-		weights := make(map[string]float32, len(targetVectors))
+		extractWeights := func(weightsIn map[string]interface{}, weightsOut []float32) error {
+			handled := make(map[string]struct{})
+			for i, target := range targetVectors {
+				if _, ok := handled[target]; ok {
+					continue
+				} else {
+					handled[target] = struct{}{}
+				}
+				weightForTarget, ok := weightsIn[target]
+				if !ok {
+					return fmt.Errorf("weight for target %s is not provided", target)
+				}
+				if weightIn, ok := weightForTarget.(float64); ok {
+					weightsOut[i] = float32(weightIn)
+				} else if weightsIn, ok := weightForTarget.([]float64); ok {
+					for j, w := range weightsIn {
+						weightsOut[i+j] = float32(w)
+					}
+				} else {
+					return fmt.Errorf("weight for target %s is not a float or list of floats, got %v", target, weightForTarget)
+				}
+			}
+			return nil
+		}
+
+		weights := make([]float32, len(targetVectors))
 		switch targetCombinationType {
 		case dto.Average:
-			for _, target := range targetVectors {
-				weights[target] = 1.0 / float32(len(targetVectors))
+			for i := range targetVectors {
+				weights[i] = 1.0 / float32(len(targetVectors))
 			}
 		case dto.Sum:
-			for _, target := range targetVectors {
-				weights[target] = 1.0
+			for i := range targetVectors {
+				weights[i] = 1.0
 			}
 		case dto.Minimum:
 		case dto.ManualWeights:
-			if len(weightsIn) != len(targetVectors) {
-				return nil, nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(weightsIn), len(targetVectors))
-			}
-			for k, v := range weightsIn {
-				weights[k] = float32(v)
+			if err := extractWeights(weightsIn, weights); err != nil {
+				return nil, nil, err
 			}
 		case dto.RelativeScore:
-			if len(weightsIn) != len(targetVectors) {
-				return nil, nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(weightsIn), len(targetVectors))
-			}
-			for k, v := range weightsIn {
-				weights[k] = float32(v)
+			if err := extractWeights(weightsIn, weights); err != nil {
+				return nil, nil, err
 			}
 		default:
 			return nil, nil, fmt.Errorf("unknown combination method %v", targetCombinationType)

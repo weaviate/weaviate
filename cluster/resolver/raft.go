@@ -98,5 +98,12 @@ func (a *raft) NewTCPTransport(
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
-	return a.notResolvedNodes
+	a.nodesLock.Lock()
+	defer a.nodesLock.Unlock()
+
+	newMap := make(map[raftImpl.ServerID]struct{})
+	for k, v := range a.notResolvedNodes {
+		newMap[k] = v
+	}
+	return newMap
 }

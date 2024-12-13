@@ -19,9 +19,10 @@ import (
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
 	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
-	octoaiParams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -104,9 +105,6 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Mistral:
 				options = p.mistral(query.GetMistral())
 				providerName = mistralParams.Name
-			case *pb.GenerativeProvider_Octoai:
-				options = p.octoai(query.GetOctoai())
-				providerName = octoaiParams.Name
 			case *pb.GenerativeProvider_Ollama:
 				options = p.ollama(query.GetOllama())
 				providerName = ollamaParams.Name
@@ -116,6 +114,12 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Google:
 				options = p.google(query.GetGoogle())
 				providerName = googleParams.Name
+			case *pb.GenerativeProvider_Databricks:
+				options = p.databricks(query.GetDatabricks())
+				providerName = databricksParams.Name
+			case *pb.GenerativeProvider_Friendliai:
+				options = p.friendliai(query.GetFriendliai())
+				providerName = friendliaiParams.Name
 			default:
 				// do nothing
 			}
@@ -173,8 +177,13 @@ func (p *Parser) aws(in *pb.GenerativeAWS) map[string]any {
 	}
 	return map[string]any{
 		awsParams.Name: awsParams.Params{
-			Model:       in.GetModel(),
-			Temperature: in.Temperature,
+			Service:       in.GetService(),
+			Region:        in.GetRegion(),
+			Endpoint:      in.GetEndpoint(),
+			TargetModel:   in.GetTargetModel(),
+			TargetVariant: in.GetTargetVariant(),
+			Model:         in.GetModel(),
+			Temperature:   in.Temperature,
 		},
 	}
 }
@@ -213,22 +222,6 @@ func (p *Parser) mistral(in *pb.GenerativeMistral) map[string]any {
 	}
 }
 
-func (p *Parser) octoai(in *pb.GenerativeOctoAI) map[string]any {
-	if in == nil {
-		return nil
-	}
-	return map[string]any{
-		octoaiParams.Name: octoaiParams.Params{
-			BaseURL:     in.GetBaseUrl(),
-			Model:       in.GetModel(),
-			MaxTokens:   p.int64ToInt(in.MaxTokens),
-			Temperature: in.Temperature,
-			N:           p.int64ToInt(in.N),
-			TopP:        in.TopP,
-		},
-	}
-}
-
 func (p *Parser) ollama(in *pb.GenerativeOllama) map[string]any {
 	if in == nil {
 		return nil
@@ -248,10 +241,13 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 	}
 	return map[string]any{
 		openaiParams.Name: openaiParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			ApiVersion:       in.GetApiVersion(),
+			ResourceName:     in.GetResourceName(),
+			DeploymentID:     in.GetDeploymentId(),
+			IsAzure:          in.GetIsAzure(),
 			Model:            in.GetModel(),
 			FrequencyPenalty: in.FrequencyPenalty,
-			Logprobs:         in.LogProbs,
-			TopLogprobs:      p.int64ToInt(in.TopLogProbs),
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
 			N:                p.int64ToInt(in.N),
 			PresencePenalty:  in.PresencePenalty,
@@ -268,6 +264,10 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	}
 	return map[string]any{
 		googleParams.Name: googleParams.Params{
+			ApiEndpoint:      in.GetApiEndpoint(),
+			ProjectID:        in.GetProjectId(),
+			EndpointID:       in.GetEndpointId(),
+			Region:           in.GetRegion(),
 			Model:            in.GetModel(),
 			Temperature:      in.Temperature,
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
@@ -276,6 +276,43 @@ func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 			StopSequences:    in.StopSequences.GetValues(),
 			PresencePenalty:  in.PresencePenalty,
 			FrequencyPenalty: in.FrequencyPenalty,
+		},
+	}
+}
+
+func (p *Parser) databricks(in *pb.GenerativeDatabricks) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		databricksParams.Name: databricksParams.Params{
+			Endpoint:         in.GetEndpoint(),
+			Model:            in.GetModel(),
+			FrequencyPenalty: in.FrequencyPenalty,
+			Logprobs:         in.LogProbs,
+			TopLogprobs:      p.int64ToInt(in.TopLogProbs),
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			N:                p.int64ToInt(in.N),
+			PresencePenalty:  in.PresencePenalty,
+			Stop:             in.Stop.GetValues(),
+			Temperature:      in.Temperature,
+			TopP:             in.TopP,
+		},
+	}
+}
+
+func (p *Parser) friendliai(in *pb.GenerativeFriendliAI) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		friendliaiParams.Name: friendliaiParams.Params{
+			BaseURL:     in.GetBaseUrl(),
+			Model:       in.GetModel(),
+			MaxTokens:   p.int64ToInt(in.MaxTokens),
+			Temperature: in.Temperature,
+			N:           p.int64ToInt(in.N),
+			TopP:        in.TopP,
 		},
 	}
 }

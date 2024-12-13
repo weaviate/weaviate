@@ -33,20 +33,24 @@ type Vectorizer struct {
 	findObjectFn modulecapabilities.FindObjectFn
 }
 
-func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindObjectFn) *Vectorizer {
+func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindObjectFn) (*Vectorizer, error) {
 	v := &Vectorizer{
 		config:       config.New(cfg),
 		findObjectFn: findFn,
 	}
 
-	switch v.config.CalculationMethod() {
+	method, err := v.config.CalculationMethod()
+	if err != nil {
+		return nil, err
+	}
+	switch method {
 	case config.MethodMean:
 		v.calcFn = calculateMean
 	default:
 		v.calcFn = calculateMean
 	}
 
-	return v
+	return v, nil
 }
 
 func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) ([]float32, error) {

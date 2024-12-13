@@ -45,10 +45,12 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC                  *oidc.Client
-	AnonymousAccess       *anonymous.Client
-	APIKey                *apikey.Client
-	Authorizer            authorization.Authorizer
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.Client
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
@@ -65,6 +67,7 @@ type State struct {
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
+	ServerMetrics      *monitoring.ServerMetrics
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
@@ -74,6 +77,8 @@ type State struct {
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+
+	Migrator *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

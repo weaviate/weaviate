@@ -30,7 +30,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.GET, authorization.Objects(class, id))
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.LIST, authorization.OBJECTS)
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, authorization.GET, authorization.Objects("", id))
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
 	if err != nil {
 		return nil, err
 	}

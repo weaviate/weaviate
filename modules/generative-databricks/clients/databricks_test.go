@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
@@ -70,18 +69,23 @@ func TestGetAnswer(t *testing.T) {
 	})
 
 	t.Run("when X-Databricks-Endpoint header is passed", func(t *testing.T) {
-		settings := &fakeClassSettings{}
 		c := New("databricksToken", 0, nullLogger())
 
+		endpoint := "http://default"
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Endpoint", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, settings)
+		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, endpoint)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com", buildURL)
 
-		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), settings)
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), endpoint)
 		require.NoError(t, err)
+		assert.Equal(t, "http://default", buildURL)
+
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), "")
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "endpoint cannot be empty")
 		assert.Equal(t, "", buildURL)
 	})
 
@@ -122,6 +126,38 @@ func TestGetAnswer(t *testing.T) {
 	})
 }
 
+func TestDatabricksApiErrorDecode(t *testing.T) {
+	t.Run("getModelStringQuery", func(t *testing.T) {
+		type args struct {
+			response []byte
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Error code as string text",
+				args: args{
+					response: []byte(`{"message": "Human-readable error message.", "error_code": "Error code"}`),
+				},
+				want: "Error code",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var got *databricksApiError
+				err := json.Unmarshal(tt.args.response, &got)
+				require.NoError(t, err)
+
+				if got.ErrorCode.String() != tt.want {
+					t.Errorf("databricksApiError.ErrorCode = %v, want %v", got.ErrorCode, tt.want)
+				}
+			})
+		}
+	})
+}
+
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
@@ -157,74 +193,6 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(outBytes)
 }
 
-func TestDatabricksApiErrorDecode(t *testing.T) {
-	t.Run("getModelStringQuery", func(t *testing.T) {
-		type args struct {
-			response []byte
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Error code as string text",
-				args: args{
-					response: []byte(`{"message": "Human-readable error message.", "error_code": "Error code"}`),
-				},
-				want: "Error code",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				var got *databricksApiError
-				err := json.Unmarshal(tt.args.response, &got)
-				require.NoError(t, err)
-
-				if got.ErrorCode.String() != tt.want {
-					t.Errorf("databricksApiError.ErrorCode = %v, want %v", got.ErrorCode, tt.want)
-				}
-			})
-		}
-	})
-}
-
 func ptString(in string) *string {
 	return &in
-}
-
-type fakeClassSettings struct {
-	maxTokens   *int
-	temperature float64
-	topP        float64
-	topK        int
-	endpoint    string
-}
-
-func (s *fakeClassSettings) MaxTokens() *int {
-	return s.maxTokens
-}
-
-func (s *fakeClassSettings) Temperature() float64 {
-	return s.temperature
-}
-
-func (s *fakeClassSettings) TopP() float64 {
-	return s.topP
-}
-
-func (s *fakeClassSettings) TopK() int {
-	return s.topK
-}
-
-func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
-	return 0
-}
-
-func (s *fakeClassSettings) Validate(class *models.Class) error {
-	return nil
-}
-
-func (s *fakeClassSettings) Endpoint() string {
-	return s.endpoint
 }

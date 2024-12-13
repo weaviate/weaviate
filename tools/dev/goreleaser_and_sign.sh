@@ -1,19 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eou pipefail
 
 # run from Weaviate Root!
 #
-# This script calls goreleaser and signs + notarize the binaries for macos
+# This script calls goreleaser and signs + notarize the binaries for macos. Thus needed to export few ENV variables
+# to be used in .goreleaser.yaml in the root of the repository.
 
-export GIT_HASH=$(git rev-parse --short HEAD)
+GIT_REVISION=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+BUILD_USER="ci"
+BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+extra_args=""
 
 # detect if commit is tagged or not (format is "vA.B.Z" with tag and "vA.B.Z-commit" without tag)
 VERSION="$(git describe --tag)"
 if [[ "$VERSION" == *"-"* ]]; then
-  goreleaser build --clean --snapshot
-else
-  goreleaser build --clean
+    extra_args="--snapshot"
 fi
+
+GIT_REVISION="$GIT_REVISION" GIT_BRANCH="$GIT_BRANCH" BUILD_USER="$BUILD_USER" BUILD_DATE="$BUILD_DATE" goreleaser build --clean $extra_args
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" dist/weaviate_darwin_all/weaviate
 

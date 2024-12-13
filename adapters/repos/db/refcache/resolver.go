@@ -26,12 +26,12 @@ import (
 type Resolver struct {
 	cacher cacher
 	// for groupBy feature
-	withGroup                bool
-	getGroupSelectProperties func(properties search.SelectProperties) search.SelectProperties
+	withGroup    bool
+	groupByProps search.SelectProperties
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties) error
+	Build(ctx context.Context, objects []search.Result, properties search.SelectProperties, additional additional.Properties, groupByProperties search.SelectProperties) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -39,19 +39,24 @@ func NewResolver(cacher cacher) *Resolver {
 	return &Resolver{cacher: cacher}
 }
 
-func NewResolverWithGroup(cacher cacher) *Resolver {
+func NewResolverWithGroup(cacher cacher, groupByProps search.SelectProperties) *Resolver {
 	return &Resolver{
 		cacher: cacher,
 		// for groupBy feature
-		withGroup:                true,
-		getGroupSelectProperties: getGroupSelectProperties,
+		withGroup:    true,
+		groupByProps: groupByProps,
 	}
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	properties search.SelectProperties, additional additional.Properties,
 ) ([]search.Result, error) {
-	if err := r.cacher.Build(ctx, objects, properties, additional); err != nil {
+	cacherProps := properties
+	if !r.withGroup {
+		cacherProps = append(properties, r.groupByProps...)
+	}
+
+	if err := r.cacher.Build(ctx, objects, cacherProps, additional, r.groupByProps); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
@@ -109,7 +114,7 @@ func (r *Resolver) parseAdditionalGroup(
 	if additionalProperties != nil && additionalProperties["group"] != nil {
 		if group, ok := additionalProperties["group"].(*additional.Group); ok {
 			for j, hit := range group.Hits {
-				schema, err := r.parseSchema(hit, r.getGroupSelectProperties(properties))
+				schema, err := r.parseSchema(hit, r.groupByProps)
 				if err != nil {
 					return additionalProperties, fmt.Errorf("resolve group hit: %w", err)
 				}

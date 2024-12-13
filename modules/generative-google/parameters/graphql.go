@@ -23,6 +23,22 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
 			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
+				"apiEndpoint": &graphql.InputObjectFieldConfig{
+					Description: "apiEndpoint",
+					Type:        graphql.String,
+				},
+				"projectId": &graphql.InputObjectFieldConfig{
+					Description: "projectId",
+					Type:        graphql.String,
+				},
+				"endpointId": &graphql.InputObjectFieldConfig{
+					Description: "endpointId",
+					Type:        graphql.String,
+				},
+				"region": &graphql.InputObjectFieldConfig{
+					Description: "region",
+					Type:        graphql.String,
+				},
 				"model": &graphql.InputObjectFieldConfig{
 					Description: "model",
 					Type:        graphql.String,

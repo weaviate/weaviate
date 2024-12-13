@@ -12,6 +12,8 @@
 package distancer
 
 import (
+	"math/bits"
+
 	"github.com/pkg/errors"
 )
 
@@ -25,6 +27,14 @@ var hammingImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 	}
 
 	return sum
+}
+
+var hammingBitwiseImpl func(a, b []uint64) float32 = func(a, b []uint64) float32 {
+	total := float32(0)
+	for segment := range a {
+		total += float32(bits.OnesCount64(a[segment] ^ b[segment]))
+	}
+	return total
 }
 
 type Hamming struct {
@@ -48,6 +58,13 @@ func HammingDistanceGo(a, b []float32) float32 {
 		}
 	}
 	return sum
+}
+
+func HammingBitwise(x []uint64, y []uint64) (float32, error) {
+	if len(x) != len(y) {
+		return 0, errors.New("both vectors should have the same len")
+	}
+	return hammingBitwiseImpl(x, y), nil
 }
 
 type HammingProvider struct{}
