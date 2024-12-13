@@ -67,7 +67,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})

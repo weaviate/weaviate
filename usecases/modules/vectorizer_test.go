@@ -257,6 +257,40 @@ func TestProvider_UpdateVector(t *testing.T) {
 			"but objects manager is restricted to HNSW"
 		assert.EqualError(t, err, expectedErr)
 	})
+
+	t.Run("with ColBERT Vectorizer", func(t *testing.T) {
+		ctx := context.Background()
+		modName := "colbert"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2ColBERT)
+		class := models.Class{
+			Class: className,
+			VectorConfig: map[string]models.VectorConfig{
+				"colbert": {
+					Vectorizer:        map[string]interface{}{modName: map[string]interface{}{}},
+					VectorIndexConfig: hnsw.UserConfig{Multivector: hnsw.MultivectorConfig{Enabled: true}},
+					VectorIndexType:   "hnsw",
+				},
+			},
+		}
+		sch := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{&class},
+			},
+		}
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider(logger)
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, obj.MultiVectors)
+		assert.Equal(t, models.MultiVector{{0.11, 0.22, 0.33}, {0.11, 0.22, 0.33}}, obj.MultiVectors["colbert"])
+	})
 }
 
 func newUUID() strfmt.UUID {
