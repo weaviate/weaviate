@@ -71,6 +71,10 @@ func (u UserConfig) DistanceName() string {
 	return u.Distance
 }
 
+func (u UserConfig) IsMultiVector() bool {
+	return u.Multivector.Enabled
+}
+
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	u.MaxConnections = DefaultMaxConnections
@@ -112,7 +116,7 @@ func (u *UserConfig) SetDefaults() {
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
@@ -209,7 +213,7 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 		return uc, err
 	}
 
-	if err := parseMultivectorMap(asMap, &uc.Multivector); err != nil {
+	if err := parseMultivectorMap(asMap, &uc.Multivector, isMultiVector); err != nil {
 		return uc, err
 	}
 

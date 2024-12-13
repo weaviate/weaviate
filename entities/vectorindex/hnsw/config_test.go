@@ -709,7 +709,7 @@ func Test_UserConfig(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseAndValidateConfig(test.input)
+			cfg, err := ParseAndValidateConfig(test.input, false)
 			if test.expectErr {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)

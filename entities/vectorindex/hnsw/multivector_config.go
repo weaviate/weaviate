@@ -54,7 +54,7 @@ func ValidateMultivectorConfig(cfg MultivectorConfig) error {
 	return nil
 }
 
-func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConfig) error {
+func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConfig, isMultiVector bool) error {
 	multivectorConfigValue, ok := in["multivector"]
 	if !ok {
 		return nil
@@ -66,13 +66,12 @@ func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConf
 	}
 
 	if err := common.OptionalBoolFromMap(multivectorConfigMap, "enabled", func(v bool) {
-		multivector.Enabled = v
-	}); err != nil {
-		return err
-	}
-
-	if err := common.OptionalBoolFromMap(multivectorConfigMap, "enabled", func(v bool) {
-		multivector.Enabled = v
+		if isMultiVector {
+			// vectorizer set is a multi vector vectorizer, enable multi vector index
+			multivector.Enabled = true
+		} else {
+			multivector.Enabled = v
+		}
 	}); err != nil {
 		return err
 	}
