@@ -108,7 +108,7 @@ func (iq *VectorIndexQueue) Close() error {
 
 func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.VectorRecord) error {
 	if !iq.asyncEnabled {
-		return common.AddVectorToIndex(ctx, vectors, iq.vectorIndex)
+		return common.AddVectorsToIndex(ctx, vectors, iq.vectorIndex)
 	}
 
 	start := time.Now()
