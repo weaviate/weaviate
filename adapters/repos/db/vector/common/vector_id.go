@@ -34,7 +34,7 @@ type VectorRecord interface {
 	Validate(vectorIndex VectorIndex) error
 }
 
-func AddVectorToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex VectorIndex) error {
+func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex VectorIndex) error {
 	// ensure the vector is not empty
 	if len(vectors) == 0 {
 		return errors.New("empty vectors")
