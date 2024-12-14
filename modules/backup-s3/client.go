@@ -286,7 +286,7 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, overrideBucket, ove
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
-		GetMetricWithLabelValues(Name, "class"); err == nil {
+		GetMetricWithLabelValues(Name, "class"); err == nil && info.Size >= 0 {
 		metric.Add(float64(float64(info.Size)))
 	}
 	return info.Size, nil
