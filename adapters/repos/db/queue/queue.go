@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"sync"
 	"time"
 
@@ -30,8 +29,8 @@ import (
 )
 
 const (
-	// defaultChunkSize is the maximum size of each chunk file. Set to 100MB.
-	defaultChunkSize = 100 * 1024 * 1024
+	// defaultChunkSize is the maximum size of each chunk file. Defaults to 10MB.
+	defaultChunkSize = 10 * 1024 * 1024
 
 	// defaultStaleTimeout is the duration after which a partial chunk is considered stale.
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
@@ -153,24 +152,22 @@ func (q *DiskQueue) Init() error {
 		return errors.Wrap(err, "failed to create directory")
 	}
 
-	// create chunk reader
-	q.r, err = newChunkReader(q.dir)
+	// determine the number of records stored on disk
+	// and the disk usage
+	chunkList, err := q.analyzeDisk()
 	if err != nil {
-		return errors.Wrap(err, "failed to create chunk reader")
+		return err
 	}
+
+	// create chunk reader
+	q.r = newChunkReader(q.dir, chunkList)
 
 	// create chunk writer
 	q.w, err = newChunkWriter(q.dir, q.r, q.Logger, q.chunkSize)
 	if err != nil {
 		return errors.Wrap(err, "failed to create chunk writer")
 	}
-
-	// determine the number of records stored on disk
-	// and the disk usage
-	err = q.analyzeDisk()
-	if err != nil {
-		return err
-	}
+	q.recordCount += q.w.recordCount
 
 	// set the last push time to now
 	q.lastPushTime = time.Now()
@@ -480,46 +477,59 @@ func (q *DiskQueue) removeChunk(c *chunk) {
 // stored on disk and in the partial chunk by reading the header of all the files in the directory.
 // It also calculates the disk usage.
 // It is used when the queue is first initialized.
-func (q *DiskQueue) analyzeDisk() error {
+func (q *DiskQueue) analyzeDisk() ([]string, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
 
 	entries, err := os.ReadDir(q.dir)
 	if err != nil {
-		return errors.Wrap(err, "failed to read directory")
+		return nil, errors.Wrap(err, "failed to read directory")
 	}
+
+	chunkList := make([]string, 0, len(entries))
 
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 
-		// read the header of the chunk file
-		if chunkFilePattern.Match([]byte(entry.Name())) {
-			fi, err := entry.Info()
-			if err != nil {
-				return errors.Wrap(err, "failed to get file info")
-			}
-
-			if fi.Size() == 0 {
-				continue
-			}
-
-			q.diskUsage += fi.Size()
-
-			count, err := q.readChunkRecordCount(filepath.Join(q.dir, entry.Name()))
-			if err != nil {
-				return err
-			}
-
-			q.recordCount += count
+		// check if the entry name matches the regex pattern of a chunk file
+		if !chunkFilePattern.Match([]byte(entry.Name())) {
 			continue
 		}
+
+		fi, err := entry.Info()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get file info")
+		}
+
+		filePath := filepath.Join(q.dir, entry.Name())
+
+		if fi.Size() == 0 {
+			// best effort to remove empty files
+			_ = os.Remove(filePath)
+			continue
+		}
+
+		q.diskUsage += fi.Size()
+
+		count, err := q.readChunkRecordCount(filePath)
+		if err != nil {
+			return nil, err
+		}
+
+		// partial chunk
+		if count == 0 {
+			continue
+		}
+
+		q.recordCount += count
+
+		chunkList = append(chunkList, filePath)
+		continue
 	}
 
-	q.recordCount += q.w.recordCount
-
-	return nil
+	return chunkList, nil
 }
 
 func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
@@ -948,41 +958,12 @@ type chunkReader struct {
 	chunks    map[string]*os.File
 }
 
-func newChunkReader(dir string) (*chunkReader, error) {
-	r := chunkReader{
-		dir:    dir,
-		chunks: make(map[string]*os.File),
+func newChunkReader(dir string, chunkList []string) *chunkReader {
+	return &chunkReader{
+		dir:       dir,
+		chunks:    make(map[string]*os.File),
+		chunkList: chunkList,
 	}
-
-	// read the directory
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-
-		// check if the entry name matches the regex pattern of a chunk file
-		if !chunkFilePattern.Match([]byte(entry.Name())) {
-			continue
-		}
-
-		r.chunkList = append(r.chunkList, path)
-	}
-
-	if len(r.chunkList) == 0 {
-		return &r, nil
-	}
-
-	// make sure the list is sorted
-	sort.Strings(r.chunkList)
-
-	return &r, nil
 }
 
 func (r *chunkReader) ReadChunk() (*chunk, error) {

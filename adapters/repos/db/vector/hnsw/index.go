@@ -100,11 +100,15 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID          common.VectorForID[float32]
-	TempVectorForIDThunk common.TempVectorForID
-	multiVectorForID     common.MultiVectorForID
-	trackDimensionsOnce  sync.Once
-	dims                 int32
+	vectorForID common.VectorForID[float32]
+	// TODO:colbert
+	// multiVecForID             common.VectorForID[[]float32]
+	TempVectorForIDThunk common.TempVectorForID[float32]
+	// TODO:colbert
+	// TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	multiVectorForID    common.MultiVectorForID
+	trackDimensionsOnce sync.Once
+	dims                int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -181,6 +185,11 @@ type hnsw struct {
 	tombstoneCleanupRunning atomic.Bool
 
 	visitedListPoolMaxSize int
+
+	multivector  atomic.Bool
+	docIDVectors map[uint64][]uint64
+	vecIDcounter uint64
+	maxDocID     uint64
 }
 
 type CommitLogger interface {
@@ -236,9 +245,15 @@ func New(cfg Config, uc ent.UserConfig,
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	var vectorCache cache.Cache[float32]
 
+	if uc.Multivector.Enabled {
+		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	} else {
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -293,14 +308,24 @@ func New(cfg Config, uc ent.UserConfig,
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+
+		docIDVectors: make(map[uint64][]uint64),
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
+	index.multivector.Store(uc.Multivector.Enabled)
+
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -309,6 +334,7 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
+	cfg.MakeCommitLoggerThunk()
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
@@ -483,15 +509,16 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
-	if err != nil {
+	vecA, errA := h.vectorForID(context.Background(), a)
+
+	if errA != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
+		if errors.As(errA, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
-		return 0, errors.Wrapf(err,
+		return 0, errors.Wrapf(errA,
 			"could not get vector of object at docID %d", a)
 	}
 
@@ -499,15 +526,16 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.vectorForID(context.Background(), b)
-	if err != nil {
+	vecB, errB := h.vectorForID(context.Background(), b)
+
+	if errB != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
+		if errors.As(errB, &e) {
 			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
-		return 0, errors.Wrapf(err,
+		return 0, errors.Wrapf(errB,
 			"could not get vector of object at docID %d", b)
 	}
 
@@ -530,7 +558,9 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
+	var vecA []float32
+	var err error
+	vecA, err = h.vectorForID(context.Background(), node)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -714,12 +744,21 @@ func (h *hnsw) Compressed() bool {
 	return h.compressed.Load()
 }
 
+func (h *hnsw) Multivector() bool {
+	return h.multivector.Load()
+}
+
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
+	docID, relativeID := h.cache.GetKeys(id)
+	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -729,6 +768,17 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		normalized := make([][]float32, len(vecs))
+		for i, vec := range vecs {
+			normalized[i] = distancer.Normalize(vec)
+		}
+		return normalized
+	}
+	return vecs
 }
 
 func IsHNSWIndex(index any) bool {

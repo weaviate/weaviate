@@ -29,6 +29,7 @@ import (
 type modulesProvider interface {
 	IsGenerative(string) bool
 	IsReranker(string) bool
+	IsMultiVector(string) bool
 }
 
 type Parser struct {
@@ -146,7 +147,7 @@ func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 func (p *Parser) parseVectorIndexConfig(class *models.Class,
 ) error {
 	if !hasTargetVectors(class) {
-		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
 		}
@@ -181,7 +182,13 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 
 func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
-		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		isMultiVector := false
+		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+			for name := range vectorizer {
+				isMultiVector = p.modules.IsMultiVector(name)
+			}
+		}
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
@@ -192,7 +199,7 @@ func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 }
 
 func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{},
+	vectorIndexConfig interface{}, isMultiVector bool,
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -200,7 +207,7 @@ func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType)
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}
