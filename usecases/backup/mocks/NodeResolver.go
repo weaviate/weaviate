@@ -109,8 +109,7 @@ func (_m *NodeResolver) NodeHostname(nodeName string) (string, bool) {
 func NewNodeResolver(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *NodeResolver {
+}) *NodeResolver {
 	mock := &NodeResolver{}
 	mock.Mock.Test(t)
 
