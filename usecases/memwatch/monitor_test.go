@@ -167,7 +167,7 @@ func TestMappings(t *testing.T) {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close() // files should stay open until end of test to continue to use mappings
+			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
@@ -186,9 +186,10 @@ func TestMappings(t *testing.T) {
 				defer syscall.Munmap(data)
 			}
 		}
+		// ensure that we have hit the limit of available mappings
 		require.True(t, limitReached)
 
-		// Try to reserver a large amount and have it fail (checker only runs on linux)
+		// Try to reserve a large amount and have it fail (checker only runs on linux)
 		switch runtime.GOOS {
 		case "linux":
 			// any further mapping should fail
@@ -199,7 +200,7 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
-	t.Run("check mappings for dummy", func(t *testing.T) {
+	t.Run("check mappings for dummy, to check that it never blocks", func(t *testing.T) {
 		m := NewDummyMonitor()
 		m.Refresh(true)
 
@@ -209,7 +210,7 @@ func TestMappings(t *testing.T) {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close()
+			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
