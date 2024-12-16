@@ -750,15 +750,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	enterrors.GoWrapper(
-		func() {
-			// cleanup unfinished backups on startup
-			// Wait 5 minutes for permissions to propagate for GCS
-			time.Sleep(5 * time.Minute)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			backupScheduler.CleanupUnfinishedBackups(ctx)
-		}, appState.Logger)
+	suppressCleanup := os.Getenv("WEAVIATE_SUPPRESS_CLEANUP") == "true"
+	if ! suppressCleanup {
+		enterrors.GoWrapper(
+			func() {
+
+				// cleanup unfinished backups on startup
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				backupScheduler.CleanupUnfinishedBackups(ctx)
+			}, appState.Logger)
+	}
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
