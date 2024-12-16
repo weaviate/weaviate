@@ -751,7 +751,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	if !entcfg.Enabled("DISABLE_CLEANUP_UNFINISHED_BACKUPS") {
+	if !entcfg.Enabled(os.Getenv("DISABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
 			func() {
 				// cleanup unfinished backups on startup
