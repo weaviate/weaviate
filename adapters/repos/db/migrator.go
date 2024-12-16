@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -260,9 +261,12 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 	}
 
 	if m.cloud != nil {
-		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
-		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
+		tenantsInCloud := m.tenantsWithStatus(idx.Config.ClassName.String(),
+			toRemove,
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING)
+
+		if err := idx.dropCloudShards(ctx, m.cloud, tenantsInCloud, m.nodeId); err != nil {
 			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
 		}
 	}
@@ -554,14 +558,32 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []st
 	}
 
 	if m.cloud != nil {
-		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
-		// better to filter the passed shards and get the frozen only
-		if err := idx.dropCloudShards(ctx, m.cloud, tenants, m.nodeId); err != nil {
+		tenantsInCloud := m.tenantsWithStatus(class,
+			tenants,
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING)
+
+		if err := idx.dropCloudShards(ctx, m.cloud, tenantsInCloud, m.nodeId); err != nil {
 			return fmt.Errorf("drop tenant shards %v during update index: %w", tenants, err)
 		}
 	}
 
 	return nil
+}
+
+func (m *Migrator) tenantsWithStatus(className string, tenants []string, statuses ...string) []string {
+	var tenantsToDropFromCloud []string
+	shardingState := m.db.schemaGetter.CopyShardingState(className)
+
+	for tName, p := range shardingState.Physical {
+		if !slices.Contains(tenants, tName) {
+			continue
+		}
+		if slices.Contains(statuses, p.Status) {
+			tenantsToDropFromCloud = append(tenantsToDropFromCloud, tName)
+		}
+	}
+	return tenantsToDropFromCloud
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
