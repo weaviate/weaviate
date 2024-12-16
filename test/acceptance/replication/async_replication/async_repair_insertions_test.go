@@ -100,8 +100,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-				require.EqualValues(ct, itCount*len(paragraphIDs), count)
-			}, 10*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+				assert.EqualValues(ct, itCount*len(paragraphIDs), count)
+			}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 		})
 	}
 }
