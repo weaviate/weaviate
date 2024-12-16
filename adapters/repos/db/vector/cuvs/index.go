@@ -395,7 +395,7 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 		return nil, nil, err
 	}
 
-	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances)
+	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, nil)
 
 	_, err = neighbors.ToHost(index.cuvsResource)
 	if err != nil {
@@ -467,7 +467,7 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		return nil, nil, err
 	}
 
-	err = cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances)
+	err = cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, nil)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -656,7 +656,7 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, ideal_neighbors *hdf
 				}
 			}
 		} else {
-			ids, _, err := index.SearchByVector(chunkData[0], K, nil)
+			ids, _, err := index.SearchByVector(context.TODO(), chunkData[0], K, nil)
 			require.NoError(b, err)
 
 			ids_ideal := chunkData_ideal[k]

@@ -1,6 +1,6 @@
 module github.com/weaviate/weaviate
 
-replace github.com/rapidsai/cuvs/go => github.com/ajit283/cuvs/go v0.0.0-20241210121442-3a88f14aaa90 // remove once PR is merged
+replace github.com/rapidsai/cuvs/go => ../cuvs/go // remove once PR is merged
 
 require (
 	cloud.google.com/go/storage v1.43.0
@@ -85,8 +85,6 @@ require (
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
 )
-
-require github.com/ikawaha/kagome-dict/ipa v1.2.0
 
 require (
 	cloud.google.com/go v0.115.1 // indirect

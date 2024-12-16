@@ -97,7 +97,7 @@ func TestPersistence(t *testing.T) {
 	// Test recall before shutdown
 	totalRecall := 0.0
 	for i := 0; i < numVectors; i++ {
-		results, _, err := index.SearchByVector(vectors[i], k, nil)
+		results, _, err := index.SearchByVector(context.TODO(), vectors[i], k, nil)
 		require.NoError(t, err)
 		require.Len(t, results, k)
 		recall := calculateRecall([]uint64{ids[i]}, results)
@@ -137,7 +137,7 @@ func TestPersistence(t *testing.T) {
 	// Test recall after restore
 	totalRecall = 0.0
 	for i := 0; i < numVectors; i++ {
-		results, _, err := newIndex.SearchByVector(vectors[i], k, nil)
+		results, _, err := newIndex.SearchByVector(context.TODO(), vectors[i], k, nil)
 		require.NoError(t, err)
 		require.Len(t, results, k)
 		recall := calculateRecall([]uint64{ids[i]}, results)
@@ -168,7 +168,7 @@ func TestBatchAddAndQuery(t *testing.T) {
 	// Test individual queries recall
 	totalRecall := 0.0
 	for i := 0; i < numVectors; i++ {
-		results, _, err := index.SearchByVector(vectors[i], k, nil)
+		results, _, err := index.SearchByVector(context.TODO(), vectors[i], k, nil)
 		require.NoError(t, err)
 		require.Len(t, results, k)
 		recall := calculateRecall([]uint64{ids[i]}, results)
