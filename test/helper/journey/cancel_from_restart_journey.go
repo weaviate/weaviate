@@ -14,6 +14,7 @@ package journey
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +28,9 @@ import (
 func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeName, backend string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+
+	os.Setenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true")
+	defer os.Unsetenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")
 
 	nodeStopTimeout := 10 * time.Second
 	className := "CancelClass"
