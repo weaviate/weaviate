@@ -78,7 +78,8 @@ func (_m *BackupBackendProvider) EnabledBackupBackends() []modulecapabilities.Ba
 func NewBackupBackendProvider(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *BackupBackendProvider {
+},
+) *BackupBackendProvider {
 	mock := &BackupBackendProvider{}
 	mock.Mock.Test(t)
 
