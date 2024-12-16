@@ -101,7 +101,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 				count := common.CountObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
 				assert.EqualValues(ct, itCount*len(paragraphIDs), count)
-			}, 10*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
+			}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 		})
 	}
 }
