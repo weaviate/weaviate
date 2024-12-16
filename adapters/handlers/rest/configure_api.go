@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/fgprof"
@@ -750,12 +751,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	enterrors.GoWrapper(
-		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			backupScheduler.CleanupUnfinishedBackups(ctx)
-		}, appState.Logger)
+	if !entcfg.Enabled(os.Getenv("DISABLE_CLEANUP_UNFINISHED_BACKUPS")) {
+		enterrors.GoWrapper(
+			func() {
+				// cleanup unfinished backups on startup
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				backupScheduler.CleanupUnfinishedBackups(ctx)
+			}, appState.Logger)
+	}
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
