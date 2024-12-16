@@ -471,12 +471,20 @@ func eventualReplicaCRUD(t *testing.T) {
 
 func stopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
-	require.Nil(t, compose.StopAt(ctx, index, nil))
+	if err := compose.StopAt(ctx, index, nil); err != nil {
+		// try one more time after 1 second
+		<-time.After(1 * time.Second)
+		require.NoError(t, compose.StopAt(ctx, index, nil))
+	}
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
 func startNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
-	require.Nil(t, compose.StartAt(ctx, index))
+	if err := compose.StartAt(ctx, index); err != nil {
+		// try one more time after 1 second
+		<-time.After(1 * time.Second)
+		require.NoError(t, compose.StartAt(ctx, index))
+	}
 	<-time.After(1 * time.Second)
 }
