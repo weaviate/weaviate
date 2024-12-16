@@ -860,7 +860,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	kPrime := k
-	candidateSet := make(map[uint64]bool)
+	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
 		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
 		if err != nil {
@@ -873,13 +873,13 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			} else {
 				docId, _ = h.compressor.GetKeys(id)
 			}
-			candidateSet[docId] = true
+			candidateSet[docId] = struct{}{}
 		}
 	}
 	return h.computeLateInteraction(queryVectors, k, candidateSet)
 }
 
-func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]bool) ([]uint64, []float32, error) {
+func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
 	resultsQueue := priorityqueue.NewMin[any](1)
 	for docID := range candidateSet {
 		sim, err := h.computeScore(queryVectors, docID)
