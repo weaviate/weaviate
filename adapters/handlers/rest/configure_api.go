@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/fgprof"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
-	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
