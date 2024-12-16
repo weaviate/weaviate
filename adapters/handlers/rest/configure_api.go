@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/fgprof"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"google.golang.org/grpc"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -751,10 +751,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	if ! entcfg.Enabled("DISABLE_CLEANUP_UNFINISHED_BACKUPS") {
+	if !entcfg.Enabled("DISABLE_CLEANUP_UNFINISHED_BACKUPS") {
 		enterrors.GoWrapper(
 			func() {
-
 				// cleanup unfinished backups on startup
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
