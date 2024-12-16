@@ -28,8 +28,6 @@ import (
 
 	"github.com/weaviate/fgprof"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -53,6 +51,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
