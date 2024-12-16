@@ -50,3 +50,14 @@ In the `weaviate-benchmarking` repo, check out to the `cuvs` branch and run some
 ```
 go run . ann-benchmark -v ~/datasets/dbpedia-openai-1000k-angular.hdf5 -d l2-squared --indexType "cuvs" -b 100000 --queryDelaySeconds 30
 ```
+
+
+## Docker
+
+To build the docker container, run `docker_build.sh`, potentially adjusting the cuvs build context location.
+
+You need to install the `nvidia-container-toolkit` package from APT before. Then, run:
+
+```
+docker run --gpus all -p 8080:8080 weaviate-cuvs
+```
