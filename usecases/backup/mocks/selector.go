@@ -97,8 +97,7 @@ func (_m *Selector) Shards(ctx context.Context, class string) ([]string, error) 
 func NewSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *Selector {
+}) *Selector {
 	mock := &Selector{}
 	mock.Mock.Test(t)
 
