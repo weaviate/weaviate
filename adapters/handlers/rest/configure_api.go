@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/fgprof"
@@ -750,8 +751,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	suppressCleanup := os.Getenv("WEAVIATE_SUPPRESS_CLEANUP") == "true"
-	if ! suppressCleanup {
+	if ! entcfg.Enabled("DISABLE_CLEANUP_UNFINISHED_BACKUPS") {
 		enterrors.GoWrapper(
 			func() {
 
