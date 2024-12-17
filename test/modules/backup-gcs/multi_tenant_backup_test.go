@@ -87,6 +87,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
+			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
