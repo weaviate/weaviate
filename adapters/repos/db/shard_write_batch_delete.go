@@ -157,6 +157,7 @@ func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([
 	if err != nil {
 		return nil, err
 	}
+	defer allowList.Close()
 	return allowList.Slice(), nil
 }
 

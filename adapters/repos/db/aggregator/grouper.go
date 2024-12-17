@@ -90,6 +90,9 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if allowList != nil {
+		defer allowList.Close()
+	}
 
 	if len(g.params.SearchVector) > 0 {
 		ids, _, err = g.vectorSearch(ctx, allowList, g.params.SearchVector)
