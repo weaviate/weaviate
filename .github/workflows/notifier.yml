@@ -33,22 +33,16 @@ jobs:
         if: github.event_name == 'pull_request' && steps.check_user.outputs.is_non_member == 'true'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "🚨 A Pull Request has been opened by a *non-member*:\n*User:* $GITHUB_ACTOR\n*Title:* $PR_TITLE\n*Link:* $PR_URL"
+            "text": "📢 A Pull Request has been opened by a *non-member*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Link:* ${{ github.event.pull_request.html_url }}"
           }' $SLACK_WEBHOOK_URL
 
       - name: Send Slack Notification for All Issues
         if: github.event_name == 'issues'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          ISSUE_URL: ${{ github.event.issue.html_url }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "📢 A new Issue has been opened:\n*User:* $GITHUB_ACTOR\n*Title:* $ISSUE_TITLE\n*Link:* $ISSUE_URL"
+            "text": "🚨 A new Issue has been opened:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.issue.title }}\n*Link:* ${{ github.event.issue.html_url }}"
           }' $SLACK_WEBHOOK_URL
