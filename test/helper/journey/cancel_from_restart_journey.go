@@ -28,8 +28,6 @@ func CancelFromRestartJourney(t *testing.T, cluster *docker.DockerCompose, nodeN
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	t.Setenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true")
-
 	nodeStopTimeout := 10 * time.Second
 	className := "CancelClass"
 	backupID := fmt.Sprintf("%s-backup-cancel", backend)
