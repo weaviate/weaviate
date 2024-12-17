@@ -18,16 +18,24 @@ jobs:
         with:
           script: |
             try {
-              await github.rest.orgs.checkMembershipForUser({
+              const response = await github.rest.orgs.checkMembershipForUser({
                 org: context.repo.owner,
                 username: context.actor
               });
-              core.setOutput('is_non_member', 'false');
+
+              if (response.status === 204) {                
+                core.info(`${context.actor} is a member of ${context.repo.owner}.`);
+                core.setOutput('is_non_member', 'false');
+              } else {                
+                core.warning(`Unexpected status: ${response.status}`);
+                core.setOutput('is_non_member', 'unknown');
+              }
             } catch (error) {
               if (error.status === 404) {
+                core.info(`${context.actor} is NOT a member of ${context.repo.owner}.`);
                 core.setOutput('is_non_member', 'true');
               } else {
-                core.warning('Unexpected error during membership check');
+                core.warning(`error checking membership: ${error.message}`);
                 core.setOutput('is_non_member', 'unknown');
               }
             }
