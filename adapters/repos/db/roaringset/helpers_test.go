@@ -12,16 +12,11 @@
 package roaringset
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/sroar"
+	"github.com/stretchr/testify/require"
 )
-
-var logger, _ = test.NewNullLogger()
 
 func TestBitmap_Condense(t *testing.T) {
 	t.Run("And with itself (internal array)", func(t *testing.T) {
@@ -135,136 +130,6 @@ func TestBitmap_Condense(t *testing.T) {
 	})
 }
 
-func TestBitmap_Prefill(t *testing.T) {
-	t.Run("sequential", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
-			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
-				bm := newBitmapPrefillSequential(maxVal)
-
-				// +1, due to 0 included
-				assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
-
-				// remove all except maxVal
-				bm.RemoveRange(0, maxVal)
-
-				assert.Equal(t, 1, bm.GetCardinality())
-				assert.True(t, bm.Contains(maxVal))
-			})
-		}
-	})
-
-	t.Run("parallel", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
-			for _, routinesLimit := range []int{2, 3, 4, 5, 6, 7, 8} {
-				t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
-					bm := newBitmapPrefillParallel(maxVal, routinesLimit, logger)
-
-					// +1, due to 0 included
-					assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
-
-					// remove all except maxVal
-					bm.RemoveRange(0, maxVal)
-
-					assert.Equal(t, 1, bm.GetCardinality())
-					assert.True(t, bm.Contains(maxVal))
-				})
-			}
-		}
-	})
-
-	t.Run("conditional - sequential or parallel", func(t *testing.T) {
-		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
-			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
-				bm := NewBitmapPrefill(maxVal, logger)
-
-				// +1, due to 0 included
-				assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
-
-				// remove all except maxVal
-				bm.RemoveRange(0, maxVal)
-
-				assert.Equal(t, 1, bm.GetCardinality())
-				assert.True(t, bm.Contains(maxVal))
-			})
-		}
-	})
-}
-
-func TestBitmap_Inverted(t *testing.T) {
-	type test struct {
-		name          string
-		source        []uint64
-		maxVal        uint64
-		shouldContain []uint64
-	}
-
-	tests := []test{
-		{
-			name:          "just 0, no source",
-			source:        nil,
-			maxVal:        0,
-			shouldContain: []uint64{0},
-		},
-		{
-			name:          "no matches in source",
-			source:        nil,
-			maxVal:        7,
-			shouldContain: []uint64{0, 1, 2, 3, 4, 5, 6, 7},
-		},
-		{
-			name:          "some matches in source",
-			source:        []uint64{3, 4, 5},
-			maxVal:        7,
-			shouldContain: []uint64{0, 1, 2, 6, 7},
-		},
-		{
-			name:          "source has higher val than max val",
-			source:        []uint64{3, 4, 5, 8},
-			maxVal:        7,
-			shouldContain: []uint64{0, 1, 2, 6, 7},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			source := sroar.NewBitmap()
-			source.SetMany(test.source)
-			out := NewInvertedBitmap(source, test.maxVal, logger)
-			outSlice := out.ToArray()
-			assert.Equal(t, test.shouldContain, outSlice)
-		})
-	}
-}
-
-func TestBitmapFactory(t *testing.T) {
-	maxVal := uint64(10)
-	maxValGetter := func() uint64 { return maxVal }
-	bmf := NewBitmapFactory(maxValGetter, logger)
-	t.Logf("card: %d", bmf.bitmap.GetCardinality())
-
-	currMax := bmf.currentMaxVal
-	t.Run("max val set correctly", func(t *testing.T) {
-		assert.Equal(t, maxVal+DefaultBufferIncrement, currMax)
-	})
-
-	t.Run("max val increased to threshold does not change cardinality", func(t *testing.T) {
-		maxVal += 100
-		assert.NotNil(t, bmf.GetBitmap())
-		assert.Equal(t, currMax, bmf.currentMaxVal)
-		assert.Equal(t, currMax+1, uint64(bmf.bitmap.GetCardinality()))
-		assert.Equal(t, maxVal, bmf.ActualMaxVal())
-	})
-
-	t.Run("max val surpasses threshold, cardinality increased", func(t *testing.T) {
-		maxVal += 1
-		assert.NotNil(t, bmf.GetBitmap())
-		currMax += 1 + DefaultBufferIncrement
-		assert.Equal(t, currMax, bmf.currentMaxVal)
-		assert.Equal(t, currMax+1, uint64(bmf.bitmap.GetCardinality()))
-		assert.Equal(t, maxVal, bmf.ActualMaxVal())
-	})
-}
-
 func slice(from, to uint64) []uint64 {
 	len := to - from
 	s := make([]uint64, len)
@@ -272,4 +137,62 @@ func slice(from, to uint64) []uint64 {
 		s[i] = from + i
 	}
 	return s
+}
+
+func TestBitmapFactory(t *testing.T) {
+	maxId := uint64(10)
+	maxIdGetter := func() uint64 { return maxId }
+	bmf := NewBitmapFactory(maxIdGetter)
+
+	t.Run("prefilled bitmap includes increment", func(t *testing.T) {
+		expPrefilledMaxId := maxId + defaultIdIncrement
+		expPrefilledCardinality := int(maxId + defaultIdIncrement + 1)
+
+		bm, release := bmf.GetBitmap()
+		defer release()
+
+		require.NotNil(t, bm)
+		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
+		assert.Equal(t, expPrefilledCardinality, bmf.prefilled.GetCardinality())
+		assert.Equal(t, maxId, bm.Maximum())
+		assert.Equal(t, int(maxId)+1, bm.GetCardinality())
+	})
+
+	t.Run("maxId increased up to increment threshold does not change internal bitmap", func(t *testing.T) {
+		expPrefilledMaxId := bmf.prefilled.Maximum()
+
+		maxId += 10
+		bm1, release1 := bmf.GetBitmap()
+		defer release1()
+
+		require.NotNil(t, bm1)
+		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
+		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
+		assert.Equal(t, maxId, bm1.Maximum())
+		assert.Equal(t, int(maxId)+1, bm1.GetCardinality())
+
+		maxId += (defaultIdIncrement - 10)
+		bm2, release2 := bmf.GetBitmap()
+		defer release2()
+
+		require.NotNil(t, bm2)
+		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
+		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
+		assert.Equal(t, maxId, bm2.Maximum())
+		assert.Equal(t, int(maxId)+1, bm2.GetCardinality())
+	})
+
+	t.Run("maxId surpasses increment threshold changes internal bitmap", func(t *testing.T) {
+		maxId += 1
+		expPrefilledMaxId := maxId + defaultIdIncrement
+
+		bm, release := bmf.GetBitmap()
+		defer release()
+
+		require.NotNil(t, bm)
+		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
+		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
+		assert.Equal(t, maxId, bm.Maximum())
+		assert.Equal(t, int(maxId)+1, bm.GetCardinality())
+	})
 }
