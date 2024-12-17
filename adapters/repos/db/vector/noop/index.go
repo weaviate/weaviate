@@ -72,6 +72,10 @@ func (i *Index) SearchByVectorDistance(ctx context.Context, vector []float32, di
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
+func (i *Index) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("cannot multi-vector-search on a class not vector-indexed")
+}
+
 func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	callback()
 	switch t := updated.(type) {
@@ -168,6 +172,10 @@ func (i *Index) TurnOnCompression(callback func()) error {
 }
 
 func (i *Index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
+}
+
+func (i *Index) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
 	return common.QueryVectorDistancer{}
 }
 

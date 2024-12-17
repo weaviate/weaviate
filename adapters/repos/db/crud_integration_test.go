@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -451,7 +452,7 @@ func TestCRUD(t *testing.T) {
 			Filters:    nil,
 			Properties: search.SelectProperties{{Name: "location"}, {Name: "stringProp"}, {Name: "phone"}},
 		}
-		res, err := repo.VectorSearch(context.Background(), params, []string{""}, [][]float32{searchVector})
+		res, err := repo.VectorSearch(context.Background(), params, []string{""}, []types.Vector{searchVector})
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -1056,7 +1057,7 @@ func TestCRUD(t *testing.T) {
 				Filters:    nil,
 			}
 
-			res, err := repo.VectorSearch(context.Background(), params, []string{""}, [][]float32{searchVector})
+			res, err := repo.VectorSearch(context.Background(), params, []string{""}, []types.Vector{searchVector})
 
 			require.Nil(t, err)
 			assert.Len(t, res, 0)
@@ -1070,7 +1071,7 @@ func TestCRUD(t *testing.T) {
 			Filters:    nil,
 		}
 
-		res, err := repo.VectorSearch(context.Background(), params, []string{""}, [][]float32{searchVector})
+		res, err := repo.VectorSearch(context.Background(), params, []string{""}, []types.Vector{searchVector})
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -1633,7 +1634,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-		}, []string{""}, [][]float32{randomVector(r, 7)})
+		}, []string{""}, []types.Vector{randomVector(r, 7)})
 		require.Nil(t, err)
 		assert.Len(t, res, 0) // we skipped the vector on half the elements, so we should now match half
 	})
@@ -1658,7 +1659,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-		}, []string{""}, [][]float32{randomVector(r, 7)})
+		}, []string{""}, []types.Vector{randomVector(r, 7)})
 		require.Nil(t, err)
 		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
 	})
@@ -1671,7 +1672,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-		}, []string{""}, [][]float32{randomVector(r, 7)})
+		}, []string{""}, []types.Vector{randomVector(r, 7)})
 		require.Nil(t, err)
 		// we skipped the vector on half the elements, and cut the list in half with
 		// the filter, so we're only expected a quarter of the total size now
@@ -1772,7 +1773,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 				Distance: 0.1,
 			},
 			AdditionalProperties: additional.Properties{Distance: true},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []types.Vector{searchVector})
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1798,7 +1799,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 				ID:       searchObject.String(),
 			},
 			AdditionalProperties: additional.Properties{Distance: true},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []types.Vector{searchVector})
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1909,7 +1910,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 				Certainty: 0.9,
 			},
 			AdditionalProperties: additional.Properties{Certainty: true},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []types.Vector{searchVector})
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1935,7 +1936,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 				ID:        searchObject.String(),
 			},
 			AdditionalProperties: additional.Properties{Certainty: true},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []types.Vector{searchVector})
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
