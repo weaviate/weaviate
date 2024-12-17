@@ -51,6 +51,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -675,12 +676,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	enterrors.GoWrapper(
-		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			backupScheduler.CleanupUnfinishedBackups(ctx)
-		}, appState.Logger)
+	if entcfg.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
+		enterrors.GoWrapper(
+			func() {
+				// cleanup unfinished backups on startup
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				backupScheduler.CleanupUnfinishedBackups(ctx)
+			}, appState.Logger)
+	}
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
