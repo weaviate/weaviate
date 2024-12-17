@@ -18,19 +18,22 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            try {
-              await github.rest.orgs.checkMembershipForUser({
+           try {
+              const response = await github.rest.orgs.checkMembershipForUser({
                 org: context.repo.owner,
                 username: context.actor
               });
-              core.setOutput('is_non_member', 'false');
-              core.info(`${context.actor} is a member of ${context.repo.owner}.`);
+
+              if (response.status === 204) {
+                core.info(`${context.actor} is a member of ${context.repo.owner}.`);
+                core.setOutput('is_non_member', 'false');
+              }
             } catch (error) {
               if (error.status === 404) {
                 core.info(`${context.actor} is NOT a member of ${context.repo.owner}.`);
                 core.setOutput('is_non_member', 'true');
               } else {
-                core.warning(`error checking membership: ${error.message}`);
+                core.error(`error checking membership: ${error.message}`);
                 core.setOutput('is_non_member', 'unknown');
               }
             }
