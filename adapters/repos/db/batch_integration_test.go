@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -179,7 +180,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 						"bringYourOwnVector": []float32{1, 2, 3},
 					},
 					MultiVectors: models.MultiVectors{
-						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+						"colbert": {{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}},
 					},
 				},
 				UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
@@ -197,7 +198,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 						"bringYourOwnVector": []float32{1, 2, 3},
 					},
 					MultiVectors: models.MultiVectors{
-						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+						"colbert": {{0.001, 0.002, 0.003}, {0.0011, 0.0022, 0.0033}, {0.00111, 0.00222, 0.00333}},
 					},
 				},
 				UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
@@ -215,7 +216,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 						"bringYourOwnVector": []float32{1, 2, 3},
 					},
 					MultiVectors: models.MultiVectors{
-						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+						"colbert": {{0.00000001, 0.00000002, 0.00000003}, {0.000000011, 0.000000022, 0.000000033}, {0.111, 0.222, 0.333}},
 					},
 				},
 				UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
@@ -267,6 +268,32 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 			require.Len(t, res, 1)
 			assert.Equal(t, strfmt.UUID("90ade18e-2b99-4903-aa34-1d5d648c932d"),
 				res[0].ID)
+		})
+
+		// Vector search
+		t.Run("can perform vector search using regular embeddings", func(t *testing.T) {
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
+				ClassName: className,
+				Pagination: &filters.Pagination{
+					Offset: 0,
+					Limit:  10,
+				},
+			}, []string{"bringYourOwnVector"}, []types.Vector{[]float32{1, 2, 3}})
+			require.Nil(t, err)
+			assert.Len(t, res, 3)
+		})
+
+		t.Run("can perform vector search using ColBERT embeddings", func(t *testing.T) {
+			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
+				ClassName: className,
+				Pagination: &filters.Pagination{
+					Offset: 0,
+					Limit:  10,
+				},
+			}, []string{"colbert"}, []types.Vector{[][]float32{{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}}})
+			require.NoError(t, err)
+			assert.Len(t, res, 3)
+			assert.Equal(t, "8d5a3aa2-3c8d-4589-9ae1-3f638f506970", res[0].ID.String())
 		})
 	})
 }
@@ -830,7 +857,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Offset: 0,
 							Limit:  10,
 						},
-					}, []string{""}, [][]float32{{1, 2, 3}})
+					}, []string{""}, []types.Vector{[]float32{1, 2, 3}})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})

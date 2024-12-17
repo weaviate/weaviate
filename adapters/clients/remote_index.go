@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -397,7 +398,7 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string,
-	vector [][]float32,
+	vector []types.Vector,
 	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,

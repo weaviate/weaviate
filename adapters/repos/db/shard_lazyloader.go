@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -248,7 +249,7 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []types.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
@@ -438,7 +439,7 @@ func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	return l.shard.Queues()
 }
 
-func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error) {
+func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []types.Vector, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"runtime"
 
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+	"github.com/weaviate/weaviate/entities/types"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -88,7 +89,7 @@ type objectsSearcher interface {
 
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error)
+	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors []types.Vector) ([]search.Result, error)
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
@@ -211,7 +212,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]search.Result, []float32, error) {
+) ([]search.Result, types.Vector, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
@@ -234,9 +235,9 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, [][]float32, error) {
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []types.Vector, error) {
 	var err error
-	searchVectors := make([][]float32, len(targetVectors))
+	searchVectors := make([]types.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
@@ -294,10 +295,18 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	}
 
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
-		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+		switch searchVector := searchVectors[0].(type) {
+		case []float32:
+			res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
+				params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
+			if err != nil {
+				return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			}
+		case [][]float32:
+			// TODO:colbert implement
+			return nil, nil, errors.Errorf("explorer: get class: extend: add support for multivector")
+		default:
+			return nil, nil, errors.Errorf("explorer: get class: extend: unsupported search vector type: %T", searchVectors[0])
 		}
 	}
 	e.trackUsageGet(res, params)
@@ -402,7 +411,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	return res, nil
 }
 
-func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
+func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector types.Vector, params dto.GetParams) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
 	if err != nil {
@@ -423,7 +432,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]search.Result, error) {
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector types.Vector, params dto.GetParams) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {

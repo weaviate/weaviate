@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -110,7 +111,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], vectors[2], vectors[3]},
+			[]types.Vector{vectors[1], vectors[2], vectors[3]},
 			[]string{"custom1", "custom2"},
 		)
 		require.NotNil(t, err)
@@ -118,7 +119,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{},
+			[]types.Vector{},
 			[]string{},
 		)
 		require.NotNil(t, err)
@@ -126,14 +127,14 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], vectors[2]},
+			[]types.Vector{vectors[1], vectors[2]},
 			[]string{"custom1", "doesNotExist"})
 		require.NotNil(t, err)
 
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], {1, 0}},
+			[]types.Vector{vectors[1], []float32{1, 0}},
 			[]string{"custom1", "custom2"})
 		require.NotNil(t, err)
 	})
@@ -154,7 +155,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], vectors[2], vectors[3]},
+			[]types.Vector{vectors[1], vectors[2], vectors[3]},
 			[]string{"custom1", "custom2", "custom3"})
 		require.Nil(t, err)
 		require.Len(t, distances, 3)
@@ -181,7 +182,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], vectors[2]},
+			[]types.Vector{vectors[1], vectors[2]},
 
 			[]string{"custom1", "custom2"})
 		require.Nil(t, err)
@@ -193,7 +194,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
 			docId,
-			[][]float32{vectors[1], vectors[2]},
+			[]types.Vector{vectors[1], vectors[2]},
 			[]string{"custom1", "custom3"})
 		require.NotNil(t, err)
 	})

@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -149,17 +150,17 @@ func (p searchParamsPayloadOld) Unmarshal(in []byte) ([]float32, string, float32
 func TestBackwardCompatibilitySearch(t *testing.T) {
 	payload := searchParamsPayload{}
 	tests := []struct {
-		SearchVectors [][]float32
+		SearchVectors []types.Vector
 		Targets       []string
 		compatible    bool
 	}{
 		{
-			SearchVectors: [][]float32{{1, 2, 3}, {4, 5, 6}},
+			SearchVectors: []types.Vector{[]float32{1, 2, 3}, []float32{4, 5, 6}},
 			Targets:       []string{"target1", "target2"},
 			compatible:    false,
 		},
 		{
-			SearchVectors: [][]float32{{1, 2, 3}},
+			SearchVectors: []types.Vector{[]float32{1, 2, 3}},
 			Targets:       []string{"target1"},
 			compatible:    true,
 		},
@@ -177,7 +178,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 			if tt.compatible {
 				payloadOld := searchParamsPayloadOld{}
-				b125, err := payloadOld.Marshal(tt.SearchVectors[0], tt.Targets[0], 10, nil, nil, nil, nil, nil, additional.Properties{})
+				b125, err := payloadOld.Marshal(tt.SearchVectors[0].([]float32), tt.Targets[0], 10, nil, nil, nil, nil, nil, additional.Properties{})
 				require.Nil(t, err)
 				vecsOld, targetsOld, _, _, _, _, _, _, _, _, err := payloadOld.Unmarshal(b126)
 				require.Nil(t, err)
