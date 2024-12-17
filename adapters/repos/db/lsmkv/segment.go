@@ -187,6 +187,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	if seg.strategy == segmentindex.StrategyInverted {
+		if _, err := seg.loadPropertyLengths(); err != nil {
+			return nil, fmt.Errorf("load property lengths: %w", err)
+		}
+		if _, err := seg.loadTombstones(); err != nil {
+			return nil, fmt.Errorf("load tombstones: %w", err)
+		}
+	}
+
 	return seg, nil
 }
 
