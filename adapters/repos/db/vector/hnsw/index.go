@@ -183,6 +183,7 @@ type hnsw struct {
 
 	visitedListPoolMaxSize int
 
+	// only used for multivector mode
 	multivector  atomic.Bool
 	docIDVectors map[uint64][]uint64
 	vecIDcounter uint64
@@ -330,6 +331,13 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
+	}
+
+	if uc.Multivector.Enabled {
+		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		if err != nil {
+			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+		}
 	}
 
 	cfg.MakeCommitLoggerThunk()
