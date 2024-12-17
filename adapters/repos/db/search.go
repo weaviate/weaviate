@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
@@ -104,9 +105,9 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
 ) ([]search.Result, error) {
-	if len(searchVectors) == 0 || len(searchVectors) == 1 && len(searchVectors[0]) == 0 {
+	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
 		return results, err
 	}
@@ -139,6 +140,17 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
+func isEmptyVector(searchVector types.Vector) bool {
+	switch v := searchVector.(type) {
+	case []float32:
+		return len(v) == 0
+	case [][]float32:
+		return len(v) == 0
+	default:
+		return false
+	}
+}
+
 func extractDistanceFromParams(params dto.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {
@@ -166,7 +178,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, [][]float32{vector}, []string{targetVector},
+			objs, dist, err := index.objectVectorSearch(ctx, []types.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {

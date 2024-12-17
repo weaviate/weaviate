@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -82,7 +83,7 @@ type RemoteIndexClient interface {
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
-		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
+		searchVector []types.Vector, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
@@ -254,7 +255,7 @@ type ReplicasSearchResult struct {
 func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
-	queryVec [][]float32,
+	queryVec []types.Vector,
 	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,
@@ -280,7 +281,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
-	queryVec [][]float32,
+	queryVec []types.Vector,
 	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,

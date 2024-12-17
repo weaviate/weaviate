@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -416,7 +417,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						Limit: limit,
 					},
 					ClassName: "TestClass",
-				}, []string{""}, [][]float32{queryVec})
+				}, []string{""}, []types.Vector{queryVec})
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {

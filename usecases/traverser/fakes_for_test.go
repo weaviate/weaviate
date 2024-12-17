@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -106,7 +107,7 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
 ) ([]search.Result, error) {
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)

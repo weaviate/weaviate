@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -381,7 +382,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 1,
 				},
-			}, []string{""}, [][]float32{{0.49}})
+			}, []string{""}, []types.Vector{[]float32{0.49}})
 
 			require.Nil(t, err)
 			require.Len(t, res, 1)

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -512,7 +513,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
 				require.EventuallyWithT(t, func(collect *assert.CollectT) {
-					found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorToBeFound}, []string{targetVector},
+					found, _, err := shard.ObjectVectorSearch(ctx, []types.Vector{vectorToBeFound}, []string{targetVector},
 						vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
 					if !assert.NoError(collect, err) {
 						return
@@ -525,7 +526,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("not to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorNotToBeFound}, []string{targetVector},
+				found, _, err := shard.ObjectVectorSearch(ctx, []types.Vector{vectorNotToBeFound}, []string{targetVector},
 					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, found, 0)

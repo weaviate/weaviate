@@ -721,6 +721,12 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 	return resultIDs, resultDist, nil
 }
 
+func (index *flat) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64, allow helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVectorDistance is not supported for flat index")
+}
+
 func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
@@ -1037,6 +1043,10 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
 }
 
 func (index *flat) Stats() (common.IndexStats, error) {
