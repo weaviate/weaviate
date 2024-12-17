@@ -17,10 +17,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
-	"path"
-	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -30,13 +26,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
@@ -44,16 +38,14 @@ import (
 const (
 	TenantOffLoadingStatus = "FROZEN"
 
-	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
-	// TODO(kavi): Make it dynamic.
-	nodeName       = "weaviate-0"
 	defaultLSMRoot = "lsm"
 
 	maxQueryObjectsLimit = 10
 )
 
 var (
-	ErrInvalidTenant = errors.New("invalid tenant status")
+	ErrInvalidTenant          = errors.New("invalid tenant status")
+	ErrTenantBelongsToNoNodes = errors.New("tenant belongs to no nodes")
 
 	// Sentinel error to mark if limit is reached when iterating on objects bucket. not user facing.
 	errLimitReached = errors.New("limit reached")
@@ -64,37 +56,36 @@ type API struct {
 	log    logrus.FieldLogger
 	config *Config
 
-	schema  SchemaQuerier
-	offload *modsloads3.Module
-	// NOTE: This lock may be in-efficient if downloaded needed from multiple tenants
-	// TODO(kavi): Optimize based on some data later.
-	omu sync.Mutex
+	schema SchemaQuerier
+	lsm    *LSMFetcher
 
-	vectorizer text2vecbase.TextVectorizer
+	vectorizer text2vecbase.TextVectorizer[[]float32]
 	stopwords  *stopwords.Detector
 }
 
 type SchemaQuerier interface {
-	TenantStatus(ctx context.Context, collection, tenant string) (string, error)
+	// TenantStatus returns (STATUS, BELONGSTONODES, VERSION) tuple
+	TenantStatus(ctx context.Context, collection, tenant string) (string, []string, int64, error)
 	Collection(ctx context.Context, collection string) (*models.Class, error)
 }
 
 func NewAPI(
 	schema SchemaQuerier,
-	offload *modsloads3.Module,
-	vectorizer text2vecbase.TextVectorizer,
+	lsm *LSMFetcher,
+	vectorizer text2vecbase.TextVectorizer[[]float32],
 	stopwords *stopwords.Detector,
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
-	return &API{
+	api := &API{
 		log:        log,
 		config:     config,
 		schema:     schema,
-		offload:    offload,
 		vectorizer: vectorizer,
 		stopwords:  stopwords,
+		lsm:        lsm,
 	}
+	return api
 }
 
 // Search serves vector search over the offloaded tenant on object storage.
@@ -107,16 +98,24 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	// 4. Once in the local disk, load the index
 	// 5. Searve the search.
 
-	info, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
+	info, belongsToNodes, tenantVersion, err := a.schema.TenantStatus(ctx, req.Collection, req.Tenant)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get tenant status: collection: %q, tenant %q: %w", req.Collection, req.Tenant, err)
 	}
 
 	if info != TenantOffLoadingStatus {
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
+	// We will always pick the first node in the belongsToNodes list. We recommend not using replication if tenants are
+	// offloaded to S3 to avoid write discrepancy issues.
+	// TODO(lre): This is not ideal as it breaks HA guarantuess on ONE/QUORUM if clients are not using replication.
+	// Think of a better way to support this.
+	if len(belongsToNodes) == 0 {
+		return nil, fmt.Errorf("tenant %q belongs to no nodes, impossible to locate in s3: %w", req.Tenant, ErrTenantBelongsToNoNodes)
+	}
+
+	store, localPath, err := a.lsm.Fetch(ctx, belongsToNodes[0], req.Collection, req.Tenant, tenantVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +202,7 @@ func (a *API) propertyFilters(
 	if class == nil {
 		class, err = a.schema.Collection(ctx, collection)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get class info from schema: %w", err)
+			return nil, fmt.Errorf("failed to get class info for %q from schema: %w", collection, err)
 		}
 	}
 
@@ -313,35 +312,6 @@ func (a *API) vectorSearch(
 	}
 
 	return objs, distance, nil
-}
-
-func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) (*lsmkv.Store, string, error) {
-	localPath := path.Join(a.offload.DataPath, strings.ToLower(collection), strings.ToLower(tenant), defaultLSMRoot)
-
-	// NOTE: Download only if path doesn't exist.
-	// Assumes, whatever in the path is latest.
-	// We will add a another way to keep this path upto date via some data versioning.
-	a.omu.Lock()
-	defer a.omu.Unlock()
-
-	_, err := os.Stat(localPath)
-	if os.IsNotExist(err) {
-		// src - s3://<collection>/<tenant>/<node>/
-		// dst (local) - <data-path/<collection>/<tenant>
-		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {
-			return nil, "", err
-		}
-	}
-
-	// TODO(kavi): Avoid creating store every time?
-	store, err := lsmkv.New(localPath, localPath, a.log, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
-	}
-	return store, localPath, nil
 }
 
 type SearchRequest struct {

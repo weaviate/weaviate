@@ -30,121 +30,121 @@ import (
 // potentially protected with the Authorization plugin
 func Test_Schema_Authorization(t *testing.T) {
 	type testCase struct {
-		methodName       string
-		additionalArgs   []interface{}
-		expectedVerb     string
-		expectedResource string
+		methodName        string
+		additionalArgs    []interface{}
+		expectedVerb      string
+		expectedResources []string
 	}
 
 	tests := []testCase{
 		{
-			methodName:       "GetSchema",
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:        "GetSchema",
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata(),
 		},
 		{
-			methodName:       "GetConsistentSchema",
-			expectedVerb:     "list",
-			additionalArgs:   []interface{}{false},
-			expectedResource: "schema/*",
+			methodName:        "GetConsistentSchema",
+			expectedVerb:      authorization.READ,
+			additionalArgs:    []interface{}{false},
+			expectedResources: authorization.CollectionsMetadata(),
 		},
 		{
-			methodName:       "GetClass",
-			additionalArgs:   []interface{}{"classname"},
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:        "GetClass",
+			additionalArgs:    []interface{}{"classname"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
-			methodName:       "GetConsistentClass",
-			additionalArgs:   []interface{}{"classname", false},
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:        "GetConsistentClass",
+			additionalArgs:    []interface{}{"classname", false},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
-			methodName:       "GetCachedClass",
-			additionalArgs:   []interface{}{"classname"},
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:        "GetCachedClass",
+			additionalArgs:    []interface{}{"classname"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
-			methodName:       "AddClass",
-			additionalArgs:   []interface{}{&models.Class{}},
-			expectedVerb:     "create",
-			expectedResource: "schema/objects",
+			methodName:        "AddClass",
+			additionalArgs:    []interface{}{&models.Class{Class: "classname"}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.CollectionsMetadata("Classname"),
 		},
 		{
-			methodName:       "UpdateClass",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: "schema/objects",
+			methodName:        "UpdateClass",
+			additionalArgs:    []interface{}{"class", &models.Class{Class: "class"}},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("class"),
 		},
 		{
-			methodName:       "DeleteClass",
-			additionalArgs:   []interface{}{"somename"},
-			expectedVerb:     authorization.DELETE,
-			expectedResource: "schema/objects",
+			methodName:        "DeleteClass",
+			additionalArgs:    []interface{}{"somename"},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
-			methodName:       "AddClassProperty",
-			additionalArgs:   []interface{}{&models.Class{}, false, &models.Property{}},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: "schema/objects",
+			methodName:        "AddClassProperty",
+			additionalArgs:    []interface{}{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
 		{
-			methodName:       "DeleteClassProperty",
-			additionalArgs:   []interface{}{"somename", "someprop"},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: "schema/objects",
+			methodName:        "DeleteClassProperty",
+			additionalArgs:    []interface{}{"somename", "someprop"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("somename"),
 		},
 		{
-			methodName:       "UpdateShardStatus",
-			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: "schema/className/shards/shardName",
+			methodName:        "UpdateShardStatus",
+			additionalArgs:    []interface{}{"className", "shardName", "targetStatus"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsMetadata("className", "shardName"),
 		},
 		{
-			methodName:       "ShardsStatus",
-			additionalArgs:   []interface{}{"className", "tenant"},
-			expectedVerb:     "list",
-			expectedResource: "schema/className/shards",
+			methodName:        "ShardsStatus",
+			additionalArgs:    []interface{}{"className", "tenant"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("className", "tenant"),
 		},
 		{
-			methodName:       "AddTenants",
-			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			methodName:        "AddTenants",
+			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.ShardsMetadata("className"),
 		},
 		{
 			methodName: "UpdateTenants",
 			additionalArgs: []interface{}{"className", []*models.Tenant{
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
-			expectedVerb:     authorization.UPDATE,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
-			methodName:       "DeleteTenants",
-			additionalArgs:   []interface{}{"className", []string{"P1"}},
-			expectedVerb:     authorization.DELETE,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			methodName:        "DeleteTenants",
+			additionalArgs:    []interface{}{"className", []string{"P1"}},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
 		{
-			methodName:       "GetTenants",
-			additionalArgs:   []interface{}{"className"},
-			expectedVerb:     authorization.GET,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			methodName:        "GetTenants",
+			additionalArgs:    []interface{}{"className"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("className"),
 		},
 		{
-			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false, []string{}},
-			expectedVerb:     authorization.GET,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			methodName:        "GetConsistentTenants",
+			additionalArgs:    []interface{}{"className", false, []string{}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("className"),
 		},
 		{
-			methodName:       "ConsistentTenantExists",
-			additionalArgs:   []interface{}{"className", false, "P1"},
-			expectedVerb:     authorization.GET,
-			expectedResource: authorization.SCHEMA_TENANTS,
+			methodName:        "ConsistentTenantExists",
+			additionalArgs:    []interface{}{"className", false, "P1"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("className"),
 		},
 	}
 
@@ -198,7 +198,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				require.Len(t, authorizer.Calls(), 1, "Authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 					"execution must abort with Authorizer error")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
 					authorizer.Calls()[0], "correct parameters must have been used on Authorizer")
 			})
 		}

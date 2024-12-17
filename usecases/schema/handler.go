@@ -60,7 +60,7 @@ type SchemaManager interface {
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
+	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -166,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA)
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -176,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return schema.Schema{}, err
 	}
 
@@ -216,7 +216,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SchemaShard(class, shard))
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return 0, err
 	}
@@ -225,14 +225,14 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class, tenant string,
+	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.SchemaShard(class, ""))
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, tenant)
+	return h.schemaReader.GetShardsStatus(class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

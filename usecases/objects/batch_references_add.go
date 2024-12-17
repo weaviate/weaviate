@@ -17,6 +17,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -32,11 +35,30 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ALL_BATCH)
-	if err != nil {
-		return nil, err
+	// only validates form of input, no schema access
+	if err := validateReferenceForm(refs); err != nil {
+		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
+	batchReferences := validateReferencesConcurrently(ctx, refs, b.logger)
+
+	var pathsData []string
+	var pathsMetadata []string
+	for idx := range batchReferences {
+		if batchReferences[idx].Err != nil {
+			continue
+		}
+		class := batchReferences[idx].From.Class.String()
+		pathsData = append(pathsData, authorization.ShardsData(class, batchReferences[idx].Tenant)...)
+		pathsMetadata = append(pathsMetadata, authorization.CollectionsMetadata(class)...)
+	}
+
+	if err := b.authorizer.Authorize(principal, authorization.UPDATE, pathsData...); err != nil {
+		return nil, err
+	}
+	if err := b.authorizer.Authorize(principal, authorization.READ, pathsMetadata...); err != nil {
+		return nil, err
+	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := b.locks.LockSchema()
@@ -48,51 +70,56 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, principal, refs, repl)
+	return b.addReferences(ctx, principal, batchReferences, repl)
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference, repl *additional.ReplicationProperties,
+	refs BatchReferences, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	if err := b.validateReferenceForm(refs); err != nil {
-		return nil, NewErrInvalidUserInput("invalid params: %v", err)
-	}
-
-	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
-
-	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
+	if err := b.autodetectToClass(ctx, principal, refs); err != nil {
 		return nil, err
 	}
 
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	var mtTargetPaths []string
 	var schemaVersion uint64
-	for i, ref := range batchReferences {
-		if ref.Err == nil {
-			if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-				// can only validate multi-tenancy when everything above succeeds
-				classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
-				if err != nil {
-					batchReferences[i].Err = err
-				}
-				if classVersion > schemaVersion {
-					schemaVersion = classVersion
-				}
+	for i, ref := range refs {
+		if ref.Err != nil {
+			continue
+		}
+
+		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+			// can only validate multi-tenancy when everything above succeeds
+			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
+			if err != nil {
+				refs[i].Err = err
+			}
+			if classVersion > schemaVersion {
+				schemaVersion = classVersion
 			}
 		}
+
+		mtTargetPaths = append(mtTargetPaths, authorization.ShardsData(ref.To.Class, ref.Tenant)...)
+	}
+
+	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
+	// the permission for everything, to not complicate things too much
+	if err := b.authorizer.Authorize(principal, authorization.READ, mtTargetPaths...); err != nil {
+		return nil, err
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, schemaVersion); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, refs, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
 	}
 }
 
-func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) error {
+func validateReferenceForm(refs []*models.BatchReference) error {
 	if len(refs) == 0 {
 		return fmt.Errorf("length cannot be 0, need at least one reference for batching")
 	}
@@ -100,9 +127,7 @@ func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) erro
 	return nil
 }
 
-func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
-	principal *models.Principal, refs []*models.BatchReference,
-) BatchReferences {
+func validateReferencesConcurrently(ctx context.Context, refs []*models.BatchReference, logger logrus.FieldLogger) BatchReferences {
 	c := make(chan BatchReference, len(refs))
 	wg := new(sync.WaitGroup)
 
@@ -111,7 +136,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 		i := i
 		ref := ref
 		wg.Add(1)
-		enterrors.GoWrapper(func() { b.validateReference(ctx, principal, wg, ref, i, &c) }, b.logger)
+		enterrors.GoWrapper(func() { validateReference(ctx, wg, ref, i, &c) }, logger)
 	}
 
 	wg.Wait()
@@ -135,13 +160,17 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 
 		target, ok := classPropTarget[className+propName]
 		if !ok {
-			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
-			if class == nil || err != nil {
-				batchReferences[i].Err = fmt.Errorf("class %s does not exist or there was an error getting it err=%v", className, err)
+			vClasses, err := b.schemaManager.GetCachedClass(ctx, principal, className)
+			if err != nil {
+				batchReferences[i].Err = errors.Wrapf(err, "could not fetch class %v", className)
+				continue
+			}
+			if vClasses[className].Class == nil {
+				batchReferences[i].Err = fmt.Errorf("source class %q not found in schema", className)
 				continue
 			}
 
-			prop, err := schema.GetPropertyByName(class, propName)
+			prop, err := schema.GetPropertyByName(vClasses[className].Class, propName)
 			if err != nil {
 				batchReferences[i].Err = fmt.Errorf("property %s does not exist for class %s", propName, className)
 				continue
@@ -157,7 +186,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	return nil
 }
 
-func (b *BatchManager) validateReference(ctx context.Context, principal *models.Principal,
+func validateReference(ctx context.Context,
 	wg *sync.WaitGroup, ref *models.BatchReference, i int, resultsC *chan BatchReference,
 ) {
 	defer wg.Done()
@@ -180,7 +209,9 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 	}
 
 	// target id must be lowercase
-	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	if target != nil {
+		target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+	}
 
 	if len(validateErrors) == 0 {
 		err = nil
@@ -279,15 +310,17 @@ func getReferenceClasses(ctx context.Context,
 		classTo = refProp.DataType[0]
 	}
 
-	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
+	targetVclasses, err := schemaManager.GetCachedClass(ctx, principal, classTo)
 	if err != nil {
 		err = fmt.Errorf("get target class %q: %w", classTo, err)
 		return
 	}
-	if targetClass == nil {
-		err = fmt.Errorf("target class %q not found in schema", classTo)
+	if targetVclasses[classTo].Class == nil {
+		err = fmt.Errorf("target class %q not found in schema", classFrom)
 		return
 	}
+	targetClass = targetVclasses[classTo].Class
+
 	return
 }
 

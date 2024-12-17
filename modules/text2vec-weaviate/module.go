@@ -35,19 +35,19 @@ import (
 const Name = "text2vec-weaviate"
 
 var batchSettings = batch.Settings{
-	TokenMultiplier:    0,
+	TokenMultiplier:    1,
 	MaxTimePerBatch:    float64(10),
 	MaxObjectsPerBatch: 200,
-	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 500000 },
-	HasTokenLimit:      false,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 512 * 200 },
+	HasTokenLimit:      true,
 	ReturnsRateLimit:   false,
 }
 
 type WeaviateEmbedModule struct {
-	vectorizer                   text2vecbase.TextVectorizerBatch
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.Searcher[[]float32]
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
@@ -156,9 +156,9 @@ func (m *WeaviateEmbedModule) AdditionalProperties() map[string]modulecapabiliti
 
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

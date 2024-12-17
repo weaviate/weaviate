@@ -12,24 +12,33 @@
 package main
 
 import (
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/query"
 	"github.com/weaviate/weaviate/exp/queryschema"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 const (
 	TargetQuerier = "querier"
+	GBtoByes      = 1 << 30
 )
 
 // TODO: We want this to be part of original `cmd/weaviate-server`.
@@ -49,6 +58,9 @@ func main() {
 		}
 		log.WithField("err", err).Fatal("failed to parse command line args")
 	}
+
+	// Set version from swagger spec.
+	build.Version = rest.ParseVersionFromSwaggerSpec()
 
 	switch opts.Target {
 	case "querier":
@@ -76,9 +88,18 @@ func main() {
 			}).Fatal("failed to create stopwords detector for querier")
 		}
 
+		var lsm *query.LSMFetcher
+		if opts.Query.NoCache {
+			lsm = query.NewLSMFetcher(opts.Query.DataPath, s3module, log)
+		} else {
+			metrics := query.NewCacheMetrics(opts.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
+			cache := query.NewDiskCache(opts.Query.DataPath, opts.Query.CacheMaxSizeGB*GBtoByes, metrics)
+			lsm = query.NewLSMFetcherWithCache(opts.Query.DataPath, s3module, cache, log)
+		}
+
 		a := query.NewAPI(
 			schemaInfo,
-			s3module,
+			lsm,
 			vectorizer.New(vclient),
 			detectStopwords,
 			&opts.Query,
@@ -93,15 +114,24 @@ func main() {
 				"addrs": opts.Query.GRPCListenAddr,
 			}).Fatal("failed to bind grpc server addr")
 		}
-
-		grpcServer := grpc.NewServer()
+		svrMetrics := monitoring.NewServerMetrics(opts.Monitoring, prometheus.DefaultRegisterer)
+		listener = monitoring.CountingListener(listener, svrMetrics.TCPActiveConnections.WithLabelValues("grpc"))
+		grpcServer := grpc.NewServer(GrpcOptions(*svrMetrics)...)
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
-		if err := grpcServer.Serve(listener); err != nil {
-			log.Fatal("failed to start grpc server", err)
-		}
+		enterrors.GoWrapper(func() {
+			if err := grpcServer.Serve(listener); err != nil {
+				log.Fatal("failed to start grpc server", err)
+			}
+		}, log)
+
+		// serve /metrics
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		log.WithField("addr", opts.Monitoring.Port).Info("starting /metrics server over http")
+		http.ListenAndServe(fmt.Sprintf(":%d", opts.Monitoring.Port), mux)
 
 	default:
 		log.Fatal("--target empty or unknown")
@@ -110,6 +140,29 @@ func main() {
 
 // Options represents Command line options passed to weaviate binary
 type Options struct {
-	Target string       `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
-	Query  query.Config `group:"query" namespace:"query"`
+	Target     string            `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
+	Query      query.Config      `group:"query" namespace:"query"`
+	Monitoring monitoring.Config `group:"monitoring" namespace:"monitoring"`
+}
+
+func GrpcOptions(svrMetrics monitoring.ServerMetrics) []grpc.ServerOption {
+	grpcOptions := []grpc.ServerOption{
+		grpc.StatsHandler(monitoring.NewGrpcStatsHandler(
+			svrMetrics.InflightRequests,
+			svrMetrics.RequestBodySize,
+			svrMetrics.ResponseBodySize,
+		)),
+	}
+
+	grpcInterceptUnary := grpc.ChainUnaryInterceptor(
+		monitoring.UnaryServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptUnary)
+
+	grpcInterceptStream := grpc.ChainStreamInterceptor(
+		monitoring.StreamServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptStream)
+
+	return grpcOptions
 }

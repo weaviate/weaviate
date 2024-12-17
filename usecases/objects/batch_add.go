@@ -31,11 +31,39 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
-	err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.BATCH_OBJECTS)
-	if err != nil {
-		return nil, err
+	classesShards := make(map[string][]string)
+	for _, obj := range objects {
+		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 
+	// whole request fails if permissions for any collection are not present
+	for class, shards := range classesShards {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shards...)...); err != nil {
+			return nil, err
+		}
+
+		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(class, shards...)...); err != nil {
+			return nil, err
+		}
+
+		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, shards...)...); err != nil {
+			return nil, err
+		}
+	}
+
+	return b.addObjects(ctx, principal, objects, fields, repl)
+}
+
+// AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
+func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+) (BatchObjects, error) {
+	return b.addObjects(ctx, principal, objects, fields, repl)
+}
+
+func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := b.locks.LockConnector()

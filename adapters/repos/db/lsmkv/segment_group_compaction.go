@@ -308,7 +308,20 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if err := c.Do(); err != nil {
 			return false, err
 		}
+	case segmentindex.StrategyInverted:
+		c := newCompactorInverted(f,
+			leftSegment.newInvertedCursorReusable(),
+			rightSegment.newInvertedCursorReusable(),
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
+		if sg.metrics != nil {
+			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+		}
+
+		if err := c.do(); err != nil {
+			return false, err
+		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
@@ -344,10 +357,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
 
-	// wait for flushing to complete before acquiring the maintenance lock, this
-	// can help avoid blocking user requests
-	sg.waitForFlushingToComplete(10*time.Millisecond, 300*time.Second)
-
 	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
 	if err != nil {
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)
@@ -372,6 +381,22 @@ const replaceSegmentWarnThreshold = 300 * time.Millisecond
 func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	old1, old2 int, precomputedFiles []string,
 ) (*segment, *segment, error) {
+	// We need a maintenanceLock.Lock() to switch segments, however, we can't
+	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
+	// would mean that if any RLock() holder still holds the lock, all future
+	// RLock() holders would be blocked until we release the Lock() again.
+	//
+	// Typical RLock() holders are user operations that are short-lived. However,
+	// the flush routine also requires an RLock() and could potentially hold it
+	// for minutes. This is problematic, so we need to synchronize with the flush
+	// routine by obtaining the flushVsCompactLock.
+	//
+	// This gives us the guarantee that – until we have released the
+	// flushVsCompactLock – no flush routine will try to obtain a long-lived
+	// maintenanceLock.RLock().
+	sg.flushVsCompactLock.Lock()
+	defer sg.flushVsCompactLock.Unlock()
+
 	start := time.Now()
 	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.Lock()
@@ -632,42 +657,4 @@ func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
 
 	totalSize := left.size + right.size
 	return totalSize <= sg.maxSegmentSize
-}
-
-// Warning: waitForFlushingToComplete gives you no synchronization guarantees,
-// it mainly acts as a hint that a flushing has just completed, but it gives no
-// guarantees that a new flushing hasn't started yet. The idea is that it's
-// better to delay the attempt to obtain a maintenance lock because it will
-// start blocking user operations if we have to wait for it. But never rely on
-// this behavior alone, always use it in combination with a proper lock.
-func (sg *SegmentGroup) waitForFlushingToComplete(stepSize time.Duration, maxWait time.Duration) {
-	if !sg.isFlushing.Load() {
-		return
-	}
-
-	begin := time.Now()
-
-	t := time.NewTicker(stepSize)
-	defer t.Stop()
-
-	timeout := time.NewTimer(maxWait)
-
-	for {
-		select {
-		case <-t.C:
-			if !sg.isFlushing.Load() {
-				totalDelay := time.Since(begin)
-				sg.logger.WithField("action", "lsm_compaction_delay").
-					WithField("duration", totalDelay).
-					Debugf("waited %s for flushing to complete", totalDelay)
-				return
-			}
-		case <-timeout.C:
-			sg.logger.WithField("action", "lsm_compaction_delay").
-				WithField("duration", maxWait).
-				Warningf("waited %s for flushing to complete, but it did not complete", maxWait)
-
-			return
-		}
-	}
 }

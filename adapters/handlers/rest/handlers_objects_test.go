@@ -673,6 +673,17 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		if _, ok := res.(*objects.ObjectsClassPatchNoContent); !ok {
 			t.Errorf("unexpected result %v", res)
 		}
+
+		// test deprecated function
+		fakeManager.patchObjectReturn = nil
+		res = h.patchObjectDeprecated(objects.ObjectsPatchParams{
+			HTTPRequest: httptest.NewRequest("PATCH", "/v1/objects/123", nil),
+			ID:          "123",
+			Body:        nil,
+		}, nil)
+		if _, ok := res.(*objects.ObjectsClassPatchBadRequest); !ok {
+			t.Errorf("unexpected result %v", res)
+		}
 	})
 
 	t.Run("GetObject", func(t *testing.T) {

@@ -26,28 +26,37 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-ollama"
+
+var batchSettings = batch.Settings{
+	TokenMultiplier:    0,
+	MaxObjectsPerBatch: 10,
+	MaxTokensPerBatch:  func(cfg moduletools.ClassConfig) int { return 2500 },
+	MaxTimePerBatch:    float64(10),
+	HasTokenLimit:      false,
+	ReturnsRateLimit:   false,
+}
 
 func New() *OllamaModule {
 	return &OllamaModule{}
 }
 
 type OllamaModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizerBatch[[]float32]
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.Searcher[[]float32]
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
 func (m *OllamaModule) Name() string {
-	return "text2vec-ollama"
+	return Name
 }
 
 func (m *OllamaModule) Type() modulecapabilities.ModuleType {
@@ -93,7 +102,10 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 ) error {
 	client := clients.New(timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = text2vecbase.New(client,
+		batch.NewBatchVectorizer(client, 50*time.Second, batchSettings, logger, m.Name()),
+		batch.ReturnBatchTokenizer(batchSettings.TokenMultiplier, m.Name(), ent.LowerCaseInput),
+	)
 	m.metaProvider = client
 
 	return nil
@@ -112,11 +124,12 @@ func (m *OllamaModule) RootHandler() http.Handler {
 func (m *OllamaModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *OllamaModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
 }
 
 func (m *OllamaModule) MetaInfo() (map[string]interface{}, error) {
@@ -140,8 +153,8 @@ func (m *OllamaModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 )

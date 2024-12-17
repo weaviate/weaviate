@@ -20,11 +20,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
@@ -37,6 +40,8 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 		WithText2VecContextionary().
 		WithBackendFilesystem().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
+		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -1084,6 +1089,7 @@ func addTestDataRansomNotes(t *testing.T) {
 		numBatches = 50
 	)
 
+	className := "RansomNote"
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := 0; i < numBatches; i++ {
@@ -1093,13 +1099,18 @@ func addTestDataRansomNotes(t *testing.T) {
 			note := helper.GetRandomString(noteLength)
 
 			batch[j] = &models.Object{
-				Class:      "RansomNote",
+				Class:      className,
 				Properties: map[string]interface{}{"contents": note},
 			}
 		}
 
 		createObjectsBatch(t, batch)
 	}
+
+	t.Run("wait for all objects to be indexed", func(t *testing.T) {
+		// wait for all of the objects to get indexed
+		waitForIndexing(t, className)
+	})
 }
 
 func addTestDataMultiShard(t *testing.T) {
@@ -1179,6 +1190,9 @@ func addTestDataNearObjectSearch(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
+
+	waitForIndexing(t, classNames[0])
+	waitForIndexing(t, classNames[1])
 }
 
 const (
@@ -1238,6 +1252,8 @@ func addTestDataCursorSearch(t *testing.T) {
 		})
 		assertGetObjectEventually(t, id)
 	}
+
+	waitForIndexing(t, className)
 }
 
 func addDateFieldClass(t *testing.T) {
@@ -1273,4 +1289,21 @@ func mustParseYear(year string) time.Time {
 		panic(err)
 	}
 	return asTime
+}
+
+func waitForIndexing(t *testing.T, className string) {
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verbose := verbosity.OutputVerbose
+		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		resp, err := body.Payload, clientErr
+		require.NoError(ct, err)
+		require.NotEmpty(ct, resp.Nodes)
+		for _, n := range resp.Nodes {
+			require.NotEmpty(ct, n.Shards)
+			for _, s := range n.Shards {
+				assert.Equal(ct, "READY", s.VectorIndexingStatus)
+			}
+		}
+	}, 15*time.Second, 500*time.Millisecond)
 }

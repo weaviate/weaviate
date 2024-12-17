@@ -30,8 +30,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(class, id))
-	if err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+		return nil, err
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
 		return nil, err
 	}
 

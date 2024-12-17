@@ -23,11 +23,15 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/exp/metadata"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -105,8 +109,10 @@ type Config struct {
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
 	NodeToAddressResolver  resolver.NodeToAddress
-	Logger                 *logrus.Logger
-	Voter                  bool
+	// NodeSelector is the memberlist interface to RAFT
+	NodeSelector cluster.NodeSelector
+	Logger       *logrus.Logger
+	Voter        bool
 
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
@@ -136,6 +142,13 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
+
+	// ClassTenantDataEvents can have events published onto it when tenant changes like
+	// being frozen happen, with the goal of being able to alert the metadata nodes. This
+	// channel will be nil if the metadata server is not enabled.
+	ClassTenantDataEvents chan metadata.ClassTenant
+
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -178,6 +191,10 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
+
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	authZManager *rbac.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -202,6 +219,13 @@ func NewFSM(cfg Config) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		})
 	}
+	var schemaManager *schema.SchemaManager
+	if cfg.ClassTenantDataEvents != nil {
+		schemaManager = schema.NewSchemaManagerWithTenantEvents(cfg.NodeID, cfg.DB, cfg.Parser,
+			cfg.ClassTenantDataEvents, cfg.Logger)
+	} else {
+		schemaManager = schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger)
+	}
 
 	return Store{
 		cfg:           cfg,
@@ -209,7 +233,8 @@ func NewFSM(cfg Config) Store {
 		candidates:    make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schemaManager,
+		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 

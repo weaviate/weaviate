@@ -14,12 +14,14 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -29,7 +31,6 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	if !h.shouldRescore() {
 		limit = k
 	}
-	results := priorityqueue.NewMax[any](limit)
 
 	h.RLock()
 	nodeSize := uint64(len(h.nodes))
@@ -42,49 +43,69 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 		compressorDistancer = distancer
 	}
 
+	aggregateMu := &sync.Mutex{}
+	results := priorityqueue.NewMax[any](limit)
+
 	beforeIter := time.Now()
+	// first extract all candidates, this reduces the amount of coordination
+	// needed for the workers
+	candidates := make([]uint64, 0, allowList.Len())
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
-		if err := ctx.Err(); err != nil {
-			helpers.AnnotateSlowQueryLog(ctx, "context_error", "flat_search_iteration")
-			took := time.Since(beforeIter)
-			helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
-			return nil, nil, fmt.Errorf("flat search: iterating candidates: %w", err)
-		}
+		candidates = append(candidates, candidate)
+	}
 
-		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
-		// this if statement mitigates the problem but it doesn't resolve the issue
-		if candidate >= nodeSize {
-			h.logger.WithField("action", "flatSearch").
-				Debugf("trying to get candidate: %v but we only have: %v elements.",
-					candidate, nodeSize)
-			continue
-		}
+	eg := enterrors.NewErrorGroupWrapper(h.logger)
+	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			localResults := priorityqueue.NewMax[any](limit)
+			var e storobj.ErrNotFound
+			for idPos := workerID; idPos < len(candidates); idPos += h.flatSearchConcurrency {
+				candidate := candidates[idPos]
 
-		h.shardedNodeLocks.RLock(candidate)
-		c := h.nodes[candidate]
-		h.shardedNodeLocks.RUnlock(candidate)
+				// Hot fix for https://github.com/weaviate/weaviate/issues/1937
+				// this if statement mitigates the problem but it doesn't resolve the issue
+				if candidate >= nodeSize {
+					h.logger.WithField("action", "flatSearch").
+						Debugf("trying to get candidate: %v but we only have: %v elements.",
+							candidate, nodeSize)
+					continue
+				}
 
-		if c == nil || h.hasTombstone(candidate) {
-			continue
-		}
+				h.shardedNodeLocks.RLock(candidate)
+				c := h.nodes[candidate]
+				h.shardedNodeLocks.RUnlock(candidate)
 
-		dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID, "flatSearch")
-			continue
-		}
-		if err != nil {
-			return nil, nil, err
-		}
+				if c == nil || h.hasTombstone(candidate) {
+					continue
+				}
 
-		if results.Len() < limit {
-			results.Insert(candidate, dist)
-		} else if results.Top().Dist > dist {
-			results.Pop()
-			results.Insert(candidate, dist)
-		}
+				dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
+				if errors.As(err, &e) {
+					h.handleDeletedNode(e.DocID, "flatSearch")
+					continue
+				}
+				if err != nil {
+					return err
+				}
+
+				addResult(localResults, candidate, dist, limit)
+			}
+
+			aggregateMu.Lock()
+			defer aggregateMu.Unlock()
+			for localResults.Len() > 0 {
+				res := localResults.Pop()
+				addResult(results, res.ID, res.Dist, limit)
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 	took := time.Since(beforeIter)
 	helpers.AnnotateSlowQueryLog(ctx, "flat_search_iteration_took", took)
@@ -117,4 +138,16 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	}
 
 	return ids, dists, nil
+}
+
+func addResult(results *priorityqueue.Queue[any], id uint64, dist float32, limit int) {
+	if results.Len() < limit {
+		results.Insert(id, dist)
+		return
+	}
+
+	if results.Top().Dist > dist {
+		results.Pop()
+		results.Insert(id, dist)
+	}
 }

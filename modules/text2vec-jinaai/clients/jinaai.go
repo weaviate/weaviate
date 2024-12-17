@@ -30,20 +30,20 @@ const (
 )
 
 type vectorizer struct {
-	client *jinaai.Client
+	client *jinaai.Client[[]float32]
 	logger logrus.FieldLogger
 }
 
 func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		client: jinaai.New(jinaAIApiKey, timeout, defaultRPM, defaultTPM, logger),
+		client: jinaai.New[[]float32](jinaAIApiKey, timeout, defaultRPM, defaultTPM, logger),
 		logger: logger,
 	}
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, int, error) {
+) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
 	settings := ent.NewClassSettings(cfg)
 	res, _, usage, err := v.client.Vectorize(ctx, input, jinaai.Settings{
 		BaseURL:    settings.BaseURL(),
@@ -56,7 +56,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult[[]float32], error) {
 	settings := ent.NewClassSettings(cfg)
 	res, _, _, err := v.client.Vectorize(ctx, input, jinaai.Settings{
 		BaseURL:    settings.BaseURL(),

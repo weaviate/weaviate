@@ -16,10 +16,15 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 // FindVectorFn method for getting a vector of given object by its ID
-type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error)
+// type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error)
+type FindVectorFn[T types.Embedding] interface {
+	FindVector(ctx context.Context,
+		className string, id strfmt.UUID, tenant, targetVector string) (T, string, error)
+}
 
 // VectorForParams defines method for passing a raw searcher content to the module
 // and exchanging it for a vector. Warning: Argument "cfg"
@@ -27,24 +32,19 @@ type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID, 
 // have to provide a nil check before using it. It is generally present on
 // class-based action, but is not present on Cross-Class requests, such as
 // Explore {}
-type VectorForParams = func(ctx context.Context, params interface{},
-	className string, findVectorFn FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error)
-
-// ArgumentVectorForParams contains argument definitions and it's respective
-// vector for params search method
-type ArgumentVectorForParams = map[string]VectorForParams
+type VectorForParams[T types.Embedding] interface {
+	VectorForParams(ctx context.Context, params interface{},
+		className string, findVectorFn FindVectorFn[T], cfg moduletools.ClassConfig) (T, error)
+}
 
 // Searcher defines all methods for all searchers
 // for getting a vector from a given raw searcher content
-type Searcher interface {
-	VectorSearches() ArgumentVectorForParams
+type Searcher[T types.Embedding] interface {
+	VectorSearches() map[string]VectorForParams[T]
 }
 
-// ModuleArgumentVectorForParams contains module's argument definitions and it's
-// vector for params search method
-type ModuleArgumentVectorForParams = map[string]ArgumentVectorForParams
-
 // DependencySearcher defines all of the available searches loaded as a dependency
-type DependencySearcher interface {
-	VectorSearches() ModuleArgumentVectorForParams
+// for this time it's limited to modules providing []float32 embeddings
+type DependencySearcher[T types.Embedding] interface {
+	VectorSearches() map[string]map[string]VectorForParams[T]
 }

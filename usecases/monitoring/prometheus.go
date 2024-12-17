@@ -18,12 +18,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+const (
+	// DefaultMetricsNamespace is used to group the weaviate metrics with common prefix.
+	DefaultMetricsNamespace = "weaviate"
+)
+
 type Config struct {
-	Enabled                    bool   `json:"enabled" yaml:"enabled"`
+	Enabled                    bool   `json:"enabled" yaml:"enabled" long:"enabled"`
 	Tool                       string `json:"tool" yaml:"tool"`
-	Port                       int    `json:"port" yaml:"port"`
+	Port                       int    `json:"port" yaml:"port" long:"port" default:"8081"`
 	Group                      bool   `json:"group_classes" yaml:"group_classes"`
 	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
+
+	// Metrics namespace group the metrics with common prefix.
+	// currently used only on ServerMetrics.
+	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
 type PrometheusMetrics struct {
@@ -63,22 +72,14 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred          *prometheus.CounterVec
 
 	// offload metric
-	TenantCloudOffloadDurations       *prometheus.SummaryVec
-	TenantCloudLoadDurations          *prometheus.SummaryVec
-	TenantCloudDeleteDurations        *prometheus.SummaryVec
-	TenantCloudOffloadDataTransferred *prometheus.CounterVec
-	TenantCloudLoadDataTransferred    *prometheus.CounterVec
+	QueueSize                        *prometheus.GaugeVec
+	QueueDiskUsage                   *prometheus.GaugeVec
+	QueuePaused                      *prometheus.GaugeVec
+	QueueCount                       *prometheus.GaugeVec
+	QueuePartitionProcessingDuration *prometheus.HistogramVec
 
-	IndexQueuePushDuration    *prometheus.SummaryVec
-	IndexQueueDeleteDuration  *prometheus.SummaryVec
-	IndexQueuePreloadDuration *prometheus.SummaryVec
-	IndexQueuePreloadCount    *prometheus.GaugeVec
-	IndexQueueSearchDuration  *prometheus.SummaryVec
-	IndexQueuePaused          *prometheus.GaugeVec
-	IndexQueueSize            *prometheus.GaugeVec
-	IndexQueueStaleCount      *prometheus.CounterVec
-	IndexQueueVectorsDequeued *prometheus.GaugeVec
-	IndexQueueWaitDuration    *prometheus.SummaryVec
+	VectorIndexQueueInsertCount *prometheus.CounterVec
+	VectorIndexQueueDeleteCount *prometheus.CounterVec
 
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
@@ -138,6 +139,89 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
+func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
+	r := promauto.With(reg)
+	return &TenantOffloadMetrics{
+		FetchedBytes: r.NewCounter(prometheus.CounterOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_fetched_bytes_total",
+		}),
+		TransferredBytes: r.NewCounter(prometheus.CounterOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_transferred_bytes_total",
+		}),
+		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_operation_duration_seconds",
+			Buckets:   LatencyBuckets,
+		}, []string{"operation", "status"}), // status can be "success" or "failure"
+	}
+}
+
+type TenantOffloadMetrics struct {
+	// NOTE: These ops are not GET or PUT requests to object storage.
+	// these are one of the `download`, `upload` or `delete`. Because we use s5cmd to talk
+	// to object storage currently. Which supports these operations at high level.
+	FetchedBytes     prometheus.Counter
+	TransferredBytes prometheus.Counter
+	OpsDuration      *prometheus.HistogramVec
+}
+
+func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
+	r := promauto.With(reg)
+
+	return &ServerMetrics{
+		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tcp_active_connections",
+			Help:      "Current number of accepted TCP connections.",
+		}, []string{"protocol"}),
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Buckets:   LatencyBuckets,
+		}, []string{"method", "route", "status_code"}),
+		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "per_tenant_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
+			Buckets:   LatencyBuckets,
+		}, []string{"method", "route", "status_code", "tenant", "collection"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
+		}, []string{"method", "route"}),
+	}
+}
+
+// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
+type ServerMetrics struct {
+	TCPActiveConnections *prometheus.GaugeVec
+	RequestDuration      *prometheus.HistogramVec
+
+	// NOTE: Adding it as experimental, since we have unbounded cardinality for number of tenant/shards
+	// we may remove it in future.
+	PerTenantRequestDuration *prometheus.HistogramVec
+
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
+}
+
 // Delete Shard deletes existing label combinations that match both
 // the shard and class name. If a metric is not collected at the shard
 // level it is unaffected. This is to make sure that deleting a single
@@ -168,16 +252,13 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.LSMSegmentCount.DeletePartialMatch(labels)
 	pm.LSMSegmentSize.DeletePartialMatch(labels)
 	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
-	pm.IndexQueuePushDuration.DeletePartialMatch(labels)
-	pm.IndexQueueDeleteDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePreloadDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePreloadCount.DeletePartialMatch(labels)
-	pm.IndexQueueSearchDuration.DeletePartialMatch(labels)
-	pm.IndexQueuePaused.DeletePartialMatch(labels)
-	pm.IndexQueueSize.DeletePartialMatch(labels)
-	pm.IndexQueueStaleCount.DeletePartialMatch(labels)
-	pm.IndexQueueVectorsDequeued.DeletePartialMatch(labels)
-	pm.IndexQueueWaitDuration.DeletePartialMatch(labels)
+	pm.QueueSize.DeletePartialMatch(labels)
+	pm.QueueDiskUsage.DeletePartialMatch(labels)
+	pm.QueuePaused.DeletePartialMatch(labels)
+	pm.QueueCount.DeletePartialMatch(labels)
+	pm.QueuePartitionProcessingDuration.DeletePartialMatch(labels)
+	pm.VectorIndexQueueInsertCount.DeletePartialMatch(labels)
+	pm.VectorIndexQueueDeleteCount.DeletePartialMatch(labels)
 	pm.VectorIndexTombstones.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
@@ -217,20 +298,25 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
 
-	// delete offload metric
-	pm.TenantCloudOffloadDurations.DeletePartialMatch(labels)
-	pm.TenantCloudLoadDurations.DeletePartialMatch(labels)
-	pm.TenantCloudDeleteDurations.DeletePartialMatch(labels)
-	pm.TenantCloudOffloadDataTransferred.DeletePartialMatch(labels)
-	pm.TenantCloudLoadDataTransferred.DeletePartialMatch(labels)
-
 	return nil
 }
 
+const mb = 1024 * 1024
+
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
-	sBuckets                     = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
-	metrics   *PrometheusMetrics = nil
+	// msBuckets and sBuckets are deprecated. Use `LatencyBuckets` and `sizeBuckets` instead.
+	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
+	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
+
+	// LatencyBuckets is default histogram bucket for response time (in seconds).
+	// It also includes request that served *very* fast and *very* slow
+	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// sizeBuckets defines buckets for request/response body sizes (in bytes).
+	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
+	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
+
+	metrics *PrometheusMetrics = nil
 )
 
 func init() {
@@ -359,46 +445,36 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
+		// Queue metrics
+		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_size",
+			Help: "Number of records in the queue",
+		}, []string{"class_name", "shard_name"}),
+		QueueDiskUsage: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_disk_usage",
+			Help: "Disk usage of the queue",
+		}, []string{"class_name", "shard_name"}),
+		QueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_paused",
+			Help: "Whether the queue is paused",
+		}, []string{"class_name", "shard_name"}),
+		QueueCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "queue_count",
+			Help: "Number of queues",
+		}, []string{"class_name", "shard_name"}),
+		QueuePartitionProcessingDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "queue_partition_processing_duration_ms",
+			Help: "Duration in ms of a single partition processing",
+		}, []string{"class_name", "shard_name"}),
+
 		// Async indexing metrics
-		IndexQueuePushDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_push_duration_ms",
-			Help: "Duration of pushing one or more vectors to the index queue",
+		VectorIndexQueueInsertCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_queue_insert_count",
+			Help: "Number of insert operations added to the vector index queue",
 		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueDeleteDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_delete_duration_ms",
-			Help: "Duration of deleting one or more vectors from the index queue and the underlying index",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePreloadDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_preload_duration_ms",
-			Help: "Duration of preloading unindexed vectors to the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePreloadCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_preload_count",
-			Help: "Number of vectors preloaded to the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueSearchDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_search_duration_ms",
-			Help: "Duration of searching for vectors in the index queue and the underlying index",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueuePaused: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_paused",
-			Help: "Whether the index queue is paused",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_size",
-			Help: "Number of vectors in the index queue",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueStaleCount: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "index_queue_stale_count",
-			Help: "Number of times the index queue has been marked as stale",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueVectorsDequeued: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "index_queue_vectors_dequeued",
-			Help: "Number of vectors sent to the workers per tick",
-		}, []string{"class_name", "shard_name", "target_vector"}),
-		IndexQueueWaitDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "index_queue_wait_duration_ms",
-			Help: "Duration of waiting for the workers to finish",
+		VectorIndexQueueDeleteCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_queue_delete_count",
+			Help: "Number of delete operations added to the vector index queue",
 		}, []string{"class_name", "shard_name", "target_vector"}),
 
 		// Vector index metrics
@@ -518,28 +594,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
-
-		// Offload metrics
-		TenantCloudOffloadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_up_durations_ms",
-			Help: "tenant offload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudLoadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_down_durations_ms",
-			Help: "tenant onload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudDeleteDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_delete_durations_ms",
-			Help: "tenant onload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudOffloadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tenant_offload_up_data_bytes",
-			Help: "Total number of bytes transferred during a tenant offload to cloud",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudLoadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tenant_offload_down_data_bytes",
-			Help: "Total number of bytes transferred during a tenant load from cloud",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{

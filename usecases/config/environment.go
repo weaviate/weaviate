@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -46,6 +48,7 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "" // to support backward compabitlity. Metric names won't have prefix by default.
 
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
 			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
@@ -58,6 +61,11 @@ func FromEnv(config *Config) error {
 			// not about classes or shards.
 			config.Monitoring.Group = true
 		}
+
+		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
+			config.Monitoring.MetricsNamespace = val
+		}
+
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY")) {
 			config.Monitoring.MonitorCriticalBucketsOnly = true
 		}
@@ -92,6 +100,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	// variable expects string in format:
+	// "Class1:property11,property12;Class2:property21,property22"
+	if v := os.Getenv("REINDEX_INDEXES_AT_STARTUP"); v != "" {
+		asClassesWithProps, err := parseClassNamesWithPropsNames(v)
+		if err != nil {
+			return fmt.Errorf("parse REINDEX_INDEXES_AT_STARTUP as class with props: %w", err)
+		}
+		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
@@ -147,15 +165,16 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
-			keys := strings.Split(keysString, ",")
+		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(rawKeys, ",")
 			config.Authentication.APIKey.AllowedKeys = keys
 		}
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
-			keys := strings.Split(keysString, ",")
-			config.Authentication.APIKey.Users = keys
+		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			users := strings.Split(rawUsers, ",")
+			config.Authentication.APIKey.Users = users
 		}
+
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
@@ -179,6 +198,20 @@ func FromEnv(config *Config) error {
 		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
 		if ok {
 			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
+	}
+
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+		config.Authorization.Rbac.Enabled = true
+
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+		}
+
+		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		if ok {
+			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
 		}
 	}
 
@@ -231,6 +264,14 @@ func FromEnv(config *Config) error {
 		DefaultHNSWVisitedListPoolSize,
 		func(size int) error { return nil },
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"HNSW_FLAT_SEARCH_CONCURRENCY",
+		func(val int) { config.HNSWFlatSearchConcurrency = val },
+		DefaultHNSWFlatSearchConcurrency,
 	); err != nil {
 		return err
 	}
@@ -462,6 +503,22 @@ func FromEnv(config *Config) error {
 		return fmt.Errorf("parse sentry config from env: %w", err)
 	}
 
+	config.MetadataServer.Enabled = false
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_METADATA_SERVER_ENABLED")) {
+		config.MetadataServer.Enabled = true
+	}
+	config.MetadataServer.GrpcListenAddress = DefaultMetadataServerGrpcListenAddress
+	if v := os.Getenv("EXPERIMENTAL_METADATA_SERVER_GRPC_LISTEN_ADDRESS"); v != "" {
+		config.MetadataServer.GrpcListenAddress = v
+	}
+	if err := parsePositiveInt(
+		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
+		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
+		DefaultMetadataServerDataEventsChannelCapacity,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -683,6 +740,61 @@ func parseInt(envName string, defaultValue int, verify func(val int) error, cb f
 	return nil
 }
 
+// expects "Class1:property11,property12;Class2:property21,property22"
+// returns map[Class][]property
+func parseClassNamesWithPropsNames(v string) (map[string][]string, error) {
+	classNamesWithPropsNames := map[string][]string{}
+
+	regexClass := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
+	regexProp := regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`)
+	uniqueClasses := map[string]struct{}{}
+	var uniqueProps map[string]struct{}
+
+	ec := &errorcompounder.ErrorCompounder{}
+	parts := strings.Split(v, ";")
+	for _, part := range parts {
+		err := func() error {
+			parts2 := strings.Split(part, ":")
+			if len(parts2) != 2 {
+				return fmt.Errorf("invalid class+property setting %q", part)
+			}
+
+			class := parts2[0]
+			if _, ok := uniqueClasses[class]; ok {
+				return fmt.Errorf("class name %q duplicated", class)
+			}
+			if !regexClass.MatchString(class) {
+				return fmt.Errorf("invalid class name %q", class)
+			}
+			uniqueClasses[class] = struct{}{}
+
+			uniqueProps = map[string]struct{}{}
+			props := strings.Split(parts2[1], ",")
+			for _, prop := range props {
+				if _, ok := uniqueProps[prop]; ok {
+					return fmt.Errorf("prop name %q duplicated in class %q", prop, class)
+				}
+				if !regexProp.MatchString(prop) {
+					return fmt.Errorf("invalid prop name %q in class %q", prop, class)
+				}
+				uniqueProps[prop] = struct{}{}
+			}
+
+			classNamesWithPropsNames[class] = props
+			return nil
+		}()
+		ec.Add(err)
+	}
+
+	if err := ec.ToError(); err != nil {
+		return nil, err
+	}
+	if len(classNamesWithPropsNames) > 0 {
+		return classNamesWithPropsNames, nil
+	}
+	return nil, nil
+}
+
 const (
 	DefaultQueryMaximumResults = int64(10000)
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
@@ -845,14 +957,20 @@ func parseClusterConfig() (cluster.Config, error) {
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
 	// return an error for all data requests, but will still participate in the raft cluster and
 	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
-	// data requests and you need to start up the node to give it time to "catch up".
+	// data requests and you need to start up the node to give it time to "catch up". Note that in
+	// general one should not use the MaintenanceNodes field directly, but since we don't have
+	// access to the State here and the cluster has not yet initialized, we have to set it here.
 
 	// avoid the case where strings.Split creates a slice with only the empty string as I think
 	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
 	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
 	cfg.MaintenanceNodes = []string{}
 	if m := os.Getenv("MAINTENANCE_NODES"); m != "" {
-		cfg.MaintenanceNodes = strings.Split(m, ",")
+		for _, node := range strings.Split(m, ",") {
+			if node != "" {
+				cfg.MaintenanceNodes = append(cfg.MaintenanceNodes, node)
+			}
+		}
 	}
 
 	return cfg, nil

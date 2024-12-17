@@ -18,6 +18,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
+type VectorRecord struct {
+	ID     uint64
+	Vector []float32
+}
+
 type VectorSlice struct {
 	Slice []float32
 	Mem   []float32

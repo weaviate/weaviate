@@ -14,7 +14,6 @@ package query
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -54,6 +53,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 	offmod := modsloads3.Module{}
 	config := Config{}
 	logger := testLogger()
+	lsm := NewLSMFetcher("", &offmod, logger)
 	ctx := context.Background()
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 
-	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
+	api := NewAPI(testSchemaInfo, lsm, vectorize, st, &config, logger)
 
 	cases := []struct {
 		name     string
@@ -142,9 +142,6 @@ func TestAPI_propertyFilters(t *testing.T) {
 			res, err := api.propertyFilters(ctx, store, testCollection, nil, testTenant, tc.filters, tc.limit)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expCount, len(res))
-			for _, r := range res {
-				fmt.Printf("%#v\n", r)
-			}
 		})
 	}
 }
@@ -157,6 +154,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 	offmod := modsloads3.Module{}
 	config := Config{}
 	logger := testLogger()
+	lsm := NewLSMFetcher("", &offmod, logger)
 	ctx := context.Background()
 	st, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
 	require.NoError(t, err)
@@ -168,7 +166,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Shutdown(ctx)
 
-	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
+	api := NewAPI(testSchemaInfo, lsm, vectorize, st, &config, logger)
 
 	nearText := []string{"biology"}
 
@@ -210,35 +208,38 @@ type mockSchemaInfo struct {
 }
 
 type tenantInfo struct {
-	tenant     string
-	collection string
-	status     string
+	tenant         string
+	collection     string
+	status         string
+	belongsToNodes []string
 }
 
 var testSchemaInfo = &mockSchemaInfo{
 	tenantinfo: map[string]*tenantInfo{
 		"ada-active": {
-			tenant:     "ada-active",
-			collection: "computer",
-			status:     "ACTIVE",
+			tenant:         "ada-active",
+			collection:     "computer",
+			status:         "ACTIVE",
+			belongsToNodes: []string{"node-1"},
 		},
 		"feynman-frozen": {
-			tenant:     "feynman-frozen",
-			collection: "physics",
-			status:     "FROZEN",
+			tenant:         "feynman-frozen",
+			collection:     "physics",
+			status:         "FROZEN",
+			belongsToNodes: []string{"node-1", "node-2"},
 		},
 	},
 }
 
-func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, error) {
+func (m *mockSchemaInfo) TenantStatus(_ context.Context, collection, tenant string) (string, []string, int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	info, ok := m.tenantinfo[tenant]
 	if !ok || info.collection != collection {
-		return "", ErrInvalidTenant
+		return "", nil, 0, ErrInvalidTenant
 	}
-	return info.status, nil
+	return info.status, info.belongsToNodes, 0, nil
 }
 
 func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*models.Class, error) {
@@ -248,7 +249,7 @@ func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*mode
 	return &class, err
 }
 
-func newMockVectorizer(t *testing.T) text2vecbase.TextVectorizer {
+func newMockVectorizer(t *testing.T) text2vecbase.TextVectorizer[[]float32] {
 	f, err := os.Open(textVectorized)
 	require.NoError(t, err)
 	defer f.Close()

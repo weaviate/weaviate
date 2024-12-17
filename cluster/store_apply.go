@@ -89,7 +89,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
-	schemaOnly := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load() || st.cfg.MetadataOnlyVoters
+	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -139,27 +140,27 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
@@ -190,6 +191,27 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
+		}
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.DeleteRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.RemovePermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.AddRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 
 	default:

@@ -20,12 +20,16 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) Queue() *IndexQueue {
+func (s *Shard) Queue() *VectorIndexQueue {
 	return s.queue
 }
 
-func (s *Shard) Queues() map[string]*IndexQueue {
+func (s *Shard) Queues() map[string]*VectorIndexQueue {
 	return s.queues
+}
+
+func (s *Shard) QueueForName(targetVector string) *VectorIndexQueue {
+	return s.queues[targetVector]
 }
 
 func (s *Shard) VectorIndex() VectorIndex {

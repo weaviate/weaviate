@@ -39,6 +39,10 @@ func TestBatchDeleteRequest(t *testing.T) {
 		},
 	}
 
+	getClass := func(name string) (*models.Class, error) {
+		return scheme.GetClass(name), nil
+	}
+
 	simpleFilterOutput := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Class: schema.ClassName(collection), Property: "name"},
@@ -113,7 +117,7 @@ func TestBatchDeleteRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchDeleteParamsFromProto(tt.req, scheme.GetClass)
+			out, err := batchDeleteParamsFromProto(tt.req, getClass)
 			require.Equal(t, tt.error, err)
 
 			if tt.error == nil {

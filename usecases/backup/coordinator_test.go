@@ -533,10 +533,10 @@ type fakeCoordinator struct {
 	schema       fakeSchemaManger
 	backend      *fakeBackend
 	log          logrus.FieldLogger
-	nodeResolver nodeResolver
+	nodeResolver NodeResolver
 }
 
-func newFakeCoordinator(resolver nodeResolver) *fakeCoordinator {
+func newFakeCoordinator(resolver NodeResolver) *fakeCoordinator {
 	fc := fakeCoordinator{}
 	fc.backend = newFakeBackend()
 	fc.schema = fakeSchemaManger{}

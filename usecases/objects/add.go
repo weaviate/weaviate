@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,8 +33,20 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.OBJECTS)
-	if err != nil {
+	var (
+		class  = "*"
+		tenant = "*"
+	)
+	if object != nil {
+		class = object.Class
+		tenant = object.Tenant
+	}
+
+	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
+		return nil, err
+	}
+
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -65,11 +79,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+		return nil, errors.Wrap(err, "invalid object")
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
-		return nil, NewErrInternal("%v", err)
+		return nil, err
 	}
 
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, object, nil)
