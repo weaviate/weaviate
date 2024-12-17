@@ -206,6 +206,7 @@ func (h *hnsw) restoreFromDisk() error {
 func (h *hnsw) restoreDocMappings() error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
+	maxNodeID := uint64(0)
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
@@ -230,8 +231,13 @@ func (h *hnsw) restoreDocMappings() error {
 		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
 		h.Unlock()
 		relativeID++
-
+		if node.id > maxNodeID {
+			maxNodeID = node.id
+		}
 	}
+	h.Lock()
+	h.vecIDcounter = maxNodeID + 1
+	h.Unlock()
 	return nil
 }
 
