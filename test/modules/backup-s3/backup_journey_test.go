@@ -63,6 +63,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {

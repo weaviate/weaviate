@@ -85,6 +85,7 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
+			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
