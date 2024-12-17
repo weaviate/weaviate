@@ -2377,14 +2377,6 @@
                 "items": {
                     "type": "string"
                 }
-            },
-            "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "example": 3,
-              "x-nullable": true
             }
           }
         }
