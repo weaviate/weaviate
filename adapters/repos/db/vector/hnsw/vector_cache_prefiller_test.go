@@ -160,6 +160,10 @@ func (f *fakeCache) GetKeys(id uint64) (uint64, uint64) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) SetKeys(id uint64, docID uint64, relativeID uint64) {
+	panic("not implemented")
+}
+
 func (f *fakeCache) GrowMultiCache(id uint64) {
 	panic("not implemented")
 }
