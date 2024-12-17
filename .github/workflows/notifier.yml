@@ -32,13 +32,13 @@ jobs:
               }
             }
 
-      - name: Send Slack Notification for PR (Non-Member)
+      - name: Send Slack Notification for PR (Community)
         if: github.event_name == 'pull_request' && steps.check_user.outputs.is_non_member == 'true'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "📢 A Pull Request has been opened by a *non-member*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Link:* ${{ github.event.pull_request.html_url }}"
+            "text": "📢 A Pull Request has been opened by a *community*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Link:* ${{ github.event.pull_request.html_url }}"
           }' $SLACK_WEBHOOK_URL
 
       - name: Send Slack Notification for All Issues
