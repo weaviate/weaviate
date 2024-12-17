@@ -3,11 +3,9 @@
 set -euo pipefail
 
 DOCKER_REPO_WEAVIATE="semitechnologies/weaviate"
-target_weaviate="weaviate"
 
 function release() {
   DOCKER_REPO=$DOCKER_REPO_WEAVIATE
-  target=$target_weaviate
 
   # for multi-platform build
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -46,7 +44,7 @@ function release() {
     fi
   fi
 
-  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--push")
+  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
