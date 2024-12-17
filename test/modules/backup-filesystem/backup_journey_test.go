@@ -57,7 +57,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviate().
+			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
 			Start(ctx)
 		require.Nil(t, err)
 

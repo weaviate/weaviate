@@ -62,7 +62,7 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviate().
+			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
 			Start(ctx)
 		require.Nil(t, err)
 
