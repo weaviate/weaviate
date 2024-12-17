@@ -81,12 +81,13 @@ func (b *BM25Searcher) wandBlock(
 			}
 		}
 	}()
-
+	b.logger.Infof("BM25Searcher wandBlock for %s", class.Class)
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization]
 			for _, propName := range propNames {
+				b.logger.Infof("creating block term for %s", propName)
 				results, lock, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, averagePropLength, b.config, ctx)
 				if err != nil {
 					if lock != nil {
@@ -148,9 +149,11 @@ func (b *BM25Searcher) wandBlock(
 			}
 
 			eg.Go(func() (err error) {
+				b.logger.Infof("DoBlockMaxWand for %s", class.Class)
 				topKHeap := terms.DoBlockMaxWand(internalLimit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				b.logger.Infof("DoBlockMaxWand done for %s", class.Class)
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
-
+				b.logger.Infof("getTopKObjects done for %s", class.Class)
 				allObjects[i][j] = objects
 				allScores[i][j] = scores
 				if err != nil {

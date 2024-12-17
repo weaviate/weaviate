@@ -194,6 +194,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if _, err := seg.loadTombstones(); err != nil {
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
+		logger.Infof("loaded segment %q with %d tombstones and %d property lengths", path, seg.invertedData.tombstones.GetCardinality(), len(seg.invertedData.propertyLengths))
 	}
 
 	return seg, nil
