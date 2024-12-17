@@ -6121,13 +6121,6 @@ func init() {
               "items": {
                 "type": "string"
               }
-            },
-            "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
-              "type": "integer",
-              "default": 0,
-              "x-nullable": true,
-              "example": 3
             }
           }
         }
@@ -12937,14 +12930,6 @@ func init() {
               "items": {
                 "type": "string"
               }
-            },
-            "dataVersion": {
-              "description": "Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.",
-              "type": "integer",
-              "default": 0,
-              "minimum": 0,
-              "x-nullable": true,
-              "example": 3
             }
           }
         }
