@@ -16,8 +16,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -61,10 +59,11 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			operator: filters.OperatorNotEqual,
 			expected: []kvData{
 				{"ccc", func() []uint64 {
-					bm := sroar.NewBitmap()
-					bm.SetMany([]uint64{111, 222, 333})
-					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
+					bm := sroar.Prefill(maxDocID)
+					for _, x := range []uint64{111, 222, 333} {
+						bm.Remove(x)
+					}
+					return bm.ToArray()
 				}()},
 			},
 		},
@@ -186,13 +185,14 @@ func TestRowReaderRoaringSet(t *testing.T) {
 		type readResult struct {
 			k []byte
 			v *sroar.Bitmap
+			r func()
 		}
 
 		t.Run(tc.name, func(t *testing.T) {
 			result := []readResult{}
 			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
-			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
-				result = append(result, readResult{k, v})
+			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, release func()) (bool, error) {
+				result = append(result, readResult{k, v, release})
 				return true, nil
 			})
 
@@ -203,6 +203,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				for _, expectedV := range expectedKV.v {
 					assert.True(t, result[i].v.Contains(expectedV))
 				}
+				result[i].r()
 			}
 		})
 
@@ -215,8 +216,8 @@ func TestRowReaderRoaringSet(t *testing.T) {
 
 			result := []readResult{}
 			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
-			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
-				result = append(result, readResult{k, v})
+			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, release func()) (bool, error) {
+				result = append(result, readResult{k, v, release})
 				if len(result) >= limit {
 					return false, nil
 				}
@@ -230,6 +231,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				for _, expectedV := range expectedKV.v {
 					assert.True(t, result[i].v.Contains(expectedV))
 				}
+				result[i].r()
 			}
 		})
 	}
@@ -294,7 +296,6 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
-		bitmapFactory: roaringset.NewBitmapFactory(
-			func() uint64 { return maxDocID }, logrus.New()),
+		bitmapFactory: roaringset.NewBitmapFactory(func() uint64 { return maxDocID }),
 	}
 }

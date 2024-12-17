@@ -93,7 +93,8 @@ func TestPropValuePairs_Merging(t *testing.T) {
 					pv.children[i] = &propValuePair{
 						operator: filters.OperatorEqual,
 						docIDs: docBitmap{
-							docIDs: tc.bitmaps[i],
+							docIDs:  tc.bitmaps[i],
+							release: noopRelease,
 						},
 					}
 				}
