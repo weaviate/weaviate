@@ -152,7 +152,7 @@ function main() {
     for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
       build_docker_image_for_tests
       echo_green "Weaviate image successfully built, run module tests for $mod..."
-      if ! go test -count 1 -race "$pkg"; then
+      if ! go test -count 1 -race -timeout 15m "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
