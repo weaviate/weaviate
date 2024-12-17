@@ -16,6 +16,7 @@ jobs:
         id: check_user
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             try {
               await github.rest.orgs.checkMembershipForUser({
@@ -23,11 +24,13 @@ jobs:
                 username: context.actor
               });
               core.setOutput('is_non_member', 'false');
+              core.info(`${context.actor} is a member of ${context.repo.owner}.`);
             } catch (error) {
               if (error.status === 404) {
+                core.info(`${context.actor} is NOT a member of ${context.repo.owner}.`);
                 core.setOutput('is_non_member', 'true');
               } else {
-                core.warning('Unexpected error during membership check');
+                core.warning(`error checking membership: ${error.message}`);
                 core.setOutput('is_non_member', 'unknown');
               }
             }
