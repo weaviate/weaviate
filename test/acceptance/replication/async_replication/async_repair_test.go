@@ -17,16 +17,61 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepairSimpleScenario(t *testing.T) {
+var (
+	paragraphIDs = []strfmt.UUID{
+		strfmt.UUID("3bf331ac-8c86-4f95-b127-2f8f96bbc093"),
+		strfmt.UUID("47b26ba1-6bc9-41f8-a655-8b9a5b60e1a3"),
+		strfmt.UUID("5fef6289-28d2-4ea2-82a9-48eb501200cd"),
+		strfmt.UUID("34a673b4-8859-4cb4-bb30-27f5622b47e9"),
+		strfmt.UUID("9fa362f5-c2dc-4fb8-b5b2-11701adc5f75"),
+		strfmt.UUID("63735238-6723-4caf-9eaa-113120968ff4"),
+		strfmt.UUID("2236744d-b2d2-40e5-95d8-2574f20a7126"),
+		strfmt.UUID("1a54e25d-aaf9-48d2-bc3c-bef00b556297"),
+		strfmt.UUID("0b8a0e70-a240-44b2-ac6d-26dda97523b9"),
+		strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
+	}
+
+	articleIDs = []strfmt.UUID{
+		strfmt.UUID("aeaf8743-5a8f-4149-b960-444181d3131a"),
+		strfmt.UUID("2a1e9834-064e-4ca8-9efc-35707c6bae6d"),
+		strfmt.UUID("8d101c0c-4deb-48d0-805c-d9c691042a1a"),
+		strfmt.UUID("b9715fec-ef6c-4e8d-a89e-55e2eebee3f6"),
+		strfmt.UUID("faf520f2-f6c3-4cdf-9c16-0348ffd0f8ac"),
+		strfmt.UUID("d4c695dd-4dc7-4e49-bc73-089ef5f90fc8"),
+		strfmt.UUID("c7949324-e07f-4ffc-8be0-194f0470d375"),
+		strfmt.UUID("9c112e01-7759-43ed-a6e8-5defb267c8ee"),
+		strfmt.UUID("9bf847f3-3a1a-45a5-b656-311163e536b5"),
+		strfmt.UUID("c1975388-d67c-404a-ae77-5983fbaea4bb"),
+	}
+)
+
+type AsyncReplicationTestSuite struct {
+	suite.Suite
+}
+
+func (suite *AsyncReplicationTestSuite) SetupTest() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+}
+
+func TestAsyncReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(AsyncReplicationTestSuite))
+}
+
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
+	t := suite.T()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -67,7 +112,7 @@ func asyncRepairSimpleScenario(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -78,11 +123,11 @@ func asyncRepairSimpleScenario(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("stop node 3", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 3)
+		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	repairObj := models.Object{
@@ -94,11 +139,11 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	}
 
 	t.Run("add new object to node one", func(t *testing.T) {
-		createObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
+		common.CreateObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
-		startNodeAt(ctx, t, compose, 3)
+		common.StartNodeAt(ctx, t, compose, 3)
 		time.Sleep(time.Second)
 	})
 
@@ -106,11 +151,11 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
+		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
-		resp, err := getObjectCL(t, compose.GetWeaviateNode(3).URI(),
+		resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(3).URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, repairObj.ID, resp.ID)
@@ -125,11 +170,11 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	}
 
 	t.Run("replace object", func(t *testing.T) {
-		updateObjectCL(t, compose.GetWeaviateNode(3).URI(), &replaceObj, replica.One)
+		common.UpdateObjectCL(t, compose.GetWeaviateNode(3).URI(), &replaceObj, replica.One)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		startNodeAt(ctx, t, compose, 2)
+		common.StartNodeAt(ctx, t, compose, 2)
 		time.Sleep(time.Second)
 	})
 
@@ -137,18 +182,24 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	t.Run("stop node 3", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 3)
+		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode(2).URI(),
+		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
-		require.Nil(t, err)
-		require.True(t, exists)
+		assert.Nil(t, err)
+		assert.True(t, exists)
 
-		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
+		resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
-		require.Nil(t, err)
+		assert.Nil(t, err)
+		assert.NotNil(t, resp)
+
+		if resp == nil {
+			return
+		}
+
 		assert.Equal(t, replaceObj.ID, resp.ID)
 		assert.Equal(t, replaceObj.Class, resp.Class)
 		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
