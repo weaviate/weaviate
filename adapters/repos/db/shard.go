@@ -718,3 +718,17 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
 }
+
+// FindUUIDs implements the ShardLike interface
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+	objects, _, err := s.ObjectSearch(ctx, -1, filters, nil, nil, nil, additional.Properties{}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	uuids := make([]strfmt.UUID, len(objects))
+	for i, obj := range objects {
+		uuids[i] = obj.ID()
+	}
+	return uuids, nil
+}
