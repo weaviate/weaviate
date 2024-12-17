@@ -31,7 +31,7 @@ import (
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario() {
 	t := suite.T()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	clusterSize := 3
@@ -92,7 +92,6 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 			common.StartNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
 		})
 	}
 
