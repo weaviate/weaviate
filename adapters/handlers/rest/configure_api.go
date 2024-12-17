@@ -71,6 +71,7 @@ import (
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativezhipuai "github.com/weaviate/weaviate/modules/generative-zhipuai"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
@@ -905,6 +906,7 @@ func registerModules(appState *state.State) error {
 		modgenerativemistral.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
+		modgenerativezhipuai.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
@@ -1138,6 +1140,15 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeopenai.Name).
+			Debug("enabled module")
+	}
+
+
+	if _, ok := enabledModules[modgenerativezhipuai.Name]; ok {
+		appState.Modules.Register(modgenerativezhipuai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativezhipuai.Name).
 			Debug("enabled module")
 	}
 

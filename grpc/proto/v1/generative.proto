@@ -46,6 +46,7 @@ message GenerativeProvider {
     GenerativeGoogle google = 10;
     GenerativeDatabricks databricks = 11;
     GenerativeFriendliAI friendliai = 12;
+    GenerativeZhipuAI zhipuai = 13;
   }
 }
 
@@ -118,6 +119,15 @@ message GenerativeOpenAI{
   optional string resource_name = 11;
   optional string deployment_id = 12;
   optional bool is_azure = 13;
+}
+
+message GenerativeZhipuAI{
+  optional int64 max_tokens = 2;
+  string model = 3;
+  optional TextArray stop = 6;
+  optional double temperature = 7;
+  optional double top_p = 8;
+  optional string base_url = 9;
 }
 
 message GenerativeGoogle{
@@ -218,6 +228,15 @@ message GenerativeOpenAIMetadata {
   optional Usage usage = 1;
 }
 
+message GenerativeZhipuAIMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
 message GenerativeGoogleMetadata {
   message TokenCount {
     optional int64 total_billable_characters = 1;
@@ -270,6 +289,7 @@ message GenerativeMetadata {
     GenerativeGoogleMetadata google = 9;
     GenerativeDatabricksMetadata databricks = 10;
     GenerativeFriendliAIMetadata friendliai = 11;
+    GenerativeZhipuAIMetadata zhipuai = 12;
   }
 }
 

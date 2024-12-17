@@ -25,6 +25,7 @@ import (
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	zhipuaiParams "github.com/weaviate/weaviate/modules/generative-zhipuai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -111,6 +112,9 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Openai:
 				options = p.openai(query.GetOpenai())
 				providerName = openaiParams.Name
+			case *pb.GenerativeProvider_Zhipuai:
+				options = p.zhipuai(query.GetZhipuai())
+				providerName = zhipuaiParams.Name
 			case *pb.GenerativeProvider_Google:
 				options = p.google(query.GetGoogle())
 				providerName = googleParams.Name
@@ -257,6 +261,23 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 		},
 	}
 }
+
+func (p *Parser) zhipuai(in *pb.GenerativeZhipuAI) map[string]any {
+	if in == nil {
+		return nil
+	}
+	return map[string]any{
+		zhipuaiParams.Name: zhipuaiParams.Params{
+			BaseURL:          in.GetBaseUrl(),
+			Model:            in.GetModel(),
+			MaxTokens:        p.int64ToInt(in.MaxTokens),
+			Stop:             in.Stop.GetValues(),
+			Temperature:      in.Temperature,
+			TopP:             in.TopP,
+		},
+	}
+}
+
 
 func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {
