@@ -18,23 +18,32 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-           try {
-              const response = await github.rest.orgs.checkMembershipForUser({
-                org: context.repo.owner,
-                username: context.actor
+            script: |
+            const org = context.repo.owner;
+            const team_slug = "weaviate";
+            const username = context.actor;
+
+            try {
+              const response = await github.rest.teams.getMembershipForUserInOrg({
+                org: org,
+                team_slug: team_slug,
+                username: username
               });
 
-              if (response.status === 204) {
-                core.info(`${context.actor} is a member of ${context.repo.owner}.`);
-                core.setOutput('is_non_member', 'false');
+              if (response.status === 200 && response.data.state === "active") {
+                core.info(`${username} is an active member of team ${team_slug}.`);
+                core.setOutput('is_team_member', 'true');
+              } else {
+                core.info(`${username} is not an active member of team ${team_slug}.`);
+                core.setOutput('is_team_member', 'false');
               }
             } catch (error) {
               if (error.status === 404) {
-                core.info(`${context.actor} is NOT a member of ${context.repo.owner}.`);
-                core.setOutput('is_non_member', 'true');
+                core.info(`${username} is NOT a member of team ${team_slug}.`);
+                core.setOutput('is_team_member', 'false');
               } else {
-                core.error(`error checking membership: ${error.message}`);
-                core.setOutput('is_non_member', 'unknown');
+                core.error(`Error checking team membership: ${error.message}`);
+                core.setOutput('is_team_member', 'unknown');
               }
             }
 
