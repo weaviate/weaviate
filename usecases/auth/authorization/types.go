@@ -78,13 +78,11 @@ var (
 
 	ManageBackups = "manage_backups"
 
-	ManageCollections = "manage_collections"
 	CreateCollections = "create_collections"
 	ReadCollections   = "read_collections"
 	UpdateCollections = "update_collections"
 	DeleteCollections = "delete_collections"
 
-	ManageData = "manage_data"
 	CreateData = "create_data"
 	ReadData   = "read_data"
 	UpdateData = "update_data"
@@ -108,14 +106,12 @@ var (
 		ReadNodes,
 
 		// Collections domain
-		ManageCollections,
 		CreateCollections,
 		ReadCollections,
 		UpdateCollections,
 		DeleteCollections,
 
 		// Data domain
-		ManageData,
 		CreateData,
 		ReadData,
 		UpdateData,
