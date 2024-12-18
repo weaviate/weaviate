@@ -4,33 +4,29 @@ on:
   issues:
     types: [opened]
   pull_request:
-    types: [opened]
+    # types: [opened]
 
 jobs:
   notify-slack:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check if actor is a non-member (for PRs only)
-        if: github.event_name == 'pull_request'
-        id: check_user
-        uses: actions/github-script@v7
-        with:
-          script: |
-            try {
-              await github.rest.orgs.checkMembershipForUser({
-                org: context.repo.owner,
-                username: context.actor
-              });
-              core.setOutput('is_non_member', 'false');
-            } catch (error) {
-              if (error.status === 404) {
-                core.setOutput('is_non_member', 'true');
-              } else {
-                core.warning('Unexpected error during membership check');
-                core.setOutput('is_non_member', 'unknown');
-              }
-            }
+      - name: Check if user is part of the weaviate team
+        id: check_user        
+        run: |         
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GH_ORG_Members_PAT }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/orgs/${{ github.repository_owner }}/teams/core/memberships/${{ github.actor }})
+          echo $response
+          if [ "$response" -eq 200 ]; then
+            echo "is_non_member=false" >> $GITHUB_ENV
+          elif [ "$response" -eq 404 ]; then
+            echo "is_non_member=true" >> $GITHUB_ENV
+          else
+            echo "error checking membership: HTTP $response"
+            exit 1
+          fi
 
       - name: Send Slack Notification for PR (Community)
         if: github.event_name == 'pull_request' && steps.check_user.outputs.is_non_member == 'true'
