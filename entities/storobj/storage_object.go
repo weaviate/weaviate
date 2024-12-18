@@ -66,12 +66,8 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
-	return FromObjectMulti(object, vector, vectors, nil)
-}
-
 // TODO: temporary solution
-func FromObjectMulti(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string][][]float32) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string]models.MultiVector) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -535,13 +531,14 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	}
 
 	return &search.Result{
-		ID:        ko.ID(),
-		DocID:     &ko.DocID,
-		ClassName: ko.Class().String(),
-		Schema:    ko.Properties(),
-		Vector:    ko.Vector,
-		Vectors:   ko.asVectors(ko.Vectors),
-		Dims:      ko.VectorLen,
+		ID:           ko.ID(),
+		DocID:        &ko.DocID,
+		ClassName:    ko.Class().String(),
+		Schema:       ko.Properties(),
+		Vector:       ko.Vector,
+		Vectors:      ko.asVectors(ko.Vectors),
+		MultiVectors: ko.asMultiVectors(ko.MultiVectors),
+		Dims:         ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
@@ -557,6 +554,17 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
 	if len(in) > 0 {
 		out := make(models.Vectors)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
+}
+
+func (ko *Object) asMultiVectors(in map[string][][]float32) models.MultiVectors {
+	if len(in) > 0 {
+		out := make(models.MultiVectors)
 		for targetVector, vector := range in {
 			out[targetVector] = vector
 		}
