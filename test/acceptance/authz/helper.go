@@ -76,6 +76,11 @@ func deleteObject(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDel
 	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
 }
 
+func updateObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsUpdateOK, error) {
+	params := objects.NewObjectsUpdateParams().WithBody(object).WithID(object.ID)
+	return helper.Client(t).Objects.ObjectsUpdate(params, helper.CreateAuth(key))
+}
+
 func addRef(t *testing.T, fromId strfmt.UUID, fromProp string, ref *models.SingleRef, key string) (*objects.ObjectsReferencesCreateOK, error) {
 	params := objects.NewObjectsReferencesCreateParams().WithBody(ref).WithID(fromId).WithPropertyName(fromProp)
 	return helper.Client(t).Objects.ObjectsReferencesCreate(params, helper.CreateAuth(key))
