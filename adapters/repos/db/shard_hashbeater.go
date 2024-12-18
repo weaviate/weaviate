@@ -491,13 +491,11 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 }
 
 func (s *Shard) mayStopHashBeater() {
-	s.hashtreeRWMux.Lock()
+	s.hashtreeRWMux.RLock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
-		s.hashtree = nil
-		s.closeHashTree()
 	}
-	s.hashtreeRWMux.Unlock()
+	s.hashtreeRWMux.RUnlock()
 }
 
 func (s *Shard) stopHashBeater() {
