@@ -29,8 +29,7 @@ import (
 
 func Test_UploadS3Journey(t *testing.T) {
 	t.Run("happy path with RF 2 upload to s3 provider", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -198,8 +197,7 @@ func Test_UploadS3Journey(t *testing.T) {
 	})
 
 	t.Run("node is down while RF is 3, one weaviate node is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		mainCtx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
@@ -208,14 +206,17 @@ func Test_UploadS3Journey(t *testing.T) {
 			WithOffloadS3("weaviate-offload", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
-			Start(ctx)
+			Start(mainCtx)
 		require.Nil(t, err)
 
 		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
+			if err := compose.Terminate(mainCtx); err != nil {
 				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
+
+		ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+		defer cancel()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -339,8 +340,7 @@ func Test_UploadS3Journey(t *testing.T) {
 	})
 
 	t.Run("unhappy path with RF 3, cloud provider is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		mainCtx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -351,14 +351,17 @@ func Test_UploadS3Journey(t *testing.T) {
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 			WithText2VecContextionary().
 			With3NodeCluster().
-			Start(ctx)
+			Start(mainCtx)
 		require.Nil(t, err)
 
 		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
+			if err := compose.Terminate(mainCtx); err != nil {
 				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
+
+		ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+		defer cancel()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 

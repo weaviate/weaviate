@@ -237,14 +237,16 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 }
 
 func testActivationDeactivationWithRestarts(t *testing.T, composeFn composeFn) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	mainCtx := context.Background()
+
+	client, composeCleanup, restart := composeFn(t, mainCtx)
+	defer composeCleanup(t, mainCtx)
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
 	defer cancel()
 
-	client, composeCleanup, restart := composeFn(t, ctx)
-	defer composeCleanup(t, ctx)
-
 	cleanup := func() {
-		err := client.Schema().AllDeleter().Do(context.Background())
+		err := client.Schema().AllDeleter().Do(mainCtx)
 		require.Nil(t, err)
 	}
 

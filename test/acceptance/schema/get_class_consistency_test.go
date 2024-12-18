@@ -14,7 +14,6 @@ package test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,9 +25,7 @@ import (
 )
 
 func TestGetClassWithConsistency(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
+	ctx := context.Background()
 	// 3 Node cluster so that we can verify that the proxy to leader feature work
 	compose, err := docker.New().WithWeaviateCluster(3).
 		WithText2VecContextionary().

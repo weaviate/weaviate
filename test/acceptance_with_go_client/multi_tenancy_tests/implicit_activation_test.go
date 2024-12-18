@@ -34,11 +34,13 @@ func autoTenantActivationJourney(t *testing.T,
 	),
 	replicationFactor int64,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	mainCtx := context.Background()
 
-	client, composeCleanup := composeFn(t, ctx)
-	defer composeCleanup(t, ctx)
+	client, composeCleanup := composeFn(t, mainCtx)
+	defer composeCleanup(t, mainCtx)
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	className := "Pizza"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5", "t6"}

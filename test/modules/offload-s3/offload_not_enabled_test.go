@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,8 +26,7 @@ import (
 )
 
 func Test_Offload_When_Not_Enabled(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 	compose, err := docker.New().
 		WithText2VecContextionary().
 		With3NodeCluster().
