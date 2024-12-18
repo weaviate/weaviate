@@ -128,7 +128,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, res.MultiVectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
