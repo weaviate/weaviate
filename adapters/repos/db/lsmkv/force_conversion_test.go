@@ -25,11 +25,12 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+// This test is designed as a PoC to convert segments from MapCollection to Inverted format, so it should be skipped and run manually
+// TODO: migrate it to a proper convertor like compaction or tombstone cleanup
 func TestSegmentGroupConverInverted(t *testing.T) {
 	path := os.Getenv("PATH_TO_SEGMENTS_TO_CONVERT")
 	if path == "" {
 		t.Skip("Skipping test because PATH_TO_SEGMENTS_TO_CONVERT is not set")
-		// path = "/Users/amourao/code/weaviate/weaviate/data-baseline/msmarco/hywQvb8cbCCI/lsm/property_text_searchable"
 	}
 	err := ConvertSegments(path)
 	if err != nil {

@@ -1534,7 +1534,6 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	for j, segment := range segmentsDisk {
 		output[j] = make([]terms.TermInterface, 0, len(query))
 		for i, key := range query {
-			b.logger.Infof("Creating term for key %s in segment %d", key, j)
 			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones[j], filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
