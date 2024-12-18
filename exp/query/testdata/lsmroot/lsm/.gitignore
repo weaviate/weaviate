@@ -1,4 +1,0 @@
-# this file `meta.db` in this directory is a boltdb file used by flat index for some temporary index.
-# this file is created/muted thus changing the contents everytime you run some unit test cases.
-# These changes are un-necessary to be committed.
-meta.db
