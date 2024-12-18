@@ -31,22 +31,23 @@ import (
 
 func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	t := suite.T()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
+	mainCtx := context.Background()
 
 	clusterSize := 3
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
+	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
 
