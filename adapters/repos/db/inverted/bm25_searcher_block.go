@@ -194,13 +194,14 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 	}
 
 	// Choose the sum of the scores for each object if it appears in multiple properties
-	combinedIds, combinedScores, combinedExplanations = b.combineResultsForMultiProp(combinedIds, combinedScores, combinedExplanations, func(a, b float32) float32 { return a + b })
+	combinedIds, combinedScores, _ = b.combineResultsForMultiProp(combinedIds, combinedScores, combinedExplanations, func(a, b float32) float32 { return a + b })
 
 	combinedIds, combinedScores = b.sortResultsByScore(combinedIds, combinedScores)
 
 	// min between limit and len(combinedIds)
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
-	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds[limit:], combinedScores[limit:], combinedExplanations[limit:], additional)
+
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds[limit:], combinedScores[limit:], additional)
 	if err != nil {
 		return nil, nil
 	}
@@ -233,7 +234,6 @@ func (b *BM25Searcher) combineResultsForMultiProp(allObjects []uint64, allScores
 	for id, score := range combinedScores {
 		objects = append(objects, id)
 		scores = append(scores, score)
-		exp = append(exp, allExplanation[id])
 	}
 	return objects, scores, exp
 }
@@ -247,7 +247,7 @@ func (b *BM25Searcher) sortResultsByScore(objects []uint64, scores []float32) ([
 	return sorter.objects, sorter.scores
 }
 
-func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, additionalProps additional.Properties) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, additionalProps additional.Properties) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 
 	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additionalProps, nil, b.logger)
@@ -266,7 +266,6 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 				continue
 			}
 			scores[j] = scores[i]
-			explanations[j] = explanations[i]
 			idsTmp[j] = ids[i]
 			j++
 		}
