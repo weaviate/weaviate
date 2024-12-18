@@ -57,36 +57,44 @@ jobs:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
     env:
-      # USE WITH CAUTION, IT IMPLIES RISK
-      # This is a list of vulnerabilities that will be skipped from the check
-      # It is mostly used for vulnerabilities which haven't fixed by the depending projects
-      # The format is space separated string: "CVE-XXXX-XXXX CVE-XXXX-XXXX CVE-XXXX-XXXX"
-      SKIPPED_VULN: ""
+      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
-      - name: Skip vulnerabilities
-        if: ${{ env.SKIPPED_VULN != '' }}
-        run: |
-          echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
-      - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.28.0
-        env:
-          # NOTE: needed because sometimes GHCR hits the rate limit AWS will be used instead
-          TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db"
+      - name: Run Orca Container Image Scan
+        id: orcasecurity_container_image_scan
+        uses: orcasecurity/shiftleft-container-image-action@v1
         with:
-          image-ref: 'weaviate:${{ github.sha }}'
-          exit-code: '1'
-          format: 'table'
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: 'weaviate:${{ github.sha }}'
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ always() && steps.orcasecurity_container_image_scan.outputs.exit_code != 1 }}
+        with:
+          sarif_file: results/image.sarif
+  SAST-Scanning:
+    name: sast-scanning
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Orca SAST Scan
+        id: orcasecurity_container_sast_action
+        uses: orcasecurity/shiftleft-sast-action@v1
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          path:
+            # scanning the entire repository
+            "."
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
@@ -237,8 +245,7 @@ jobs:
           "--only-module-generative-aws",
           "--only-module-multi2vec-cohere",
           "--only-module-generative-cohere",
-          "--only-module-generative-openai",
-          "--only-module-generative-anthropic"
+          "--only-module-generative-openai"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -308,6 +315,7 @@ jobs:
           "--acceptance-only-fast",
           "--acceptance-only-graphql",
           "--acceptance-only-replication",
+          "--acceptance-only-async-replication",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
@@ -466,7 +474,7 @@ jobs:
 
   Push-Docker:
     if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
-    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, Integration-Tests]
+    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
     steps:
