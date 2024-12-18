@@ -44,6 +44,13 @@ func (s *Shard) drop() (err error) {
 
 	s.mayStopHashBeater()
 
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
+	}
+	s.hashtreeRWMux.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 	s.index.logger.WithFields(logrus.Fields{
