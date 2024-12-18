@@ -72,7 +72,7 @@ func New(cfg Config) *Service {
 	fsm := NewFSM(cfg)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 
-	svrMetrics := monitoring.NewServerMetrics("weaviate_raft", prometheus.DefaultRegisterer)
+	svrMetrics := monitoring.NewServerMetrics("weaviate_cluster", prometheus.DefaultRegisterer)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{

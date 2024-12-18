@@ -218,7 +218,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
 		}
 
-		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal packages.
+		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
 		cfg.EnableHostname = false                             // no `host` label
 		cfg.EnableHostnameLabel = false                        // no `hostname` label
 		cfg.EnableServiceLabel = false                         // no `service` label
