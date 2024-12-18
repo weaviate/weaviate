@@ -1,4 +1,4 @@
-name: Notify Slack on PR (Non-Member) or Any Issue
+name: Notify Slack on PR from community or Any Issue
 
 on:
   issues:
