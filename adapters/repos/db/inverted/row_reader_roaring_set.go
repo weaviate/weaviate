@@ -87,6 +87,8 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorNotLike:
+		return rr.notLike(ctx, readFn)
 	default:
 		return fmt.Errorf("operator %v not supported", rr.operator)
 	}
