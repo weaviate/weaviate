@@ -81,6 +81,7 @@ func (b *BM25Searcher) wandBlock(
 			}
 		}
 	}()
+
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
@@ -149,6 +150,7 @@ func (b *BM25Searcher) wandBlock(
 			eg.Go(func() (err error) {
 				topKHeap := terms.DoBlockMaxWand(internalLimit, combinedTerms, averagePropLength, params.AdditionalExplanations)
 				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, termCounts[i], additional)
+
 				allObjects[i][j] = objects
 				allScores[i][j] = scores
 				if err != nil {
