@@ -480,9 +480,15 @@ func (s *SegmentBlockMax) computeCurrentBlockImpact() float32 {
 }
 
 func (s *SegmentBlockMax) CurrentBlockImpact() float32 {
+	if s.exhausted {
+		return 0
+	}
 	return s.currentBlockImpact
 }
 
 func (s *SegmentBlockMax) CurrentBlockMaxId() uint64 {
+	if s.exhausted {
+		return math.MaxUint64
+	}
 	return s.blockEntries[s.blockEntryIdx].MaxId
 }
