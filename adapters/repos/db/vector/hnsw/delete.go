@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -107,6 +108,15 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 		for _, id := range vecIDs {
 			if err := h.Delete(id); err != nil {
 				return err
+			}
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, id)
+			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "mv_mappings_delete",
+					"id":     id,
+				}).WithError(err).
+					Warnf("cannot delete multivector mapping")
 			}
 		}
 		h.Lock()
