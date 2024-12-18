@@ -38,13 +38,15 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").WithApiKey().WithUserApiKey("other", "random-key"),
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
+				WithApiKey().WithUserApiKey("other", "random-key"),
 		},
 		{
 			name: "RBAC with OIDC and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().
 				WithRBAC().WithRbacAdmins("admin-user").
+				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", "custom-key"),
 		},
 	}
@@ -63,17 +65,15 @@ func TestRbacWithOIDC(t *testing.T) {
 
 			authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
 
-			// the oidc mock server returns first the token for the admin user and then
+			// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+			// description for details
 			tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
 			tokenCustom, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
 
+			// prepare roles to assign later
 			className := strings.Replace(t.Name(), "/", "", 1) + "Class"
 			readSchemaAction := authorization.ReadCollections
 			createSchemaAction := authorization.CreateCollections
-			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
-			require.Error(t, err)
-			var forbidden *clschema.SchemaObjectsCreateForbidden
-			require.True(t, errors.As(err, &forbidden))
 			createSchemaRoleName := "createSchema"
 			createSchemaRole := &models.Role{
 				Name: &createSchemaRoleName,
@@ -85,11 +85,19 @@ func TestRbacWithOIDC(t *testing.T) {
 			helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
 			helper.CreateRole(t, tokenAdmin, createSchemaRole)
 			defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
+
+			// custom-user does not have any roles/permissions
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.Error(t, err)
+			var forbidden *clschema.SchemaObjectsCreateForbidden
+			require.True(t, errors.As(err, &forbidden))
+
+			// assigning to user just works, no matter if user is using OIDC or API keys
 			helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "custom-user")
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.NoError(t, err)
 
-			// assign role to non-existing user => no error
+			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
 		})
 	}
