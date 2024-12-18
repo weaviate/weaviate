@@ -32,24 +32,6 @@ RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
-# This image builds the weaviate server
-FROM build_base AS experimental_server_builder
-ARG TARGETARCH
-ARG GIT_BRANCH="unknown"
-ARG GIT_REVISION="unknown"
-ARG BUILD_USER="unknown"
-ARG BUILD_DATE="unknown"
-ARG EXTRA_BUILD_ARGS=""
-COPY . .
-RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
-      -ldflags '-w -extldflags "-static" \
-      -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
-      -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
-      -o /weaviate ./cmd/weaviate
-
-###############################################################################
 
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
 FROM build_base AS telemetry_mock_api
@@ -59,21 +41,8 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # This image gets grpc health check probe
 FROM golang:1.23-alpine AS grpc_health_probe_builder
-# 0bd396d2cc6209c957ed13b6a0a08b9745610151  2 commits from latest release v0.4.35 to fix the vul. in golang.org/x/crypto
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@0bd396d2cc6209c957ed13b6a0a08b9745610151 
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.36
 RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
-
-################################################################################
-# Weaviate experimental (check ./cmd/weaviate/README.md)
-FROM alpine AS weaviate_experimental
-ENTRYPOINT ["/bin/weaviate"]
-COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
-COPY --from=experimental_server_builder /weaviate /bin/weaviate
-RUN mkdir -p /go/pkg/mod/github.com/go-ego
-COPY --from=experimental_server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade bc ca-certificates openssl
-RUN mkdir ./modules
-CMD [ "--monitoring.metrics_namespace", "weaviate"]
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
