@@ -19,16 +19,18 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepairObjectDeleteScenario(t *testing.T) {
-	t.Skip()
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
+	t := suite.T()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -50,8 +52,9 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       int64(clusterSize),
-			AsyncEnabled: true,
+			Factor:           int64(clusterSize),
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			AsyncEnabled:     true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 
@@ -59,46 +62,40 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 1
-	paragraphCount := 1
+	paragraphCount := 10
 
-	for it := 0; it < itCount; it++ {
-		// pick one node to be down during upserts
-		node := 2 + rand.Intn(clusterSize-1)
+	// pick one node to be down during insertion
+	node := 2 + rand.Intn(clusterSize-1)
 
-		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, node)
-		})
+	t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, node)
+	})
 
-		t.Run("upsert paragraphs", func(t *testing.T) {
-			batch := make([]*models.Object, paragraphCount)
-			for i, id := range paragraphIDs[:paragraphCount] {
-				batch[i] = articles.NewParagraph().
-					WithID(id).
-					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
-					Object()
+	t.Run("insert paragraphs", func(t *testing.T) {
+		batch := make([]*models.Object, paragraphCount)
+		for i, id := range paragraphIDs[:paragraphCount] {
+			batch[i] = articles.NewParagraph().
+				WithID(id).
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				Object()
+		}
+
+		// choose one more node to insert the objects into
+		var targetNode int
+		for {
+			targetNode = 1 + rand.Intn(clusterSize)
+			if targetNode != node {
+				break
 			}
+		}
 
-			// choose one more node to insert the objects into
-			var targetNode int
-			for {
-				targetNode = 1 + rand.Intn(clusterSize)
-				if targetNode != node {
-					break
-				}
-			}
+		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
+	})
 
-			createObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
-		})
-
-		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			startNodeAt(ctx, t, compose, node)
-			time.Sleep(time.Second)
-		})
-	}
-
-	// wait for some time for async replication to repair missing object
-	time.Sleep(3 * time.Second)
+	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, node)
+		time.Sleep(time.Second)
+	})
 
 	objectNotDeletedAt := make(map[strfmt.UUID]int)
 
@@ -107,12 +104,12 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		node := 2 + rand.Intn(clusterSize-1)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, node)
+			common.StopNodeAt(ctx, t, compose, node)
 		})
 
 		objectNotDeletedAt[id] = node
 
-		// choose one more node to insert the objects into
+		// choose one more node to delete the object
 		var targetNode int
 		for {
 			targetNode = 1 + rand.Intn(clusterSize)
@@ -131,29 +128,21 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, replica.Quorum)
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			startNodeAt(ctx, t, compose, node)
+			common.StartNodeAt(ctx, t, compose, node)
 			time.Sleep(time.Second)
 		})
 	}
 
-	// wait for some time for async replication to repair missing object
-	time.Sleep(3 * time.Second)
-
+	// wait for some time for async replication to propagate deleted objects
 	t.Run("assert each node has all the objects at its latest version when object was not deleted", func(t *testing.T) {
-		for i, id := range paragraphIDs[:paragraphCount] {
-			node, notDeleted := objectNotDeletedAt[id]
-			if notDeleted {
-				resp, err := getObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.One)
-				require.NoError(t, err)
-				require.Equal(t, id, resp.ID)
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for _, id := range paragraphIDs[:paragraphCount] {
+				node := objectNotDeletedAt[id]
 
-				props := resp.Properties.(map[string]interface{})
-				props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
-			} else {
-				resp, err := objectExistsCL(t, compose.GetWeaviateNode(1+(node+1)%clusterSize).URI(), paragraphClass.Class, id, replica.Quorum)
-				require.NoError(t, err)
-				require.False(t, resp)
+				resp, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, replica.Quorum)
+				assert.NoError(ct, err)
+				assert.False(ct, resp)
 			}
-		}
+		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 }

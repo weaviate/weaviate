@@ -149,7 +149,7 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
-	t.Run("check mappings", func(t *testing.T) {
+	t.Run("check mappings, by open many file mappings and close them only after the test is done", func(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
@@ -159,41 +159,48 @@ func TestMappings(t *testing.T) {
 		mappingsLeft := getMaxMemoryMappings() - currentMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
 		path := t.TempDir()
+
+		limitReached := false
+
 		// use up available mappings
-		for i := 0; i < int(mappingsLeft)+5; i++ {
+		for i := 0; i < int(mappingsLeft)*2; i++ {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close()
+			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
 			fileInfo, err := file.Stat()
 			require.Nil(t, err)
 
-			// there might be other processes that use mappings
+			// there might be other processes that use mappings. Don't check any specific number just that we have
+			// reached the limit
 			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
-				require.NotNil(t, m.CheckMappingAndReserve(1, 0))
+				limitReached = true
+				break
 			} else {
-				require.Nil(t, m.CheckMappingAndReserve(1, 0))
 				data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
 				require.Nil(t, err)
 
 				defer syscall.Munmap(data)
 			}
 		}
+		// ensure that we have hit the limit of available mappings
+		require.True(t, limitReached)
 
+		// Try to reserve a large amount and have it fail (checker only runs on linux)
 		switch runtime.GOOS {
 		case "linux":
 			// any further mapping should fail
-			require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+			require.Error(t, m.CheckMappingAndReserve(int64(addMappings), 60))
 		case "darwin":
 			// any further mapping should not fail
-			require.Nil(t, m.CheckMappingAndReserve(1, 60))
+			require.Nil(t, m.CheckMappingAndReserve(int64(addMappings), 60))
 		}
 	})
 
-	t.Run("check mappings for dummy", func(t *testing.T) {
+	t.Run("check mappings for dummy, to check that it never blocks", func(t *testing.T) {
 		m := NewDummyMonitor()
 		m.Refresh(true)
 
@@ -203,7 +210,7 @@ func TestMappings(t *testing.T) {
 			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
-			defer file.Close()
+			defer file.Close() // defer inside the loop because files should stay open until end of test to continue to use mappings
 			_, err = file.Write([]byte("Hello"))
 			require.Nil(t, err)
 
