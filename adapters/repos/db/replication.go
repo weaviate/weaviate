@@ -552,9 +552,12 @@ func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
 func (i *Index) HashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	shard, release, err := i.getOrInitShard(ctx, shardName)
+	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
+	}
+	if shard == nil {
+		return nil, nil
 	}
 
 	defer release()
