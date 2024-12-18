@@ -106,17 +106,6 @@ func TestRevokeRoleBadRequest(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "user id can not be empty",
-			params: authz.RevokeRoleParams{
-				ID: "",
-				Body: authz.RevokeRoleBody{
-					Roles: []string{"testRole"},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "user id can not be empty",
-		},
-		{
 			name: "empty role",
 			params: authz.RevokeRoleParams{
 				ID: "testUser",

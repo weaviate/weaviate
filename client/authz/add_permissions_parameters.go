@@ -75,6 +75,12 @@ type AddPermissionsParams struct {
 	// Body.
 	Body AddPermissionsBody
 
+	/* ID.
+
+	   role name
+	*/
+	ID string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -139,6 +145,17 @@ func (o *AddPermissionsParams) SetBody(body AddPermissionsBody) {
 	o.Body = body
 }
 
+// WithID adds the id to the add permissions params
+func (o *AddPermissionsParams) WithID(id string) *AddPermissionsParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the add permissions params
+func (o *AddPermissionsParams) SetID(id string) {
+	o.ID = id
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *AddPermissionsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -147,6 +164,11 @@ func (o *AddPermissionsParams) WriteToRequest(r runtime.ClientRequest, reg strfm
 	}
 	var res []error
 	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
 	}
 

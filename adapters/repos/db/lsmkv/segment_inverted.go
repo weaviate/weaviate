@@ -99,7 +99,7 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 
 	s.invertedData.propertyLengthsLoaded = true
 	s.invertedData.propertyLengths = propLengths
-	return propLengths, nil
+	return s.invertedData.propertyLengths, nil
 }
 
 func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
@@ -122,12 +122,11 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 
 func (s *segment) GetPropertyLengths() (map[uint64]uint32, error) {
 	if s.strategy != segmentindex.StrategyInverted {
-		return nil, fmt.Errorf("property only supported for inverted strategy")
+		return nil, fmt.Errorf("property length only supported for inverted strategy")
 	}
 
-	loaded := false
 	s.invertedData.lockInvertedData.RLock()
-	loaded = s.invertedData.propertyLengthsLoaded
+	loaded := s.invertedData.propertyLengthsLoaded
 	s.invertedData.lockInvertedData.RUnlock()
 
 	if !loaded {

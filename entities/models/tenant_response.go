@@ -22,7 +22,6 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // TenantResponse attributes representing a single tenant response within weaviate
@@ -33,11 +32,6 @@ type TenantResponse struct {
 
 	// The list of nodes that owns that tenant data.
 	BelongsToNodes []string `json:"belongsToNodes"`
-
-	// Experimental. The data version of the tenant is a monotonically increasing number starting from 0 which is incremented each time a tenant's data is offloaded to cloud storage.
-	// Example: 3
-	// Minimum: 0
-	DataVersion *int64 `json:"dataVersion,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -52,16 +46,12 @@ func (m *TenantResponse) UnmarshalJSON(raw []byte) error {
 	// AO1
 	var dataAO1 struct {
 		BelongsToNodes []string `json:"belongsToNodes"`
-
-		DataVersion *int64 `json:"dataVersion,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
 	m.BelongsToNodes = dataAO1.BelongsToNodes
-
-	m.DataVersion = dataAO1.DataVersion
 
 	return nil
 }
@@ -77,13 +67,9 @@ func (m TenantResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 	var dataAO1 struct {
 		BelongsToNodes []string `json:"belongsToNodes"`
-
-		DataVersion *int64 `json:"dataVersion,omitempty"`
 	}
 
 	dataAO1.BelongsToNodes = m.BelongsToNodes
-
-	dataAO1.DataVersion = m.DataVersion
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {
@@ -102,26 +88,9 @@ func (m *TenantResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateDataVersion(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *TenantResponse) validateDataVersion(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.DataVersion) { // not required
-		return nil
-	}
-
-	if err := validate.MinimumInt("dataVersion", "body", *m.DataVersion, 0, false); err != nil {
-		return err
-	}
-
 	return nil
 }
 

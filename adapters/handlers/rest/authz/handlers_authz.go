@@ -77,14 +77,11 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not create role with the same name as builtin role %s", *params.Body.Name)))
 	}
 
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewCreateRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role has to have at least 1 permission")))
-	}
-
 	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Roles(*params.Body.Name)...); err != nil {
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
+	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -110,12 +107,8 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 }
 
 func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
-	if *params.Body.Name == "" {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
-	}
-
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
 	if len(params.Body.Permissions) == 0 {
@@ -123,15 +116,25 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
-		Name:        params.Body.Name,
+		Name:        &params.ID,
 		Permissions: params.Body.Permissions,
 	})
 	if err != nil {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// todo-rbac: make sure it's consistent when we have getConsistentRole()
+	roles, err := h.controller.GetRoles(params.ID)
+	if err != nil {
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if len(roles) == 0 { // i.e. new role
+		return authz.NewAddPermissionsNotFound()
 	}
 
 	if err := h.controller.UpsertRolesPermissions(policies); err != nil {
@@ -142,7 +145,7 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		"action":      "add_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.Body.Name,
+		"roleName":    params.ID,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions added")
 
@@ -150,10 +153,6 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 }
 
 func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
-	if *params.Body.Name == "" {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role name is required")))
-	}
-
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
@@ -161,8 +160,8 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
 	}
 
-	if slices.Contains(authorization.BuiltInRoles, *params.Body.Name) {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", *params.Body.Name)))
+	if slices.Contains(authorization.BuiltInRoles, params.ID) {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
 	permissions, err := conv.PermissionToPolicies(params.Body.Permissions...)
@@ -170,11 +169,21 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("invalid permission %s", err.Error())))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(*params.Body.Name)...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.controller.RemovePermissions(*params.Body.Name, permissions); err != nil {
+	// todo-rbac: make sure it's consistent when we have getConsistentRole()
+	role, err := h.controller.GetRoles(params.ID)
+	if err != nil {
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if len(role) == 0 {
+		return authz.NewRemovePermissionsNotFound()
+	}
+
+	if err := h.controller.RemovePermissions(params.ID, permissions); err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -182,7 +191,7 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		"action":      "remove_permissions",
 		"component":   authorization.ComponentName,
 		"user":        principal.Username,
-		"roleName":    params.Body.Name,
+		"roleName":    params.ID,
 		"permissions": params.Body.Permissions,
 	}).Info("permissions removed")
 
@@ -247,10 +256,6 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
-	}
-
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewGetRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -286,10 +291,6 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 }
 
 func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role id can not be empty")))
-	}
-
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not delete builtin role %s", params.ID)))
 	}
@@ -313,10 +314,6 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 }
 
 func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
-	}
-
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewAssignRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to assign is empty")))
@@ -331,6 +328,7 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleNotFound()
 	}
 
+	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -360,10 +358,6 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 }
 
 func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetRolesForUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
-	}
-
 	if !h.userExists(params.ID) {
 		return authz.NewGetRolesForUserNotFound()
 	}
@@ -441,10 +435,6 @@ func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams
 }
 
 func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewGetUsersForRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user name is required")))
-	}
-
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
@@ -465,10 +455,6 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 }
 
 func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
-	if params.ID == "" {
-		return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user id can not be empty")))
-	}
-
 	for _, role := range params.Body.Roles {
 		if strings.TrimSpace(role) == "" {
 			return authz.NewRevokeRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("one or more of the roles you want to revoke is empty")))
@@ -493,6 +479,7 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleNotFound()
 	}
 
+	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
