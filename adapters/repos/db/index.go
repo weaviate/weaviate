@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 
 	"github.com/pkg/errors"
 
@@ -210,6 +211,8 @@ type Index struct {
 
 	asyncReplicationLock sync.RWMutex
 
+	bitmapContainerBufPool roaringset.ContainerBufPool
+
 	closeLock sync.RWMutex
 	closed    bool
 }
@@ -271,6 +274,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
+		bitmapContainerBufPool: roaringset.NewContainerBufPool(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
