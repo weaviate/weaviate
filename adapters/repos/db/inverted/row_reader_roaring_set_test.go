@@ -186,14 +186,11 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			value:    "*b",
 			operator: filters.OperatorNotLike,
 			expected: []kvData{
-				{"bbb", []uint64{11, 22, 33}},
-			},
-			expected: []kvData{
 				{"h*", func() []uint64 {
 					bm := sroar.NewBitmap()
 					bm.SetMany([]uint64{11, 22, 33})
 					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
+						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
 				}()},
 			},
 		},
@@ -206,7 +203,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					bm := sroar.NewBitmap()
 					bm.SetMany([]uint64{11111111, 2222222, 33333333})
 					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
+						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
 				}()},
 			},
 		},
