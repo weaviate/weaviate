@@ -268,7 +268,7 @@ function run_acceptance_only_fast() {
   # but after all tests ran
   testFailed=0
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers' | grep -v 'test/acceptance_lsmkv' | grep -v 'test/authz'); do
+    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers' | grep -v 'test/acceptance_lsmkv' | grep -v 'test/acceptance/authz'); do
       if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         testFailed=1
