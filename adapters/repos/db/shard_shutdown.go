@@ -63,9 +63,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
+	s.mayStopHashBeater()
+
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
-		s.stopHashBeater()
 		s.closeHashTree()
 	}
 	s.hashtreeRWMux.Unlock()
