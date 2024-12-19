@@ -12,12 +12,12 @@
 package db
 
 import (
-	"encoding/hex"
-	"math/rand"
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 
 	"github.com/pkg/errors"
@@ -278,6 +278,7 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	}
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
+
 // GenerateRandomString generates a random string of the specified length
 func GenerateRandomString(length int) (string, error) {
 	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
@@ -289,7 +290,6 @@ func GenerateRandomString(length int) (string, error) {
 	// Convert the bytes to a hex string
 	return hex.EncodeToString(bytes), nil
 }
-
 
 func (s *Shard) resetDimensionsLSM() error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
@@ -314,7 +314,7 @@ func (s *Shard) resetDimensionsLSM() error {
 		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
 
-	//Create random bucket name
+	// Create random bucket name
 	name, err := GenerateRandomString(32)
 	if err != nil {
 		return errors.Wrap(err, "generate random bucket name")
