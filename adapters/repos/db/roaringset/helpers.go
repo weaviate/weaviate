@@ -209,12 +209,6 @@ func (p *containerBufPool) Get() (buf ContainerBuf, put func()) {
 	return buf, func() { p.pool.Put(ptr) }
 }
 
-func NewContainerBufPoolNoop() *containerBufPoolNoop {
-	return &containerBufPoolNoop{}
-}
-
-type containerBufPoolNoop struct{}
-
-func (p *containerBufPoolNoop) Get() (buf ContainerBuf, put func()) {
-	return make(ContainerBuf, containerBufSize), func() {}
+func NewContainerBufPoolNoop() ContainerBufPool {
+	return NewContainerBufPool()
 }
