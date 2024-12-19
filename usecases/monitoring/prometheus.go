@@ -167,41 +167,35 @@ type TenantOffloadMetrics struct {
 	OpsDuration      *prometheus.HistogramVec
 }
 
-func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
+func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
 	r := promauto.With(reg)
 
 	return &ServerMetrics{
 		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: cfg.MetricsNamespace,
+			Namespace: namespace,
 			Name:      "tcp_active_connections",
 			Help:      "Current number of accepted TCP connections.",
 		}, []string{"protocol"}),
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: cfg.MetricsNamespace,
+			Namespace: namespace,
 			Name:      "request_duration_seconds",
 			Help:      "Time (in seconds) spent serving HTTP requests.",
 			Buckets:   LatencyBuckets,
 		}, []string{"method", "route", "status_code"}),
-		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: cfg.MetricsNamespace,
-			Name:      "per_tenant_request_duration_seconds",
-			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
-			Buckets:   LatencyBuckets,
-		}, []string{"method", "route", "status_code", "tenant", "collection"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: cfg.MetricsNamespace,
+			Namespace: namespace,
 			Name:      "request_message_bytes",
 			Help:      "Size (in bytes) of messages received in the request.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: cfg.MetricsNamespace,
+			Namespace: namespace,
 			Name:      "response_message_bytes",
 			Help:      "Size (in bytes) of messages sent in response.",
 			Buckets:   sizeBuckets,
 		}, []string{"method", "route"}),
 		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: cfg.MetricsNamespace,
+			Namespace: namespace,
 			Name:      "inflight_requests",
 			Help:      "Current number of inflight requests.",
 		}, []string{"method", "route"}),
@@ -212,14 +206,9 @@ func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
 type ServerMetrics struct {
 	TCPActiveConnections *prometheus.GaugeVec
 	RequestDuration      *prometheus.HistogramVec
-
-	// NOTE: Adding it as experimental, since we have unbounded cardinality for number of tenant/shards
-	// we may remove it in future.
-	PerTenantRequestDuration *prometheus.HistogramVec
-
-	RequestBodySize  *prometheus.HistogramVec
-	ResponseBodySize *prometheus.HistogramVec
-	InflightRequests *prometheus.GaugeVec
+	RequestBodySize      *prometheus.HistogramVec
+	ResponseBodySize     *prometheus.HistogramVec
+	InflightRequests     *prometheus.GaugeVec
 }
 
 // Delete Shard deletes existing label combinations that match both
