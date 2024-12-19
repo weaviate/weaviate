@@ -83,6 +83,7 @@ func TestPropValuePairs_Merging(t *testing.T) {
 			},
 		}
 
+		buf := make(roaringset.ContainerBuf, 4100)
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				pv := &propValuePair{
@@ -99,7 +100,7 @@ func TestPropValuePairs_Merging(t *testing.T) {
 					}
 				}
 
-				dbm, err := pv.mergeDocIDs()
+				dbm, err := pv.mergeDocIDs(buf)
 
 				require.Nil(t, err)
 				assert.ElementsMatch(t, tc.expectedIds, dbm.IDs())

@@ -107,7 +107,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if schema.IsRefDataType(prop.DataType) {
 			if err := s.store.CreateOrLoadBucket(ctx,
 				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+				append(bucketOpts,
+					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+					lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool))...,
 			); err != nil {
 				return err
 			}
@@ -115,7 +117,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			append(bucketOpts,
+				lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+				lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool))...,
 		); err != nil {
 			return err
 		}
@@ -167,6 +171,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -182,6 +187,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -252,6 +258,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -264,6 +271,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapContainerBufPool(s.index.bitmapContainerBufPool),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),

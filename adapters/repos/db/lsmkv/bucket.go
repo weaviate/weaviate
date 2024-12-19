@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -128,6 +129,8 @@ type Bucket struct {
 	// redundant obsolete data, that was deleted or updated in newer segments
 	// (currently supported only in buckets of REPLACE strategy)
 	segmentsCleanupInterval time.Duration
+
+	bitmapContainerBufPool roaringset.ContainerBufPool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -190,7 +193,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
 			cleanupInterval:       b.segmentsCleanupInterval,
-		}, b.allocChecker)
+		}, b.allocChecker, b.bitmapContainerBufPool)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
