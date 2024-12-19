@@ -94,7 +94,7 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	propLengths := map[uint64]uint32{}
 	err := e.Decode(&propLengths)
 	if err != nil {
-		return s.invertedData.propertyLengths, fmt.Errorf("decode property lengths: %w", err)
+		return nil, fmt.Errorf("decode property lengths: %w", err)
 	}
 
 	s.invertedData.propertyLengthsLoaded = true
