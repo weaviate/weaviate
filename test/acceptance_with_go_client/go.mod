@@ -1,17 +1,18 @@
 module acceptance_tests_with_client
 
 go 1.22
+toolchain go1.22.5
 
 replace github.com/weaviate/weaviate => ../..
 
 require (
-	github.com/go-openapi/strfmt v0.21.3
+	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/uuid v1.6.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.4.1
-	github.com/weaviate/weaviate v1.24.1
-	github.com/weaviate/weaviate-go-client/v4 v4.13.1
+	github.com/weaviate/weaviate v1.27.0
+	github.com/weaviate/weaviate-go-client/v4 v4.16.1
 )
 
 require (
@@ -73,7 +74,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/analysis v0.21.2 // indirect
-	github.com/go-openapi/errors v0.20.3 // indirect
+	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/loads v0.21.1 // indirect
