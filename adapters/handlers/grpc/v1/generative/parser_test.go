@@ -27,6 +27,7 @@ import (
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	zhipuai "github.com/weaviate/weaviate/modules/generative-zhipuai/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -710,6 +711,44 @@ func Test_RequestParser(t *testing.T) {
 						TopP:             makeFloat64Ptr(0.5),
 						FrequencyPenalty: makeFloat64Ptr(0.5),
 						PresencePenalty:  makeFloat64Ptr(0.5),
+						Stop:             []string{"stop"},
+					},
+				},
+			},
+		},
+		{
+			name:       "generative search; single response; full dynamic zhipuai",
+			uses127Api: true,
+			in: &pb.GenerativeSearch{
+				Single: &pb.GenerativeSearch_Single{
+					Prompt: "prompt",
+					Queries: []*pb.GenerativeProvider{
+						{
+							Kind: &pb.GenerativeProvider_Zhipuai{
+								Zhipuai: &pb.GenerativeZhipuAI{
+									BaseUrl:          makeStrPtr("baseURL"),
+									MaxTokens:        makeInt64Ptr(10),
+									Model:            "model",
+									Temperature:      makeFloat64Ptr(0.5),
+									TopP:             makeFloat64Ptr(0.5),
+									Stop: &pb.TextArray{
+										Values: []string{"stop"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: &generate.Params{
+				Prompt: makeStrPtr("prompt"),
+				Options: map[string]any{
+					"zhipuai": zhipuai.Params{
+						BaseURL:          "baseURL",
+						MaxTokens:        makeIntPtr(10),
+						Model:            "model",
+						Temperature:      makeFloat64Ptr(0.5),
+						TopP:             makeFloat64Ptr(0.5),
 						Stop:             []string{"stop"},
 					},
 				},
