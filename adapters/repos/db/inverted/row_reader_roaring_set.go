@@ -235,7 +235,6 @@ func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
 
 	}
 	return nil
-
 }
 
 type rowOperationRoaringSet func([]byte, *sroar.Bitmap) (bool, error)
