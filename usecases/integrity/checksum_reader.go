@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rwhasher
+package integrity
 
 import (
 	"hash"
@@ -17,14 +17,14 @@ import (
 	"io"
 )
 
-type ReaderHasher interface {
+type ChecksumReader interface {
 	io.Reader
 	N() int
 	Hash() []byte
 	Reset()
 }
 
-var _ ReaderHasher = (*CRC32Reader)(nil)
+var _ ChecksumReader = (*CRC32Reader)(nil)
 
 type CRC32Reader struct {
 	r    io.Reader

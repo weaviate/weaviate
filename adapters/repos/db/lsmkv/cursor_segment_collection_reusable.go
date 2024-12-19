@@ -61,6 +61,10 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
+	if s.segment.dataStartPos == s.segment.dataEndPos {
+		return nil, nil, lsmkv.NotFound
+	}
+
 	s.nextOffset = s.segment.dataStartPos
 
 	err := s.parseCollectionNodeInto(nodeOffset{start: s.nextOffset})

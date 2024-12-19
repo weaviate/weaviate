@@ -338,8 +338,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
-		updatedCountNetAdditions, sg.logger,
-		sg.useBloomFilter, sg.calcCountNetAdditions)
+		updatedCountNetAdditions, sg.logger, sg.useBloomFilter,
+		sg.calcCountNetAdditions, sg.disableChecksumValidation)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -437,7 +437,13 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	}
 
 	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+		segmentConfig{
+			mmapContents:              sg.mmapContents,
+			useBloomFilter:            sg.useBloomFilter,
+			calcCountNetAdditions:     sg.calcCountNetAdditions,
+			overwriteDerived:          false,
+			disableChecksumValidation: sg.disableChecksumValidation,
+		})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "create new segment")
 	}
