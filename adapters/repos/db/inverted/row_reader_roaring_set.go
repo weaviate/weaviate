@@ -232,7 +232,9 @@ func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
 		} else if !continueReading {
 			break
 		}
+
 	}
+	return nil
 
 }
 
