@@ -50,6 +50,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if err := s.initIndexCounterVersionerAndBitmapFactory(); err != nil {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
+	s.bitmapContainerBufPool = roaringset.NewContainerBufPool()
 
 	// Run all other inits in parallel and use a single error group to wait for
 	// all init tasks, the wait statement is at the end of this method. No other
