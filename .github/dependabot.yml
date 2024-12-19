@@ -8,22 +8,22 @@ updates:
   # security updates for vulnerabilities in gomod files
   - package-ecosystem: "gomod"
     directory: "/"    
-    labels: ["security-update"]
+    labels: ["security-update", "dependencies"]
     schedule:
-      interval: "weekly"
+      interval: "daily"
     commit-message:
       prefix: "SEC(update)"
   - package-ecosystem: "gomod"
     directory: "/test/acceptance_with_go_client"    
-    labels: ["security-update"]
+    labels: ["security-update", "dependencies"]
     schedule:
-      interval: "weekly"
+      interval: "daily"
     commit-message:
       prefix: "SEC(update)"
   - package-ecosystem: "gomod"
     directory: "/test/benchmark_bm25"    
-    labels: ["security-update"]
+    labels: ["security-update", "dependencies"]
     schedule:
-      interval: "weekly"
+      interval: "daily"
     commit-message:
       prefix: "SEC(update)"
