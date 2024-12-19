@@ -188,7 +188,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			expected: []kvData{
 				{"h*", func() []uint64 {
 					bm := sroar.NewBitmap()
-					bm.SetMany([]uint64{111, 222, 333})
+					bm.SetMany([]uint64{11111111, 22222222, 33333333})
 					return roaringset.NewInvertedBitmap(
 						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
 				}()},

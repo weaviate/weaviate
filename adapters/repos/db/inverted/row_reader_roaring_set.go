@@ -14,7 +14,6 @@ package inverted
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -221,10 +220,6 @@ func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-
-		if !inverted.Contains(binary.LittleEndian.Uint64(k)) {
-			continue
 		}
 
 		if continueReading, err := readFn(k, v); err != nil {
