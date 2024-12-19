@@ -99,10 +99,11 @@ func TestObjects(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, containerBufPool)
 
 	t.Run("run tests", func(t *testing.T) {
 		t.Run("NotEqual", func(t *testing.T) {
@@ -198,10 +199,11 @@ func TestDocIDs(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter - 1))
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, containerBufPool)
 
 	type testCase struct {
 		expectedMatches int

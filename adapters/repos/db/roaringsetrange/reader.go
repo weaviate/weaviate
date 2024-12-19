@@ -26,20 +26,22 @@ type InnerReader interface {
 }
 
 type CombinedReader struct {
-	logger         logrus.FieldLogger
-	readers        []InnerReader
-	releaseReaders func()
-	concurrency    int
+	logger      logrus.FieldLogger
+	readers     []InnerReader
+	buf         roaringset.ContainerBuf
+	onClose     func()
+	concurrency int
 }
 
-func NewCombinedReader(readers []InnerReader, releaseReaders func(), concurrency int,
-	logger logrus.FieldLogger,
+func NewCombinedReader(readers []InnerReader, buf roaringset.ContainerBuf, onClose func(),
+	concurrency int, logger logrus.FieldLogger,
 ) *CombinedReader {
 	return &CombinedReader{
-		logger:         logger,
-		readers:        readers,
-		releaseReaders: releaseReaders,
-		concurrency:    concurrency,
+		logger:      logger,
+		readers:     readers,
+		buf:         buf,
+		onClose:     onClose,
+		concurrency: concurrency,
 	}
 }
 
@@ -92,15 +94,15 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			return nil, response.err
 		}
 
-		layer.Additions.AndNot(response.layer.Deletions)
-		layer.Additions.Or(response.layer.Additions)
+		layer.Additions.AndNotBuf(response.layer.Deletions, r.buf)
+		layer.Additions.OrBuf(response.layer.Additions, r.buf)
 	}
 
 	return layer.Additions, nil
 }
 
 func (r *CombinedReader) Close() {
-	r.releaseReaders()
+	r.onClose()
 }
 
 type readerResponse struct {

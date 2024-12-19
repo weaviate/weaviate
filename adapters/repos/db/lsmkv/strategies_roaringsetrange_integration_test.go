@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -32,6 +33,7 @@ func TestRoaringSetRangeStrategy(t *testing.T) {
 			f:    roaringsetrangeInsertAndSetAdd,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSetRange),
+				WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()),
 			},
 		},
 	}

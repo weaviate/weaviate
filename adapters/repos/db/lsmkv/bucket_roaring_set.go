@@ -95,5 +95,8 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		layers = append(layers, active)
 	}
 
-	return layers.Flatten(false), nil
+	buf, put := b.bitmapContainerBufPool.Get()
+	defer put()
+
+	return layers.Flatten(false, buf), nil
 }

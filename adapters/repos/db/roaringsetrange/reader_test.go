@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -52,7 +53,8 @@ func TestReader(t *testing.T) {
 	seg2Reader := NewSegmentReader(NewGaplessSegmentCursor(newFakeSegmentCursor(memSeg2)))
 	memReader := NewMemtableReader(mem)
 
-	reader := NewCombinedReader([]InnerReader{seg1Reader, seg2Reader, memReader}, func() {}, 4, logger)
+	buf := make(roaringset.ContainerBuf, roaringset.ContainerBufSize)
+	reader := NewCombinedReader([]InnerReader{seg1Reader, seg2Reader, memReader}, buf, func() {}, 4, logger)
 
 	type testCase struct {
 		value    uint64

@@ -402,6 +402,7 @@ func Test_Compactor(t *testing.T) {
 		},
 	}
 
+	buf := make(ContainerBuf, ContainerBufSize)
 	for _, test := range tests {
 		t.Run("[keep]"+test.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -413,7 +414,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false, buf)
 			require.NoError(t, c.Do())
 
 			require.NoError(t, f.Close())
@@ -454,7 +455,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true, buf)
 			require.NoError(t, c.Do())
 
 			require.NoError(t, f.Close())

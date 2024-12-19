@@ -72,6 +72,9 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
+	buf, put := s.bitmapContainerBufPool.Get()
+	defer put()
+
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap, release func()) (bool, error) {
@@ -80,7 +83,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(docIDs)
+			out.docIDs.OrBuf(docIDs, buf)
 			release()
 		}
 
@@ -95,7 +98,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory, buf)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -130,6 +133,9 @@ func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmk
 func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
+	buf, put := s.bitmapContainerBufPool.Get()
+	defer put()
+
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
@@ -138,7 +144,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrBuf(ids, buf)
 			release()
 		}
 
@@ -153,7 +159,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory, buf)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -167,6 +173,9 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
+	buf, put := s.bitmapContainerBufPool.Get()
+	defer put()
+
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, release func()) (bool, error) {
@@ -175,7 +184,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrBuf(ids, buf)
 			release()
 		}
 
@@ -190,7 +199,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory, buf)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
