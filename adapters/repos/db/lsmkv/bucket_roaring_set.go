@@ -70,30 +70,33 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	segments, err := b.disk.roaringSetGet(key)
+	layers, err := b.disk.roaringSetGet(key)
 	if err != nil {
 		return nil, err
 	}
 
 	if b.flushing != nil {
-		flushing, err := b.flushing.roaringSetGet(key)
+		flushingLayer, err := b.flushing.roaringSetGet(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		} else {
-			segments = append(segments, flushing)
+			layers = append(layers, flushingLayer)
 		}
 	}
 
-	memtable, err := b.active.roaringSetGet(key)
+	activeLayer, err := b.active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	} else {
-		segments = append(segments, memtable)
+		layers = append(layers, activeLayer)
 	}
 
-	return segments.Flatten(), nil
+	buf, put := b.bitmapContainerBufPool.Get()
+	defer put()
+
+	return layers.Flatten(buf), nil
 }

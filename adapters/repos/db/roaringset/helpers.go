@@ -174,3 +174,41 @@ func (p *BitmapBufPool) updateInitialMinCap(minCap int) {
 	}
 	p.lock.Unlock()
 }
+
+// sroar.maxContainerSize
+const containerBufSize = 4100
+
+type ContainerBuf []uint16
+
+type ContainerBufPool interface {
+	Get() (buf ContainerBuf, put func())
+}
+
+type containerBufPool struct {
+	pool *sync.Pool
+}
+
+func NewContainerBufPool() *containerBufPool {
+	return &containerBufPool{
+		pool: &sync.Pool{
+			New: func() any {
+				buf := make(ContainerBuf, containerBufSize)
+				return &buf
+			},
+		},
+	}
+}
+
+func (p *containerBufPool) Get() (buf ContainerBuf, put func()) {
+	ptr := p.pool.Get().(*ContainerBuf)
+	buf = *ptr
+	if len(buf) < containerBufSize {
+		buf = buf[:containerBufSize]
+		*ptr = buf
+	}
+	return buf, func() { p.pool.Put(ptr) }
+}
+
+func NewContainerBufPoolNoop() ContainerBufPool {
+	return NewContainerBufPool()
+}

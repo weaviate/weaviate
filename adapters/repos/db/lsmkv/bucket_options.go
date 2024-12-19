@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -175,6 +176,13 @@ Configurability of buckets
 func WithForceCompation(opt bool) BucketOption {
 	return func(b *Bucket) error {
 		b.forceCompaction = opt
+		return nil
+	}
+}
+
+func WithBitmapContainerBufPool(pool roaringset.ContainerBufPool) BucketOption {
+	return func(b *Bucket) error {
+		b.bitmapContainerBufPool = pool
 		return nil
 	}
 }
