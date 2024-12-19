@@ -168,6 +168,7 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 
 	for i := 1; i < len(dbms); i++ {
 		mergeFn(dbms[i].docIDs)
+		dbms[i].release()
 	}
 	return dbms[0], nil
 }

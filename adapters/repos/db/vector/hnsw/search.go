@@ -655,6 +655,9 @@ func (s *FastSet) Truncate(uint64) helpers.AllowList {
 	panic("DeepCopy")
 }
 
+func (s *FastSet) Close() {
+}
+
 func (s *FastSet) Iterator() helpers.AllowListIterator {
 	return &fastIterator{
 		source:  s,
