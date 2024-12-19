@@ -167,44 +167,12 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 		return fmt.Errorf("parse like value: %w", err)
 	}
 
-	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	c := rr.newCursor()
 	defer c.Close()
 
-	return rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
-		return readFn(k, rr.transformToBitmap(v))
-	})
-}
-
-func (rr *RowReader) notLike(ctx context.Context, readFn ReadFn) error {
-	like, err := parseLikeRegexp(rr.value)
-	if err != nil {
-		return fmt.Errorf("parse notLike value: %w", err)
-	}
-
-	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
-	defer c.Close()
-
-	likeMap := sroar.NewBitmap()
-	if err := rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
-		likeMap.Or(rr.transformToBitmap(v))
-		return true, nil
-	}); err != nil {
-		return err
-	}
-
-	// Invert the Equal results for an efficient NotEqual
-	inverted := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(likeMap)
-	_, err = readFn(rr.value, inverted)
-	return err
-}
-
-type rowOperationFreq func([]byte, []lsmkv.MapPair) (bool, error)
-
-func (rr *RowReader) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.CursorMap, rp rowOperationFreq) error {
 	var (
 		initialK []byte
-		initialV []lsmkv.MapPair
+		initialV [][]byte
 	)
 
 	if like.optimizable {
@@ -235,8 +203,64 @@ func (rr *RowReader) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.
 			continue
 		}
 
-		continueReading, err := rp(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (rr *RowReader) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	var (
+		initialK []byte
+		initialV [][]byte
+	)
+
+	if like.optimizable {
+		initialK, initialV = c.Seek(like.min)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if like.optimizable {
+			if len(k) < len(like.min) {
+				break
+			}
+
+			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
+				break
+			}
+		}
+
+		if !like.regexp.Match(k) {
+			continue
+		}
+
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		if err != nil {
+			// Invert the Equal results for an efficient NotEqual
+			inverted := rr.bitmapFactory.GetBitmap()
+			inverted.AndNot(rr.transformToBitmap(v))
+			_, err = readFn(rr.value, inverted)
 			return err
 		}
 
