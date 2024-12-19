@@ -188,6 +188,40 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
+	return rr.likeHelper(ctx, like, c, func(k []byte, v *sroar.Bitmap) (bool, error) {
+		return readFn(k, v)
+	})
+}
+
+func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
+	readFn ReadFn,
+) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	if err := rr.likeHelper(ctx, like, c, func(k []byte, v *sroar.Bitmap) (bool, error) {
+		likeMap.Or(v)
+		return true, nil
+	}); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
+type rowOperationRoaringSet func([]byte, *sroar.Bitmap) (bool, error)
+
+func (rr *RowReaderRoaringSet) likeHelper(ctx context.Context, like *likeRegexp, c lsmkv.CursorRoaringSet, rp rowOperationRoaringSet) error {
 	var (
 		initialK   []byte
 		initialV   *sroar.Bitmap
@@ -222,63 +256,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v); err != nil {
-			return err
-		} else if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
-	readFn ReadFn,
-) error {
-	like, err := parseLikeRegexp(rr.value)
-	if err != nil {
-		return fmt.Errorf("parse like value: %w", err)
-	}
-
-	c := rr.newCursor()
-	defer c.Close()
-
-	var (
-		initialK   []byte
-		initialV   *sroar.Bitmap
-		likeMinLen int
-	)
-
-	if !like.optimizable {
-		initialK, initialV = c.Seek(like.min)
-		likeMinLen = len(like.min)
-	} else {
-		initialK, initialV = c.First()
-	}
-
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
-			if len(k) < likeMinLen {
-				break
-			}
-			if bytes.Compare(like.min, k[:likeMinLen]) == -1 {
-				break
-			}
-		}
-
-		// Skip keys that match the `like` pattern
-		if like.regexp.Match(k) {
-			continue
-		}
-
-		if continueReading, err := readFn(k, v); err != nil {
+		if continueReading, err := rp(k, v); err != nil {
 			return err
 		} else if !continueReading {
 			break
