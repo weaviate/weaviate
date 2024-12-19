@@ -84,7 +84,7 @@ func Test_Filters_String(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
-	containerBufPool := roaringset.NewContainerBufPool()
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -343,7 +343,7 @@ func Test_Filters_Int(t *testing.T) {
 	}
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
-	containerBufPool := roaringset.NewContainerBufPool()
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -1068,7 +1068,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
-	containerBufPool := roaringset.NewContainerBufPool()
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

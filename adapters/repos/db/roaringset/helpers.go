@@ -181,7 +181,7 @@ const containerBufSize = 4100
 type ContainerBuf []uint16
 
 type ContainerBufPool interface {
-	Get() (buf ContainerBuf, release func())
+	Get() (buf ContainerBuf, put func())
 }
 
 type containerBufPool struct {
@@ -200,7 +200,7 @@ func NewContainerBufPool() *containerBufPool {
 }
 
 func (p *containerBufPool) Get() (buf ContainerBuf, put func()) {
-	ptr := p.pool.Get().(*[]uint16)
+	ptr := p.pool.Get().(*ContainerBuf)
 	buf = *ptr
 	if len(buf) < containerBufSize {
 		buf = buf[:containerBufSize]

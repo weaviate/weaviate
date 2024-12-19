@@ -99,7 +99,7 @@ func TestObjects(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
-	containerBufPool := roaringset.NewContainerBufPool()
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -199,7 +199,7 @@ func TestDocIDs(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter - 1))
-	containerBufPool := roaringset.NewContainerBufPool()
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

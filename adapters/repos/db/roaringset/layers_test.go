@@ -98,6 +98,7 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 		},
 	}
 
+	buf := make(ContainerBuf, containerBufSize)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
@@ -106,7 +107,7 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res := input.Flatten(make(ContainerBuf, containerBufSize))
+			res := input.Flatten(buf)
 			for _, x := range test.expectedContained {
 				assert.True(t, res.Contains(x))
 			}
@@ -228,6 +229,7 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 		},
 	}
 
+	buf := make(ContainerBuf, containerBufSize)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
@@ -236,7 +238,7 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res, err := input.Merge(make(ContainerBuf, containerBufSize))
+			res, err := input.Merge(buf)
 			if test.expectErr {
 				require.NotNil(t, err)
 				return
