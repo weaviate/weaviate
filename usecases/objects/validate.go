@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for
@@ -39,7 +40,10 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
 	if err != nil {
-		return err
+		if _, ok := err.(autherrs.Forbidden); ok {
+			return err
+		}
+		return NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	return nil
