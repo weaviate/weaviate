@@ -63,6 +63,7 @@ func startMockOIDC(ctx context.Context, networkName string) (*DockerContainer, e
 			},
 			WaitingFor: wait.ForAll(
 				wait.ForListeningPort(port),
+				wait.ForHTTP("/oidc/.well-known/openid-configuration"),
 			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,
