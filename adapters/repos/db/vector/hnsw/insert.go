@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -226,6 +227,12 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.Lock()
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
+
+			nodeIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docID)
+			h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
 
 			err := h.addOne(ctx, vector, node)
 			if err != nil {
