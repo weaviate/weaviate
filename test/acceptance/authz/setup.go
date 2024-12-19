@@ -14,7 +14,6 @@ package authz
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -22,7 +21,7 @@ import (
 )
 
 func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx := context.Background()
 
 	builder := docker.New().WithWeaviateWithGRPC().WithRBAC().WithApiKey()
 	adminUserNames := make([]string, 0, len(admins))
@@ -55,6 +54,5 @@ func composeUp(t *testing.T, admins map[string]string, users map[string]string, 
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %v", err)
 		}
-		cancel()
 	}
 }
