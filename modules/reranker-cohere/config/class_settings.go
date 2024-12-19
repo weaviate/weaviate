@@ -23,10 +23,11 @@ const (
 )
 
 const (
-	DefaultCohereModel = "rerank-multilingual-v3.0"
+	DefaultCohereModel = "rerank-v3.5"
 )
 
 var availableCohereModels = []string{
+	"rerank-v3.5",
 	"rerank-english-v3.0",
 	"rerank-multilingual-v3.0",
 	"rerank-english-v2.0",
