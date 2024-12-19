@@ -232,6 +232,62 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	return nil
 }
 
+func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
+	readFn ReadFn,
+) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse like value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	var (
+		initialK   []byte
+		initialV   *sroar.Bitmap
+		likeMinLen int
+	)
+
+	if !like.optimizable {
+		initialK, initialV = c.Seek(like.min)
+		likeMinLen = len(like.min)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if like.optimizable {
+			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
+			// can abort once we've moved past the point where the fixed characters
+			// no longer match
+			if len(k) < likeMinLen {
+				break
+			}
+			if bytes.Compare(like.min, k[:likeMinLen]) == -1 {
+				break
+			}
+		}
+
+		// Skip keys that match the `like` pattern
+		if like.regexp.Match(k) {
+			continue
+		}
+
+		if continueReading, err := readFn(k, v); err != nil {
+			return err
+		} else if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
 func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, error) {
 	if err := ctx.Err(); err != nil {

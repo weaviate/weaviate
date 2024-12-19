@@ -229,12 +229,12 @@ func (rr *RowReaderFrequency) notLike(ctx context.Context, readFn ReadFn) error 
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
+		initialK, initialV = c.Seek(ctx, like.min)
 	} else {
-		initialK, initialV = c.First()
+		initialK, initialV = c.First(ctx)
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for k, v := initialK, initialV; k != nil; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
