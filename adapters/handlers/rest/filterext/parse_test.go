@@ -307,7 +307,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 			},
 			{
 				name:           "not like",
-				input:          inputIntFilterWithOp("Not Like"),
+				input:          inputIntFilterWithOp("NotLike"),
 				expectedFilter: intFilterWithOp(filters.OperatorNotLike),
 			},
 			{

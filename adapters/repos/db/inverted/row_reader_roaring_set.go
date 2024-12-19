@@ -188,6 +188,40 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
+	return rr.likeHelper(ctx, like, c, func(k []byte, v *sroar.Bitmap) (bool, error) {
+		return readFn(k, v)
+	})
+}
+
+func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
+	readFn ReadFn,
+) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	if err := rr.likeHelper(ctx, like, c, func(k []byte, v *sroar.Bitmap) (bool, error) {
+		likeMap.Or(v)
+		return true, nil
+	}); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
+type rowOperationRoaringSet func([]byte, *sroar.Bitmap) (bool, error)
+
+func (rr *RowReaderRoaringSet) likeHelper(ctx context.Context, like *likeRegexp, c lsmkv.CursorRoaringSet, rp rowOperationRoaringSet) error {
 	var (
 		initialK   []byte
 		initialV   *sroar.Bitmap
@@ -222,7 +256,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v); err != nil {
+		if continueReading, err := rp(k, v); err != nil {
 			return err
 		} else if !continueReading {
 			break

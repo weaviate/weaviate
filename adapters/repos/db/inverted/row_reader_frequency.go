@@ -167,6 +167,40 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
 	defer c.Close()
 
+	return rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
+		return readFn(k, rr.transformToBitmap(v))
+	})
+}
+
+func (rr *RowReaderFrequency) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	// TODO: don't we need to check here if this is a doc id vs a object search?
+	// Or is this not a problem because the latter removes duplicates anyway?
+	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	if err := rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
+		likeMap.Or(rr.transformToBitmap(v))
+		return true, nil
+	}); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
+type rowOperationFreq func([]byte, []lsmkv.MapPair) (bool, error)
+
+func (rr *RowReaderFrequency) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.CursorMap, rp rowOperationFreq) error {
 	var (
 		initialK []byte
 		initialV []lsmkv.MapPair
@@ -200,68 +234,8 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := rp(k, v)
 		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-func (rr *RowReaderFrequency) notLike(ctx context.Context, readFn ReadFn) error {
-	like, err := parseLikeRegexp(rr.value)
-	if err != nil {
-		return fmt.Errorf("parse notLike value: %w", err)
-	}
-
-	// TODO: don't we need to check here if this is a doc id vs a object search?
-	// Or is this not a problem because the latter removes duplicates anyway?
-	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
-	defer c.Close()
-
-	var (
-		initialK []byte
-		initialV []lsmkv.MapPair
-	)
-
-	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
-	} else {
-		initialK, initialV = c.First()
-	}
-
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
-			if len(k) < len(like.min) {
-				break
-			}
-
-			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
-				break
-			}
-		}
-
-		if !like.regexp.Match(k) {
-			continue
-		}
-
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
-		if err != nil {
-			// Invert the Equal results for an efficient NotEqual
-			inverted := rr.bitmapFactory.GetBitmap()
-			inverted.AndNot(rr.transformToBitmap(v))
-			_, err = readFn(rr.value, inverted)
 			return err
 		}
 
