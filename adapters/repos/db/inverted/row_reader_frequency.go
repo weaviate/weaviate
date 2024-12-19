@@ -212,7 +212,7 @@ func (rr *RowReaderFrequency) likeHelper(ctx context.Context, like *likeRegexp, 
 		initialK, initialV = c.First(ctx)
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for k, v := initialK, initialV; k != nil; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
