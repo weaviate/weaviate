@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package authz
 
 import (
 	"bytes"

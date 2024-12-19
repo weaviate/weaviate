@@ -315,6 +315,7 @@ jobs:
         test: [
           "--acceptance-only-fast",
           "--acceptance-only-graphql",
+          "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
           "--acceptance-go-client-only-fast",
