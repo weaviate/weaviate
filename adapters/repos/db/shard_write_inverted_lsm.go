@@ -12,6 +12,8 @@
 package db
 
 import (
+	"encoding/hex"
+	"math/rand"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -276,24 +278,53 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	}
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
+// GenerateRandomString generates a random string of the specified length
+func GenerateRandomString(length int) (string, error) {
+	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
+	bytes := make([]byte, length/2)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	// Convert the bytes to a hex string
+	return hex.EncodeToString(bytes), nil
+}
+
 
 func (s *Shard) resetDimensionsLSM() error {
-	err := s.addDimensionsProperty(context.Background())
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b != nil {
+		b.Shutdown(context.Background())
+	}
+	err := s.store.CreateBucket(context.Background(),
+		helpers.DimensionsBucketLSM,
+		s.memtableDirtyConfig(),
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.segmentCleanupConfig(),
+	)
 	if err != nil {
-		return errors.Wrap(err, "add dimensions property")
+		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
 
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	b = s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
 
-	err = s.createDimensionsBucket(context.Background(), "temporary_dimensions_bucket")
+	//Create random bucket name
+	name, err := GenerateRandomString(32)
+	if err != nil {
+		return errors.Wrap(err, "generate random bucket name")
+	}
+	err = s.createDimensionsBucket(context.Background(), name)
 	if err != nil {
 		return errors.Wrap(err, "create temporary dimensions bucket")
 	}
 
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, "temporary_dimensions_bucket")
+	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
 	if err != nil {
 		return errors.Wrap(err, "replace dimensions bucket")
 	}
