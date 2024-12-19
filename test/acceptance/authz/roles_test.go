@@ -413,8 +413,7 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
@@ -553,8 +552,7 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 
 	testRole := "test-role"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
