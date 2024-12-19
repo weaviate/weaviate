@@ -165,6 +165,7 @@ function main() {
   fi
 
   if $run_acceptance_lsmkv || $run_acceptance_tests || $run_all_tests; then
+    build_docker_image_for_tests
   echo "running lsmkv acceptance lsmkv tests"
     run_acceptance_lsmkv "$@"
   fi
@@ -200,6 +201,7 @@ function run_integration_tests() {
 }
 
 function run_acceptance_lsmkv() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
     echo "This test runs without the race detector because it asserts performance"
     cd 'test/acceptance_lsmkv'
     for pkg in $(go list ./...); do
@@ -306,6 +308,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 }
 
 function run_acceptance_graphql_tests() {
+  unset TEST_WEAVIATE_IMAGE
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
