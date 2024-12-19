@@ -5,5 +5,6 @@ WORKDIR /app
 RUN go mod init mockoidc
 RUN go get github.com/oauth2-proxy/mockoidc@latest
 COPY mockoidc.go .
+RUN go build -o mockoidc .
 
-CMD ["go", "run", "/app"]
+CMD ["/app/mockoidc"]
