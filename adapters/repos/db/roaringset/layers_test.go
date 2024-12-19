@@ -236,7 +236,7 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res, err := input.Merge()
+			res, err := input.Merge(make(ContainerBuf, containerBufSize))
 			if test.expectErr {
 				require.NotNil(t, err)
 				return
@@ -321,7 +321,7 @@ func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
 	leftLayer := BitmapLayer{Deletions: NewBitmap(genSlice(289_800, 290_100)...)}
 	rightLayer := BitmapLayer{Additions: NewBitmap(genSlice(290_000, 293_000)...)}
 
-	failingDeletionsLayer, err := BitmapLayers{leftLayer, rightLayer}.Merge()
+	failingDeletionsLayer, err := BitmapLayers{leftLayer, rightLayer}.Merge(make(ContainerBuf, containerBufSize))
 	assert.Nil(t, err)
 
 	assert.ElementsMatch(t, genSlice(289_800, 290_000), failingDeletionsLayer.Deletions.ToArray())

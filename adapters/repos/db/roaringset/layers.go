@@ -107,7 +107,7 @@ func (bml BitmapLayers) Flatten(buf ContainerBuf) *sroar.Bitmap {
 // segments 1 or 2.
 //
 // Merge is intended to be used as part of compactions.
-func (bml BitmapLayers) Merge() (BitmapLayer, error) {
+func (bml BitmapLayers) Merge(buf ContainerBuf) (BitmapLayer, error) {
 	out := BitmapLayer{}
 	if len(bml) != 2 {
 		return out, fmt.Errorf("merge requires exactly two input segments")
@@ -116,12 +116,12 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.AndNot(right.Deletions)
-	additions.Or(right.Additions)
+	additions.AndNotBuf(right.Deletions, buf)
+	additions.OrBuf(right.Additions, buf)
 
 	deletions := left.Deletions.Clone()
-	deletions.AndNot(right.Additions)
-	deletions.Or(right.Deletions)
+	deletions.AndNotBuf(right.Additions, buf)
+	deletions.OrBuf(right.Deletions, buf)
 
 	out.Additions = Condense(additions)
 	out.Deletions = Condense(deletions)

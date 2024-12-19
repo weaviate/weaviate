@@ -202,11 +202,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
-	containerBuf, release := s.bitmapContainerBufPool.Get()
+	buf, put := s.bitmapContainerBufPool.Get()
 	beforeMerge := time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
-	dbm, err := pv.mergeDocIDs(containerBuf)
-	release()
+	dbm, err := pv.mergeDocIDs(buf)
+	put()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
