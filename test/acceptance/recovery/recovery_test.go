@@ -27,20 +27,22 @@ import (
 // to the new one to force recovery
 func TestRecovery(t *testing.T) {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+
+	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
-
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	container1Ip := compose.ContainerURI(1)
 	container2Ip := compose.ContainerURI(2)

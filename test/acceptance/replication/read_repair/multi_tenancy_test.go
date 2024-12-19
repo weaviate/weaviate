@@ -37,20 +37,21 @@ const (
 
 func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
 	t := suite.T()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()

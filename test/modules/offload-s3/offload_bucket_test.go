@@ -30,8 +30,7 @@ import (
 )
 
 func Test_OffloadBucketNotAutoCreate(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	t.Log("pre-instance env setup")
 	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -53,8 +52,7 @@ func Test_OffloadBucketNotAutoCreate(t *testing.T) {
 
 func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 	t.Run("success because created manually in minio", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		mainCtx := context.Background()
 		bucketname := "offloading"
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -65,14 +63,17 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 			WithText2VecContextionary().
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			With3NodeCluster().
-			Start(ctx)
+			Start(mainCtx)
 		require.Nil(t, err)
 
 		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
+			if err := compose.Terminate(mainCtx); err != nil {
 				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
+
+		ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+		defer cancel()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 

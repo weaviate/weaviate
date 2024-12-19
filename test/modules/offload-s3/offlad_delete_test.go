@@ -31,8 +31,7 @@ import (
 
 func Test_DeleteClassS3Journey(t *testing.T) {
 	t.Run("delete class, deleting frozen tenants", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		mainCtx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -42,14 +41,17 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
-			Start(ctx)
+			Start(mainCtx)
 		require.Nil(t, err)
 
 		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
+			if err := compose.Terminate(mainCtx); err != nil {
 				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
+
+		ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+		defer cancel()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -194,8 +196,7 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 
 func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 	t.Run("create tenant, freeze, delete, re-create", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)

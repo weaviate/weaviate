@@ -77,9 +77,7 @@ func TestUserWithSimilarBuiltInRoleName(t *testing.T) {
 	adminUser := "admin-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
+	ctx := context.Background()
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
@@ -413,17 +411,18 @@ func TestAuthzRolesMultiNodeJourney(t *testing.T) {
 
 	clientAuth := helper.CreateAuth(adminKey)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	mainCtx := context.Background()
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(mainCtx)
 	require.Nil(t, err)
 
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %v", err)
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
@@ -553,17 +552,18 @@ func TestAuthzRolesHasPermissionMultipleNodes(t *testing.T) {
 
 	testRole := "test-role"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	mainCtx := context.Background()
+	compose, err := docker.New().WithWeaviateCluster(3).WithApiKey().WithUserApiKey(adminUser, adminKey).WithRBAC().WithRbacAdmins(adminUser).Start(mainCtx)
 	require.Nil(t, err)
 
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %v", err)
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()

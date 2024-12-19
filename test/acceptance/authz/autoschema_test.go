@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/test/docker"
 
@@ -40,9 +39,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	updateSchemaAction := authorization.UpdateCollections
 	createSchemaAction := authorization.CreateCollections
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
+	ctx := context.Background()
 	compose, err := docker.
 		New().
 		WithWeaviate().
