@@ -214,6 +214,9 @@ function run_acceptance_lsmkv() {
 }
 
 function run_acceptance_tests() {
+  echo_green "Build weaviate image for acceptance tests..."
+  build_docker_image_for_tests
+  
   if $run_acceptance_only_fast || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance fast only"
     run_acceptance_only_fast "$@"
