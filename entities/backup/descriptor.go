@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -95,17 +96,12 @@ func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
 
 // Include only these classes and remove everything else
 func (d *DistributedBackupDescriptor) Include(classes []string) {
+	// If include is not set, skip the filter
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
-	}
+
+	pred := predBuilder(classes, true)
 	d.Filter(pred)
 }
 
@@ -114,15 +110,26 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
-	}
+	pred := predBuilder(classes, false)
 	d.Filter(pred)
+}
+
+func predBuilder(classes []string, isInclude bool) func(s string) bool {
+	regRule := make([]*regexp.Regexp, len(classes))
+	for i, reg := range classes {
+		regRule[i] = regexp.MustCompile(reg)
+	}
+
+	pred := func(s string) bool {
+		// If class match any regular expression, return false
+		for _, reg := range regRule {
+			if reg.MatchString(s) {
+				return isInclude
+			}
+		}
+		return !isInclude
+	}
+	return pred
 }
 
 // ToMappedNodeName will return nodeName after applying d.NodeMapping translation on it.
