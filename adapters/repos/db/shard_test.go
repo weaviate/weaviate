@@ -519,3 +519,67 @@ func TestShard_RepairIndex(t *testing.T) {
 		})
 	}
 }
+
+func TestShard_resetDimensionsLSM(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShard(t, ctx, className)
+
+	amount := 10
+	shd.Index().Config.TrackVectorDimensions = true
+	shd.resetDimensionsLSM()
+
+	t.Run("count dimensions before insert", func(t *testing.T) {
+		dims := shd.Dimensions(ctx)
+		require.Equal(t, 0, dims)
+	})
+
+	t.Run("insert data into shard", func(t *testing.T) {
+		for i := 0; i < amount; i++ {
+			obj := testObject(className)
+
+			err := shd.PutObject(ctx, obj)
+			require.Nil(t, err)
+		}
+
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		require.Nil(t, err)
+		require.Equal(t, amount, len(objs))
+	})
+
+	t.Run("count dimensions", func(t *testing.T) {
+		dims := shd.Dimensions(ctx)
+		require.Equal(t, 3*amount, dims)
+	})
+
+	t.Run("reset dimensions lsm", func(t *testing.T) {
+		err := shd.resetDimensionsLSM()
+		require.Nil(t, err)
+	})
+
+	t.Run("count dimensions after reset", func(t *testing.T) {
+		dims := shd.Dimensions(ctx)
+		require.Equal(t, 0, dims)
+	})
+
+	t.Run("insert data into shard after reset", func(t *testing.T) {
+		for i := 0; i < amount; i++ {
+			obj := testObject(className)
+
+			err := shd.PutObject(ctx, obj)
+			require.Nil(t, err)
+		}
+
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
+		require.Nil(t, err)
+		require.Equal(t, amount, len(objs))
+	})
+
+	t.Run("count dimensions after reset and insert", func(t *testing.T) {
+		dims := shd.Dimensions(ctx)
+		require.Equal(t, 3*amount, dims)
+	})
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
