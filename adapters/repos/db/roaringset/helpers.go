@@ -180,12 +180,16 @@ const containerBufSize = 4100
 
 type ContainerBuf []uint16
 
-type ContainerBufPool struct {
+type ContainerBufPool interface {
+	Get() (buf ContainerBuf, release func())
+}
+
+type containerBufPool struct {
 	pool *sync.Pool
 }
 
-func NewContainerBufPool() *ContainerBufPool {
-	return &ContainerBufPool{
+func NewContainerBufPool() *containerBufPool {
+	return &containerBufPool{
 		pool: &sync.Pool{
 			New: func() any {
 				buf := make([]uint16, containerBufSize)
@@ -195,7 +199,7 @@ func NewContainerBufPool() *ContainerBufPool {
 	}
 }
 
-func (p *ContainerBufPool) Get() (buf ContainerBuf, put func()) {
+func (p *containerBufPool) Get() (buf ContainerBuf, put func()) {
 	ptr := p.pool.Get().(*[]uint16)
 	buf = *ptr
 	if len(buf) < containerBufSize {
@@ -203,4 +207,14 @@ func (p *ContainerBufPool) Get() (buf ContainerBuf, put func()) {
 		*ptr = buf
 	}
 	return buf, func() { p.pool.Put(ptr) }
+}
+
+func NewContainerBufPoolNoop() *containerBufPoolNoop {
+	return &containerBufPoolNoop{}
+}
+
+type containerBufPoolNoop struct{}
+
+func (p *containerBufPoolNoop) Get() (buf ContainerBuf, put func()) {
+	return make([]uint16, containerBufSize), func() {}
 }

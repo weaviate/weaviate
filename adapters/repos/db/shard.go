@@ -229,9 +229,8 @@ type Shard struct {
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
 
-	cycleCallbacks         *shardCycleCallbacks
-	bitmapFactory          *roaringset.BitmapFactory
-	bitmapContainerBufPool *roaringset.ContainerBufPool
+	cycleCallbacks *shardCycleCallbacks
+	bitmapFactory  *roaringset.BitmapFactory
 
 	activityTracker atomic.Int32
 
