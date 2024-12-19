@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+// GetClass returns search results for the given params.
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
