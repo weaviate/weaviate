@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -237,6 +238,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushGroup,
 		WithStrategy(StrategyRoaringSet),
+		WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()),
 		WithMemtableThreshold(1000))
 	require.Nil(t, err)
 

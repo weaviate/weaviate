@@ -67,11 +67,14 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	}
 	innerCursors = append(innerCursors, b.active.newRoaringSetCursor())
 
+	buf, put := b.bitmapContainerBufPool.Get()
+
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSet{
-		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
+		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly, buf),
 		unlock: func() {
+			put()
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
 		},
