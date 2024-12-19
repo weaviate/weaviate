@@ -15,9 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -54,6 +57,17 @@ func setupGraphQLHandlers(
 ) {
 	metricRequestsTotal := newGraphqlRequestsTotal(metrics, logger)
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
+		f, err2 := os.Create(fmt.Sprintf("%d.prof", time.Now().UnixMilli()))
+		if err2 != nil {
+			logger.Warnf("could not create CPU profile: %v", err2)
+		}
+		defer f.Close()
+
+		if err2 := pprof.StartCPUProfile(f); err2 != nil {
+			logger.Warnf("could not start CPU profile: %v", err2)
+		}
+		defer pprof.StopCPUProfile()
+
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 
