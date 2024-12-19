@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -215,8 +216,24 @@ func (rr *RowReaderRoaringSet) notLike(ctx context.Context,
 	// Invert the Equal results for an efficient NotEqual
 	inverted := rr.bitmapFactory.GetBitmap()
 	inverted.AndNot(likeMap)
-	_, err = readFn(rr.value, inverted)
-	return err
+
+	// Iterate through all keys and process only those not matching the `Like` pattern
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if !inverted.Contains(binary.LittleEndian.Uint64(k)) {
+			continue
+		}
+
+		if continueReading, err := readFn(k, v); err != nil {
+			return err
+		} else if !continueReading {
+			break
+		}
+	}
+
 }
 
 type rowOperationRoaringSet func([]byte, *sroar.Bitmap) (bool, error)
