@@ -192,7 +192,7 @@ func NewContainerBufPool() *containerBufPool {
 	return &containerBufPool{
 		pool: &sync.Pool{
 			New: func() any {
-				buf := make([]uint16, containerBufSize)
+				buf := make(ContainerBuf, containerBufSize)
 				return &buf
 			},
 		},
@@ -216,5 +216,5 @@ func NewContainerBufPoolNoop() *containerBufPoolNoop {
 type containerBufPoolNoop struct{}
 
 func (p *containerBufPoolNoop) Get() (buf ContainerBuf, put func()) {
-	return make([]uint16, containerBufSize), func() {}
+	return make(ContainerBuf, containerBufSize), func() {}
 }

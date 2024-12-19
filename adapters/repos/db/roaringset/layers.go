@@ -82,7 +82,7 @@ type BitmapLayers []BitmapLayer
 //     should be represented in the final bitmap. If the order is reversed and
 //     layer 2 adds X, whereas layer 3 removes X, it is should not be contained
 //     in the final map.
-func (bml BitmapLayers) Flatten() *sroar.Bitmap {
+func (bml BitmapLayers) Flatten(buf ContainerBuf) *sroar.Bitmap {
 	if len(bml) == 0 {
 		return sroar.NewBitmap()
 	}
@@ -93,29 +93,8 @@ func (bml BitmapLayers) Flatten() *sroar.Bitmap {
 	merged := cur.Additions.Clone()
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNot(bml[i].Deletions)
-		merged.Or(bml[i].Additions)
-	}
-
-	return merged
-}
-
-// FlattenMutate works as Flatten but mutates passed bitmaps:
-// bml[0].Additions and bml[!=0].Deletions.
-// It is important to provide cloned bitmaps if original ones
-// are expected not to change.
-func (bml BitmapLayers) FlattenMutate() *sroar.Bitmap {
-	if len(bml) == 0 {
-		return sroar.NewBitmap()
-	}
-
-	merged := bml[0].Additions
-	for i := 1; i < len(bml); i++ {
-		// AndNot of only common set seems to be faster than AndNot of bigger set
-		// therefore call to And first
-		bml[i].Deletions.And(merged)
-		merged.AndNot(bml[i].Deletions)
-		merged.Or(bml[i].Additions)
+		merged.AndNotBuf(bml[i].Deletions, buf)
+		merged.OrBuf(bml[i].Additions, buf)
 	}
 
 	return merged

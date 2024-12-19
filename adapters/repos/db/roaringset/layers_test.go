@@ -106,7 +106,7 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res := input.Flatten()
+			res := input.Flatten(make(ContainerBuf, containerBufSize))
 			for _, x := range test.expectedContained {
 				assert.True(t, res.Contains(x))
 			}
