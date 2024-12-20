@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -48,9 +49,9 @@ import (
 //   - Update the class to enabled async replication
 //   - Wait a few seconds for objects to propagate
 //   - Verify that the resurrected node contains all objects
-func asyncRepairMultiTenancyScenario(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
+	t := suite.T()
+	mainCtx := context.Background()
 
 	var (
 		clusterSize = 3
@@ -61,13 +62,16 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -92,7 +96,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 	})
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
+		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	// Activate/insert tenants while node 2 is down
@@ -104,11 +108,11 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 				WithTenant(tenantName).
 				Object()
 		}
-		createObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
 	})
 
 	t.Run("start node 2", func(t *testing.T) {
-		startNodeAt(ctx, t, compose, 2)
+		common.StartNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -128,7 +132,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 
 	t.Run("validate async object propagation", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
+			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
 			assert.Len(ct, resp, objectCount)
 		}, 40*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
