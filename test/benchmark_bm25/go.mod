@@ -1,22 +1,22 @@
 module github.com/weaviate/weaviate/test/benchmark_bm25
 
-go 1.22
+go 1.22.0
 
 replace github.com/weaviate/weaviate => ../..
 
 require (
-	github.com/go-openapi/strfmt v0.21.3
+	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/uuid v1.6.0
-	github.com/spf13/cobra v1.7.0
-	github.com/weaviate/weaviate v1.24.1
-	github.com/weaviate/weaviate-go-client/v4 v4.13.1
+	github.com/spf13/cobra v1.8.1
+	github.com/weaviate/weaviate v1.27.0
+	github.com/weaviate/weaviate-go-client/v4 v4.16.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/go-openapi/analysis v0.21.2 // indirect
-	github.com/go-openapi/errors v0.20.3 // indirect
+	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
 	github.com/go-openapi/loads v0.21.1 // indirect
