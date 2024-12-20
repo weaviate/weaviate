@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -260,16 +261,17 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   NewAtomicInt64(1),
 		},
-		partitioningEnabled:   shardState.PartitioningEnabled,
-		invertedIndexConfig:   iic,
-		vectorIndexUserConfig: vic,
-		logger:                logger,
-		getSchema:             schemaGetter,
-		centralJobQueue:       repo.jobQueueCh,
-		stopwords:             sd,
-		indexCheckpoints:      checkpts,
-		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      esync.NewKeyLocker(),
+		partitioningEnabled:    shardState.PartitioningEnabled,
+		invertedIndexConfig:    iic,
+		vectorIndexUserConfig:  vic,
+		logger:                 logger,
+		getSchema:              schemaGetter,
+		centralJobQueue:        repo.jobQueueCh,
+		stopwords:              sd,
+		indexCheckpoints:       checkpts,
+		allocChecker:           memwatch.NewDummyMonitor(),
+		shardCreateLocks:       esync.NewKeyLocker(),
+		bitmapContainerBufPool: roaringset.NewContainerBufPoolNoop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
