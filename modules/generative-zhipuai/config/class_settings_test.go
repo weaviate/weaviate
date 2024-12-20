@@ -20,26 +20,26 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name                 string
-		cfg                  moduletools.ClassConfig
-		wantModel            string
-		wantMaxTokens        float64
-		wantTemperature      float64
-		wantTopP             float64  
-		wantErr              error
-		wantBaseURL          string 
+		name            string
+		cfg             moduletools.ClassConfig
+		wantModel       string
+		wantMaxTokens   float64
+		wantTemperature float64
+		wantTopP        float64
+		wantErr         error
+		wantBaseURL     string
 	}{
 		{
 			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:            "glm-4",
-			wantMaxTokens:        128000,
-			wantTemperature:      0.0,
-			wantTopP:             1, 
-			wantErr:              nil,
-			wantBaseURL:          "https://open.bigmodel.cn/api/paas/v4",
+			wantModel:       "glm-4",
+			wantMaxTokens:   4095,
+			wantTemperature: 0.0,
+			wantTopP:        1,
+			wantErr:         nil,
+			wantBaseURL:     "https://open.bigmodel.cn/api/paas/v4",
 		},
 	}
 	for _, tt := range tests {
@@ -52,14 +52,12 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
-				assert.Equal(t, tt.wantTopP, ic.TopP()) 
-				assert.Equal(t, tt.wantBaseURL, ic.BaseURL()) 
+				assert.Equal(t, tt.wantTopP, ic.TopP())
+				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}
 		})
 	}
 }
-
-
 
 type fakeClassConfig struct {
 	classConfig map[string]interface{}
