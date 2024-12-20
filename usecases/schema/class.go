@@ -87,6 +87,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 			vc := h.schemaReader.ReadOnlyVersionedClass(name)
 			vclasses[name] = vc
 		}
+		// TODO fallback to querying leader for any classes not found
 		return vclasses, nil
 		// TODO is readonly ret val a problem here?
 
