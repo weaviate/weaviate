@@ -290,9 +290,21 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	i := 0
 	cursor := b.Cursor()
 	defer cursor.Close()
+
+	return b.iterateObjectsCursor(ctx, cursor, f)
+}
+
+func (b *Bucket) IterateObjectsWith(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
+	cursor := b.CursorWith(desiredSecondaryIndexCount)
+	defer cursor.Close()
+
+	return b.iterateObjectsCursor(ctx, cursor, f)
+}
+
+func (b *Bucket) iterateObjectsCursor(ctx context.Context, cursor *CursorReplace, f func(object *storobj.Object) error) error {
+	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
