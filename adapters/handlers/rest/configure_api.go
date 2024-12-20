@@ -29,12 +29,15 @@ import (
 	"github.com/weaviate/fgprof"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
+	armonmetrics "github.com/armon/go-metrics"
+	armonprometheus "github.com/armon/go-metrics/prometheus"
 	"github.com/getsentry/sentry-go"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -51,6 +54,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -197,12 +201,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState := startupRoutine(ctx, options)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
-		appState.ServerMetrics = monitoring.NewServerMetrics(appState.ServerConfig.Config.Monitoring, prometheus.DefaultRegisterer)
+		appState.ServerMetrics = monitoring.NewServerMetrics(appState.ServerConfig.Config.Monitoring.MetricsNamespace, prometheus.DefaultRegisterer)
 		appState.TenantActivity = tenantactivity.NewHandler()
 
 		// export build tags to prometheus metric
 		build.SetPrometheusBuildInfo()
 		prometheus.MustRegister(version.NewCollector(build.AppName))
+
+		opts := armonprometheus.PrometheusOpts{
+			Expiration: 0, // never expire any metrics,
+			Registerer: prometheus.DefaultRegisterer,
+		}
+
+		sink, err := armonprometheus.NewPrometheusSinkFrom(opts)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create prometheus sink for raft metrics")
+		}
+
+		cfg := armonmetrics.DefaultConfig("weaviate_internal") // to differentiate it's coming from internal/dependency packages.
+		cfg.EnableHostname = false                             // no `host` label
+		cfg.EnableHostnameLabel = false                        // no `hostname` label
+		cfg.EnableServiceLabel = false                         // no `service` label
+		cfg.EnableRuntimeMetrics = false                       // runtime metrics already provided by prometheus
+		cfg.EnableTypePrefix = true                            // to have some meaningful suffix to identify type of metrics.
+		cfg.TimerGranularity = time.Second                     // time should always in seconds
+
+		_, err = armonmetrics.NewGlobal(cfg, sink)
+		if err != nil {
+			appState.Logger.WithField("action", "startup").WithError(err).Fatal("failed to create metric registry raft metrics")
+		}
 
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
@@ -686,12 +713,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 	}
-	enterrors.GoWrapper(
-		func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			backupScheduler.CleanupUnfinishedBackups(ctx)
-		}, appState.Logger)
+	if entcfg.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
+		enterrors.GoWrapper(
+			func() {
+				// cleanup unfinished backups on startup
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				backupScheduler.CleanupUnfinishedBackups(ctx)
+			}, appState.Logger)
+	}
 	api.ServerShutdown = func() {
 		if telemetryEnabled(appState) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
