@@ -128,7 +128,9 @@ func (s *Shard) initHashBeater() {
 					WithField("object_progation_took", objectProgationTook.String())
 
 				if propagationErr == nil {
-					logEntry.Info("hashbeat iteration successfully completed")
+					if objectsPropagated > 0 || it%1000 == 0 {
+						logEntry.Info("hashbeat iteration successfully completed")
+					}
 
 					backoffTimer.Reset()
 
@@ -486,6 +488,14 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	// the local shard may receive recent objects when remote shard propagates them
 
 	return localObjects, remoteObjects, propagations, nil
+}
+
+func (s *Shard) mayStopHashBeater() {
+	s.hashtreeRWMux.RLock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+	}
+	s.hashtreeRWMux.RUnlock()
 }
 
 func (s *Shard) stopHashBeater() {
