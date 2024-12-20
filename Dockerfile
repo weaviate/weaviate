@@ -40,9 +40,14 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # This image gets grpc health check probe
 FROM golang:1.23-alpine AS grpc_health_probe_builder
-# 0bd396d2cc6209c957ed13b6a0a08b9745610151  2 commits from latest release v0.4.35 to fix the vul. in golang.org/x/crypto
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@0bd396d2cc6209c957ed13b6a0a08b9745610151 
-RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
+WORKDIR /app
+RUN apk add git
+RUN git clone https://github.com/grpc-ecosystem/grpc-health-probe.git 
+WORKDIR /app/grpc-health-probe
+RUN git checkout v0.4.36
+RUN go get -v -u golang.org/x/net@v0.33.0
+RUN go mod tidy
+RUN go build -o /bin/grpc_health_probe .
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
