@@ -94,3 +94,12 @@ type QueryShardingStateResponse struct {
 	State   *sharding.State
 	Version uint64
 }
+
+type QueryClassVersionsRequest struct {
+	Classes []string
+}
+
+type QueryClassVersionsResponse struct {
+	// Classes is a map of class name to the class version
+	Classes map[string]uint64
+}

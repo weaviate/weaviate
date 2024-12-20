@@ -64,6 +64,7 @@ type SchemaManager interface {
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
+	QueryClassVersions(names ...string) (map[string]uint64, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -78,6 +79,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
+	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)

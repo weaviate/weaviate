@@ -54,6 +54,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get sharding state: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_CLASS_VERSIONS:
+		payload, err = st.schemaManager.QueryClassVersions(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get class versions: %w", err)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version
