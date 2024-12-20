@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check if user is part of the weaviate team
-        id: check_user        
+        if: github.actor != 'dependabot[bot]'
+        id: check_user
         run: |         
           response=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Accept: application/vnd.github+json" \
@@ -29,7 +30,7 @@ jobs:
           fi
 
       - name: Send Slack Notification for PR (Community)
-        if: github.event_name == 'pull_request' && steps.check_user.outputs.is_non_member == 'true'
+        if: github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' && steps.check_user.outputs.is_non_member == 'true'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
@@ -38,7 +39,7 @@ jobs:
           }' $SLACK_WEBHOOK_URL
 
       - name: Send Slack Notification for All Issues
-        if: github.event_name == 'issues'
+        if: github.actor != 'dependabot[bot]' && github.event_name == 'issues'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
