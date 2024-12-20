@@ -401,6 +401,10 @@ func (s *shardedLockCache[T]) SetKeys(id uint64, docID uint64, relativeID uint64
 	panic("not implemented")
 }
 
+func (s *shardedLockCache[T]) AllMulti() [][][]T {
+	panic("not implemented")
+}
+
 // noopCache can be helpful in debugging situations, where we want to
 // explicitly pass through each vectorForID call to the underlying vectorForID
 // function without caching in between.
@@ -517,6 +521,10 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 
 func (s *shardedMultipleLockCache[T]) All() [][]T {
 	panic("not implemented")
+}
+
+func (s *shardedMultipleLockCache[T]) AllMulti() [][][]T {
+	return s.cache
 }
 
 func (s *shardedMultipleLockCache[T]) GetKeys(id uint64) (uint64, uint64) {
