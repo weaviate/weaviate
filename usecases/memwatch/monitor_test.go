@@ -186,15 +186,17 @@ func TestMappings(t *testing.T) {
 				defer syscall.Munmap(data)
 			}
 		}
-		// ensure that we have hit the limit of available mappings
-		require.True(t, limitReached)
 
 		// Try to reserve a large amount and have it fail (checker only runs on linux)
 		switch runtime.GOOS {
 		case "linux":
+			// ensure that we have hit the limit of available mappings
+			require.True(t, limitReached)
 			// any further mapping should fail
 			require.Error(t, m.CheckMappingAndReserve(int64(addMappings), 60))
 		case "darwin":
+			// ensure that we don't hit the limit of available mappings
+			require.False(t, limitReached)
 			// any further mapping should not fail
 			require.Nil(t, m.CheckMappingAndReserve(int64(addMappings), 60))
 		}
