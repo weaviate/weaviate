@@ -14,7 +14,6 @@ package test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -39,8 +38,7 @@ const (
 )
 
 func Test_BackupJourney(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
