@@ -89,6 +89,11 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
+		if left.secondaryIndexCount != right.secondaryIndexCount {
+			// only pair of segments with the same secondary indexes are compacted
+			continue
+		}
+
 		if left.level == right.level {
 			if sg.compactionFitsSizeLimit(left, right) {
 				// max size not exceeded

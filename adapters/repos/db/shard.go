@@ -398,7 +398,9 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 		objCount := 0
 
-		err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
+		// data inserted before v1.26 does not contain the required secondary index
+		// to support async replication thus such data is not inserted into the hashtree
+		err := bucket.IterateObjectsWith(ctx, 2, func(object *storobj.Object) error {
 			if time.Since(prevContextEvaluation) > time.Second {
 				if ctx.Err() != nil {
 					return ctx.Err()
