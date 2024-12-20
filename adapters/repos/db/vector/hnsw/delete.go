@@ -113,7 +113,6 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			binary.BigEndian.PutUint64(idBytes, id)
 			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
 				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
-
 			}
 		}
 		h.Lock()
