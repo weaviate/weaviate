@@ -39,6 +39,7 @@ func (index *flat) getMetadataFile() string {
 
 func (index *flat) removeMetadataFile() error {
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
+	index.closeMetadata()
 	err := os.Remove(path)
 	if err != nil {
 		return errors.Wrapf(err, "remove metadata file %q", path)
@@ -46,20 +47,40 @@ func (index *flat) removeMetadataFile() error {
 	return nil
 }
 
-func (index *flat) initMetadata() error {
+func (index *flat) closeMetadata() {
+	index.metadataLock.Lock()
+	defer index.metadataLock.Unlock()
+
+	if index.metadata != nil {
+		index.metadata.Close()
+		index.metadata = nil
+	}
+}
+
+func (index *flat) openMetadata() error {
+	index.metadataLock.Lock()
+	defer index.metadataLock.Unlock()
+
+	if index.metadata != nil {
+		return nil // Already open
+	}
+
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
-	var err error
-	index.metadata, err = bolt.Open(path, 0o600, nil)
+	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}
 
-	defer func() {
-		if err != nil {
-			index.metadata.Close()
-			index.metadata = nil
-		}
-	}()
+	index.metadata = db
+	return nil
+}
+
+func (index *flat) initMetadata() error {
+	err := index.openMetadata()
+	if err != nil {
+		return err
+	}
+	defer index.closeMetadata()
 
 	err = index.metadata.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
@@ -153,11 +174,13 @@ func (index *flat) calculateDimensions() int32 {
 }
 
 func (index *flat) setDimensions(dimensions int32) error {
-	if index.metadata == nil {
-		return nil
+	err := index.openMetadata()
+	if err != nil {
+		return err
 	}
+	defer index.closeMetadata()
 
-	err := index.metadata.Update(func(tx *bolt.Tx) error {
+	err = index.metadata.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
 			return errors.New("failed to get bucket")

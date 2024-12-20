@@ -42,9 +42,10 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
+	s.mayStopHashBeater()
+
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
-		s.stopHashBeater()
 		s.hashtree = nil
 		s.hashtreeInitialized.Store(false)
 	}

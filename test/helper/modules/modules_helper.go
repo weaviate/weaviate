@@ -105,7 +105,7 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
-		require.Nil(t, err)
+		assert.Nil(t, err)
 		err = client.Bucket(bucketName).Create(ctx, projectID, nil)
 		gcsErr, ok := err.(*googleapi.Error)
 		if ok {
@@ -115,7 +115,7 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 				return
 			}
 		}
-		require.Nil(t, err)
+		assert.Nil(t, err)
 	}, 5*time.Second, 500*time.Millisecond)
 }
 
@@ -124,10 +124,10 @@ func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, container
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		require.Nil(t, err)
+		assert.Nil(t, err)
 
 		_, err = client.CreateContainer(ctx, containerName, nil)
-		require.Nil(t, err)
+		assert.Nil(t, err)
 	}, 5*time.Second, 500*time.Millisecond)
 }
 
@@ -135,9 +135,9 @@ func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, container
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		require.Nil(t, err)
+		assert.Nil(t, err)
 
 		_, err = client.DeleteContainer(ctx, containerName, nil)
-		require.Nil(t, err)
+		assert.Nil(t, err)
 	}, 5*time.Second, 500*time.Millisecond)
 }

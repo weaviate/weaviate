@@ -95,7 +95,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional, limit, properties)
+	return s.objectsByDocID(ctx, it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -108,7 +108,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,
+func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -116,13 +116,17 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 		return nil, fmt.Errorf("objects bucket not found")
 	}
 
-	out := make([]*storobj.Object, it.Len())
-	docIDBytes := make([]byte, 8)
-
 	// Prevent unbounded iteration
 	if limit == 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
+	outlen := it.Len()
+	if outlen > limit {
+		outlen = limit
+	}
+
+	out := make([]*storobj.Object, outlen)
+	docIDBytes := make([]byte, 8)
 
 	propStrings := make([]string, len(properties))
 	propStringsList := make([][]string, len(properties))
@@ -137,7 +141,13 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 	}
 
 	i := 0
+	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		if loop%1000 == 0 && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		loop++
+
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
