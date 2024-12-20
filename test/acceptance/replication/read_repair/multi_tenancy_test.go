@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -34,7 +35,9 @@ const (
 	tenantID = strfmt.UUID("45e9e17e-8102-4011-95f0-3079ca188bbf")
 )
 
-func multiTenancyEnabled(t *testing.T) {
+func (suite *ReplicationTestSuite) TestMultiTenancyEnabled() {
+	t := suite.T()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -88,27 +91,27 @@ func multiTenancyEnabled(t *testing.T) {
 					WithTenant(tenantID.String()).
 					Object()
 			}
-			createTenantObjects(t, compose.ContainerURI(3), batch)
+			common.CreateTenantObjects(t, compose.ContainerURI(3), batch)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			count := countTenantObjects(t, compose.ContainerURI(1),
+			count := common.CountTenantObjects(t, compose.ContainerURI(1),
 				"Paragraph", tenantID.String())
 			assert.Equal(t, int64(len(paragraphIDs)), count)
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			count := countTenantObjects(t, compose.ContainerURI(2),
+			count := common.CountTenantObjects(t, compose.ContainerURI(2),
 				"Paragraph", tenantID.String())
 			assert.Equal(t, int64(len(paragraphIDs)), count)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 			time.Sleep(time.Second)
 		})
 	})
@@ -121,28 +124,28 @@ func multiTenancyEnabled(t *testing.T) {
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					WithTenant(tenantID.String()).
 					Object()
-				createObjectCL(t, compose.ContainerURI(3), obj, replica.Quorum)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, replica.Quorum)
 			}
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
 			time.Sleep(time.Second)
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			count := countTenantObjects(t, compose.ContainerURI(1),
+			count := common.CountTenantObjects(t, compose.ContainerURI(1),
 				"Article", tenantID.String())
 			assert.Equal(t, int64(len(articleIDs)), count)
 		})
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			count := countTenantObjects(t, compose.ContainerURI(2),
+			count := common.CountTenantObjects(t, compose.ContainerURI(2),
 				"Article", tenantID.String())
 			assert.Equal(t, int64(len(articleIDs)), count)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 			time.Sleep(time.Second)
 		})
 	})
@@ -158,11 +161,11 @@ func multiTenancyEnabled(t *testing.T) {
 		}
 
 		t.Run("AddReferencesToNode-3", func(t *testing.T) {
-			addTenantReferences(t, compose.ContainerURI(3), refs)
+			common.AddTenantReferences(t, compose.ContainerURI(3), refs)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ReferencesExistsONNode-2", func(t *testing.T) {
@@ -179,7 +182,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := gqlTenantGet(t, compose.ContainerURI(2), "Article", replica.One,
+			resp := common.GQLTenantGet(t, compose.ContainerURI(2), "Article", replica.One,
 				tenantID.String(), "_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			assert.Len(t, resp, len(articleIDs))
 
@@ -201,13 +204,13 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 			time.Sleep(time.Second)
 		})
 	})
 
 	t.Run("UpdateObject", func(t *testing.T) {
-		before, err := getTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
+		before, err := common.GetTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
 		require.Nil(t, err)
 		newTitle := "Article#9000"
 
@@ -218,15 +221,15 @@ func multiTenancyEnabled(t *testing.T) {
 				Properties: map[string]interface{}{"title": newTitle},
 				Tenant:     tenantID.String(),
 			}
-			updateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
+			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("PatchedOnNode-1", func(t *testing.T) {
-			after, err := getTenantObjectFromNode(t, compose.ContainerURI(1),
+			after, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(1),
 				"Article", articleIDs[0], "node1", tenantID.String())
 			require.Nil(t, err)
 
@@ -236,48 +239,48 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 			time.Sleep(time.Second)
 		})
 	})
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-1", func(t *testing.T) {
-			deleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String(), replica.All)
+			common.DeleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String(), replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
-			_, err := getTenantObjectFromNode(t, compose.ContainerURI(2),
+			_, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(2),
 				"Article", articleIDs[0], "node2", tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
 		t.Run("RestartNode-3", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 3)
+			common.StartNodeAt(ctx, t, compose, 3)
 		})
 	})
 
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-2", func(t *testing.T) {
-			deleteTenantObjects(t, compose.ContainerURI(2),
+			common.DeleteTenantObjects(t, compose.ContainerURI(2),
 				"Article", []string{"title"}, "Article#*", tenantID.String(), replica.All)
 		})
 
 		t.Run("StopNode-2", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 2)
+			common.StopNodeAt(ctx, t, compose, 2)
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			count := countTenantObjects(t, compose.ContainerURI(1), "Article", tenantID.String())
+			count := common.CountTenantObjects(t, compose.ContainerURI(1), "Article", tenantID.String())
 			assert.Zero(t, count)
 		})
 
 		t.Run("RestartNode-2", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 2)
+			common.StartNodeAt(ctx, t, compose, 2)
 		})
 	})
 }

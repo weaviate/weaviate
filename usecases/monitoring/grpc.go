@@ -35,6 +35,39 @@ const (
 	gRPCTransportLabel = "gRPC"
 )
 
+// InstrumentGrpc accepts server metrics and returns the few `[]grpc.ServerOption` which you can
+// then wrap it with any `grpc.Server` to get these metrics instrumented automatically.
+//
+// ```
+//
+//	svrMetrics := monitoring.NewServerMetrics(metrics, prometheus.DefaultRegisterer)
+//	grpcServer := grpc.NewServer(monitoring.InstrumentGrpc(*svrMetrics)...)
+//
+//	grpcServer.Serve(listener)
+//
+// ```
+func InstrumentGrpc(svrMetrics ServerMetrics) []grpc.ServerOption {
+	grpcOptions := []grpc.ServerOption{
+		grpc.StatsHandler(NewGrpcStatsHandler(
+			svrMetrics.InflightRequests,
+			svrMetrics.RequestBodySize,
+			svrMetrics.ResponseBodySize,
+		)),
+	}
+
+	grpcInterceptUnary := grpc.ChainUnaryInterceptor(
+		UnaryServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptUnary)
+
+	grpcInterceptStream := grpc.ChainStreamInterceptor(
+		StreamServerInstrument(svrMetrics.RequestDuration),
+	)
+	grpcOptions = append(grpcOptions, grpcInterceptStream)
+
+	return grpcOptions
+}
+
 func NewGrpcStatsHandler(inflight *prometheus.GaugeVec, requestSize *prometheus.HistogramVec, responseSize *prometheus.HistogramVec) *GrpcStatsHandler {
 	return &GrpcStatsHandler{
 		inflightRequests: inflight,

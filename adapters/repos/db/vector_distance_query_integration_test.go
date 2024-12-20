@@ -99,6 +99,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 			nil,
+			nil,
 			0),
 		)
 		require.Nil(t, err)
@@ -144,6 +145,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 			nil,
+			nil,
 			0),
 		)
 		docId, err := docIdFromUUID(shards[0].(*Shard), ids[1])
@@ -167,6 +169,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			&models.Object{ID: ids[2], Class: class.Class},
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
+			nil,
 			nil,
 			0),
 		)

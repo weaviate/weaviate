@@ -21,10 +21,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -59,7 +61,21 @@ var (
 	}
 )
 
-func immediateReplicaCRUD(t *testing.T) {
+type ReplicationTestSuite struct {
+	suite.Suite
+}
+
+func (suite *ReplicationTestSuite) SetupTest() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+}
+
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
+}
+
+func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
+	t := suite.T()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -98,20 +114,20 @@ func immediateReplicaCRUD(t *testing.T) {
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
 					Object()
 			}
-			createObjects(t, compose.ContainerURI(3), batch)
+			common.CreateObjects(t, compose.ContainerURI(3), batch)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(1), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Paragraph", replica.One)
 			assert.Len(t, resp, len(paragraphIDs))
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(2), "Paragraph", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Paragraph", replica.One)
 			require.Len(t, resp, len(paragraphIDs))
 		})
 
@@ -128,21 +144,21 @@ func immediateReplicaCRUD(t *testing.T) {
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					Object()
-				createObjectCL(t, compose.ContainerURI(3), obj, replica.One)
+				common.CreateObjectCL(t, compose.ContainerURI(3), obj, replica.One)
 			}
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(1), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", replica.One)
 			require.Len(t, resp, len(articleIDs))
 		})
 
 		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One)
 			require.Len(t, resp, len(articleIDs))
 		})
 
@@ -162,11 +178,11 @@ func immediateReplicaCRUD(t *testing.T) {
 		}
 
 		t.Run("OnNode-3", func(t *testing.T) {
-			addReferences(t, compose.ContainerURI(3), refs)
+			common.AddReferences(t, compose.ContainerURI(3), refs)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("ExistOnNode-2", func(t *testing.T) {
@@ -183,7 +199,7 @@ func immediateReplicaCRUD(t *testing.T) {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One,
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One,
 				"_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			require.Len(t, resp, len(articleIDs))
 
@@ -211,7 +227,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("UpdateObject", func(t *testing.T) {
-		before, err := getObject(t, compose.ContainerURI(3), "Article", articleIDs[0], false)
+		before, err := common.GetObject(t, compose.ContainerURI(3), "Article", articleIDs[0], false)
 		require.Nil(t, err)
 		newTitle := "Article#9000"
 
@@ -221,15 +237,15 @@ func immediateReplicaCRUD(t *testing.T) {
 				Class:      "Article",
 				Properties: map[string]interface{}{"title": newTitle},
 			}
-			updateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
+			common.UpdateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("PatchedOnNode-1", func(t *testing.T) {
-			after, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
+			after, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -244,19 +260,19 @@ func immediateReplicaCRUD(t *testing.T) {
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
-			deleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], replica.All)
+			common.DeleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			_, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
+			_, err := common.GetObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
 			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 		t.Run("OnNode-2", func(t *testing.T) {
-			_, err := getObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "node2")
+			_, err := common.GetObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "node2")
 			require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
@@ -267,21 +283,21 @@ func immediateReplicaCRUD(t *testing.T) {
 
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
-			deleteObjects(t, compose.ContainerURI(3),
+			common.DeleteObjects(t, compose.ContainerURI(3),
 				"Article", []string{"title"}, "Article#*", replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 3)
+			common.StopNodeAt(ctx, t, compose, 3)
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(1), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(1), "Article", replica.One)
 			require.Empty(t, resp)
 		})
 
 		t.Run("OnNode-2", func(t *testing.T) {
-			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One)
+			resp := common.GQLGet(t, compose.ContainerURI(2), "Article", replica.One)
 			require.Empty(t, resp)
 		})
 
@@ -291,7 +307,9 @@ func immediateReplicaCRUD(t *testing.T) {
 	})
 }
 
-func eventualReplicaCRUD(t *testing.T) {
+func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
+	t := suite.T()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -325,7 +343,7 @@ func eventualReplicaCRUD(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("insert articles batch on node 1", func(t *testing.T) {
@@ -336,7 +354,7 @@ func eventualReplicaCRUD(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("configure classes to replicate to node 2 and 3", func(t *testing.T) {
@@ -354,34 +372,34 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("StopNode-3", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 3)
+		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
+			resp := common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
 			require.Len(collect, resp, len(articleIDs))
-			resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
+			resp = common.GQLGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
 			require.Len(collect, resp, len(paragraphIDs))
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("RestartNode-3", func(t *testing.T) {
-		startNodeAt(ctx, t, compose, 3)
+		common.StartNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			resp := gqlGet(t, compose.GetWeaviateNode3().URI(), "Article", replica.All)
+			resp := common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Article", replica.All)
 			assert.Len(collect, resp, len(articleIDs))
-			resp = gqlGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", replica.All)
+			resp = common.GQLGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", replica.All)
 			assert.Len(collect, resp, len(paragraphIDs))
 		}, 5*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("assert any future writes are replicated", func(t *testing.T) {
 		t.Run("PatchObject", func(t *testing.T) {
-			before, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], false)
+			before, err := common.GetObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], false)
 			require.Nil(t, err)
 			newTitle := "Article#9000"
 
@@ -391,11 +409,11 @@ func eventualReplicaCRUD(t *testing.T) {
 					Class:      "Article",
 					Properties: map[string]interface{}{"title": newTitle},
 				}
-				patchObject(t, compose.GetWeaviateNode(2).URI(), patch)
+				common.PatchObject(t, compose.GetWeaviateNode(2).URI(), patch)
 			})
 
 			t.Run("PatchedOnNode-1", func(t *testing.T) {
-				after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
+				after, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 				require.Nil(t, err)
 
 				require.Contains(t, after.Properties.(map[string]interface{}), "title")
@@ -404,7 +422,7 @@ func eventualReplicaCRUD(t *testing.T) {
 
 			t.Run("PatchedOnNode-2", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					after, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
+					after, err := common.GetObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
 					require.Nil(collect, err)
 
 					require.Contains(collect, after.Properties.(map[string]interface{}), "title")
@@ -414,7 +432,7 @@ func eventualReplicaCRUD(t *testing.T) {
 
 			t.Run("PatchedOnNode-3", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node3")
+					after, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node3")
 					require.Nil(collect, err)
 
 					require.Contains(collect, after.Properties.(map[string]interface{}), "title")
@@ -425,12 +443,12 @@ func eventualReplicaCRUD(t *testing.T) {
 
 		t.Run("DeleteObject", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
-				deleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], replica.All)
+				common.DeleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], replica.All)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					_, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
+					_, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 					require.Equal(collect, &objects.ObjectsClassGetNotFound{}, err)
 				}, 5*time.Second, 100*time.Millisecond)
 			})
@@ -438,13 +456,13 @@ func eventualReplicaCRUD(t *testing.T) {
 
 		t.Run("BatchDeleteAllObjects", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
-				deleteObjects(t, compose.GetWeaviateNode2().URI(),
+				common.DeleteObjects(t, compose.GetWeaviateNode2().URI(),
 					"Article", []string{"title"}, "Article#*", replica.All)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-					resp := gqlGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
+					resp := common.GQLGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
 					assert.Empty(collect, resp)
 				}, 5*time.Second, 100*time.Millisecond)
 			})
@@ -467,30 +485,4 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 		})
 	})
-}
-
-// stopNodeAt stops the node container at the given index.
-//
-// NOTE: the index is 1-based, so stopping the first node requires index=1, not 0
-func stopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
-	<-time.After(1 * time.Second)
-	if err := compose.StopAt(ctx, index, nil); err != nil {
-		// try one more time after 1 second
-		<-time.After(1 * time.Second)
-		require.NoError(t, compose.StopAt(ctx, index, nil))
-	}
-	<-time.After(1 * time.Second) // give time for shutdown
-}
-
-// startNodeAt starts the node container at the given index.
-//
-// NOTE: the index is 1-based, so starting the first node requires index=1, not 0
-func startNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
-	t.Helper()
-	if err := compose.StartAt(ctx, index); err != nil {
-		// try one more time after 1 second
-		<-time.After(1 * time.Second)
-		require.NoError(t, compose.StartAt(ctx, index))
-	}
-	<-time.After(1 * time.Second)
 }
