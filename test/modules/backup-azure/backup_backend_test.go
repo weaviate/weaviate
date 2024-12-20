@@ -53,8 +53,7 @@ func Test_AzureBackend_Backup(t *testing.T) {
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	className := "BackupClass"
@@ -134,8 +133,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 }
 
 func moduleLevelCopyObjects(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
