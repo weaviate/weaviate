@@ -15,13 +15,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"testing"
 
 	"github.com/stretchr/testify/mock"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -252,10 +253,10 @@ type fakeStore struct {
 	parser      Parser
 }
 
-func NewFakeStore() *fakeStore {
+func NewFakeStore(t *testing.T, clusterState cluster.Selector) *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}),
+		parser:      *NewParser(clusterState, dummyParseVectorConfig, &fakeValidator{}, fakeModulesProvider{}),
 	}
 }
 

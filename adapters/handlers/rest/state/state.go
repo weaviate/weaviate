@@ -57,7 +57,7 @@ type State struct {
 	Modules               *modules.Provider
 	SchemaManager         *schema.Manager
 	Scaler                *scaler.Scaler
-	Cluster               *cluster.State
+	Cluster               cluster.Selector
 	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
 	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
