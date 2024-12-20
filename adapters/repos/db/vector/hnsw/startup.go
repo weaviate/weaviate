@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -207,15 +208,15 @@ func (h *hnsw) restoreDocMappings() error {
 	prevDocID := uint64(0)
 	relativeID := uint64(0)
 	maxNodeID := uint64(0)
+	buf := make([]byte, 8)
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
 		}
-		nodeIDBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(nodeIDBytes, node.id)
-		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(nodeIDBytes)
+		binary.BigEndian.PutUint64(buf, node.id)
+		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
 		if err != nil {
-			return errors.Wrap(err, "get docIDBytes")
+			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
 		}
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
