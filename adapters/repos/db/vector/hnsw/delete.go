@@ -112,11 +112,8 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 			idBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(idBytes, id)
 			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
-				h.logger.WithFields(logrus.Fields{
-					"action": "mv_mappings_delete",
-					"id":     id,
-				}).WithError(err).
-					Warnf("cannot delete multivector mapping")
+				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
+
 			}
 		}
 		h.Lock()
