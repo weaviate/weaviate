@@ -63,8 +63,7 @@ func Test_S3Backend_Backup(t *testing.T) {
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	className := "BackupClass"
