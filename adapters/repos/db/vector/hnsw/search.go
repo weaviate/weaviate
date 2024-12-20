@@ -566,7 +566,20 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
-	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+	var vec []float32
+	var err error
+	if !h.multivector.Load() {
+		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
+	} else {
+		docID, relativeID := h.cache.GetKeys(nodeID)
+		vecs, err := h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		if err != nil {
+			return 0, err
+		} else if len(vecs) <= int(relativeID) {
+			return 0, errors.Errorf("relativeID %d is out of bounds for docID %d", relativeID, docID)
+		}
+		vec = vecs[relativeID]
+	}
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -847,7 +860,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
 	kPrime := k
-	candidateSet := make(map[uint64]bool)
+	candidateSet := make(map[uint64]struct{})
 	for _, vec := range queryVectors {
 		ids, _, err := h.knnSearchByVector(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
 		if err != nil {
@@ -860,13 +873,13 @@ func (h *hnsw) knnSearchByMultiVector(ctx context.Context, queryVectors [][]floa
 			} else {
 				docId, _ = h.compressor.GetKeys(id)
 			}
-			candidateSet[docId] = true
+			candidateSet[docId] = struct{}{}
 		}
 	}
 	return h.computeLateInteraction(queryVectors, k, candidateSet)
 }
 
-func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]bool) ([]uint64, []float32, error) {
+func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidateSet map[uint64]struct{}) ([]uint64, []float32, error) {
 	resultsQueue := priorityqueue.NewMin[any](1)
 	for docID := range candidateSet {
 		sim, err := h.computeScore(queryVectors, docID)
@@ -897,26 +910,22 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	h.RLock()
 	vecIDs := h.docIDVectors[docID]
 	h.RUnlock()
-	docVecs := make([][]float32, len(vecIDs))
-	errs := make([]error, len(vecIDs))
+	var docVecs [][]float32
 	if h.compressed.Load() {
 		slice := h.pools.tempVectors.Get(int(h.dims))
-		for i, vecID := range vecIDs {
-			vec, err := h.TempVectorForIDThunk(context.Background(), vecID, slice)
-			if err != nil {
-				return 0.0, errors.Wrap(err, "get vector for docID")
-			}
-			docVecs[i] = make([]float32, len(vec))
-			copy(docVecs[i], vec)
+		var err error
+		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
+		if err != nil {
+			return 0.0, errors.Wrap(err, "get vector for docID")
 		}
 		h.pools.tempVectors.Put(slice)
 	} else {
+		var errs []error
 		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
-	}
-
-	for _, err := range errs {
-		if err != nil {
-			return 0.0, errors.Wrap(err, "get vector for docID")
+		for _, err := range errs {
+			if err != nil {
+				return 0.0, errors.Wrap(err, "get vector for docID")
+			}
 		}
 	}
 

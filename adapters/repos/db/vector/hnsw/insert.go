@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -227,7 +228,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
 
-			err := h.addOne(ctx, vector, node)
+			nodeIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docID)
+			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			}
+
+			err = h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}
