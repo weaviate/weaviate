@@ -49,6 +49,9 @@ func Test_BackupJourney(t *testing.T) {
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
+		defer func() {
+			require.Nil(t, compose.Terminate(ctx))
+		}()
 
 		t.Log("post-instance env setup")
 		azuriteEndpoint := compose.GetAzurite().URI()
@@ -63,8 +66,6 @@ func Test_BackupJourney(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil)
 		})
-
-		require.Nil(t, compose.Terminate(ctx))
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
@@ -77,6 +78,9 @@ func Test_BackupJourney(t *testing.T) {
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
+		defer func() {
+			require.Nil(t, compose.Terminate(ctx))
+		}()
 
 		t.Log("post-instance env setup")
 		azuriteEndpoint := compose.GetAzurite().URI()
@@ -91,7 +95,5 @@ func Test_BackupJourney(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
 				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
-
-		require.Nil(t, compose.Terminate(ctx))
 	})
 }
