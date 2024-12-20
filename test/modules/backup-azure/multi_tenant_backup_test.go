@@ -50,6 +50,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
@@ -75,6 +76,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
