@@ -23,6 +23,7 @@ type MultiCache[T any] interface {
 	GetKeys(id uint64) (uint64, uint64)
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	GrowMultiCache(id uint64)
+	AllMulti() [][][]T
 }
 
 type Cache[T any] interface {

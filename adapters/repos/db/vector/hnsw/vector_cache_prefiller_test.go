@@ -172,6 +172,10 @@ func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) AllMulti() [][][]float32 {
+	panic("not implemented")
+}
+
 func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
 	for i := range out {
