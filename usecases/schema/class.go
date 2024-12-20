@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/replication"
 
@@ -82,62 +83,62 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass getter", names)
 
 		// use current local schema regardless of version
-		vclasses := map[string]versioned.Class{}
-		for _, name := range names {
-			vc := h.schemaReader.ReadOnlyVersionedClass(name)
-			vclasses[name] = vc
-		}
-		return vclasses, nil
+		// vclasses := map[string]versioned.Class{}
+		// for _, name := range names {
+		// 	vc := h.schemaReader.ReadOnlyVersionedClass(name)
+		// 	vclasses[name] = vc
+		// }
+		// return vclasses, nil
 		// TODO is readonly ret val a problem here?
 
 		// check if class version locally matches leader's, use if so
-		// classVersions, err := h.schemaManager.QueryClassVersions(names...)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// // TODO get rid of one of these?
-		// versionedClassesToReturn := map[string]versioned.Class{}
-		// versionedClassesToQueryFromLeader := []string{}
-		// for _, name := range names {
-		// 	localVclass := h.schemaReader.ReadOnlyVersionedClass(name)
-		// 	leaderClassVersion, ok := classVersions[name]
-		// 	// TODO or <=?
-		// 	if !ok || localVclass.Version < leaderClassVersion {
-		// 		versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
-		// 		fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class check", name, ok, localVclass.Version, leaderClassVersion)
-		// 		continue
-		// 	}
-		// 	versionedClassesToReturn[name] = localVclass
-		// 	fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class found", name, ok, localVclass.Version, leaderClassVersion)
-		// }
-		// if len(versionedClassesToQueryFromLeader) == 0 {
-		// 	fmt.Println("NATEE usecases/schema.Handler.GetCachedClass all classes local", versionedClassesToReturn)
-		// 	return versionedClassesToReturn, nil
-		// }
+		classVersions, err := h.schemaManager.QueryClassVersions(names...)
+		if err != nil {
+			return nil, err
+		}
+		// TODO get rid of one of these?
+		versionedClassesToReturn := map[string]versioned.Class{}
+		versionedClassesToQueryFromLeader := []string{}
+		for _, name := range names {
+			localVclass := h.schemaReader.ReadOnlyVersionedClass(name)
+			leaderClassVersion, ok := classVersions[name]
+			// TODO or !=?
+			if !ok || localVclass.Version < leaderClassVersion {
+				versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
+				// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class check", name, ok, localVclass.Version, leaderClassVersion)
+				continue
+			}
+			versionedClassesToReturn[name] = localVclass
+			// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class found", name, ok, localVclass.Version, leaderClassVersion)
+		}
+		if len(versionedClassesToQueryFromLeader) == 0 {
+			// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass all classes local", versionedClassesToReturn)
+			return versionedClassesToReturn, nil
+		}
 
-		// versionedClassesFromLeader, err := h.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
-		// if err != nil || len(versionedClassesFromLeader) == 0 {
-		// 	// return as many classes as we could get
-		// 	return versionedClassesToReturn, err
-		// }
+		versionedClassesFromLeader, err := h.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
+		if err != nil || len(versionedClassesFromLeader) == 0 {
+			// return as many classes as we could get
+			return versionedClassesToReturn, err
+		}
 
-		// for _, vclass := range versionedClassesFromLeader {
-		// 	if err := h.parser.ParseClass(vclass.Class); err != nil {
-		// 		// remove invalid classes
-		// 		h.logger.WithFields(logrus.Fields{
-		// 			"Class": vclass.Class.Class,
-		// 			"Error": err,
-		// 		}).Warn("parsing class error")
-		// 		delete(versionedClassesFromLeader, vclass.Class.Class)
-		// 		fmt.Println("NATEE usecases/schema.Handler.GetCachedClass could not parse class from leader", versionedClassesToReturn)
-		// 		continue
-		// 	}
-		// 	versionedClassesToReturn[vclass.Class.Class] = vclass
-		// 	fmt.Println("NATEE usecases/schema.Handler.GetCachedClass got class from leader", vclass.Class.Class)
-		// }
+		for _, vclass := range versionedClassesFromLeader {
+			if err := h.parser.ParseClass(vclass.Class); err != nil {
+				// remove invalid classes
+				h.logger.WithFields(logrus.Fields{
+					"Class": vclass.Class.Class,
+					"Error": err,
+				}).Warn("parsing class error")
+				delete(versionedClassesFromLeader, vclass.Class.Class)
+				// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass could not parse class from leader", versionedClassesToReturn)
+				continue
+			}
+			versionedClassesToReturn[vclass.Class.Class] = vclass
+			// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass got class from leader", vclass.Class.Class)
+		}
 
 		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass return", versionedClassesToReturn)
-		// return versionedClassesToReturn, nil
+		return versionedClassesToReturn, nil
 
 		// old way
 		// vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
