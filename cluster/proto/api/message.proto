@@ -74,6 +74,7 @@ message QueryRequest {
     TYPE_GET_SHARD_OWNER = 4;
     TYPE_GET_TENANTS_SHARDS = 5;
     TYPE_GET_SHARDING_STATE = 6;
+    TYPE_GET_CLASS_VERSIONS = 7;
   }
 
   Type type = 1;

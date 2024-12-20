@@ -135,10 +135,21 @@ func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]
 
 	models := args.Get(0)
 	if models == nil {
-		return nil, args.Error(2)
+		return nil, args.Error(1)
 	}
 
 	return models.(map[string]versioned.Class), nil
+}
+
+func (f *fakeSchemaManager) QueryClassVersions(classes ...string) (map[string]uint64, error) {
+	args := f.Called(classes)
+
+	models := args.Get(0)
+	if models == nil {
+		return nil, args.Error(1)
+	}
+
+	return models.(map[string]uint64), nil
 }
 
 func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
@@ -172,6 +183,12 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 		return nil
 	}
 	return model.(*models.Class)
+}
+
+func (f *fakeSchemaManager) ReadOnlyVersionedClass(class string) versioned.Class {
+	args := f.Called(class)
+	model := args.Get(0)
+	return model.(versioned.Class)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error) {

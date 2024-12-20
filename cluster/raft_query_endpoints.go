@@ -33,6 +33,7 @@ import (
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
 func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	// fmt.Println("NATEE cluster.Raft.QueryReadOnlyClasses", classes)
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -273,6 +274,66 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 	}
 
 	return resp.State, resp.Version, nil
+}
+
+// QueryClassVersions TODO
+func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) {
+	// fmt.Println("NATEE cluster.Raft.QueryClassVersions", classes)
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.class_versions"),
+			sentry.WithDescription("Query class versions"),
+		)
+		transaction.SetData("classes", classes)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("empty classes names: %w", schema.ErrBadRequest)
+	}
+
+	// remove dedup and empty
+	slices.Sort(classes)
+	classes = slices.Compact(classes)
+	if len(classes) == 0 {
+		return map[string]uint64{}, fmt.Errorf("empty classes names: %w", schema.ErrBadRequest)
+	}
+
+	if len(classes) > 1 && classes[0] == "" {
+		classes = classes[1:]
+	}
+
+	// Build the query and execute it
+	req := cmd.QueryClassVersionsRequest{Classes: classes}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return map[string]uint64{}, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_CLASS_VERSIONS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(ctx, command)
+	if err != nil {
+		return map[string]uint64{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
+	// We have an empty payload when the requested class if not present in the schema.
+	// In that case return a nil pointer and no error.
+	if len(queryResp.Payload) == 0 {
+		return nil, nil
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryClassVersionsResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		// fmt.Println("NATEE qcvr unmarshal", string(queryResp.Payload))
+		return map[string]uint64{}, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+	return resp.Classes, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
