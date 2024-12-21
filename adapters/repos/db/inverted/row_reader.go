@@ -66,6 +66,8 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorNotLike:
+		return rr.notLike(ctx, readFn)
 	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
 		return rr.equal(ctx, readFn)
 	default:
@@ -168,6 +170,41 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	c := rr.newCursor()
 	defer c.Close()
 
+	rp := func(k []byte, v [][]byte) (bool, error) {
+		return readFn(k, rr.transformToBitmap(v))
+	}
+
+	return rr.likeHelper(ctx, like, c, rp)
+}
+
+func (rr *RowReader) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	c := rr.newCursor()
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	rp := func(k []byte, v [][]byte) (bool, error) {
+		likeMap.Or(rr.transformToBitmap(v))
+		return true, nil
+	}
+	if err := rr.likeHelper(ctx, like, c, rp); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
+type rowOperation func([]byte, [][]byte) (bool, error)
+
+func (rr *RowReader) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.CursorSet, rp rowOperation) error {
 	var (
 		initialK []byte
 		initialV [][]byte
@@ -201,7 +238,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := rp(k, v)
 		if err != nil {
 			return err
 		}
