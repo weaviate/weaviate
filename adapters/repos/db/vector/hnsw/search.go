@@ -188,7 +188,7 @@ func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
 			useAcorn = false
 		}
 		M = int(cacheSize / int64(max(1, allowListSize)))
-		M = min(M, 8)
+		M = min(M, 1)
 	}
 	return useAcorn, M
 }
@@ -206,6 +206,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
 	visitedExp := h.pools.visitedLists.Borrow()
+	visitedNext := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
 
 	useAcorn, M := h.acornParams(allowList)
@@ -316,7 +317,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
 			copy(pendingNextRound, candidateNode.connections[level])
 			hop := 1
-			maxHops := 2
+			maxHops := 1
 			for hop <= maxHops && realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
 				if cap(pendingThisRound) >= len(pendingNextRound) {
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
@@ -329,21 +330,17 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				for index < len(pendingThisRound) && realLen < M*h.maximumConnectionsLayerZero {
 					nodeId := pendingThisRound[index]
 					index++
-					if ok := visited.Visited(nodeId); ok {
+					if visited.Visited(nodeId) || visitedExp.Visited(nodeId) {
 						// skip if we've already visited this neighbor
 						continue
 					}
-					if !visitedExp.Visited(nodeId) {
-						if allowList.Contains(nodeId) {
-							connectionsReusable[realLen] = nodeId
-							realLen++
-							visitedExp.Visit(nodeId)
-							continue
-						}
-					} else {
+					visitedExp.Visit(nodeId)
+
+					if allowList.Contains(nodeId) {
+						connectionsReusable[realLen] = nodeId
+						realLen++
 						continue
 					}
-					visitedExp.Visit(nodeId)
 
 					h.RLock()
 					h.shardedNodeLocks.RLock(nodeId)
@@ -353,13 +350,13 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 					if node == nil {
 						continue
 					}
+
+					visitedNext.Reset()
 					for _, expId := range node.connections[level] {
-						if visitedExp.Visited(expId) {
+						if visitedNext.Visited(expId) || visitedExp.Visited(expId) || visited.Visited(expId) {
 							continue
 						}
-						if visited.Visited(expId) {
-							continue
-						}
+						visitedNext.Visit(expId)
 
 						if realLen >= M*h.maximumConnectionsLayerZero {
 							break
@@ -370,10 +367,10 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 							connectionsReusable[realLen] = expId
 							realLen++
 						} else if hop < maxHops {
-							visitedExp.Visit(expId)
 							pendingNextRound = append(pendingNextRound, expId)
 						}
 					}
+
 				}
 				hop++
 			}
@@ -458,6 +455,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
 	h.pools.visitedLists.Return(visitedExp)
+	h.pools.visitedLists.Return(visitedNext)
 	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
@@ -693,11 +691,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	useAcorn, _ := h.acornParams(allowList)
-
-	if allowList != nil && useAcorn {
-		allowList = NewFastSet(allowList)
-	}
-
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
