@@ -92,6 +92,10 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 }
 
 func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
+	if s.segment.dataStartPos == s.segment.dataEndPos {
+		return nil, nil, lsmkv.NotFound
+	}
+
 	s.nextOffset = s.segment.dataStartPos
 
 	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
