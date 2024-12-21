@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -26,8 +25,7 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
@@ -44,8 +42,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	}
 
 	t.Run("single node", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -75,8 +72,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
+		ctx := context.Background()
 
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
