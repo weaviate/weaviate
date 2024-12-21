@@ -14,9 +14,9 @@ package ent
 import (
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	basesettings "github.com/liutizhong/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -28,8 +28,8 @@ const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-	DefaultApiEndpoint           = "http://localhost:11434"
-	DefaultModel                 = "nomic-embed-text"
+	DefaultApiEndpoint           = "http://host.docker.internal:11434"
+	DefaultModel                 = "quentinz/bge-large-zh-v1.5"
 	LowerCaseInput               = false
 )
 
