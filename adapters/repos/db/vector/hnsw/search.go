@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -114,71 +116,25 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	var (
-		searchParams = newSearchByDistParams(maxLimit)
+	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
+		h.SearchByVector, h.logger)
+}
 
-		resultIDs  []uint64
-		resultDist []float32
-	)
-
-	recursiveSearch := func() (bool, error) {
-		shouldContinue := false
-
-		ids, dist, err := h.SearchByVector(ctx, vector, searchParams.totalLimit, allowList)
-		if err != nil {
-			return false, errors.Wrap(err, "vector search")
-		}
-
-		// ensures the indexers aren't out of range
-		offsetCap := searchParams.offsetCapacity(ids)
-		totalLimitCap := searchParams.totalLimitCapacity(ids)
-
-		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
-
-		if len(ids) == 0 {
-			return false, nil
-		}
-
-		lastFound := dist[len(dist)-1]
-		shouldContinue = lastFound <= targetDistance
-
-		for i := range ids {
-			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
-				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
-				resultIDs = append(resultIDs, ids[i])
-				resultDist = append(resultDist, dist[i])
-			} else {
-				// as soon as we encounter a certainty which
-				// is below threshold, we can stop searching
-				break
-			}
-		}
-
-		return shouldContinue, nil
-	}
-
-	shouldContinue, err := recursiveSearch()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for shouldContinue {
-		searchParams.iterate()
-		if searchParams.maxLimitReached() {
-			h.logger.
-				WithField("action", "unlimited_vector_search").
-				Warnf("maximum search limit of %d results has been reached",
-					searchParams.maximumSearchLimit)
-			break
-		}
-
-		shouldContinue, err = recursiveSearch()
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	return resultIDs, resultDist, nil
+// SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
+// the search results contain all vector within the threshold specified by the
+// target distance.
+//
+// The maxLimit param will place an upper bound on the number of search results
+// returned. This is used in situations where the results of the method are all
+// eventually turned into objects, for example, a Get query. If the caller just
+// needs ids for sake of something like aggregation, a maxLimit of -1 can be
+// passed in to truly obtain all results from the vector index.
+func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32,
+	targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
+	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
+		h.SearchByMultiVector, h.logger)
 }
 
 func (h *hnsw) shouldRescore() bool {
@@ -972,6 +928,11 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	}
 }
 
+func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	// TODO:colbert implement
+	return common.QueryVectorDistancer{}
+}
+
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
 	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
@@ -1097,4 +1058,77 @@ func (params *searchByDistParams) maxLimitReached() bool {
 	}
 
 	return int64(params.totalLimit) > params.maximumSearchLimit
+}
+
+func searchByVectorDistance[T types.Embedding](ctx context.Context, vector T,
+	targetDistance float32, maxLimit int64,
+	allowList helpers.AllowList,
+	searchByVector func(context.Context, T, int, helpers.AllowList) ([]uint64, []float32, error),
+	logger logrus.FieldLogger,
+) ([]uint64, []float32, error) {
+	var (
+		searchParams = newSearchByDistParams(maxLimit)
+
+		resultIDs  []uint64
+		resultDist []float32
+	)
+
+	recursiveSearch := func() (bool, error) {
+		shouldContinue := false
+
+		ids, dist, err := searchByVector(ctx, vector, searchParams.totalLimit, allowList)
+		if err != nil {
+			return false, errors.Wrap(err, "vector search")
+		}
+
+		// ensures the indexers aren't out of range
+		offsetCap := searchParams.offsetCapacity(ids)
+		totalLimitCap := searchParams.totalLimitCapacity(ids)
+
+		ids, dist = ids[offsetCap:totalLimitCap], dist[offsetCap:totalLimitCap]
+
+		if len(ids) == 0 {
+			return false, nil
+		}
+
+		lastFound := dist[len(dist)-1]
+		shouldContinue = lastFound <= targetDistance
+
+		for i := range ids {
+			if aboveThresh := dist[i] <= targetDistance; aboveThresh ||
+				floatcomp.InDelta(float64(dist[i]), float64(targetDistance), 1e-6) {
+				resultIDs = append(resultIDs, ids[i])
+				resultDist = append(resultDist, dist[i])
+			} else {
+				// as soon as we encounter a certainty which
+				// is below threshold, we can stop searching
+				break
+			}
+		}
+
+		return shouldContinue, nil
+	}
+
+	shouldContinue, err := recursiveSearch()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for shouldContinue {
+		searchParams.iterate()
+		if searchParams.maxLimitReached() {
+			logger.
+				WithField("action", "unlimited_vector_search").
+				Warnf("maximum search limit of %d results has been reached",
+					searchParams.maximumSearchLimit)
+			break
+		}
+
+		shouldContinue, err = recursiveSearch()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return resultIDs, resultDist, nil
 }
