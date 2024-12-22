@@ -14,13 +14,13 @@ package modollama
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/qna-openai/config"
-	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
+	"github.com/liutizhong/weaviate/modules/qna-openai/config"
+	"github.com/liutizhong/weaviate/modules/text2vec-ollama/ent"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func (m *OllamaModule) ClassConfigDefaults() map[string]interface{} {

@@ -18,10 +18,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	ollama "github.com/weaviate/weaviate/modules/generative-ollama/clients"
-	"github.com/weaviate/weaviate/modules/generative-ollama/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	ollama "github.com/liutizhong/weaviate/modules/generative-ollama/clients"
+	"github.com/liutizhong/weaviate/modules/generative-ollama/parameters"
 )
 
 const Name = "generative-ollama"
