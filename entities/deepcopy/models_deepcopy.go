@@ -11,7 +11,7 @@
 
 package deepcopy
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 func Schema(s *models.Schema) *models.Schema {
 	classes := make([]*models.Class, len(s.Classes))

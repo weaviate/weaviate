@@ -18,9 +18,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/multishard"
 )
 
 func getWithCursorSearch(t *testing.T) {

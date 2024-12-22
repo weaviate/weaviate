@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/config"
 )
 
 // ConfigOpts all map to environment variables. For example:

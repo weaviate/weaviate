@@ -11,7 +11,7 @@
 
 package cache
 
-import "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+import "github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 
 func init() {
 	prefetchFunc = asm.Prefetch

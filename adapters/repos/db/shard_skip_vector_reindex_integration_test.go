@@ -23,14 +23,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/objects"
 )
 
 func TestShard_SkipVectorReindex(t *testing.T) {

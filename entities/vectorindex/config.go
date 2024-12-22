@@ -14,10 +14,10 @@ package vectorindex
 import (
 	"fmt"
 
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/vectorindex/dynamic"
+	"github.com/liutizhong/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 const (

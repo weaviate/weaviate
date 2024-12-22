@@ -17,7 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestVectorCachePrefilling(t *testing.T) {

@@ -16,11 +16,11 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/geo"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {

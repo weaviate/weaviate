@@ -15,8 +15,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/concurrency"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/concurrency"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/weaviate/sroar"
 )

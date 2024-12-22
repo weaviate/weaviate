@@ -19,13 +19,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 )
 
 // This test prevents a regression on the fix for
-// https://github.com/weaviate/weaviate/issues/824
+// https://github.com/liutizhong/weaviate/issues/824
 func localMeta_StringPropsNotSetEverywhere(t *testing.T) {
 	graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 		{

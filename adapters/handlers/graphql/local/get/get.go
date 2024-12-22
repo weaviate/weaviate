@@ -15,13 +15,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/utils"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 type ModulesProvider interface {

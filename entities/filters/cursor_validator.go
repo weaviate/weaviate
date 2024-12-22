@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func ValidateCursor(className schema.ClassName, cursor *Cursor, offset int, filters *LocalFilter, sort []Sort) error {

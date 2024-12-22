@@ -22,16 +22,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/storagestate"
-	wsync "github.com/weaviate/weaviate/entities/sync"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/storagestate"
+	wsync "github.com/liutizhong/weaviate/entities/sync"
 )
 
 var ErrAlreadyClosed = errors.New("store already closed")

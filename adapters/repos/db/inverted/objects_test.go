@@ -22,9 +22,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func TestAnalyzeObject(t *testing.T) {
@@ -593,7 +593,7 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
-		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
+		// due to the fix introduced in https://github.com/liutizhong/weaviate/pull/2320,
 		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 		// an object's reference property.
 		//

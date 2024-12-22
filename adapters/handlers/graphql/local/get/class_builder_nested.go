@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func (b *classBuilder) nestedField(propertyType schema.PropertyDataType,

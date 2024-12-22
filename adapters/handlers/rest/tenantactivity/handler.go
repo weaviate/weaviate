@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/tenantactivity"
+	"github.com/liutizhong/weaviate/entities/tenantactivity"
 )
 
 type Handler struct {

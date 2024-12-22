@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
 )
 
 func (sm *SchemaManager) QueryReadOnlyClasses(req *cmd.QueryRequest) ([]byte, error) {

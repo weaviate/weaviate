@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 func TestBSTCursor(t *testing.T) {

@@ -24,11 +24,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 // A component-test like test suite that makes sure that every available UC is

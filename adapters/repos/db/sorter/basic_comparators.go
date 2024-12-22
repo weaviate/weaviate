@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 type basicComparatorProvider struct{}

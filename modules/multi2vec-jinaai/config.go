@@ -14,11 +14,11 @@ package modclip
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/multi2vec-jinaai/ent"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/modules/multi2vec-jinaai/ent"
 )
 
 func (m *Module) ClassConfigDefaults() map[string]interface{} {

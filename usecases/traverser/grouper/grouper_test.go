@@ -15,13 +15,13 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func TestGrouper_ModeClosest(t *testing.T) {
@@ -257,7 +257,7 @@ func TestGrouper_ModeMerge(t *testing.T) {
 // Since reference properties can be represented both as models.MultipleRef
 // and []interface{}, we need to test for both cases. TestGrouper_ModeMerge
 // above tests the case of []interface{}, so this test handles the other case.
-// see https://github.com/weaviate/weaviate/pull/2320 for more info
+// see https://github.com/liutizhong/weaviate/pull/2320 for more info
 func Test_Grouper_ModeMerge_MultipleRef(t *testing.T) {
 	in := []search.Result{
 		{

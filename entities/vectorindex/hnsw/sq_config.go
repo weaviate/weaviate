@@ -11,7 +11,7 @@
 
 package hnsw
 
-import "github.com/weaviate/weaviate/entities/vectorindex/common"
+import "github.com/liutizhong/weaviate/entities/vectorindex/common"
 
 const (
 	DefaultSQEnabled       = false

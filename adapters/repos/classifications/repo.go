@@ -20,9 +20,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/classification"
 	bolt "go.etcd.io/bbolt"
 )
 

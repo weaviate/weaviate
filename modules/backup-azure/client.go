@@ -28,9 +28,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/backup"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/entities/backup"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 )
 
 const (

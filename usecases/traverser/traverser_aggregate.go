@@ -16,10 +16,10 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/modules"
 )
 
 // Aggregate resolves meta queries

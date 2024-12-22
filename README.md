@@ -1,8 +1,8 @@
 <h1>Weaviate <img alt='Weaviate logo' src='https://weaviate.io/img/site/weaviate-logo-light.png' width='148' align='right' /></h1>
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/weaviate/weaviate.svg)](https://pkg.go.dev/github.com/weaviate/weaviate)
-[![Build Status](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=main)](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
+[![Go Reference](https://pkg.go.dev/badge/github.com/liutizhong/weaviate.svg)](https://pkg.go.dev/github.com/liutizhong/weaviate)
+[![Build Status](https://github.com/liutizhong/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=main)](https://github.com/liutizhong/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/liutizhong/weaviate)](https://goreportcard.com/report/github.com/liutizhong/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/main/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 [![GitHub Tutorials](https://img.shields.io/badge/Weaviate_Tutorials-green)](https://github.com/weaviate-tutorials/)
@@ -156,7 +156,7 @@ At Weaviate, we love to connect with our community. We love helping amazing peop
 Please reach out, and join our community:
 
 - [Community forum](https://forum.weaviate.io)
-- [GitHub](https://github.com/weaviate/weaviate)
+- [GitHub](https://github.com/liutizhong/weaviate)
 - [Slack](https://weaviate.io/slack)
 - [X (Twitter)](https://twitter.com/weaviate_io)
 

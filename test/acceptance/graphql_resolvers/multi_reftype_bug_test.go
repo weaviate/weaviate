@@ -15,16 +15,16 @@ import (
 	"fmt"
 	"testing"
 
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // This test prevents a regression on
-// https://github.com/weaviate/weaviate/issues/1410
+// https://github.com/liutizhong/weaviate/issues/1410
 func TestMultipleRefTypeIssues(t *testing.T) {
 	className := func(suffix string) string {
 		return "MultiRefTypeBug" + suffix

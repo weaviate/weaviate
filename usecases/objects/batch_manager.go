@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.

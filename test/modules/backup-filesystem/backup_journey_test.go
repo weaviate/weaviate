@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/journey"
+	modstgfilesystem "github.com/liutizhong/weaviate/modules/backup-filesystem"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/journey"
 )
 
 const (

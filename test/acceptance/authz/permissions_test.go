@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzRolesWithPermissions(t *testing.T) {

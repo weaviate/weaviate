@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v0"
 )
 
 type Service struct {

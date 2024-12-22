@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // NewBatchReferencesCreateParams creates a new BatchReferencesCreateParams object

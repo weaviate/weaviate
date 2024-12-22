@@ -22,14 +22,14 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func TestRef2VecCentroid(t *testing.T) {

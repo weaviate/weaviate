@@ -16,8 +16,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func clusterBackupJourneyTest(t *testing.T, backend, className,

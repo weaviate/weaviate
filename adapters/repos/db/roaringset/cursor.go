@@ -17,7 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type CombinedCursor struct {

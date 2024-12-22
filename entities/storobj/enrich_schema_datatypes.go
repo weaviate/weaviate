@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func enrichSchemaTypes(schema map[string]interface{}, ofNestedProp bool) error {

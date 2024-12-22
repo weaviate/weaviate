@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // AddPermissionsHandlerFunc turns a function with the right signature into a add permissions handler

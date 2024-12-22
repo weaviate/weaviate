@@ -12,8 +12,8 @@
 package fixtures
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 var (

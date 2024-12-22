@@ -14,9 +14,9 @@ package schema
 import (
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	libschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	libschema "github.com/liutizhong/weaviate/entities/schema"
 )
 
 // RefFinder is a helper that lists classes and their possible paths to to a

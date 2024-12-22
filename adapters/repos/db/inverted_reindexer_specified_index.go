@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 type ShardInvertedReindexTask_SpecifiedIndex struct {

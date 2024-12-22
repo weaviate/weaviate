@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 func Test_FlatUserConfig(t *testing.T) {

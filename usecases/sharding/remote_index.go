@@ -20,18 +20,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/objects"
 )
 
 type RemoteIndex struct {

@@ -24,11 +24,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
@@ -274,8 +274,8 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
-	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
-	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/liutizhong/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/liutizhong/weaviate/issues/1705
 	AddPQ
 	AddSQ
 )

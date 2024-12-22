@@ -27,7 +27,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-aws/ent"
 )
 
 func TestClient(t *testing.T) {

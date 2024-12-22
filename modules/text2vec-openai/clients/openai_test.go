@@ -20,14 +20,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-openai/ent"
 )
 
 func TestBuildUrlFn(t *testing.T) {

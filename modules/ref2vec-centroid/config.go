@@ -15,11 +15,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/ref2vec-centroid/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/modules/ref2vec-centroid/config"
 )
 
 func (m *CentroidModule) ClassConfigDefaults() map[string]interface{} {

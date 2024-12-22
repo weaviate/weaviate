@@ -18,13 +18,13 @@ import (
 	"strings"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func (p *GenerateProvider) generateResult(ctx context.Context,

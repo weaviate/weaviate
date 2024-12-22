@@ -17,13 +17,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/filters"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/dto"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,

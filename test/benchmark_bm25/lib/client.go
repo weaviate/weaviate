@@ -14,7 +14,7 @@ package lib
 import (
 	"net/url"
 
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	client "github.com/liutizhong/weaviate-go-client/v4/weaviate"
 )
 
 func ClientFromOrigin(origin string) (*client.Client, error) {

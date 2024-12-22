@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

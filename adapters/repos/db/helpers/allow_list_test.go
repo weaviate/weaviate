@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
 )
 
 func TestAllowList(t *testing.T) {

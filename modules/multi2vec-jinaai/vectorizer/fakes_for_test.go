@@ -14,8 +14,8 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 )
 
 type builder struct {

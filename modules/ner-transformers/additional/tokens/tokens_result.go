@@ -16,9 +16,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/modules/ner-transformers/ent"
 )
 
 func (p *TokenProvider) findTokens(ctx context.Context,

@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	"github.com/liutizhong/weaviate/modules/ner-transformers/ent"
 )
 
 func TestGetAnswer(t *testing.T) {

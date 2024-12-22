@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/entities/filters"
 )
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,

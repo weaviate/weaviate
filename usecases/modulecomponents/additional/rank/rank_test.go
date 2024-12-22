@@ -16,13 +16,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {

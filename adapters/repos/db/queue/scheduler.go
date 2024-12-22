@@ -20,8 +20,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 )
 
 type Scheduler struct {

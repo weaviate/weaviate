@@ -14,7 +14,7 @@ package errors
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func ErrPayloadFromSingleErr(err error) *models.ErrorResponse {

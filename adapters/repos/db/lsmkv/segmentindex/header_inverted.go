@@ -15,8 +15,8 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
 var (

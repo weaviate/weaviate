@@ -16,8 +16,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/repos/db/queue"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type VectorIndexQueueMetrics struct {

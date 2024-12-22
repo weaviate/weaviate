@@ -16,11 +16,11 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/multi2vec-google/ent"
+	objectsvectorizer "github.com/liutizhong/weaviate/usecases/modulecomponents/vectorizer"
+	libvectorizer "github.com/liutizhong/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {

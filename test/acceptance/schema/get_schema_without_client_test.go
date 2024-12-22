@@ -19,8 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func testGetSchemaWithoutClient(t *testing.T) {

@@ -20,14 +20,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/interval"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/liutizhong/weaviate/entities/interval"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/replica"
+	"github.com/liutizhong/weaviate/usecases/replica/hashtree"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 )
 
 const propagationLimitPerHashbeatIteration = 100_000

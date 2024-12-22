@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 const testClassName = "MyFavoriteClass"

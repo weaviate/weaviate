@@ -17,8 +17,8 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	entSentry "github.com/liutizhong/weaviate/entities/sentry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

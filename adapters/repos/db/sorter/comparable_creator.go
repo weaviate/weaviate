@@ -11,7 +11,7 @@
 
 package sorter
 
-import "github.com/weaviate/weaviate/entities/storobj"
+import "github.com/liutizhong/weaviate/entities/storobj"
 
 type comparable struct {
 	docID uint64

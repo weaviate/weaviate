@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringsetrange"
 )
 
 func (m *Memtable) newRoaringSetRangeReader() roaringsetrange.InnerReader {

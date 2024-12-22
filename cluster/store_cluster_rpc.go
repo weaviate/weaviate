@@ -16,7 +16,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/types"
 )
 
 // Join adds the given peer to the cluster.

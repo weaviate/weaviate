@@ -21,9 +21,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type Memtable struct {

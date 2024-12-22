@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // ObjectsReferencesDeleteHandlerFunc turns a function with the right signature into a objects references delete handler

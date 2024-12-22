@@ -18,16 +18,16 @@ import (
 	"strings"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/filters"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/replica/hashtree"
 )
 
 var (

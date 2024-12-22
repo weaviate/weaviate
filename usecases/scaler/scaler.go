@@ -16,15 +16,15 @@ import (
 	"fmt"
 	"runtime"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 // TODOs: Performance

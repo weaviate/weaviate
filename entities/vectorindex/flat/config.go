@@ -15,8 +15,8 @@ import (
 	"errors"
 	"fmt"
 
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	vectorindexcommon "github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 const (

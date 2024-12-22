@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
-	cmocks "github.com/weaviate/weaviate/entities/modulecapabilities/mocks"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authZMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	bmocks "github.com/weaviate/weaviate/usecases/backup/mocks"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/models"
+	cmocks "github.com/liutizhong/weaviate/entities/modulecapabilities/mocks"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	authZMocks "github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	bmocks "github.com/liutizhong/weaviate/usecases/backup/mocks"
 )
 
 // A component-test like test suite that makes sure that every available UC is

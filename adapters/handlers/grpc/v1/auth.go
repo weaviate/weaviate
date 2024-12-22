@@ -15,7 +15,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 	"google.golang.org/grpc/metadata"
 )
 

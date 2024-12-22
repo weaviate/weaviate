@@ -16,11 +16,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/objects"
 )
 
 type batchWriterResults struct {

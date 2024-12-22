@@ -18,24 +18,24 @@ import (
 	"strconv"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/sorter"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/inverted"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 type Searcher struct {
@@ -313,7 +313,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	// prevent unbounded concurrency, see
-	// https://github.com/weaviate/weaviate/issues/3179 for details
+	// https://github.com/liutizhong/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
 
 	for i, clause := range operands {

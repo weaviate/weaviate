@@ -15,13 +15,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-jinaai/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/jinaai"
+	"github.com/liutizhong/weaviate/modules/multi2vec-jinaai/ent"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/clients/jinaai"
 )
 
 const (

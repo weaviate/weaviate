@@ -14,9 +14,9 @@ package traverser
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 // Explore through unstructured search terms

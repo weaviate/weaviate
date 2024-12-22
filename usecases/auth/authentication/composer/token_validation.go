@@ -14,8 +14,8 @@ package composer
 import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 type TokenFunc func(token string, scopes []string) (*models.Principal, error)

@@ -14,9 +14,9 @@ package aggregation
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 type Params struct {

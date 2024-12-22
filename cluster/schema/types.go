@@ -14,9 +14,9 @@ package schema
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type (

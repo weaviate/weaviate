@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type CursorReplace struct {

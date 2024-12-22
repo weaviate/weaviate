@@ -16,14 +16,14 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	clschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
+	clschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
+	testhelper "github.com/liutizhong/weaviate/test/helper"
 )
 
-// See https://github.com/weaviate/weaviate/issues/980
+// See https://github.com/liutizhong/weaviate/issues/980
 func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row

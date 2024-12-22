@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-	"github.com/weaviate/weaviate/client/backups"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/client/backups"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/backup"
 )
 
 func DefaultBackupConfig() *models.BackupConfig {

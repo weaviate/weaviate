@@ -21,13 +21,13 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	entSentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	entSentry "github.com/liutizhong/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/entities/versioned"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to

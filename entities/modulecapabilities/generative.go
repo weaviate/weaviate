@@ -16,7 +16,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 )
 
 // GraphQLFieldFn generates graphql input fields

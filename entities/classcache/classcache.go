@@ -14,7 +14,7 @@ package classcache
 import (
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type classCache sync.Map

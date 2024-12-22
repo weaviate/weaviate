@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-transformers/ent"
 )
 
 func (v *vectorizer) WaitForStartup(initCtx context.Context,

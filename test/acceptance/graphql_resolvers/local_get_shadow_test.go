@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 )
 
 // run by setup_test.go

@@ -14,7 +14,7 @@ package hnsw
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not

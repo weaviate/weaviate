@@ -20,10 +20,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/filters"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/entities/filters"
+	entlsmkv "github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 const maxDocID = 33333333

@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 // string and stringArray are deprecated as of v1.19

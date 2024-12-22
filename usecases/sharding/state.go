@@ -18,10 +18,10 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 const shardNameLength = 12

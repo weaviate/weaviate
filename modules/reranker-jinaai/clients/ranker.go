@@ -23,15 +23,15 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-jinaai/config"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/reranker-jinaai/config"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 )
 
 var _NUMCPU = runtime.NumCPU()

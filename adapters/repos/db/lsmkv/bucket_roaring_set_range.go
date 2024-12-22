@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/liutizhong/weaviate/entities/concurrency"
+	"github.com/liutizhong/weaviate/entities/filters"
 )
 
 func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {

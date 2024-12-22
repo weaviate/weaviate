@@ -21,10 +21,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
+	wvt "github.com/liutizhong/weaviate-go-client/v4/weaviate"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/fault"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/docker"
 )
 
 func TestActivationDeactivation(t *testing.T) {
@@ -648,7 +648,7 @@ func assertActiveTenantObjects(t *testing.T, client *wvt.Client, className, tena
 func assertInactiveTenantObjects(t *testing.T, client *wvt.Client, className, tenantName string) {
 	// Data objects in Weaviate are eventually consistent, therefore we have to add some sleep time
 	// to make sure that the tenant was deactivate in all nodes
-	// see docs: https://github.com/weaviate/weaviate-io/blob/main/developers/weaviate/concepts/replication-architecture/consistency.md#data-objects
+	// see docs: https://github.com/liutizhong/weaviate-io/blob/main/developers/weaviate/concepts/replication-architecture/consistency.md#data-objects
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		objects, err := client.Data().ObjectsGetter().
 			WithClassName(className).

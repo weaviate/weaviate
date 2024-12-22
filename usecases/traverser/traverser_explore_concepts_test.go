@@ -19,10 +19,10 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_ExploreConcepts(t *testing.T) {

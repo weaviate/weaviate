@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
 )
 
 // BatchObject is a helper type that groups all the info about one object in a

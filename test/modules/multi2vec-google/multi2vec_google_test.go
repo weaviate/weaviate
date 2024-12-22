@@ -16,9 +16,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/multimodal"
 )
 
 func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func(t *testing.T) {

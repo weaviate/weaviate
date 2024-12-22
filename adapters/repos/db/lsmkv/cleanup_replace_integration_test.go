@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOption) {

@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 )
 
 const TransactionPut cluster.TransactionType = "put_single"

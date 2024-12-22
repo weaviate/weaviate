@@ -20,11 +20,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/objects/validation"
 )
 
 func (a *Analyzer) Object(input map[string]any, props []*models.Property,
@@ -473,7 +473,7 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 	var asRefs models.MultipleRef
 	asRefs, ok = value.(models.MultipleRef)
 	if !ok {
-		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
+		// due to the fix introduced in https://github.com/liutizhong/weaviate/pull/2320,
 		// MultipleRef's can appear as empty []any when no actual refs are provided for
 		// an object's reference property.
 		//

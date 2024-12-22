@@ -14,9 +14,9 @@ package lsmkv
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
@@ -42,7 +42,7 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 
 	// make sure that any data is copied before exiting this method, otherwise we
 	// risk a SEGFAULT as described in
-	// https://github.com/weaviate/weaviate/issues/1837
+	// https://github.com/liutizhong/weaviate/issues/1837
 	out.Additions = sn.AdditionsWithCopy()
 	out.Deletions = sn.DeletionsWithCopy()
 	return out, nil

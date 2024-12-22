@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit int,
@@ -64,7 +64,7 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 			for idPos := workerID; idPos < len(candidates); idPos += h.flatSearchConcurrency {
 				candidate := candidates[idPos]
 
-				// Hot fix for https://github.com/weaviate/weaviate/issues/1937
+				// Hot fix for https://github.com/liutizhong/weaviate/issues/1937
 				// this if statement mitigates the problem but it doesn't resolve the issue
 				if candidate >= nodeSize {
 					h.logger.WithField("action", "flatSearch").

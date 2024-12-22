@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/diskio"
 )
 
 func (h *hnsw) init(cfg Config) error {

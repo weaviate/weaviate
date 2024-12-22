@@ -17,7 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func Test_HeadObject(t *testing.T) {

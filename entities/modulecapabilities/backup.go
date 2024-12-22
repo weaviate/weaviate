@@ -15,7 +15,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
 )
 
 type BackupBackend interface {

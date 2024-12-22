@@ -19,8 +19,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type Deserializer struct {
@@ -47,7 +47,7 @@ type DeserializationResult struct {
 	// flag, so that future appends aren't always appended and we run into a
 	// situation where reading multiple condensed logs in succession leads to too
 	// many connections as discovered in
-	// https://github.com/weaviate/weaviate/issues/1868
+	// https://github.com/liutizhong/weaviate/issues/1868
 	LinksReplaced map[uint64]map[uint16]struct{}
 }
 

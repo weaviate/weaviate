@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/entities/models"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
 )
 
 func TestCompressionBackupCfg(t *testing.T) {

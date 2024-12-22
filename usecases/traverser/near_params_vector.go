@@ -18,13 +18,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/generictypes"
+	libvectorizer "github.com/liutizhong/weaviate/usecases/vectorizer"
 )
 
 type nearParamsVector struct {

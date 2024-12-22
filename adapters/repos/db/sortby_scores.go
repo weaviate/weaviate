@@ -14,7 +14,7 @@ package db
 import (
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 // sortByScores aka RankedResults implements sort.Interface, allowing

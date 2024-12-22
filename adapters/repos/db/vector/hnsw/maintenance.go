@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 const (

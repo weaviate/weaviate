@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 var schemaTests = []struct {
@@ -341,7 +341,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 }
 
 func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
-	// TODO: https://github.com/weaviate/weaviate/issues/973
+	// TODO: https://github.com/liutizhong/weaviate/issues/973
 	// Remove skip
 
 	t.Skip()

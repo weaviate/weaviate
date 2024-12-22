@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func composeUp(t *testing.T, admins map[string]string, users map[string]string, viewers map[string]string) (*docker.DockerCompose, func()) {

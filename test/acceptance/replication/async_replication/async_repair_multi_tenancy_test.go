@@ -19,14 +19,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/acceptance/replication/common"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/liutizhong/weaviate/client/nodes"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/test/acceptance/replication/common"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/articles"
+	"github.com/liutizhong/weaviate/usecases/replica"
 )
 
 // In this scenario, we are testing two things:

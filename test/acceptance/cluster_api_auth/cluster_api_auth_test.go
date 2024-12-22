@@ -18,11 +18,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/client/nodes"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
 )
 
 func TestClusterAPIAuth(t *testing.T) {

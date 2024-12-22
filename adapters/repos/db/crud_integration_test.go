@@ -25,19 +25,19 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/multi"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/multi"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/replica"
 )
 
 func TestCRUD(t *testing.T) {
@@ -2190,7 +2190,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			Class: classNameWithRefs,
 			Properties: map[string]interface{}{
 				"stringProp": "some prop",
-				// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
+				// due to the fix introduced in https://github.com/liutizhong/weaviate/pull/2320,
 				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 				// an object's reference property.
 				//

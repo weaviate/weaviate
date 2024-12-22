@@ -21,13 +21,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/liutizhong/weaviate/adapters/repos/db/queue"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

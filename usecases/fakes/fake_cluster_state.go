@@ -12,9 +12,9 @@
 package fakes
 
 import (
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/cluster/mocks"
 )
 
 type FakeClusterState struct {

@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/entities/models"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
 )
 
 func TestGRPCTenants(t *testing.T) {

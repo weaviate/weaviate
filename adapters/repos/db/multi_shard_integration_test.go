@@ -29,19 +29,19 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
@@ -671,7 +671,7 @@ func testNodesAPI(repo *DB) func(t *testing.T) {
 		assert.Equal(t, int64(3), testClassShardsCount)
 		// a previous version of this test made assertions on object counts,
 		// however with object count becoming async, we can no longer make exact
-		// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+		// assertions here. See https://github.com/liutizhong/weaviate/issues/4193
 		// for details.
 		assert.Equal(t, int64(3), testRefClassShardsCount)
 		assert.Equal(t, int64(6), nodeStatus.Stats.ShardCount)

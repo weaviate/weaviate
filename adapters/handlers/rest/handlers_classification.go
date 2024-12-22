@@ -16,12 +16,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
-	"github.com/weaviate/weaviate/entities/models"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/classifications"
+	"github.com/liutizhong/weaviate/entities/models"
+	autherrs "github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/usecases/classification"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,

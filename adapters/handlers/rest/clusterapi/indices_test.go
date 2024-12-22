@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/clusterapi"
 )
 
 func TestMaintenanceModeIndices(t *testing.T) {

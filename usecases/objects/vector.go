@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,

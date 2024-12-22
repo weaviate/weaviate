@@ -20,12 +20,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 
-	ucs "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	ucs "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 func TestSaveAndLoadSchema(t *testing.T) {

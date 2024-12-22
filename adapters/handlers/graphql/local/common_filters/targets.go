@@ -17,7 +17,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 func AddTargetArgument(fieldMap graphql.InputObjectConfigFieldMap, prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {

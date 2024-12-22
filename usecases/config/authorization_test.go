@@ -14,10 +14,10 @@ package config
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/adminlist"
 )
 
 func Test_Validation(t *testing.T) {

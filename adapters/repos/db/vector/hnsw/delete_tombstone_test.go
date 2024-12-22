@@ -29,11 +29,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 func startMonitoringForTests() (*monitoring.PrometheusMetrics, func()) {

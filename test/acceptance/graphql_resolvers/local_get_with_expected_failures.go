@@ -14,12 +14,12 @@ package test
 import (
 	"testing"
 
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func getsWithExpectedFailures(t *testing.T) {

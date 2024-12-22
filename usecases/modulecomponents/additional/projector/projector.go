@@ -19,9 +19,9 @@ import (
 	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/pkg/errors"
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
 	"gonum.org/v1/gonum/mat"
 )
 

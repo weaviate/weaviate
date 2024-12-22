@@ -18,14 +18,14 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	spellcheckadditional "github.com/weaviate/weaviate/modules/text-spellcheck/additional"
-	spellcheckadditionalspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck/additional/spellcheck"
-	"github.com/weaviate/weaviate/modules/text-spellcheck/clients"
-	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
-	spellchecktexttransformer "github.com/weaviate/weaviate/modules/text-spellcheck/transformer"
-	spellchecktexttransformerautocorrect "github.com/weaviate/weaviate/modules/text-spellcheck/transformer/autocorrect"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	spellcheckadditional "github.com/liutizhong/weaviate/modules/text-spellcheck/additional"
+	spellcheckadditionalspellcheck "github.com/liutizhong/weaviate/modules/text-spellcheck/additional/spellcheck"
+	"github.com/liutizhong/weaviate/modules/text-spellcheck/clients"
+	"github.com/liutizhong/weaviate/modules/text-spellcheck/ent"
+	spellchecktexttransformer "github.com/liutizhong/weaviate/modules/text-spellcheck/transformer"
+	spellchecktexttransformerautocorrect "github.com/liutizhong/weaviate/modules/text-spellcheck/transformer/autocorrect"
 )
 
 const Name = "text-spellcheck"

@@ -18,8 +18,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	errors "github.com/go-openapi/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 // Client handles the OIDC setup at startup and provides a middleware to be

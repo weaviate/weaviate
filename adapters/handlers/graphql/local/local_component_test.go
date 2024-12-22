@@ -20,10 +20,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
-	usecaseModules "github.com/weaviate/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
+	usecaseModules "github.com/liutizhong/weaviate/usecases/modules"
 )
 
 // These tests are component tests for the local package including all its

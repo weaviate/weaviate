@@ -20,16 +20,16 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/meta"
-	"github.com/weaviate/weaviate/client/nodes"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
+	"github.com/liutizhong/weaviate/client/batch"
+	"github.com/liutizhong/weaviate/client/meta"
+	"github.com/liutizhong/weaviate/client/nodes"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/documents"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_NodesAPI(t *testing.T) {
@@ -171,7 +171,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 
 	// This test prevents a regression of
-	// https://github.com/weaviate/weaviate/issues/2454
+	// https://github.com/liutizhong/weaviate/issues/2454
 	t.Run("validate count with updates", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
 		helper.CreateClass(t, booksClass)

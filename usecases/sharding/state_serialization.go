@@ -14,7 +14,7 @@ package sharding
 import (
 	"encoding/json"
 
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 )
 
 func (s *State) JSON() ([]byte, error) {

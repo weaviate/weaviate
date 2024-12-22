@@ -19,10 +19,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-octoai/clients"
-	"github.com/weaviate/weaviate/modules/generative-octoai/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/generative-octoai/clients"
+	"github.com/liutizhong/weaviate/modules/generative-octoai/parameters"
 )
 
 const Name = "generative-octoai"

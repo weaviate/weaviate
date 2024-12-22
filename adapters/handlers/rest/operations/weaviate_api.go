@@ -31,18 +31,18 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/authz"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/backups"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/batch"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/classifications"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/cluster"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/meta"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/nodes"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/well_known"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance
@@ -287,7 +287,7 @@ The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PO
 
 If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
 ### Issues?
-If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
+If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/liutizhong/weaviate).
 ### Want more documentation?
 For a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).
 */

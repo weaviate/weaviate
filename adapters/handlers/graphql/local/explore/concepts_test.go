@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	helper "github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/traverser"
 )
 
 type testCase struct {

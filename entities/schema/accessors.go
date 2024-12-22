@@ -12,7 +12,7 @@
 package schema
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func (s *Schema) GetClass(className string) *models.Class {

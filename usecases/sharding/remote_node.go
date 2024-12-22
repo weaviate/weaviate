@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type RemoteNodeClient interface {

@@ -18,7 +18,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 )
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to

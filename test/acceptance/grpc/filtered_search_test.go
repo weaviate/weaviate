@@ -20,9 +20,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/models"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/test/helper"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 

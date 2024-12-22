@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func ValidateSort(getClass func(string) *models.Class, className schema.ClassName, sort []Sort) error {
@@ -69,7 +69,7 @@ func validateSortClause(getClass func(string) *models.Class, className schema.Cl
 		if isUUIDType(prop.DataType[0]) {
 			return fmt.Errorf("prop %q is of type uuid/uuid[]: "+
 				"sorting by uuid is currently not supported - if you believe it should be, "+
-				"please open a feature request on github.com/weaviate/weaviate", prop.Name)
+				"please open a feature request on github.com/liutizhong/weaviate", prop.Name)
 		}
 
 		if schema.IsRefDataType(prop.DataType) {

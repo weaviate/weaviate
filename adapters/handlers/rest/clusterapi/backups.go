@@ -18,7 +18,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/backup"
 )
 
 type backupManager interface {

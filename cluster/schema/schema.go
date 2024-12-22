@@ -17,12 +17,12 @@ import (
 	"strings"
 	"sync"
 
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/models"
-	entSchema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/entities/models"
+	entSchema "github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/versioned"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 var (

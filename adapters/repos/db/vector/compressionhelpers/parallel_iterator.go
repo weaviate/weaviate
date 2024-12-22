@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )

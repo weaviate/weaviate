@@ -15,12 +15,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+	"github.com/liutizhong/weaviate/entities/schema/configvalidation"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/dto"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/dto"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 func (t *Traverser) validateExploreDistance(params ExploreParams) error {

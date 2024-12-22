@@ -18,9 +18,9 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/weaviate/weaviate/entities/models"
-	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/entities/models"
+	entschema "github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/verbosity"
 )
 
 type nodesManager interface {

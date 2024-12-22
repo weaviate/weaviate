@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func Test_NoRaceTileEncoderEncode(t *testing.T) {

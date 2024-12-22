@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // Forbidden indicates a failed authorization

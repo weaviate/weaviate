@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/adapters/repos/db/queue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/entities/types"
 )
 
 const (

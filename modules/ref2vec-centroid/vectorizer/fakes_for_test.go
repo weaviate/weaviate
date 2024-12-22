@@ -16,8 +16,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 type fakeClassConfig map[string]interface{}

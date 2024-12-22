@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func getNearDepthArgumentFn(classname string) *graphql.ArgumentConfig {

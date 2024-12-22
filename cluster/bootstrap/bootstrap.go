@@ -19,9 +19,9 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/resolver"
-	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/resolver"
+	entSentry "github.com/liutizhong/weaviate/entities/sentry"
 	"golang.org/x/exp/slices"
 )
 

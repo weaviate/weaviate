@@ -19,18 +19,18 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func TestGetParams(t *testing.T) {

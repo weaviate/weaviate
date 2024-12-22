@@ -14,7 +14,7 @@ package hnsw
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 const (

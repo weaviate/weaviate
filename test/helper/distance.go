@@ -14,7 +14,7 @@ package helper
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/additional"
 )
 
 func CertaintyToDist(t *testing.T, in float32) float32 {

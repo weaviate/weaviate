@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"

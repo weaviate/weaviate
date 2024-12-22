@@ -17,13 +17,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/batch"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func TestBatch(t *testing.T) {

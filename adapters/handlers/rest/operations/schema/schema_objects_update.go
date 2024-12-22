@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // SchemaObjectsUpdateHandlerFunc turns a function with the right signature into a schema objects update handler

@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
 )
 
 const (

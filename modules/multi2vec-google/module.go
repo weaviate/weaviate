@@ -17,16 +17,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/clients"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/vectorizer"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/multi2vec-google/clients"
+	"github.com/liutizhong/weaviate/modules/multi2vec-google/vectorizer"
 )
 
 const (

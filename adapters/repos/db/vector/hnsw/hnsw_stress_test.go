@@ -25,13 +25,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"

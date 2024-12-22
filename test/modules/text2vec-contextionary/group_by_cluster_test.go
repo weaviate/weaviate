@@ -15,7 +15,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/weaviate/weaviate/test/helper/journey"
+	"github.com/liutizhong/weaviate/test/helper/journey"
 )
 
 func Test_WeaviateCluster_GroupBy(t *testing.T) {

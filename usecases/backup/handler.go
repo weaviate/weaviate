@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 // Version of backup structure

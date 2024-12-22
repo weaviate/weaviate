@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For

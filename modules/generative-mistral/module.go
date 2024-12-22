@@ -19,10 +19,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-mistral/clients"
-	"github.com/weaviate/weaviate/modules/generative-mistral/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/generative-mistral/clients"
+	"github.com/liutizhong/weaviate/modules/generative-mistral/parameters"
 )
 
 const Name = "generative-mistral"

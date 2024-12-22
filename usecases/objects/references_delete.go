@@ -16,13 +16,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/classcache"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.

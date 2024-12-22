@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],

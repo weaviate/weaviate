@@ -16,10 +16,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
 )
 
 func Test_SUMTransformers(t *testing.T) {

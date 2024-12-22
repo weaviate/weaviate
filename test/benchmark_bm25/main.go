@@ -11,7 +11,7 @@
 
 package main
 
-import "github.com/weaviate/weaviate/test/benchmark_bm25/cmd"
+import "github.com/liutizhong/weaviate/test/benchmark_bm25/cmd"
 
 func main() {
 	cmd.Execute()

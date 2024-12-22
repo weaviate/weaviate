@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
+	"github.com/liutizhong/weaviate/modules/multi2vec-bind/ent"
 )
 
 type vectorizer struct {

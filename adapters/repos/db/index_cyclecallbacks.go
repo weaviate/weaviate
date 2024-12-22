@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 type indexCycleCallbacks struct {
@@ -94,7 +94,7 @@ func (index *Index) initCycleCallbacks() {
 	// running the cleanup checks and work much more often.
 	//
 	// update: switched to dynamic intervals with values between 500ms and 10s
-	// introduced to address https://github.com/weaviate/weaviate/issues/2783
+	// introduced to address https://github.com/liutizhong/weaviate/issues/2783
 	vectorCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
 		vectorCommitLoggerCallbacks.CycleCallback, index.logger)

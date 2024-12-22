@@ -16,11 +16,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/journey"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	modstggcs "github.com/liutizhong/weaviate/modules/backup-gcs"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/journey"
+	moduleshelper "github.com/liutizhong/weaviate/test/helper/modules"
 )
 
 const (

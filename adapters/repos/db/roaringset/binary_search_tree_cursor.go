@@ -14,7 +14,7 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type BinarySearchTreeCursor struct {

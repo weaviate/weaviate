@@ -23,9 +23,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	googleparams "github.com/liutizhong/weaviate/modules/generative-google/parameters"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/apikey"
 )
 
 func nullLogger() logrus.FieldLogger {

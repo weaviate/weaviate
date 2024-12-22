@@ -16,7 +16,7 @@ package mocks
 import (
 	context "context"
 
-	backup "github.com/weaviate/weaviate/entities/backup"
+	backup "github.com/liutizhong/weaviate/entities/backup"
 
 	io "io"
 

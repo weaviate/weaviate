@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/entities/types"
 )
 
 type VectorIndex interface {

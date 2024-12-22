@@ -14,8 +14,8 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type BinarySearchTree struct {

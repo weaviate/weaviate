@@ -17,12 +17,12 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {

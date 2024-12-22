@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/state"
+	"github.com/liutizhong/weaviate/adapters/repos/db"
+	"github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func setupDebugHandlers(appState *state.State) {

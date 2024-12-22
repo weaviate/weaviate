@@ -23,9 +23,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestGraphIntegrity(t *testing.T) {

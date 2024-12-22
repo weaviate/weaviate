@@ -20,15 +20,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/batch"
+	"github.com/liutizhong/weaviate/client/batch"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/client/objects"
-	clschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
-	testhelper "github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/objects"
+	clschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
+	testhelper "github.com/liutizhong/weaviate/test/helper"
 )
 
 const (
@@ -736,7 +736,7 @@ func TestObjectCrefWithoutToClass(t *testing.T) {
 }
 
 // This test suite is meant to prevent a regression on
-// https://github.com/weaviate/weaviate/issues/868, hence it tries to
+// https://github.com/liutizhong/weaviate/issues/868, hence it tries to
 // reproduce the steps outlined in there as closely as possible
 func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	defer func() {
@@ -870,7 +870,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 }
 
 // This test suite is meant to prevent a regression on
-// https://github.com/weaviate/weaviate/issues/868, hence it tries to
+// https://github.com/liutizhong/weaviate/issues/868, hence it tries to
 // reproduce the steps outlined in there as closely as possible
 func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	defer func() {

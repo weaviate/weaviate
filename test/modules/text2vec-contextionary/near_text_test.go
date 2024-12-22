@@ -16,10 +16,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
+	"github.com/liutizhong/weaviate/test/helper"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_Text2Vec_NearText(t *testing.T) {

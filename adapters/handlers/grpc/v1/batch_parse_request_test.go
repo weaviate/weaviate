@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
 )
 
 const (

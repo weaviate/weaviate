@@ -14,14 +14,14 @@ package batch
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/settings"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
 	"github.com/weaviate/tiktoken-go"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/modules/text2vec-openai/clients"
+	objectsvectorizer "github.com/liutizhong/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 type TokenizerFuncType func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error)

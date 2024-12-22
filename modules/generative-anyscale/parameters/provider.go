@@ -11,7 +11,7 @@
 
 package parameters
 
-import "github.com/weaviate/weaviate/entities/modulecapabilities"
+import "github.com/liutizhong/weaviate/entities/modulecapabilities"
 
 const Name = "anyscale"
 

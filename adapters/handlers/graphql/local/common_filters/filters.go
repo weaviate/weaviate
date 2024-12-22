@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 // The filters common to Local->Get and Local->Meta queries.

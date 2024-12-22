@@ -22,12 +22,12 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	modstgfs "github.com/liutizhong/weaviate/modules/backup-filesystem"
+	moduleshelper "github.com/liutizhong/weaviate/test/helper/modules"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_FileSystemBackend_Start(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 func TestTargetExtraction(t *testing.T) {

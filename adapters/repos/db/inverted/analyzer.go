@@ -16,8 +16,8 @@ import (
 	"encoding/binary"
 
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type IsFallbackToSearchable func() bool

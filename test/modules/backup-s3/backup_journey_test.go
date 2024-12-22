@@ -15,12 +15,12 @@ import (
 	"context"
 	"testing"
 
-	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modstgs3 "github.com/liutizhong/weaviate/modules/backup-s3"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/journey"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/journey"
 )
 
 const (

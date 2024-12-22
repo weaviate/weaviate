@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	schemaUC "github.com/liutizhong/weaviate/usecases/schema"
 )
 
 const GetNodeStatusTimeout = 30 * time.Second

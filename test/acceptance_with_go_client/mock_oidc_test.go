@@ -21,8 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate/test/docker"
+	client "github.com/liutizhong/weaviate-go-client/v4/weaviate"
+	"github.com/liutizhong/weaviate/test/docker"
 )
 
 func TestMockOIDC(t *testing.T) {

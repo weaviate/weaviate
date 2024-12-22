@@ -15,9 +15,9 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func extractLimitFromTopOccs(aggs []aggregation.Aggregator) int {

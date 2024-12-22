@@ -21,9 +21,9 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/lsmkv"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 	"github.com/willf/bloom"
 )
 

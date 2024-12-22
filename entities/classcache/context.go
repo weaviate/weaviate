@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/liutizhong/weaviate/entities/versioned"
 )
 
 const classCacheKey = "classCache"

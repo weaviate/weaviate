@@ -18,11 +18,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/journey"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	modstgazure "github.com/liutizhong/weaviate/modules/backup-azure"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/journey"
+	moduleshelper "github.com/liutizhong/weaviate/test/helper/modules"
 )
 
 const (

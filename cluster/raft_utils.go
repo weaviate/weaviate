@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/types"
 )
 
 // leaderErr decorates ErrLeaderNotFound by distinguishing between

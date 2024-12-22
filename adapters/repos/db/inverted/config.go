@@ -16,10 +16,10 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 var _NUMCPU = runtime.NumCPU()

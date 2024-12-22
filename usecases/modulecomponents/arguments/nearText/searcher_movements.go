@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/entities/types"
 )
 
 type movements[T types.Embedding] struct{}

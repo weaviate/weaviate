@@ -14,7 +14,7 @@ package helpers
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/filters"
 )
 
 var (

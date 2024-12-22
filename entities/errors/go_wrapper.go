@@ -16,8 +16,8 @@ import (
 	"os"
 	"runtime/debug"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/sirupsen/logrus"
 )

@@ -16,17 +16,17 @@ import (
 	"errors"
 	"fmt"
 
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	autherrs "github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/classcache"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/usecases/objects/validation"
 )
 
 // AddObjectReference to an existing object. If the class contains a network

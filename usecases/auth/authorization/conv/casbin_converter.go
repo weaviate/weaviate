@@ -16,8 +16,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func RolesToPolicies(roles ...*models.Role) (map[string][]authorization.Policy, error) {

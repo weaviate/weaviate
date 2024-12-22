@@ -18,13 +18,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/nodes"
-	eschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/helper"
-	uschema "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/client/nodes"
+	eschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/test/helper"
+	uschema "github.com/liutizhong/weaviate/usecases/schema"
 )
 
 var verbose = verbosity.OutputVerbose

@@ -7,7 +7,7 @@ import "v1/batch_delete.proto";
 import "v1/search_get.proto";
 import "v1/tenants.proto";
 
-option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option go_package = "github.com/liutizhong/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProto";
 

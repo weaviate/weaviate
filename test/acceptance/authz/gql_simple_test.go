@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/authz"
-	gql "github.com/weaviate/weaviate/client/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/client/authz"
+	gql "github.com/liutizhong/weaviate/client/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthZGraphQLSingleTenancy(t *testing.T) {

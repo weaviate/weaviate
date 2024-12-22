@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
 const (

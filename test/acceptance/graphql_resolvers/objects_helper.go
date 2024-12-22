@@ -14,8 +14,8 @@ package test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func createObjectClass(t *testing.T, class *models.Class) {

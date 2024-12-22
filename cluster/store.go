@@ -22,18 +22,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/log"
-	"github.com/weaviate/weaviate/cluster/rbac"
-	"github.com/weaviate/weaviate/cluster/resolver"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/log"
+	"github.com/liutizhong/weaviate/cluster/rbac"
+	"github.com/liutizhong/weaviate/cluster/resolver"
+	"github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/cluster/types"
 )
 
 const (

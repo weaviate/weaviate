@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int,

@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/models"
+	vectorIndex "github.com/liutizhong/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestCertainty(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 	bolt "go.etcd.io/bbolt"
 )
 

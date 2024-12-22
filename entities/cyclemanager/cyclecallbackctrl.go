@@ -16,10 +16,10 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/concurrency"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/concurrency"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
 )
 
 // Used to control of registered in CycleCallbacks container callback

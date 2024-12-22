@@ -16,11 +16,11 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/utils"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 // SchemaReader is used for retrying schema queries. It is a thin wrapper around

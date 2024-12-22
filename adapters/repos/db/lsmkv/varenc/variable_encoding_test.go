@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/terms"
 )
 
 func TestSimpleEncodeDecode(t *testing.T) {

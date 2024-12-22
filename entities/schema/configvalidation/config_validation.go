@@ -13,9 +13,9 @@ package configvalidation
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 func CheckCertaintyCompatibility(class *models.Class, targetVectors []string) error {

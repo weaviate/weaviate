@@ -108,7 +108,7 @@ function install_docker() {
 function clone_repository() {
   ref=$(git rev-parse --abbrev-ref HEAD)
   echo_green "Cloning weaviate repo to branch $ref"
-  ssh_command "cd; [ ! -d weaviate ] && git clone --depth 1 --branch $ref https://github.com/weaviate/weaviate.git weaviate || true"
+  ssh_command "cd; [ ! -d weaviate ] && git clone --depth 1 --branch $ref https://github.com/liutizhong/weaviate.git weaviate || true"
   ssh_command "cd weaviate; git-lfs install; git-lfs pull"
 }
 

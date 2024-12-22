@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type memtableCursor struct {

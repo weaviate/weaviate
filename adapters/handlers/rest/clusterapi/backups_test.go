@@ -20,9 +20,9 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/adapters/clients"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/liutizhong/weaviate/usecases/backup"
 )
 
 func TestInternalBackupsAPI(t *testing.T) {

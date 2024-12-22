@@ -20,8 +20,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_CoordinatedBackup(t *testing.T) {

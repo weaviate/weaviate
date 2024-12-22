@@ -19,7 +19,7 @@ import (
 
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/liutizhong/weaviate/cluster/log"
 )
 
 type fqdn struct {

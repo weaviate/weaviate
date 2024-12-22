@@ -14,7 +14,7 @@ package backup
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
 )
 
 // Sourcer represents the source of artifacts used in the backup

@@ -14,7 +14,7 @@ package stopwords
 import (
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 
 	"github.com/pkg/errors"
 )

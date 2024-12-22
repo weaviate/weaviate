@@ -14,13 +14,13 @@ package rest
 import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/backups"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type backupHandlers struct {

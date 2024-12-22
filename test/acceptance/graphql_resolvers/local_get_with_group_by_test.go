@@ -14,12 +14,12 @@ package test
 import (
 	"testing"
 
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/journey"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/test/helper/journey"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func groupByObjects(t *testing.T) {

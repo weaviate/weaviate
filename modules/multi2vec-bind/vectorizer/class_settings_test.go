@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 )
 
 func Test_classSettings_Validate(t *testing.T) {

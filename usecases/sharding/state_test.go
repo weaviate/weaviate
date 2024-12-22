@@ -19,9 +19,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/cluster/mocks"
+	"github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 func TestState(t *testing.T) {

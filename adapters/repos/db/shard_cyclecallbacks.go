@@ -14,7 +14,7 @@ package db
 import (
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 )
 
 type shardCycleCallbacks struct {

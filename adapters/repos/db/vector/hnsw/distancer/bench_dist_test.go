@@ -15,9 +15,9 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func BenchmarkDist(b *testing.B) {

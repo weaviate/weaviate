@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/liutizhong/weaviate/modules/multi2vec-clip/ent"
 )
 
 func TestVectorize(t *testing.T) {

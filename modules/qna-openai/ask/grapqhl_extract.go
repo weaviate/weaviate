@@ -11,7 +11,7 @@
 
 package ask
 
-import "github.com/weaviate/weaviate/entities/dto"
+import "github.com/liutizhong/weaviate/entities/dto"
 
 func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	var args AskParams

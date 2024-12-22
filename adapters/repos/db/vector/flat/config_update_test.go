@@ -17,8 +17,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema/config"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/entities/schema/config"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/flat"
 )
 
 func TestFlatUserConfigUpdates(t *testing.T) {

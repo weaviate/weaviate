@@ -14,10 +14,10 @@ package v1
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
 )
 
 func ExtractFilters(filterIn *pb.Filters, authorizedGetClass func(string) (*models.Class, error), className string) (filters.Clause, error) {

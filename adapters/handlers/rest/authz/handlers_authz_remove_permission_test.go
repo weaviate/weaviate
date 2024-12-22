@@ -19,11 +19,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/authz"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/conv"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestRemovePermissionsSuccessUpdate(t *testing.T) {

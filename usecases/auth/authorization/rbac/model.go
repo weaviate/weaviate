@@ -19,14 +19,14 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/conv"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 const (

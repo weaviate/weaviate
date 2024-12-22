@@ -13,7 +13,7 @@ package inverted
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func ValidateUserConfigUpdate(initial, updated *models.InvertedIndexConfig) error {

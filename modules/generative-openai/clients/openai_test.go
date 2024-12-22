@@ -25,9 +25,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/modules/generative-openai/config"
+	openaiparams "github.com/liutizhong/weaviate/modules/generative-openai/parameters"
 )
 
 func nullLogger() logrus.FieldLogger {

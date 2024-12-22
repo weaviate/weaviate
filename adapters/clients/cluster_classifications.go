@@ -20,7 +20,7 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 )
 
 type txPayload struct {

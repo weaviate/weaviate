@@ -24,11 +24,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/benchmark_bm25/lib"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/filters"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/benchmark_bm25/lib"
 )
 
 type QueryExperimentResult struct {

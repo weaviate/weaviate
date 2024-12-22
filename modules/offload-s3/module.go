@@ -29,11 +29,11 @@ import (
 	"github.com/weaviate/s5cmd/v2/log"
 	"github.com/weaviate/s5cmd/v2/log/stat"
 	"github.com/weaviate/s5cmd/v2/parallel"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 const (

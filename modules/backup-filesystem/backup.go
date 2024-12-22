@@ -20,8 +20,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 func (m *Module) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {

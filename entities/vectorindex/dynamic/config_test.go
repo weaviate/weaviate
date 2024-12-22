@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_DynamicUserConfig(t *testing.T) {

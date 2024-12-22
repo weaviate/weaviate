@@ -11,7 +11,7 @@
 
 package classification
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 // NeighborRefDistances include various distances about the winning and losing
 // groups (knn)

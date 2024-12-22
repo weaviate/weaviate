@@ -11,7 +11,7 @@
 
 package projector
 
-import "github.com/weaviate/weaviate/entities/errorcompounder"
+import "github.com/liutizhong/weaviate/entities/errorcompounder"
 
 type Params struct {
 	Enabled          bool

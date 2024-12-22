@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
+	"github.com/liutizhong/weaviate/modules/sum-transformers/ent"
 )
 
 type client struct {

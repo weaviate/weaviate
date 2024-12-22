@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func (v *Validator) vector(ctx context.Context, class *models.Class,

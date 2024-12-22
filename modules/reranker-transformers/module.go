@@ -19,12 +19,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	client "github.com/weaviate/weaviate/modules/reranker-transformers/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	client "github.com/liutizhong/weaviate/modules/reranker-transformers/clients"
+	additionalprovider "github.com/liutizhong/weaviate/usecases/modulecomponents/additional"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 )
 
 const Name = "reranker-transformers"

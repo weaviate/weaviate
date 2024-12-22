@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 // Diff creates human-readable information about the difference in two schemas,

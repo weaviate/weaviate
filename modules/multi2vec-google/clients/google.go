@@ -20,12 +20,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/apikey"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/liutizhong/weaviate/modules/multi2vec-google/ent"
+	libvectorizer "github.com/liutizhong/weaviate/usecases/vectorizer"
 )
 
 func buildURL(location, projectID, model string) string {

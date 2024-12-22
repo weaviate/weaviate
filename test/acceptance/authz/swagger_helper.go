@@ -24,8 +24,8 @@ import (
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/entities/models"
-	eschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	eschema "github.com/liutizhong/weaviate/entities/schema"
 	"golang.org/x/exp/rand"
 )
 

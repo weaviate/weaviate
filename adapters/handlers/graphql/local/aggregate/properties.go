@@ -15,9 +15,9 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func numericPropertyFields(class *models.Class, property *models.Property, prefix string) *graphql.Object {

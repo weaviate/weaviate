@@ -18,9 +18,9 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/types"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
 )

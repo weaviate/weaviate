@@ -20,10 +20,10 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/graphql"
-	graphql_client "github.com/weaviate/weaviate/client/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/graphql"
+	graphql_client "github.com/liutizhong/weaviate/client/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 type GraphQLResult struct {

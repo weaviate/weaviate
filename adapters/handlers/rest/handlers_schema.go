@@ -17,13 +17,13 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	authErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	uco "github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	authErrors "github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	uco "github.com/liutizhong/weaviate/usecases/objects"
+	schemaUC "github.com/liutizhong/weaviate/usecases/schema"
 )
 
 type schemaHandlers struct {

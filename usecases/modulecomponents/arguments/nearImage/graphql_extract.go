@@ -12,8 +12,8 @@
 package nearImage
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 // extractNearImageFn arguments, such as "image" and "certainty"

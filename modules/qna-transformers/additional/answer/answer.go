@@ -15,15 +15,15 @@ import (
 	"context"
 	"errors"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/modules/qna-transformers/ent"
 )
 
 type Params struct {

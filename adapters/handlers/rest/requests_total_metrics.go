@@ -14,7 +14,7 @@ package rest
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type RequestStatus int

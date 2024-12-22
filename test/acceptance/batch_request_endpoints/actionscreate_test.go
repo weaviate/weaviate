@@ -19,9 +19,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/batch"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // Test if batching is working correctly. Sends an OK batch containing two batched requests that refer to non-existing classes.

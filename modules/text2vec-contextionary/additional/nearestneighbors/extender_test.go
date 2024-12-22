@@ -18,9 +18,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
-	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/search"
+	txt2vecmodels "github.com/liutizhong/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 func TestExtender(t *testing.T) {

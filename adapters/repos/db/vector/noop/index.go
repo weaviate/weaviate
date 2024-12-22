@@ -16,12 +16,12 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	hnswconf "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 type Index struct{}

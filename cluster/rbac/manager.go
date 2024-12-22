@@ -17,8 +17,8 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 var ErrBadRequest = errors.New("bad request")

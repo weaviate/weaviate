@@ -19,13 +19,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	sumadditional "github.com/weaviate/weaviate/modules/sum-transformers/additional"
-	sumadditionalsummary "github.com/weaviate/weaviate/modules/sum-transformers/additional/summary"
-	"github.com/weaviate/weaviate/modules/sum-transformers/client"
-	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	sumadditional "github.com/liutizhong/weaviate/modules/sum-transformers/additional"
+	sumadditionalsummary "github.com/liutizhong/weaviate/modules/sum-transformers/additional/summary"
+	"github.com/liutizhong/weaviate/modules/sum-transformers/client"
+	"github.com/liutizhong/weaviate/modules/sum-transformers/ent"
 )
 
 const Name = "sum-transformers"

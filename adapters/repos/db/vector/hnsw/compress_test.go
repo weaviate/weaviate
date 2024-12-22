@@ -18,13 +18,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {

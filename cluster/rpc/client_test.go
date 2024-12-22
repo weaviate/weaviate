@@ -19,8 +19,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/usecases/fakes"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/usecases/fakes"
 )
 
 var ErrAny = errors.New("any error")

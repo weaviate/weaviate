@@ -17,10 +17,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/journey"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/journey"
+	moduleshelper "github.com/liutizhong/weaviate/test/helper/modules"
 )
 
 const numTenants = 50

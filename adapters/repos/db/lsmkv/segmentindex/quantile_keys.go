@@ -14,7 +14,7 @@ package segmentindex
 import (
 	"math"
 
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // QuantileKeys returns a list of keys that roughly represent the quantiles of

@@ -13,7 +13,7 @@ package fakes
 
 import (
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type MockParser struct {

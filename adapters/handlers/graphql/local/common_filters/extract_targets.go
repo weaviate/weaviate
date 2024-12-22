@@ -14,7 +14,7 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 func ExtractTargets(source map[string]interface{}) ([]string, *dto.TargetCombination, error) {

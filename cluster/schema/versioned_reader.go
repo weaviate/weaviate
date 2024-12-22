@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 // VersionedSchemaReader is utilized to query the schema based on a specific update version. Serving as a thin wrapper around

@@ -17,12 +17,12 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	clusterSchema "github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/versioned"
+	"github.com/liutizhong/weaviate/usecases/fakes"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 type fakeSchemaManager struct {

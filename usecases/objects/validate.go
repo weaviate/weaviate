@@ -14,11 +14,11 @@ package objects
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/classcache"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	autherrs "github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for

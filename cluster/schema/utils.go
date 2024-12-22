@@ -12,7 +12,7 @@
 package schema
 
 import (
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
 )
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {

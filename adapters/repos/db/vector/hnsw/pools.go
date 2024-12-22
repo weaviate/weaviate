@@ -14,10 +14,10 @@ package hnsw
 import (
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 type pools struct {

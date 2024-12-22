@@ -12,7 +12,7 @@
 package authorization
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // Authorizer always makes a yes/no decision on a specific resource. Which

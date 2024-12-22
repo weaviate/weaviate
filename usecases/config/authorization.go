@@ -14,9 +14,9 @@ package config
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/adminlist"
 )
 
 // Authorization configuration

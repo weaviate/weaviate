@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // SegmentNode stores one Key-Value pair in

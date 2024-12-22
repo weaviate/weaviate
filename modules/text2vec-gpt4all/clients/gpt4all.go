@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-gpt4all/ent"
 )
 
 type client struct {

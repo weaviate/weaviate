@@ -18,9 +18,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	entschema "github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`

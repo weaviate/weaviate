@@ -12,8 +12,8 @@
 package nearDepth
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 // extractNearDepthFn arguments, such as "depth" and "certainty"

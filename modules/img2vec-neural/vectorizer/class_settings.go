@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"errors"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 )
 
 type classSettings struct {

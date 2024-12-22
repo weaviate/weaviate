@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 // Represents the path in a filter.

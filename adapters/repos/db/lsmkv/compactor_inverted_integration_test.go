@@ -26,7 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 )
 
 func NewMapPairFromDocIdAndTf(docId uint64, tf float32, propLength float32, isTombstone bool) MapPair {
@@ -474,7 +474,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			// guaranteed that all pairs are present in the payload, but it did not
 			// guarantee the integrity of the index (DiskTree) which is used to access
 			// _individual_ keys. Corrupting this index is exactly what happened in
-			// https://github.com/weaviate/weaviate/issues/3517
+			// https://github.com/liutizhong/weaviate/issues/3517
 			for _, pair := range expected {
 				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
@@ -605,7 +605,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			// guaranteed that all pairs are present in the payload, but it did not
 			// guarantee the integrity of the index (DiskTree) which is used to access
 			// _individual_ keys. Corrupting this index is exactly what happened in
-			// https://github.com/weaviate/weaviate/issues/3517
+			// https://github.com/liutizhong/weaviate/issues/3517
 			for _, pair := range expected {
 				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)

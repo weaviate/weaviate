@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type segmentCursorCollectionReusable struct {

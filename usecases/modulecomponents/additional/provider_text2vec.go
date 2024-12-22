@@ -12,8 +12,8 @@
 package additional
 
 import (
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/additional/projector"
 )
 
 const PropertyFeatureProjection = "featureProjection"

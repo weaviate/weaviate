@@ -20,9 +20,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_DeleteObjectsWithSameId(t *testing.T) {

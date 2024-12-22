@@ -17,16 +17,16 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	nearText2 "github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/liutizhong/weaviate/usecases/traverser/hybrid"
 )
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm

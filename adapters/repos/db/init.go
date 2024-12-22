@@ -20,16 +20,16 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/tenantactivity"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/replica"
-	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/entities/diskio"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/tenantactivity"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/replica"
+	migratefs "github.com/liutizhong/weaviate/usecases/schema/migrate/fs"
 )
 
 // init gets the current schema and creates one index object per class.
@@ -126,7 +126,7 @@ func (db *DB) init(ctx context.Context) error {
 	// a unique label. It is only when we conflate all collections/shards into
 	// "n/a" that we need to actively aggregate node-wide metrics.
 	//
-	// See also https://github.com/weaviate/weaviate/issues/4396
+	// See also https://github.com/liutizhong/weaviate/issues/4396
 	if db.promMetrics != nil && db.promMetrics.Group {
 		db.metricsObserver = newNodeWideMetricsObserver(db)
 		enterrors.GoWrapper(func() { db.metricsObserver.Start() }, db.logger)

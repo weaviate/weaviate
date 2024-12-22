@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-aws/ent"
 )
 
 type fakeClient struct {

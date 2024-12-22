@@ -14,7 +14,7 @@ package modcentroid
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 )
 
 type fakeClassConfig map[string]interface{}

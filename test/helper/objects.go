@@ -20,14 +20,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/meta"
-	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/liutizhong/weaviate/client/batch"
+	"github.com/liutizhong/weaviate/client/meta"
+	"github.com/liutizhong/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/usecases/replica"
 )
 
 func SetupClient(uri string) {

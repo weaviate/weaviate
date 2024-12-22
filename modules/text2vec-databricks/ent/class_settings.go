@@ -14,9 +14,9 @@ package ent
 import (
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	basesettings "github.com/liutizhong/weaviate/usecases/modulecomponents/settings"
 )
 
 const (

@@ -11,7 +11,7 @@
 
 package hnsw
 
-import "github.com/weaviate/weaviate/usecases/memwatch"
+import "github.com/liutizhong/weaviate/usecases/memwatch"
 
 type CommitlogOption func(l *hnswCommitLogger) error
 

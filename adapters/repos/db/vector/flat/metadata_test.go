@@ -16,10 +16,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	flatent "github.com/liutizhong/weaviate/entities/vectorindex/flat"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func Test_FlatDimensions(t *testing.T) {

@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cluster/utils"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/cluster/utils"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
 )

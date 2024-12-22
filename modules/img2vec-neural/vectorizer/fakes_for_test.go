@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
+	"github.com/liutizhong/weaviate/modules/img2vec-neural/ent"
 )
 
 type builder struct {

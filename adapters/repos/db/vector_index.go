@@ -14,10 +14,10 @@ package db
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
 )
 
 // VectorIndex is anything that indexes vectors efficiently. For an example

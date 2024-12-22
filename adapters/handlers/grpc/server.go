@@ -21,12 +21,12 @@ import (
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
-	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/state"
+	pbv0 "github.com/liutizhong/weaviate/grpc/generated/protocol/v0"
+	pbv1 "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/usecases/auth/authentication/composer"
+	authErrs "github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -35,8 +35,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
-	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	v0 "github.com/liutizhong/weaviate/adapters/handlers/grpc/v0"
+	v1 "github.com/liutizhong/weaviate/adapters/handlers/grpc/v1"
 )
 
 func CreateGRPCServer(state *state.State) *GRPCServer {

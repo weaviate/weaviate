@@ -23,12 +23,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/storagestate"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 type SegmentGroup struct {
@@ -203,7 +203,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			// https://github.com/weaviate/weaviate/pull/6128 introduces the ability
+			// https://github.com/liutizhong/weaviate/pull/6128 introduces the ability
 			// to drop segments delayed by renaming them first and then dropping them
 			// later.
 			//

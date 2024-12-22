@@ -17,8 +17,8 @@ import (
 	"fmt"
 
 	errors "github.com/go-openapi/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 type Client struct {

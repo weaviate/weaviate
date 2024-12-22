@@ -17,9 +17,9 @@ import (
 	"os"
 	"path/filepath"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
 )
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload

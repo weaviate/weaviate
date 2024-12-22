@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/sirupsen/logrus"
 )

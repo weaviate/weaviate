@@ -21,10 +21,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/batch"
+	"github.com/liutizhong/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // run from setup_test.go
@@ -33,7 +33,7 @@ func deleteAllObjectsFromAllClasses(t *testing.T) {
 	// have the same ID. This test is to ensure that the delete request
 	// deletes all of the objects with a given ID in all classes
 	// This test is connected with this issue:
-	// https://github.com/weaviate/weaviate/issues/1836
+	// https://github.com/liutizhong/weaviate/issues/1836
 	const fakeObjectId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 	t.Run("create objects with a specified id", func(t *testing.T) {

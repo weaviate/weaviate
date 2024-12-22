@@ -17,13 +17,13 @@ import (
 	"sync"
 	"unicode"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
 	"github.com/ikawaha/kagome-dict/ipa"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 var (

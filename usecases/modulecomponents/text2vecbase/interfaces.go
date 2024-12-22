@@ -14,12 +14,12 @@ package text2vecbase
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/batch"
+	objectsvectorizer "github.com/liutizhong/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 type TextVectorizer[T types.Embedding] interface {

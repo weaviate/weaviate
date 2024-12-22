@@ -19,8 +19,8 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 const BEACON = "weaviate://localhost/"

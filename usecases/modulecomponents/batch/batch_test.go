@@ -18,12 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func maxTokensPerBatch(cfg moduletools.ClassConfig) int {

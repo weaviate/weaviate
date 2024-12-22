@@ -12,9 +12,9 @@
 package modclip
 
 import (
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 func (m *Module) initNearImage() error {

@@ -12,9 +12,9 @@
 package helper
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 var SimpleSchema = CreateSimpleSchema(config.VectorizerModuleText2VecContextionary)

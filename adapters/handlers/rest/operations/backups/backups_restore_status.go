@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // BackupsRestoreStatusHandlerFunc turns a function with the right signature into a backups restore status handler

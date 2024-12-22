@@ -13,7 +13,7 @@ package search
 
 import (
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // Result contains some info of a concept (kind), but not all. For

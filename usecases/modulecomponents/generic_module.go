@@ -16,15 +16,15 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/additional"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearAudio"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearDepth"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearImu"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearThermal"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 type ArgumentType int

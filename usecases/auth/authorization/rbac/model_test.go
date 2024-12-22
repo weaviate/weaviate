@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	casbinutil "github.com/casbin/casbin/v2/util"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/conv"
 )
 
 func testKeyMatch5(t *testing.T, key1, key2 string, expected bool) {

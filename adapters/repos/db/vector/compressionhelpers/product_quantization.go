@@ -19,8 +19,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 type Encoder byte

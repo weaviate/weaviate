@@ -14,9 +14,9 @@ package db
 import (
 	"regexp"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func GetPropNameAndIndexTypeFromBucketName(bucketName string) (string, PropertyIndexType) {

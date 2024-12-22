@@ -18,7 +18,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorMap struct {
@@ -214,7 +214,7 @@ func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	// the cursor, any memory might be reused.
 	//
 	// This includes the key buffer which was the cause of
-	// https://github.com/weaviate/weaviate/issues/3517
+	// https://github.com/liutizhong/weaviate/issues/3517
 	//
 	// A previous logic created a new assignment in each iteration, but thatwas
 	// not an explicit guarantee. A change in v1.21 (for pread/mmap) added a

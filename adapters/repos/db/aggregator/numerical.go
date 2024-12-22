@@ -16,8 +16,8 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/entities/aggregation"
 )
 
 func addNumericalAggregations(prop *aggregation.Property,

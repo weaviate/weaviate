@@ -15,8 +15,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 func (s *segment) getCollection(key []byte) ([]value, error) {
@@ -42,7 +42,7 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	// this place it would only be safe to hold this data while still under the
 	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
 	// no compaction is started during an ongoing read. However, as we could show
-	// as part of https://github.com/weaviate/weaviate/issues/1837
+	// as part of https://github.com/liutizhong/weaviate/issues/1837
 	// further processing, such as map-decoding and eventually map-merging would
 	// happen inside the bucket.MapList() method. This scope has its own lock,
 	// but that lock can only protecting against flushing (i.e. changing the

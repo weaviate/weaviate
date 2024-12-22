@@ -18,7 +18,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/liutizhong/weaviate/entities/storagestate"
 )
 
 // FlushMemtable flushes any active memtable and returns only once the memtable

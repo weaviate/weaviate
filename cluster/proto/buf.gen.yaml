@@ -13,7 +13,7 @@ version: v1
 managed:
   enabled: true
   go_package_prefix:
-    default: github.com/weaviate/weaviate/cloud/proto
+    default: github.com/liutizhong/weaviate/cloud/proto
 plugins:
   - name: go
     out: .

@@ -18,7 +18,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type FilterFunc func([]float32) []float32

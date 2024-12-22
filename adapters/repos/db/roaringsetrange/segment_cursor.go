@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
 )
 
 type SegmentCursor interface {

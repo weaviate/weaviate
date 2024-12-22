@@ -13,7 +13,7 @@ package parameters
 
 import (
 	"github.com/tailor-inc/graphql/language/ast"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/gqlparser"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/gqlparser"
 )
 
 type Params struct {

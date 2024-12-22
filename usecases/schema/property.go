@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"strings"
 
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	clusterSchema "github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
@@ -102,7 +102,7 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 	}
 
 	return fmt.Errorf("deleting a property is currently not supported, see " +
-		"https://github.com/weaviate/weaviate/issues/973 for details.")
+		"https://github.com/liutizhong/weaviate/issues/973 for details.")
 	// return h.deleteClassProperty(ctx, class, property, kind.Action)
 }
 

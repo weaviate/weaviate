@@ -35,8 +35,8 @@ import (
 
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/client/batch"
-	operations_apiclient "github.com/weaviate/weaviate/client/operations"
+	"github.com/liutizhong/weaviate/client/batch"
+	operations_apiclient "github.com/liutizhong/weaviate/client/operations"
 )
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.

@@ -18,7 +18,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"

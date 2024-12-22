@@ -19,7 +19,7 @@ import (
 	"path"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 	"go.etcd.io/bbolt"
 )
 

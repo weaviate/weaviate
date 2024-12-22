@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 )
 
 func TestStoreLifecycle(t *testing.T) {

@@ -22,7 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 )
 
 func TestGetScore(t *testing.T) {

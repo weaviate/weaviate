@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 // ConvertQueue converts a legacy in-memory queue to an on-disk queue.

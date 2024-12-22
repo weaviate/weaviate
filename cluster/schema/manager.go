@@ -20,8 +20,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 

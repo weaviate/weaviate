@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type CursorMap struct {

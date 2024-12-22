@@ -11,7 +11,7 @@
 
 package batch
 
-import "github.com/weaviate/weaviate/entities/moduletools"
+import "github.com/liutizhong/weaviate/entities/moduletools"
 
 type Settings struct {
 	TokenMultiplier    float32

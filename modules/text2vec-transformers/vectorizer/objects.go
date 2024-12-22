@@ -14,10 +14,10 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/text2vec-transformers/ent"
+	objectsvectorizer "github.com/liutizhong/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 type Vectorizer struct {

@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 // unfilteredAggregator allows for relatively efficient whole-dataset

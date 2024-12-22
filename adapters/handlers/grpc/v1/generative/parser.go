@@ -12,20 +12,20 @@
 package generative
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	anthropicParams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
-	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
-	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
-	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
-	databricksParams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
-	friendliaiParams "github.com/weaviate/weaviate/modules/generative-friendliai/parameters"
-	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
-	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
-	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
-	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	anthropicParams "github.com/liutizhong/weaviate/modules/generative-anthropic/parameters"
+	anyscaleParams "github.com/liutizhong/weaviate/modules/generative-anyscale/parameters"
+	awsParams "github.com/liutizhong/weaviate/modules/generative-aws/parameters"
+	cohereParams "github.com/liutizhong/weaviate/modules/generative-cohere/parameters"
+	databricksParams "github.com/liutizhong/weaviate/modules/generative-databricks/parameters"
+	friendliaiParams "github.com/liutizhong/weaviate/modules/generative-friendliai/parameters"
+	googleParams "github.com/liutizhong/weaviate/modules/generative-google/parameters"
+	mistralParams "github.com/liutizhong/weaviate/modules/generative-mistral/parameters"
+	ollamaParams "github.com/liutizhong/weaviate/modules/generative-ollama/parameters"
+	openaiParams "github.com/liutizhong/weaviate/modules/generative-openai/parameters"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/additional/generate"
 )
 
 type Parser struct {

@@ -16,12 +16,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/models"
-	entSchema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/entities/models"
+	entSchema "github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
 

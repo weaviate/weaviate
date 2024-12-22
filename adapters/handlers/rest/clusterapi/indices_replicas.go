@@ -24,12 +24,12 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"github.com/weaviate/weaviate/usecases/scaler"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/replica"
+	"github.com/liutizhong/weaviate/usecases/replica/hashtree"
+	"github.com/liutizhong/weaviate/usecases/scaler"
 )
 
 type replicator interface {

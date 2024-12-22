@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	testinghelpers "github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func Test_NoRaceKMeansNNearest(t *testing.T) {

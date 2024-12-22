@@ -21,12 +21,12 @@ import (
 	"path"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
-	ucs "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/cluster/types"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/schema"
+	ucs "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -359,7 +359,7 @@ func (r *store) Save(ctx context.Context, ss ucs.State) error {
 	// Here we have to check equality with rough equivalency checks, because
 	// there is currently no way to make a comparison at the byte-level
 	//
-	// See: https://github.com/weaviate/weaviate/issues/4634
+	// See: https://github.com/liutizhong/weaviate/issues/4634
 	if currState.EqualEnough(&ss) {
 		return nil
 	}

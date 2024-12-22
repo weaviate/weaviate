@@ -18,7 +18,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func NearVectorArgument(argumentPrefix, className string, addTarget bool) *graphql.ArgumentConfig {

@@ -21,15 +21,15 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 const (
@@ -203,7 +203,7 @@ func Test_Filters_String(t *testing.T) {
 		},
 		{
 			// This test prevents a regression on
-			// https://github.com/weaviate/weaviate/issues/1770
+			// https://github.com/liutizhong/weaviate/issues/1770
 			name: "combined and/or filter, see gh-1770",
 			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
@@ -1021,7 +1021,7 @@ func Test_Filters_Int(t *testing.T) {
 }
 
 // This prevents a regression on
-// https://github.com/weaviate/weaviate/issues/1772
+// https://github.com/liutizhong/weaviate/issues/1772
 func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	dirName := t.TempDir()
 

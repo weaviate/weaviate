@@ -21,17 +21,17 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 // prevents a regression of
-// https://github.com/weaviate/weaviate/issues/2155
+// https://github.com/liutizhong/weaviate/issues/2155
 func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 	ctx := context.Background()
 	vectors := [][]float32{

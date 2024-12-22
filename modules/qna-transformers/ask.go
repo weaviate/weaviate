@@ -12,8 +12,8 @@
 package modqna
 
 import (
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/qna-transformers/ask"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/modules/qna-transformers/ask"
 )
 
 func (m *QnAModule) initAskSearcher() error {

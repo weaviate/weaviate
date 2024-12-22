@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
 )
 
 /*

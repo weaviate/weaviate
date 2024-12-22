@@ -19,19 +19,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {

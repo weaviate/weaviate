@@ -13,7 +13,7 @@ package modulecapabilities
 
 import (
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 // GetArgumentsFn generates get graphql config for a given classname

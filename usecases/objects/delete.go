@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/classcache"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 // DeleteObject Class Instance from the connected DB
@@ -92,7 +92,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID, dele
 	// There might be a situation to have UUIDs which are not unique across classes.
 	// Added loop in order to delete all of the objects with given UUID across all classes.
 	// This change is added in response to this issue:
-	// https://github.com/weaviate/weaviate/issues/1836
+	// https://github.com/liutizhong/weaviate/issues/1836
 	deleteCounter := 0
 	for {
 		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil, "")

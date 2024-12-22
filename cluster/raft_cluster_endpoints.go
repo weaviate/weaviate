@@ -16,7 +16,7 @@ import (
 	"slices"
 
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
 )
 
 // LeaderWithID is used to return the current leader address and ID of the cluster.

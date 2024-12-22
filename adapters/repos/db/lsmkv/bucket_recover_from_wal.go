@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/liutizhong/weaviate/entities/diskio"
 )
 
 var logOnceWhenRecoveringFromWAL sync.Once

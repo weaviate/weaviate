@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // NewSchemaObjectsUpdateParams creates a new SchemaObjectsUpdateParams object

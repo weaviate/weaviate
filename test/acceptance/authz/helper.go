@@ -15,16 +15,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	gql "github.com/weaviate/weaviate/client/graphql"
+	gql "github.com/liutizhong/weaviate/client/graphql"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/client/objects"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 
 	"github.com/go-openapi/runtime"
-	clschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/test/helper"
+	clschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 const (

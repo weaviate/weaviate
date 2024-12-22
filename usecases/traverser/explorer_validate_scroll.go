@@ -14,9 +14,9 @@ package traverser
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func (e *Explorer) validateCursor(params dto.GetParams) error {

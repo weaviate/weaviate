@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {

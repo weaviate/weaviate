@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/liutizhong/weaviate/usecases/build"
 )
 
 type WeaviateJSONFormatter struct {

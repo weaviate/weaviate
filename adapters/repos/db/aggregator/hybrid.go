@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/additional"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {

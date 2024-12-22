@@ -21,11 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
@@ -269,7 +269,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		//
 		// However, since v1.10, it is acceptable to exclude a vector, even if
 		// indexing is not skipped. In this case only the individual element is
-		// skipped. See https://github.com/weaviate/weaviate/issues/1800
+		// skipped. See https://github.com/liutizhong/weaviate/issues/1800
 		reset()
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{

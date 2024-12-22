@@ -12,8 +12,8 @@
 package nearVideo
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 // extractNearVideoFn arguments, such as "video" and "certainty"

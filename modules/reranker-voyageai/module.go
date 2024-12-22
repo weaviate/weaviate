@@ -19,11 +19,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/reranker-voyageai/clients"
-	rerankeradditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/reranker-voyageai/clients"
+	rerankeradditional "github.com/liutizhong/weaviate/usecases/modulecomponents/additional"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 )
 
 const Name = "reranker-voyageai"

@@ -11,7 +11,7 @@
 
 package common_filters
 
-import "github.com/weaviate/weaviate/entities/searchparams"
+import "github.com/liutizhong/weaviate/entities/searchparams"
 
 // ExtractGroupBy
 func ExtractGroupBy(source map[string]interface{}) searchparams.GroupBy {

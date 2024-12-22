@@ -19,12 +19,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/authz"
-	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/client/authz"
+	"github.com/liutizhong/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthZObjectValidate(t *testing.T) {

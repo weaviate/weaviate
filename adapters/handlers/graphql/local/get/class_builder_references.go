@@ -15,9 +15,9 @@ import (
 	"fmt"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/search"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

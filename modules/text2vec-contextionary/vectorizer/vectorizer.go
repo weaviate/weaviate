@@ -21,10 +21,10 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	txt2vecmodels "github.com/liutizhong/weaviate/modules/text2vec-contextionary/additional/models"
+	objectsvectorizer "github.com/liutizhong/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 // Vectorizer turns objects into vectors

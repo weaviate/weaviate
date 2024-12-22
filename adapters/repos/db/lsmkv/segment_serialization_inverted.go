@@ -18,10 +18,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 var (

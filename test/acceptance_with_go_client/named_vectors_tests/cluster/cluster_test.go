@@ -18,7 +18,7 @@ import (
 	test_suits "acceptance_tests_with_client/named_vectors_tests/test_suits"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/docker"
 )
 
 func TestNamedVectors_Cluster(t *testing.T) {

@@ -17,9 +17,9 @@ package schema
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/entities/models"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 type CreateTenantPayload struct {

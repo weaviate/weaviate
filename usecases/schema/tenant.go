@@ -19,14 +19,14 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	uco "github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	clusterSchema "github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	modsloads3 "github.com/liutizhong/weaviate/modules/offload-s3"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	uco "github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)

@@ -17,7 +17,7 @@ import (
 	"net/http"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/state"
 )
 
 func Serve(appState *state.State) {

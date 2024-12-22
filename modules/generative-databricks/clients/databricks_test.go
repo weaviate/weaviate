@@ -23,7 +23,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
 )
 
 func nullLogger() logrus.FieldLogger {

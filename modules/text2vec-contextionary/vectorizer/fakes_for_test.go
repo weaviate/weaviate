@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
+	txt2vecmodels "github.com/liutizhong/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 type fakeClient struct {

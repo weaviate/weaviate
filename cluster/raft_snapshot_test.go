@@ -21,12 +21,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/utils"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/cluster/mocks"
+	"github.com/liutizhong/weaviate/usecases/fakes"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 // TestSnapshotRestoreSchemaOnly ensures that when restoring a snapshot we correctly restore the state of the schema

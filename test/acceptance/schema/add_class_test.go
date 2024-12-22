@@ -18,14 +18,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	clschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
+	clschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // this test prevents a regression on
-// https://github.com/weaviate/weaviate/issues/981
+// https://github.com/liutizhong/weaviate/issues/981
 func TestInvalidDataTypeInProperty(t *testing.T) {
 	t.Parallel()
 	className := t.Name()
@@ -125,7 +125,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 }
 
 // This test prevents a regression on
-// https://github.com/weaviate/weaviate/issues/1799
+// https://github.com/liutizhong/weaviate/issues/1799
 //
 // This was related to adding ref props. For example in the case of a circular
 // dependency (A<>B), users would typically add A without refs, then add B with
@@ -233,7 +233,7 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 }
 
 // This test prevents a regression of
-// https://github.com/weaviate/weaviate/issues/2692
+// https://github.com/liutizhong/weaviate/issues/2692
 //
 // In this issue, any time a class had no vector index set, any other update to
 // the class would be blocked
@@ -298,7 +298,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 }
 
 // This test prevents a regression of
-// https://github.com/weaviate/weaviate/issues//3177
+// https://github.com/liutizhong/weaviate/issues//3177
 //
 // This test ensures that distance belongs to the immutable properties, i.e. no changes to it are possible after creating the class.
 func TestUpdateDistanceSettings(t *testing.T) {
@@ -358,9 +358,9 @@ func TestUpdateDistanceSettings(t *testing.T) {
 	})
 }
 
-// TODO: https://github.com/weaviate/weaviate/issues/973
+// TODO: https://github.com/liutizhong/weaviate/issues/973
 // // This test prevents a regression on the fix for this bug:
-// // https://github.com/weaviate/weaviate/issues/831
+// // https://github.com/liutizhong/weaviate/issues/831
 // func TestDeleteSingleProperties(t *testing.T) {
 // 	t.Parallel()
 

@@ -18,15 +18,15 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/client/objects"
-	clschema "github.com/weaviate/weaviate/client/schema"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/objects"
+	clschema "github.com/liutizhong/weaviate/client/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // This aims to prevent a regression on
-// https://github.com/weaviate/weaviate/issues/1016
+// https://github.com/liutizhong/weaviate/issues/1016
 // The issue was that rapid POST .../references/... request in succession would
 // overwrite each other due to the eventual consistency nature of the used
 // backend (esvector). This bug is considered fix if n items can be rapidly

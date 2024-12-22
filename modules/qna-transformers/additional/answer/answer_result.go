@@ -17,10 +17,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
-	qnamodels "github.com/weaviate/weaviate/modules/qna-transformers/additional/models"
-	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
+	qnamodels "github.com/liutizhong/weaviate/modules/qna-transformers/additional/models"
+	"github.com/liutizhong/weaviate/modules/qna-transformers/ent"
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context,

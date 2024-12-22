@@ -20,7 +20,7 @@ import (
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a

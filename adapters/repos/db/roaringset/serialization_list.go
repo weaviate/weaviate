@@ -17,8 +17,8 @@ import (
 	"io"
 	"math"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // SegmentNodeList is inspired by the roaringset.SegmentNode, keeping the

@@ -17,7 +17,7 @@ import (
 	context "context"
 
 	logrus "github.com/sirupsen/logrus"
-	cyclemanager "github.com/weaviate/weaviate/entities/cyclemanager"
+	cyclemanager "github.com/liutizhong/weaviate/entities/cyclemanager"
 
 	mock "github.com/stretchr/testify/mock"
 )

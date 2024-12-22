@@ -17,10 +17,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/objects"
 )
 
 var errObjectNotFound = errors.New("object not found")
@@ -68,7 +68,7 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 	}
 
 	// object was not changed, no further updates are required
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.skipUpsert {
 		return nil
 	}

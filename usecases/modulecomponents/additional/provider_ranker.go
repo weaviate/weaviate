@@ -14,10 +14,10 @@ package additional
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	rankerrank "github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	rankerrank "github.com/liutizhong/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/ent"
 )
 
 const PropertyRerank = "rerank"

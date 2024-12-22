@@ -16,15 +16,15 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/ratelimiter"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/usecases/ratelimiter"
+	"github.com/liutizhong/weaviate/usecases/schema"
 )
 
 type locks interface {

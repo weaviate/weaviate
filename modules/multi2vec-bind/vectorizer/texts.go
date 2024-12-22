@@ -15,8 +15,8 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	libvectorizer "github.com/liutizhong/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,

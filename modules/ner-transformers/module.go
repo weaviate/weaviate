@@ -19,13 +19,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	neradditional "github.com/weaviate/weaviate/modules/ner-transformers/additional"
-	neradditionaltoken "github.com/weaviate/weaviate/modules/ner-transformers/additional/tokens"
-	"github.com/weaviate/weaviate/modules/ner-transformers/clients"
-	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	neradditional "github.com/liutizhong/weaviate/modules/ner-transformers/additional"
+	neradditionaltoken "github.com/liutizhong/weaviate/modules/ner-transformers/additional/tokens"
+	"github.com/liutizhong/weaviate/modules/ner-transformers/clients"
+	"github.com/liutizhong/weaviate/modules/ner-transformers/ent"
 )
 
 const Name = "ner-transformers"

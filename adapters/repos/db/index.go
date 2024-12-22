@@ -24,48 +24,48 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/queue"
 
 	"github.com/pkg/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/multi"
-	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
-	esync "github.com/weaviate/weaviate/entities/sync"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/adapters/repos/db/aggregator"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/liutizhong/weaviate/adapters/repos/db/sorter"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/autocut"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/multi"
+	"github.com/liutizhong/weaviate/entities/schema"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/entities/storagestate"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	esync "github.com/liutizhong/weaviate/entities/sync"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/replica"
+	schemaUC "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 var (
@@ -719,7 +719,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/weaviate/weaviate/issues/1775
+	// part of https://github.com/liutizhong/weaviate/issues/1775
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return err
 	}
@@ -947,7 +947,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/weaviate/weaviate/issues/1775
+	// part of https://github.com/liutizhong/weaviate/issues/1775
 	for j := range objects {
 		if err := i.parseDateFieldsInProps(objects[j].Object.Properties); err != nil {
 			return duplicateErr(err, len(objects))

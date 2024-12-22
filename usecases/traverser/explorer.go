@@ -16,29 +16,29 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+	"github.com/liutizhong/weaviate/entities/schema/configvalidation"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/floatcomp"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
-	uc "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/traverser/grouper"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/autocut"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/inverted"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/floatcomp"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/generictypes"
+	uc "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/traverser/grouper"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -355,7 +355,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	// result payload. if we skip this step, the grouper will attempt
 	// to compute the distance with a `nil` vector, resulting in NaN.
 	// this was the cause of [github issue 1958]
-	// (https://github.com/weaviate/weaviate/issues/1958)
+	// (https://github.com/liutizhong/weaviate/issues/1958)
 	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
 		params.AdditionalProperties.Vector = true
 	}

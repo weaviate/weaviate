@@ -15,13 +15,13 @@ import (
 	"os"
 	"sync/atomic"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/schema/config"
 
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {

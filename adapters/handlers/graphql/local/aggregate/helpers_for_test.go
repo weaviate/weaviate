@@ -15,10 +15,10 @@ import (
 	"context"
 	"fmt"
 
-	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
+	testhelper "github.com/liutizhong/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 type mockRequestsLog struct{}

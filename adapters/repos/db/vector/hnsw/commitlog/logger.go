@@ -17,7 +17,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type Logger struct {
@@ -39,8 +39,8 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
-	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
-	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/liutizhong/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/liutizhong/weaviate/issues/1705
 	AddPQ
 	AddSQ
 )

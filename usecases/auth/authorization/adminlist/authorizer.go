@@ -12,8 +12,8 @@
 package adminlist
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
 )
 
 const AnonymousPrincipalUsername = "anonymous"

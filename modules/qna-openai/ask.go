@@ -12,8 +12,8 @@
 package modqnaopenai
 
 import (
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/qna-openai/ask"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/modules/qna-openai/ask"
 )
 
 func (m *QnAModule) initAskSearcher() error {

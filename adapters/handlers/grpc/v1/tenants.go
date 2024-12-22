@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/usecases/schema"
 )
 
 func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, req *pb.TenantsGetRequest) ([]*pb.Tenant, error) {

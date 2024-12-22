@@ -17,7 +17,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type DataType string

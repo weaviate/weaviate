@@ -18,20 +18,20 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/adapters/handlers/grpc/v1/generative"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	generate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	generate "github.com/liutizhong/weaviate/usecases/modulecomponents/additional/generate"
+	additionalModels "github.com/liutizhong/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/search"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/search"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 

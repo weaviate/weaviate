@@ -21,11 +21,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
+	wvt "github.com/liutizhong/weaviate-go-client/v4/weaviate"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/fault"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/filters"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func TestDataReference_MultiTenancy(t *testing.T) {

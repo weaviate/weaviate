@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func benchmarkDot(b *testing.B, dims int, dotFn func(a, b []float32) float32) {

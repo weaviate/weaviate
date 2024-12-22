@@ -19,10 +19,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/entities/models"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 const (

@@ -23,13 +23,13 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-mistral/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-mistral/ent"
 )
 
 type embeddingsRequest struct {

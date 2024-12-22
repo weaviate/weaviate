@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 )
 
 const notExistingObjectId = "cfa3b21e-ca5f-4db7-a412-ffffffffffff"

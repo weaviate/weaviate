@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Schema Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).
+// Schema Definitions of semantic schemas (also see: https://github.com/liutizhong/weaviate-semantic-schemas).
 //
 // swagger:model Schema
 type Schema struct {

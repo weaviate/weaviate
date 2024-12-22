@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
+	"github.com/liutizhong/weaviate/modules/ner-transformers/ent"
 )
 
 type ner struct {

@@ -17,10 +17,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
-	qnamodels "github.com/weaviate/weaviate/modules/qna-openai/additional/models"
-	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
+	qnamodels "github.com/liutizhong/weaviate/modules/qna-openai/additional/models"
+	"github.com/liutizhong/weaviate/modules/qna-openai/ent"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {

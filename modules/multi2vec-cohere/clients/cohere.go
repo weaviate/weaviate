@@ -15,12 +15,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/cohere"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/clients/cohere"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-cohere/ent"
+	"github.com/liutizhong/weaviate/modules/multi2vec-cohere/ent"
 )
 
 type vectorizer struct {

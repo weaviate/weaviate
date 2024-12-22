@@ -14,7 +14,7 @@ package rest
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // createErrorResponseObject is a common function to create an error response

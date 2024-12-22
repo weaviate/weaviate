@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/aggregation"
 )
 
 func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {

@@ -19,8 +19,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 	"golang.org/x/sync/errgroup"
 )
 

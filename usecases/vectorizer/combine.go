@@ -12,7 +12,7 @@
 package vectorizer
 
 import (
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/entities/types"
 )
 
 // CombineVectors combines all of the vector into sum of their parts

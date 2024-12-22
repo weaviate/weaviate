@@ -11,7 +11,7 @@
 
 package schema
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 func MultiTenancyEnabled(class *models.Class) bool {
 	if class == nil {

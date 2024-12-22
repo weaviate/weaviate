@@ -14,7 +14,7 @@ package compressionhelpers
 import (
 	"math"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type BinaryQuantizer struct {

@@ -16,7 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/errors"
 )
 
 // As docID (acting as value) can have only single value (acting as key) assigned

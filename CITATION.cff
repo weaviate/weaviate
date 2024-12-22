@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "Weaviate"
-url: "https://github.com/weaviate/weaviate"
+url: "https://github.com/liutizhong/weaviate"
 authors:
 - family-names: "Dilocker"
   given-names: "Etienne"

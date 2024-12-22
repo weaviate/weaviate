@@ -16,9 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func (s *Raft) UpsertRolesPermissions(roles map[string][]authorization.Policy) error {

@@ -18,8 +18,8 @@ import (
 	"math"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // SegmentNode was replaced by SegmentNodeList for WAL, but it is still used in

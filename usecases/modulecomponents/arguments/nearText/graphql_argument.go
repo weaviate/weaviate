@@ -14,10 +14,10 @@ package nearText
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {

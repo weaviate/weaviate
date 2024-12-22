@@ -17,16 +17,16 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcounter"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -149,7 +149,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 	if s.metrics != nil && !s.metrics.grouped {
 		// If metrics are grouped we cannot observe the count of an individual
 		// shard's object store because there is just a single metric. We would
-		// override it. See https://github.com/weaviate/weaviate/issues/4396 for
+		// override it. See https://github.com/liutizhong/weaviate/issues/4396 for
 		// details.
 		opts = append(opts, lsmkv.WithMonitorCount())
 	}

@@ -17,10 +17,10 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/operations/authz"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestGetUsersForRoleSuccess(t *testing.T) {

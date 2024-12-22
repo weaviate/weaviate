@@ -12,7 +12,7 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 type CreateRolesRequest struct {

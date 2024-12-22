@@ -14,8 +14,8 @@ package schema
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 type validatorNestedProperty func(property *models.NestedProperty,

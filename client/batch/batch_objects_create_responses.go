@@ -29,7 +29,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // BatchObjectsCreateReader is a Reader for the BatchObjectsCreate structure.

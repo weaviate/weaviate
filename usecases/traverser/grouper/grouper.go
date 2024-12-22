@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/usecases/vectorizer"
 )
 
 // Grouper groups or merges search results by how related they are

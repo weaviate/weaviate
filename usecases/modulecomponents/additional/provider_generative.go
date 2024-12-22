@@ -14,8 +14,8 @@ package additional
 import (
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	generativegenerate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	generativegenerate "github.com/liutizhong/weaviate/usecases/modulecomponents/additional/generate"
 )
 
 const PropertyGenerate = "generate"

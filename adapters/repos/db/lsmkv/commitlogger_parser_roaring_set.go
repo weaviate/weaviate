@@ -17,7 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
 )
 
 func (p *commitloggerParser) doRoaringSet() error {

@@ -28,11 +28,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	generativeconfig "github.com/weaviate/weaviate/modules/generative-aws/config"
-	awsparams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	generativeconfig "github.com/liutizhong/weaviate/modules/generative-aws/config"
+	awsparams "github.com/liutizhong/weaviate/modules/generative-aws/parameters"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)

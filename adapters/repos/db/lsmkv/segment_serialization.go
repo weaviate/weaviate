@@ -17,8 +17,8 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // a single node of strategy "replace"
@@ -245,7 +245,7 @@ func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16,
 	}
 
 	// Note: In a previous version (prior to
-	// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+	// https://github.com/liutizhong/weaviate/pull/3660) this was a copy. The
 	// mentioned PR optimizes the Replace Cursor which led to this now being
 	// shared memory. After internal review, we believe this is safe to do. The
 	// cursor gives no guarantees about memory after calling .next(). Before
@@ -260,7 +260,7 @@ func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16,
 
 	for j := 0; j < int(secondaryIndexCount); j++ {
 		// Note: In a previous version (prior to
-		// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+		// https://github.com/liutizhong/weaviate/pull/3660) this was a copy. The
 		// mentioned PR optimizes the Replace Cursor which led to this now being
 		// shared memory. After internal review, we believe this is safe to do. The
 		// cursor gives no guarantees about memory after calling .next(). Before

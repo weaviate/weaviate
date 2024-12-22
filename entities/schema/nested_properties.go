@@ -11,7 +11,7 @@
 
 package schema
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 // Merges nestPropsNew with nestPropsOld
 // Returns new slice without changing input ones and

@@ -12,8 +12,8 @@
 package nearThermal
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 // extractNearThermalFn arguments, such as "thermal" and "certainty"

@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 // Dump to stdout for debugging purposes
@@ -183,7 +183,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 }
 
 // was added as part of
-// https://github.com/weaviate/weaviate/issues/1868 for debugging. It
+// https://github.com/liutizhong/weaviate/issues/1868 for debugging. It
 // is not currently in use anywhere as it is somewhat costly, it would lock the
 // entire graph and iterate over every node which would lead to disruptions in
 // production. However, keeping this method around may be valuable for future

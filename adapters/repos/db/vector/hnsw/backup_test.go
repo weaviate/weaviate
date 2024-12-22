@@ -23,9 +23,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestBackup_SwitchCommitLogs(t *testing.T) {

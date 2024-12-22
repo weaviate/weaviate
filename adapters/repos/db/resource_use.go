@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/interval"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/entities/interval"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 type diskUse struct {

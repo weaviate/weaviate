@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	cmd "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type MockSchemaExecutor struct {

@@ -11,7 +11,7 @@
 
 package versioned
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 // Class is a wrapper on top of class created by OpenAPI to be able
 // to inject version to class

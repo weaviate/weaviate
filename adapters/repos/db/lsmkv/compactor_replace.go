@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type compactorReplace struct {

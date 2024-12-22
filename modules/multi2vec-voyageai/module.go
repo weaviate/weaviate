@@ -17,16 +17,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/clients"
-	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/ent"
-	"github.com/weaviate/weaviate/modules/multi2vec-voyageai/vectorizer"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/multi2vec-voyageai/clients"
+	"github.com/liutizhong/weaviate/modules/multi2vec-voyageai/ent"
+	"github.com/liutizhong/weaviate/modules/multi2vec-voyageai/vectorizer"
 )
 
 const Name = "multi2vec-voyageai"

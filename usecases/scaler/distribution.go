@@ -14,8 +14,8 @@ package scaler
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 type (

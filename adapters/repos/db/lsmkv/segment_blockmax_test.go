@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func TestSerializeAndParseInvertedNodeTest(t *testing.T) {

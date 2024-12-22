@@ -20,7 +20,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {

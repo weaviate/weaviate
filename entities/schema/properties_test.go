@@ -14,9 +14,9 @@ package schema_test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/test_utils"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema/test_utils"
 )
 
 func Test_DedupProperties(t *testing.T) {

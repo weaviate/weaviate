@@ -19,10 +19,10 @@ import (
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
 )
 
 // client the client interface is used to communicate with remote nodes

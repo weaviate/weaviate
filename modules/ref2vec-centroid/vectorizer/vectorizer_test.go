@@ -20,10 +20,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/modules/ref2vec-centroid/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/modules/ref2vec-centroid/config"
 )
 
 func TestVectorizer_New(t *testing.T) {
@@ -149,7 +149,7 @@ func TestVectorizer_Object(t *testing.T) {
 		}
 	})
 
-	// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
+	// due to the fix introduced in https://github.com/liutizhong/weaviate/pull/2320,
 	// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 	// an object's reference property.
 	//

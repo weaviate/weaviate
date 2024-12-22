@@ -19,17 +19,17 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/scaler"
-	"github.com/weaviate/weaviate/usecases/sharding"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/schema"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/scaler"
+	"github.com/liutizhong/weaviate/usecases/sharding"
+	shardingConfig "github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of

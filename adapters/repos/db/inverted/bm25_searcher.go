@@ -20,23 +20,23 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/additional"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/additional"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/liutizhong/weaviate/entities/inverted"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 type BM25Searcher struct {
@@ -171,7 +171,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 		// A NaN here is the results of a corrupted prop length tracker.
 		// This is a workaround to try and avoid 0 or NaN scores.
 		// There is an extra check below in case all prop lengths are NaN or 0.
-		// Related issue https://github.com/weaviate/weaviate/issues/6247
+		// Related issue https://github.com/liutizhong/weaviate/issues/6247
 		if !math.IsNaN(float64(propMean)) {
 			averagePropLength += float64(propMean)
 			averagePropLengthCount++
@@ -198,7 +198,7 @@ func (b *BM25Searcher) generateQueryTermsAndStats(class *models.Class, params se
 
 	// If this value is zero or NaN, the prop length tracker is fully corrupted.
 	// This is a workaround to avoid 0 or NaN scores.
-	// Related issue https://github.com/weaviate/weaviate/issues/6247
+	// Related issue https://github.com/liutizhong/weaviate/issues/6247
 	// sane default, if all prop lengths are NaN or 0
 	if math.IsNaN(averagePropLength) || averagePropLength == 0 {
 		averagePropLength = 40.0

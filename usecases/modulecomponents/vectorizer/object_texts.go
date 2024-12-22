@@ -17,10 +17,10 @@ import (
 	"os"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
 	"github.com/fatih/camelcase"
 )

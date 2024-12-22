@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/search"
-	rerankmodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/search"
+	rerankmodels "github.com/liutizhong/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func (p *ReRankerProvider) getScore(ctx context.Context, cfg moduletools.ClassConfig,

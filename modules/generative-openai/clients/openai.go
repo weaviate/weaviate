@@ -24,14 +24,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/generative-openai/config"
+	openaiparams "github.com/liutizhong/weaviate/modules/generative-openai/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)

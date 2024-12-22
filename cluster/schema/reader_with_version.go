@@ -14,8 +14,8 @@ package schema
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 func (rs SchemaReader) WaitForUpdate(ctx context.Context, version uint64) error {

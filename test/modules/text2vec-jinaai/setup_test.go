@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/docker"
 )
 
 func TestText2VecJinaAI(t *testing.T) {

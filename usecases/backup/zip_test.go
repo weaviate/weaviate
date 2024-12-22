@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
 )
 
 func TestZip(t *testing.T) {

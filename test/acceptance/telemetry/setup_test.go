@@ -15,9 +15,9 @@ package test
 // import (
 // 	"testing"
 
-// 	"github.com/weaviate/weaviate/client/schema"
-// 	"github.com/weaviate/weaviate/entities/models"
-// 	"github.com/weaviate/weaviate/test/helper"
+// 	"github.com/liutizhong/weaviate/client/schema"
+// 	"github.com/liutizhong/weaviate/entities/models"
+// 	"github.com/liutizhong/weaviate/test/helper"
 // )
 
 // func Test_Actions(t *testing.T) {

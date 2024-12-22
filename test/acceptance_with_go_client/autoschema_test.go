@@ -17,9 +17,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
+	client "github.com/liutizhong/weaviate-go-client/v4/weaviate"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {

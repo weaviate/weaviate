@@ -14,12 +14,12 @@ package schema
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/config"
-	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/config"
+	vIndex "github.com/liutizhong/weaviate/entities/vectorindex"
+	"github.com/liutizhong/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	sharding "github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 type Collection struct {

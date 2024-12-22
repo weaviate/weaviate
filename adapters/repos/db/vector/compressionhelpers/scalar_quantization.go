@@ -16,7 +16,7 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 const (

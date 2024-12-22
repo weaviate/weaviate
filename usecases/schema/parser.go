@@ -18,12 +18,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/usecases/config"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/vectorindex"
+	"github.com/liutizhong/weaviate/usecases/config"
+	shardingConfig "github.com/liutizhong/weaviate/usecases/sharding/config"
 )
 
 type modulesProvider interface {

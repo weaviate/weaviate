@@ -16,17 +16,17 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/flat"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/noop"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/vectorindex"
+	"github.com/liutizhong/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/liutizhong/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/liutizhong/weaviate/entities/vectorindex/flat"
+	hnswent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
 )
 
 func (s *Shard) initVectorIndex(ctx context.Context,

@@ -19,8 +19,8 @@ import (
 	"net/url"
 	"path"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type RemoteNode struct {

@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/nyaruka/phonenumbers"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func parsePhoneNumber(input, defaultCountry string) (*models.PhoneNumber, error) {

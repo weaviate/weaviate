@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Object, []float32, error) {

@@ -19,10 +19,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-anthropic/clients"
-	"github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/generative-anthropic/clients"
+	"github.com/liutizhong/weaviate/modules/generative-anthropic/parameters"
 )
 
 const Name = "generative-anthropic"

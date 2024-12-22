@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/backups"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/liutizhong/weaviate/client/backups"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/books"
 )
 
 func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors, override bool, overrideName, overridePath string) {

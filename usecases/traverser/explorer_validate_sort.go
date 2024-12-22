@@ -12,8 +12,8 @@
 package traverser
 
 import (
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func (e *Explorer) validateSort(className string, sort []filters.Sort) error {

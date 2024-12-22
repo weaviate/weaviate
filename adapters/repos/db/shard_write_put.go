@@ -23,13 +23,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/spaolacci/murmur3"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/types"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
@@ -51,7 +51,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	}
 
 	// object was not changed, no further updates are required
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.skipUpsert {
 		return nil
 	}
@@ -99,14 +99,14 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 	status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
-	// https://github.com/weaviate/weaviate/issues/3948
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3948
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.docIDPreserved || status.skipUpsert {
 		return nil
 	}
 
 	// vector is now optional as of
-	// https://github.com/weaviate/weaviate/issues/1800
+	// https://github.com/liutizhong/weaviate/issues/1800
 	if len(vector) == 0 {
 		return nil
 	}
@@ -125,14 +125,14 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	vectors map[string][]float32, status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
-	// https://github.com/weaviate/weaviate/issues/3948
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3948
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.docIDPreserved || status.skipUpsert {
 		return nil
 	}
 
 	// vector is now optional as of
-	// https://github.com/weaviate/weaviate/issues/1800
+	// https://github.com/liutizhong/weaviate/issues/1800
 	if len(vectors) == 0 {
 		return nil
 	}
@@ -154,14 +154,14 @@ func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
 	multiVectors map[string][][]float32, status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
-	// https://github.com/weaviate/weaviate/issues/3948
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3948
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.docIDPreserved || status.skipUpsert {
 		return nil
 	}
 
 	// vector is now optional as of
-	// https://github.com/weaviate/weaviate/issues/1800
+	// https://github.com/liutizhong/weaviate/issues/1800
 	if len(multiVectors) == 0 {
 		return nil
 	}
@@ -393,11 +393,11 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 
 	// If object was not changed (props and additional props of prev and next objects are the same)
 	// skip updates of object, inverted indexes and vector index.
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3949
 	//
 	// If object was changed (props or additional props of prev and next objects differ)
 	// update objects and inverted indexes, skip update of vector index.
-	// https://github.com/weaviate/weaviate/issues/3948
+	// https://github.com/liutizhong/weaviate/issues/3948
 	//
 	// Due to geo index's (using HNSW vector index) requirement new docID for delete+insert
 	// (delete initially adds tombstone, which "overwrite" following insert of the same docID)
@@ -539,7 +539,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	before := time.Now()
 
 	// This change is related to the patching/update behavior under new inverted index implementation
-	// https://github.com/weaviate/weaviate/pull/6176
+	// https://github.com/liutizhong/weaviate/pull/6176
 	// - on the old implementation, patching a document would result on only changing the entries for the terms that were changed
 	// - on the new implementation, patching a document will result on inserting all terms into the newer segment
 	// The goal is to enable searching through the segments independently of the previous segments.
@@ -783,13 +783,13 @@ func updateVectorInVectorIndex[T types.Embedding](ctx context.Context, vector T,
 	}
 
 	// vector was not changed, object was updated without changing docID
-	// https://github.com/weaviate/weaviate/issues/3948
+	// https://github.com/liutizhong/weaviate/issues/3948
 	if status.docIDPreserved {
 		return nil
 	}
 
 	// vector is now optional as of
-	// https://github.com/weaviate/weaviate/issues/1800
+	// https://github.com/liutizhong/weaviate/issues/1800
 	if len(vector) == 0 {
 		return nil
 	}

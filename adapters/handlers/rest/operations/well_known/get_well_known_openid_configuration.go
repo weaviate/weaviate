@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // GetWellKnownOpenidConfigurationHandlerFunc turns a function with the right signature into a get well known openid configuration handler

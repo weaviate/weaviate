@@ -15,7 +15,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/weaviate/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/docker"
 )
 
 func AllTests(endpoint string) func(t *testing.T) {

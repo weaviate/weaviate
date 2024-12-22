@@ -17,17 +17,17 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/text2vec-transformers/clients"
+	"github.com/liutizhong/weaviate/modules/text2vec-transformers/vectorizer"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-transformers"

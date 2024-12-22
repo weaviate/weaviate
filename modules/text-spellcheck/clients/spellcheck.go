@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
+	"github.com/liutizhong/weaviate/modules/text-spellcheck/ent"
 )
 
 type spellCheckInput struct {

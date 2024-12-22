@@ -16,11 +16,11 @@ import (
 
 	"github.com/tailor-inc/graphql/gqlerrors"
 	"github.com/tailor-inc/graphql/language/location"
-	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	test_helper "github.com/liutizhong/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 // Basic test on filter

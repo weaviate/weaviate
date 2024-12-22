@@ -6,7 +6,7 @@
 # Base build image
 FROM golang:1.22-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
-WORKDIR /go/src/github.com/weaviate/weaviate
+WORKDIR /go/src/github.com/liutizhong/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
@@ -25,10 +25,10 @@ ARG EXTRA_BUILD_ARGS=""
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
-      -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
-      -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
-      -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
+      -X github.com/liutizhong/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
+      -X github.com/liutizhong/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
+      -X github.com/liutizhong/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
+      -X github.com/liutizhong/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################

@@ -14,7 +14,7 @@ package aggregator
 import (
 	"errors"
 
-	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/aggregation"
 )
 
 func addReferenceAggregations(prop *aggregation.Property,

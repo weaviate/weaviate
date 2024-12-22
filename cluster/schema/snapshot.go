@@ -17,7 +17,7 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
-	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/types"
 )
 
 type snapshot struct {

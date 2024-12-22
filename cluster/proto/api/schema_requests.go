@@ -12,9 +12,9 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/versioned"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 type AddClassRequest struct {

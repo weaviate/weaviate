@@ -11,7 +11,7 @@
 
 package dependency
 
-import "github.com/weaviate/weaviate/entities/modulecapabilities"
+import "github.com/liutizhong/weaviate/entities/modulecapabilities"
 
 type NearTextDependecy struct {
 	moduleName string

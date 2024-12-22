@@ -17,13 +17,13 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type propValuePair struct {
@@ -95,7 +95,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	} else {
 		eg := enterrors.NewErrorGroupWrapper(pv.logger)
 		// prevent unbounded concurrency, see
-		// https://github.com/weaviate/weaviate/issues/3179 for details
+		// https://github.com/liutizhong/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)
 		for i, child := range pv.children {
 			i, child := i, child

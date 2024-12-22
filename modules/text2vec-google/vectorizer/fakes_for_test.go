@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-google/ent"
 )
 
 type fakeClient struct {

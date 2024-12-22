@@ -16,8 +16,8 @@ package test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/client/objects"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func removingObjects(t *testing.T) {

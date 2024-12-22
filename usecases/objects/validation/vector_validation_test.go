@@ -17,8 +17,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func TestVectors(t *testing.T) {

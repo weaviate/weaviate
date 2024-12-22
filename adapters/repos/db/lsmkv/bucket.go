@@ -28,16 +28,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/interval"
-	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted/terms"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/interval"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/storagestate"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 const FlushAfterDirtyDefault = 60 * time.Second
@@ -1198,7 +1198,7 @@ func (b *Bucket) isReadOnly() bool {
 //     bucket can happen simultaneously. This is by design.
 //
 //  3. initAndPrecomputeNewSegment: (Newly added in
-//     https://github.com/weaviate/weaviate/pull/5943, early October 2024). After
+//     https://github.com/liutizhong/weaviate/pull/5943, early October 2024). After
 //     the previous flush step the segment can now be initialized. However, to
 //     make it usable for real life, we still need to compute metadata, such as
 //     bloom filters (all types) and net count additions (only Replace type).

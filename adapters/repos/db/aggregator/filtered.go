@@ -15,19 +15,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/additional"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/docid"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/liutizhong/weaviate/adapters/repos/db/docid"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/traverser"
+	"github.com/liutizhong/weaviate/usecases/traverser/hybrid"
 )
 
 type filteredAggregator struct {

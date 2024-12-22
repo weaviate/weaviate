@@ -14,7 +14,7 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",

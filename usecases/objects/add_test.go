@@ -22,11 +22,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
@@ -207,7 +207,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	t.Run("without a vector", func(t *testing.T) {
 		// Note that this was an invalid case before v1.10 which added this
 		// functionality, as part of
-		// https://github.com/weaviate/weaviate/issues/1800
+		// https://github.com/liutizhong/weaviate/issues/1800
 		reset()
 
 		ctx := context.Background()

@@ -12,7 +12,7 @@
 package nearImage
 
 import (
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
 )
 
 const Name = "nearImage"

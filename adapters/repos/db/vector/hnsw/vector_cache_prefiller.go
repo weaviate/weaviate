@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
 )
 
 type vectorCachePrefiller[T any] struct {

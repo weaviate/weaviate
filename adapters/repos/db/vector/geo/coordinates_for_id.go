@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // CoordinatesForID must provide the geo coordinates for the specified index

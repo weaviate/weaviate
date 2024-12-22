@@ -20,15 +20,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/visited"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/usecases/floatcomp"
 )
 
 const defaultAcornMaxFilterPercentage = 0.4
@@ -310,14 +310,14 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
 				// this to happen in versions prior to v1.12.0:
-				// https://github.com/weaviate/weaviate/issues/1868
+				// https://github.com/liutizhong/weaviate/issues/1868
 				//
 				// As a result the length of this slice is entirely unpredictable and we
 				// can no longer retrieve it from the pool. Instead we need to fallback
 				// to allocating a new slice.
 				//
 				// This was discovered as part of
-				// https://github.com/weaviate/weaviate/issues/1897
+				// https://github.com/liutizhong/weaviate/issues/1897
 				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			} else {
 				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]

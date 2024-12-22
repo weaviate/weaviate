@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/sentry"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/sentry"
 
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/cluster"
 )
 
 const (

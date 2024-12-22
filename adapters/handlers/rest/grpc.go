@@ -12,9 +12,9 @@
 package rest
 
 import (
-	"github.com/weaviate/weaviate/adapters/handlers/grpc"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/adapters/handlers/grpc"
+	"github.com/liutizhong/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 )
 
 func createGrpcServer(state *state.State) *grpc.GRPCServer {

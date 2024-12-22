@@ -24,8 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 )
 
 func TestCondensor(t *testing.T) {
@@ -230,7 +230,7 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 }
 
 // This test was added as part of
-// https://github.com/weaviate/weaviate/issues/1868 to rule out that
+// https://github.com/liutizhong/weaviate/issues/1868 to rule out that
 // replace links broken across two independent commit logs. It turned out that
 // this was green and not the cause for the bug. The bug could be reproduced
 // with the new test added in index_too_many_links_bug_integration_test.go.
@@ -329,7 +329,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 }
 
 // This test was added as part of the investigation and fixing of
-// https://github.com/weaviate/weaviate/issues/1868. We used the new
+// https://github.com/liutizhong/weaviate/issues/1868. We used the new
 // (higher level) test in index_too_many_links_bug_integration_test.go to
 // reproduce the problem without knowing what causes it. Eventually we came to
 // the conclusion that "ClearLinksAtLevel" was not propagated correctly across

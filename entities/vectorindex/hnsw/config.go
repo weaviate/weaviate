@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/schema/config"
-	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/liutizhong/weaviate/entities/schema/config"
+	vectorIndexCommon "github.com/liutizhong/weaviate/entities/vectorindex/common"
 )
 
 const (

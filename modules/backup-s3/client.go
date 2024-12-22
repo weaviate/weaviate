@@ -26,10 +26,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/backup"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/entities/backup"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type s3Client struct {

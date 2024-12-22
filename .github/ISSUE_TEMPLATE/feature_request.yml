@@ -7,7 +7,7 @@ body:
       value: |
         #### Before you get started
         * Is this feature already in our [roadmap](https://weaviate.io/developers/weaviate/roadmap)?
-        * Check to make sure someone hasn't already [requested this feature](https://github.com/weaviate/weaviate/issues?q=is:issue+label:"feature+request"). if that's the case, give it a thumbs up 👍
+        * Check to make sure someone hasn't already [requested this feature](https://github.com/liutizhong/weaviate/issues?q=is:issue+label:"feature+request"). if that's the case, give it a thumbs up 👍
         * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
 
   - type: textarea

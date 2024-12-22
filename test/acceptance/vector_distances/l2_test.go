@@ -14,7 +14,7 @@ package test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func addTestDataL2(t *testing.T) {

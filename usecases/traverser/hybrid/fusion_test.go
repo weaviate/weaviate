@@ -19,7 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func TestFusionRelativeScore(t *testing.T) {

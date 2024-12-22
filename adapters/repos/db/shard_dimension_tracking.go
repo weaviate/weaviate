@@ -18,14 +18,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	hnswent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type DimensionCategory int
@@ -118,7 +118,7 @@ func (s *Shard) initDimensionTracking() {
 	// do not use the context passed from NewShard, as that one is only meant for
 	// initialization. However, this goroutine keeps running forever, so if the
 	// startup context expires, this would error.
-	// https://github.com/weaviate/weaviate/issues/5091
+	// https://github.com/liutizhong/weaviate/issues/5091
 	rootCtx := context.Background()
 	if s.index.Config.TrackVectorDimensions {
 		s.dimensionTrackingInitialized.Store(true)

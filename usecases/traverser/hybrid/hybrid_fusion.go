@@ -16,7 +16,7 @@ import (
 	"sort"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/search"
 )
 
 func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []string) []*search.Result {

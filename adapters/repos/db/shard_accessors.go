@@ -14,10 +14,10 @@
 package db
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcounter"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 func (s *Shard) Queue() *VectorIndexQueue {

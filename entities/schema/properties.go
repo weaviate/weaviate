@@ -11,7 +11,7 @@
 
 package schema
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 // DedupProperties removes from newProps slice properties already present in oldProps slice.
 // If property of nested type (object/object[]) is present in both slices,

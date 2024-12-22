@@ -19,10 +19,10 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *errorcompounder.SafeErrorCompounder) {

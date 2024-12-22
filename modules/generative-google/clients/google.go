@@ -24,11 +24,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-google/config"
-	googleparams "github.com/weaviate/weaviate/modules/generative-google/parameters"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/generative-google/config"
+	googleparams "github.com/liutizhong/weaviate/modules/generative-google/parameters"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/apikey"
 )
 
 type harmCategory string

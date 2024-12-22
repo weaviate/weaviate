@@ -12,8 +12,8 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 type segmentCursorReplace struct {

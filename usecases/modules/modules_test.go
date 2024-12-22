@@ -21,13 +21,13 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
-	ubackup "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	enitiesSchema "github.com/liutizhong/weaviate/entities/schema"
+	ubackup "github.com/liutizhong/weaviate/usecases/backup"
 )
 
 func TestModulesProvider(t *testing.T) {

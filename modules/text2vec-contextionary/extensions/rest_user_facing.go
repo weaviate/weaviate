@@ -16,7 +16,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type RESTUserFacingHandlers struct {

@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/apikey"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-google/ent"
 )
 
 type taskType string

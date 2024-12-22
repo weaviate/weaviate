@@ -245,7 +245,7 @@ func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 	assert.Equal(t, "my-payload", remoteState)
 }
 
-// based on https://github.com/weaviate/weaviate/issues/4637
+// based on https://github.com/liutizhong/weaviate/issues/4637
 func TestDistributedWriteTransactionWithRemoteCommitFailure(t *testing.T) {
 	ctx := context.Background()
 
@@ -277,7 +277,7 @@ func TestDistributedWriteTransactionWithRemoteCommitFailure(t *testing.T) {
 	remoteShoudError = false
 
 	// now try again and assert that everything works fine Prior to
-	// https://github.com/weaviate/weaviate/issues/4637 we would now get
+	// https://github.com/liutizhong/weaviate/issues/4637 we would now get
 	// concurrent tx errors
 
 	payload = "my-updated-payload"

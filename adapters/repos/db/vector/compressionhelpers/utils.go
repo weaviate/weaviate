@@ -17,7 +17,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 )
 
 type Action func(taskIndex uint64)

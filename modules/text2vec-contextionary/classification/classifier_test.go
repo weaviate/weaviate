@@ -24,11 +24,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	testhelper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema/crossref"
+	testhelper "github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/mocks"
+	usecasesclassfication "github.com/liutizhong/weaviate/usecases/classification"
 )
 
 func TestContextualClassifier_ParseSettings(t *testing.T) {

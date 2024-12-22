@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 type MockResolver struct {

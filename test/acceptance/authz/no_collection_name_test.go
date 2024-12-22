@@ -16,16 +16,16 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/client/objects"
+	"github.com/liutizhong/weaviate/client/objects"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/articles"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 // Test create + delete - update does not seem to work without classname and we should not fix it

@@ -11,7 +11,7 @@
 
 package v1
 
-import "github.com/weaviate/weaviate/entities/models"
+import "github.com/liutizhong/weaviate/entities/models"
 
 type Property struct {
 	*models.Property

@@ -22,13 +22,13 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster/mocks"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	command "github.com/liutizhong/weaviate/cluster/proto/api"
+	"github.com/liutizhong/weaviate/cluster/schema"
+	"github.com/liutizhong/weaviate/cluster/types"
+	"github.com/liutizhong/weaviate/cluster/utils"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/cluster/mocks"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 func TestRaftEndpoints(t *testing.T) {

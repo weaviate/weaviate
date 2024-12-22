@@ -25,8 +25,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
+	"github.com/liutizhong/weaviate/modules/multi2vec-google/ent"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/apikey"
 )
 
 func TestClient(t *testing.T) {

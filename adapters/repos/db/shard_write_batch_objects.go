@@ -19,15 +19,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -327,7 +327,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		}
 
 		// skip vector update, as vector was not changed
-		// https://github.com/weaviate/weaviate/issues/3948
+		// https://github.com/liutizhong/weaviate/issues/3948
 		if status.docIDPreserved {
 			continue
 		}
@@ -386,7 +386,7 @@ func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInse
 	}
 
 	// object was not changed, skip further updates
-	// https://github.com/weaviate/weaviate/issues/3949
+	// https://github.com/liutizhong/weaviate/issues/3949
 	if status.skipUpsert {
 		return true
 	}
@@ -423,7 +423,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		// By this time all required deletes (e.g. because of DocID changes) have
 		// already been grouped and performed in bulk. Only the insertions are
 		// left. The motivation for this change is explained in
-		// https://github.com/weaviate/weaviate/pull/2697.
+		// https://github.com/liutizhong/weaviate/pull/2697.
 		//
 		// Before this change, two identical batches in sequence would lead to
 		// massive lock contention in the hnsw index, as each individual delete

@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 // MetaGetOKCode is the HTTP code returned for type MetaGetOK

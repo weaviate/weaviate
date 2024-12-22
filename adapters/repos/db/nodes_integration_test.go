@@ -21,11 +21,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/schema"
+	enthnsw "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/entities/verbosity"
+	"github.com/liutizhong/weaviate/usecases/objects"
 )
 
 func TestNodesAPI_Journey(t *testing.T) {
@@ -136,7 +136,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.True(t, len(nodeStatus.Shards[0].Name) > 0)
 	// a previous version of this test made assertions on object counts,
 	// however with object count becoming async, we can no longer make exact
-	// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+	// assertions here. See https://github.com/liutizhong/weaviate/issues/4193
 	// for details.
 	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
 	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)

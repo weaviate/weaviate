@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func apiBasedModulesTests(endpoint string) func(t *testing.T) {

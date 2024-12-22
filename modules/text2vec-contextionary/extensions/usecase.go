@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 )
 
 // UseCase handles all business logic regarding extensions

@@ -21,9 +21,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	"github.com/liutizhong/weaviate/entities/storagestate"
 )
 
 func TestStoreBackup(t *testing.T) {

@@ -14,15 +14,15 @@ package dynamic
 import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/flat"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/errorcompounder"
+	schemaconfig "github.com/liutizhong/weaviate/entities/schema/config"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/dynamic"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 )
 
 type Config struct {

@@ -13,7 +13,7 @@ GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
-VPREFIX="github.com/weaviate/weaviate/usecases/build"
+VPREFIX="github.com/liutizhong/weaviate/usecases/build"
 
 BUILD_TAGS="-X ${VPREFIX}.Branch=${GIT_BRANCH} -X ${VPREFIX}.Revision=${GIT_REVISION} -X ${VPREFIX}.BuildUser=$(whoami)@$(hostname) -X ${VPREFIX}.BuildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 

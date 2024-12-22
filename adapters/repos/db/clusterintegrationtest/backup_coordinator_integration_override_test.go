@@ -22,9 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
-	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/entities/models"
+	modstgfs "github.com/liutizhong/weaviate/modules/backup-filesystem"
+	"github.com/liutizhong/weaviate/usecases/backup"
 )
 
 func TestDistributedBackupsOverride(t *testing.T) {

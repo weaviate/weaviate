@@ -13,7 +13,7 @@
 // to the "RoaringSet" strategy
 //
 // This package alone does not contain an entire LSM store. It's intended to be
-// used as part of the [github.com/weaviate/weaviate/adapters/repos/db/lsmkv] package.
+// used as part of the [github.com/liutizhong/weaviate/adapters/repos/db/lsmkv] package.
 //
 // # Motivation
 //

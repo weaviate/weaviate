@@ -17,7 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/filters"
 )
 
 func TestReader(t *testing.T) {

@@ -24,17 +24,17 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/storobj"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/schema/config"
+	"github.com/liutizhong/weaviate/entities/storobj"
+	ent "github.com/liutizhong/weaviate/entities/vectorindex/hnsw"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
 )
 
 type hnsw struct {
@@ -153,10 +153,10 @@ type hnsw struct {
 	// single-threadedness of deletes is not a big problem.
 	//
 	// This lock was introduced as part of
-	// https://github.com/weaviate/weaviate/issues/2194
+	// https://github.com/liutizhong/weaviate/issues/2194
 	//
 	// See
-	// https://github.com/weaviate/weaviate/pull/2191#issuecomment-1242726787
+	// https://github.com/liutizhong/weaviate/pull/2191#issuecomment-1242726787
 	// where we ran performance tests to make sure introducing this lock has no
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
@@ -603,7 +603,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	defer h.RUnlock()
 
 	if id >= uint64(len(h.nodes)) {
-		// See https://github.com/weaviate/weaviate/issues/1838 for details.
+		// See https://github.com/liutizhong/weaviate/issues/1838 for details.
 		// This could be after a crash recovery when the object store is "further
 		// ahead" than the hnsw index and we receive a delete request
 		return nil

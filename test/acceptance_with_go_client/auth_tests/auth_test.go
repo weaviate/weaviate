@@ -17,11 +17,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/auth"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/auth"
+	"github.com/liutizhong/weaviate-go-client/v4/weaviate/fault"
+	"github.com/liutizhong/weaviate/entities/models"
 
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	client "github.com/liutizhong/weaviate-go-client/v4/weaviate"
 )
 
 const (

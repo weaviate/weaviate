@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type PropertyInterface interface {

@@ -16,11 +16,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/test/helper"
-	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
+	"github.com/liutizhong/weaviate/entities/models"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/test/helper"
+	grpchelper "github.com/liutizhong/weaviate/test/helper/grpc"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/planets"
 )
 
 func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.T) {

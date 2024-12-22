@@ -14,7 +14,7 @@ package terms
 import (
 	"math"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func DoWand(limit int, results *Terms, averagePropLength float64, additionalExplanations bool,

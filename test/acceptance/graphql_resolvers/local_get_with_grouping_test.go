@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/liutizhong/weaviate/test/helper/graphql"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 func gettingObjectsWithGrouping(t *testing.T) {
@@ -210,7 +210,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		// this query should yield the same results as the above, as the above where filter will
 		// match all records. checking the previous payload with the one below is a sanity check
 		// for the sake of validating the fix for [github issue 1958]
-		// (https://github.com/weaviate/weaviate/issues/1958)
+		// (https://github.com/liutizhong/weaviate/issues/1958)
 		// UPDATE: due to introducing roaring bitmaps as set holding docIDs of filtered documents
 		// internal order of results returned has changed from property value based to docID based,
 		// but set content remain unchanged
@@ -276,7 +276,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	})
 
 	// temporarily removed due to
-	// https://github.com/weaviate/weaviate/issues/1302
+	// https://github.com/liutizhong/weaviate/issues/1302
 	// t.Run("grouping mode set to closest", func(t *testing.T) {
 	// 	query := `
 	// 	{

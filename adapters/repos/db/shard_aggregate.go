@@ -14,9 +14,9 @@ package db
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/adapters/repos/db/aggregator"
+	"github.com/liutizhong/weaviate/entities/aggregation"
+	"github.com/liutizhong/weaviate/usecases/modules"
 )
 
 func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {

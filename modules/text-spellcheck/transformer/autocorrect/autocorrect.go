@@ -15,7 +15,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
+	"github.com/liutizhong/weaviate/modules/text-spellcheck/ent"
 )
 
 type spellCheckClient interface {

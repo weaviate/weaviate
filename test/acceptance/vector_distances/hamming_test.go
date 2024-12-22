@@ -14,7 +14,7 @@ package test
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 func addTestDataHamming(t *testing.T) {

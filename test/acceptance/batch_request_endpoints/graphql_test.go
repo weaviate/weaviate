@@ -27,9 +27,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	graphql_client "github.com/weaviate/weaviate/client/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/helper"
+	graphql_client "github.com/liutizhong/weaviate/client/graphql"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/helper"
 )
 
 // TODO: change this test to simulate a successful query response when the test dataset is implemented.

@@ -16,23 +16,23 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/config"
 
-	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/liutizhong/weaviate/usecases/objects"
 
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
-	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	schemaManager "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/schema"
+	pb "github.com/liutizhong/weaviate/grpc/generated/protocol/v1"
+	"github.com/liutizhong/weaviate/usecases/auth/authentication/composer"
+	schemaManager "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/traverser"
 )
 
 type Service struct {

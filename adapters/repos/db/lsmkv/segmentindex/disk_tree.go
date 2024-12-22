@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/usecases/byteops"
 )
 
 // DiskTree is a read-only wrapper around a marshalled index search tree, which

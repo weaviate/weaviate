@@ -20,23 +20,23 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/storobj"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
-	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/entities/replication"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/liutizhong/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/liutizhong/weaviate/adapters/repos/db/queue"
+	"github.com/liutizhong/weaviate/cluster/utils"
+	"github.com/liutizhong/weaviate/entities/replication"
+	"github.com/liutizhong/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/memwatch"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
+	"github.com/liutizhong/weaviate/usecases/replica"
+	schemaUC "github.com/liutizhong/weaviate/usecases/schema"
+	"github.com/liutizhong/weaviate/usecases/sharding"
 )
 
 type DB struct {
@@ -73,7 +73,7 @@ type DB struct {
 	// hopefully very short).
 	//
 	//
-	// See also: https://github.com/weaviate/weaviate/issues/2351
+	// See also: https://github.com/liutizhong/weaviate/issues/2351
 	//
 	// This lock should be used to avoid that the indices-map is changed while iterating over it. To
 	// mark a given index in use, lock that index directly.

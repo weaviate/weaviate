@@ -15,8 +15,8 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/geo"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 // Index - for now - only supports a Geo index as a property-specific index.

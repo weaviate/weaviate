@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/tailor-inc/graphql"
-	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	test_helper "github.com/liutizhong/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/liutizhong/weaviate/entities/filters"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 type mockResolver struct {

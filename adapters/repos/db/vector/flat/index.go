@@ -27,19 +27,19 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
+	"github.com/liutizhong/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/common"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/liutizhong/weaviate/entities/config"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	entlsmkv "github.com/liutizhong/weaviate/entities/lsmkv"
+	schemaConfig "github.com/liutizhong/weaviate/entities/schema/config"
+	flatent "github.com/liutizhong/weaviate/entities/vectorindex/flat"
+	"github.com/liutizhong/weaviate/usecases/floatcomp"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -210,7 +210,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	// TODO: Forced compaction should not stay an all or nothing option.
 	//       This is only a temporary measure until dynamic compaction
 	//       behavior is implemented.
-	//       See: https://github.com/weaviate/weaviate/issues/5241
+	//       See: https://github.com/liutizhong/weaviate/issues/5241
 	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
 		lsmkv.WithForceCompation(forceCompaction),

@@ -18,7 +18,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/liutizhong/weaviate/entities/schema"
 )
 
 type DocPointerWithScore struct {

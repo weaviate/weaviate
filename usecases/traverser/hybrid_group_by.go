@@ -14,10 +14,10 @@ package traverser
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/search"
+	"github.com/liutizhong/weaviate/entities/searchparams"
 )
 
 func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, groupBy *searchparams.GroupBy) (search.Results, error) {

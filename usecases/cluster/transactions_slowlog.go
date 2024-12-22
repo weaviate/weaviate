@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/entities/errors"
 )
 
 func newTxSlowLog(logger logrus.FieldLogger) *txSlowLog {

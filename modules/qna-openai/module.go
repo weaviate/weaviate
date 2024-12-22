@@ -19,14 +19,14 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	qnaadditional "github.com/weaviate/weaviate/modules/qna-openai/additional"
-	qnaadditionalanswer "github.com/weaviate/weaviate/modules/qna-openai/additional/answer"
-	qnaask "github.com/weaviate/weaviate/modules/qna-openai/ask"
-	"github.com/weaviate/weaviate/modules/qna-openai/clients"
-	qnaadependency "github.com/weaviate/weaviate/modules/qna-openai/dependency"
-	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	qnaadditional "github.com/liutizhong/weaviate/modules/qna-openai/additional"
+	qnaadditionalanswer "github.com/liutizhong/weaviate/modules/qna-openai/additional/answer"
+	qnaask "github.com/liutizhong/weaviate/modules/qna-openai/ask"
+	"github.com/liutizhong/weaviate/modules/qna-openai/clients"
+	qnaadependency "github.com/liutizhong/weaviate/modules/qna-openai/dependency"
+	"github.com/liutizhong/weaviate/modules/qna-openai/ent"
 )
 
 const Name = "qna-openai"

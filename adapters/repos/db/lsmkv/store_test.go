@@ -20,7 +20,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
 )
 
 func TestCreateOrLoadBucketConcurrency(t *testing.T) {

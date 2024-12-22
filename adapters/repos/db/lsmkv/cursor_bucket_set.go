@@ -16,7 +16,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/liutizhong/weaviate/entities/lsmkv"
 )
 
 type CursorSet struct {

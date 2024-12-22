@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/clients/voyageai"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
+	"github.com/liutizhong/weaviate/modules/text2vec-voyageai/ent"
 )
 
 var rateLimitPerModel = map[string]voyageai.VoyageRLModel{

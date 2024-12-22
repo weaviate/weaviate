@@ -19,16 +19,16 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/client/graphql"
+	"github.com/liutizhong/weaviate/client/graphql"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/authz"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
-	"github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/client/authz"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/helper"
+	"github.com/liutizhong/weaviate/test/helper/sample-schema/articles"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthZGraphQLRefs(t *testing.T) {

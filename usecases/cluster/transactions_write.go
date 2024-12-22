@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/monitoring"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	"github.com/liutizhong/weaviate/usecases/monitoring"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -371,7 +371,7 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
 			c.logger.WithFields(logrus.Fields{
 				"action": "broadcast_abort_transaction",
-				// before https://github.com/weaviate/weaviate/issues/2625 the next
+				// before https://github.com/liutizhong/weaviate/issues/2625 the next
 				// line would read
 				//
 				// "id": c.currentTransaction.ID
@@ -597,7 +597,7 @@ func (c *TxManager) incomingTxCommitApplyCommitFn(
 	// apply will likely lock the schema Manager. The schema Manager itself
 	// however, might be waiting for the TxManager in case of concurrent
 	// requests.
-	// See https://github.com/weaviate/weaviate/issues/4312 for steps on how to
+	// See https://github.com/liutizhong/weaviate/issues/4312 for steps on how to
 	// reproduce
 	//
 	// use transaction from cache, not passed in for two reason: a. protect

@@ -24,8 +24,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents/clients/voyageai"
 )
 
 func TestClient(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/liutizhong/weaviate/entities/dto"
 )
 
 func Test_extractNearTextFn(t *testing.T) {

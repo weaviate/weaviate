@@ -14,8 +14,8 @@ package lsmkv
 import (
 	"io"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/liutizhong/weaviate/entities/concurrency"
 )
 
 func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerReader, func()) {

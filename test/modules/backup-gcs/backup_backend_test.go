@@ -24,13 +24,13 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	mod "github.com/weaviate/weaviate/modules/backup-gcs"
-	"github.com/weaviate/weaviate/test/docker"
-	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	mod "github.com/liutizhong/weaviate/modules/backup-gcs"
+	"github.com/liutizhong/weaviate/test/docker"
+	moduleshelper "github.com/liutizhong/weaviate/test/helper/modules"
+	ubak "github.com/liutizhong/weaviate/usecases/backup"
+	"github.com/liutizhong/weaviate/usecases/config"
 )
 
 func Test_GcsBackend_Start(t *testing.T) {

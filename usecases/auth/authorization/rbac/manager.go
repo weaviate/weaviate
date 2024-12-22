@@ -16,14 +16,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/conv"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization/errors"
 )
 
 type manager struct {

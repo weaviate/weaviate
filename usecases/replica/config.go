@@ -14,8 +14,8 @@ package replica
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/replication"
+	"github.com/liutizhong/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/replication"
 )
 
 type nodeCounter interface {

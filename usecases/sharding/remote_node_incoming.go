@@ -14,7 +14,7 @@ package sharding
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/liutizhong/weaviate/entities/models"
 )
 
 type RemoteNodeIncomingRepo interface {

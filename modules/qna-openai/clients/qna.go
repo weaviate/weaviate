@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/liutizhong/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/qna-openai/config"
-	"github.com/weaviate/weaviate/modules/qna-openai/ent"
+	"github.com/liutizhong/weaviate/entities/moduletools"
+	"github.com/liutizhong/weaviate/modules/qna-openai/config"
+	"github.com/liutizhong/weaviate/modules/qna-openai/ent"
 )
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {

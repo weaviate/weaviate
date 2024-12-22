@@ -24,15 +24,15 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	enterrors "github.com/liutizhong/weaviate/entities/errors"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/cache"
+	"github.com/liutizhong/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/liutizhong/weaviate/entities/cyclemanager"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -503,7 +503,7 @@ LOOP:
 					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
 			}
 		case <-ctx.Done():
-			// before https://github.com/weaviate/weaviate/issues/4615 the context
+			// before https://github.com/liutizhong/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
 			// now valid to wait for a cancelation – even if a panic occurs.
 			break LOOP

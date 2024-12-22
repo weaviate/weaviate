@@ -19,13 +19,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/weaviate/weaviate/entities/schema"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local"
+	"github.com/liutizhong/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/liutizhong/weaviate/entities/schema"
+	entsentry "github.com/liutizhong/weaviate/entities/sentry"
+	"github.com/liutizhong/weaviate/usecases/auth/authorization"
+	"github.com/liutizhong/weaviate/usecases/config"
+	"github.com/liutizhong/weaviate/usecases/modules"
 )
 
 type Traverser interface {

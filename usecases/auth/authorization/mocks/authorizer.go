@@ -12,7 +12,7 @@
 package mocks
 
 import (
-	models "github.com/weaviate/weaviate/entities/models"
+	models "github.com/liutizhong/weaviate/entities/models"
 )
 
 type AuthZReq struct {

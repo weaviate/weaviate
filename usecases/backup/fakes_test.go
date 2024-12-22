@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/liutizhong/weaviate/entities/backup"
+	"github.com/liutizhong/weaviate/entities/modulecapabilities"
 )
 
 var chunks map[string][]byte

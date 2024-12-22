@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/docker"
+	"github.com/liutizhong/weaviate/test/docker"
 	"golang.org/x/sync/errgroup"
 )
 

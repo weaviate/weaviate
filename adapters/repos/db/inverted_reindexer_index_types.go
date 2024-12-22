@@ -11,7 +11,7 @@
 
 package db
 
-import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+import "github.com/liutizhong/weaviate/adapters/repos/db/lsmkv"
 
 type PropertyIndexType uint8
 

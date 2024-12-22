@@ -15,10 +15,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/liutizhong/weaviate/adapters/repos/db/helpers"
+	"github.com/liutizhong/weaviate/adapters/repos/db/inverted"
+	"github.com/liutizhong/weaviate/entities/additional"
+	"github.com/liutizhong/weaviate/entities/storobj"
 )
 
 func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, vec []float32) ([]uint64, []float32, error) {

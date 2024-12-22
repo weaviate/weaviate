@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/liutizhong/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/liutizhong/weaviate/adapters/repos/db/roaringset"
 )
 
 func (m *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) {
