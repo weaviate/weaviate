@@ -296,7 +296,7 @@ func (s *Shard) resetDimensionsLSM() error {
 	if b != nil {
 		b.Shutdown(context.Background())
 	}
-	err := s.store.CreateBucket(context.Background(),
+	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
