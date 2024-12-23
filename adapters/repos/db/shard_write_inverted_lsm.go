@@ -293,43 +293,25 @@ func GenerateRandomString(length int) (string, error) {
 
 func (s *Shard) resetDimensionsLSM() error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b != nil {
-		b.Shutdown(context.Background())
-	}
-	err := s.store.CreateBucket(context.Background(),
-		helpers.DimensionsBucketLSM,
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		s.segmentCleanupConfig(),
-	)
-	if err != nil {
-		return fmt.Errorf("create dimensions bucket: %w", err)
-	}
-
-	b = s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
+		return errors.Errorf("no bucket dimensions")
 	}
 
-	// Create random bucket name
-	name, err := GenerateRandomString(32)
-	if err != nil {
-		return errors.Wrap(err, "generate random bucket name")
-	}
-	err = s.createDimensionsBucket(context.Background(), name)
-	if err != nil {
-		return errors.Wrap(err, "create temporary dimensions bucket")
+	dir := b.GetDir()
+
+	if err := b.Shutdown(context.Background()); err != nil {
+		s.index.logger.Errorf("stop lsmkv bucket: %s", err)
+		if !errors.Is(err, lsmkv.ErrAlreadyClosed) {
+			return errors.Wrap(err, "stop lsmkv bucket")
+		}
 	}
 
-	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
+	err := os.RemoveAll(dir)
 	if err != nil {
-		return errors.Wrap(err, "replace dimensions bucket")
+		return errors.Wrapf(err, "remove lsm store at %s", dir)
 	}
 
-	return nil
+	return s.addDimensionsProperty(context.Background())
 }
 
 // Key (dimensionality) | Value Doc IDs
