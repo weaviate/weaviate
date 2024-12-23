@@ -80,7 +80,7 @@ require (
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/text v0.21.0
-	golang.org/x/time v0.6.0
+	golang.org/x/time v0.8.0
 	google.golang.org/protobuf v1.34.2
 )
 
