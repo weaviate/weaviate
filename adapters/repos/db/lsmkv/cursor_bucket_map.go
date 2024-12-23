@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"sort"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
