@@ -49,7 +49,7 @@ type schemaManger interface {
 	NodeName() string
 }
 
-type nodeResolver interface {
+type NodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 	AllNames() []string
 	NodeCount() int

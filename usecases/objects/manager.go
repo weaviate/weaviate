@@ -44,7 +44,7 @@ type schemaManager interface {
 	ReadOnlyClass(name string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
+	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
 	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
@@ -121,7 +121,8 @@ type locks interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
+	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+		vectors models.Vectors, multiVectors models.MultiVectors,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
@@ -175,7 +176,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}

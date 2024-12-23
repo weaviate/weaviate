@@ -49,7 +49,7 @@ type RevokeRoleParams struct {
 	  In: body
 	*/
 	Body RevokeRoleBody
-	/*user or key ID
+	/*user name
 	  Required: true
 	  In: path
 	*/

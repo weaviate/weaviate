@@ -13,16 +13,15 @@ package authorization
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 const (
-
-	// TODO shall be added if the user can CRUD the resource on permission creation
-	// // CRUD allow all actions on a resource
-	// CRUD = "(C)|(R)|(U)|(D)"
-
 	// CREATE Represents the action to create a new resource.
 	CREATE = "C"
 	// READ Represents the action to retrieve a resource.
@@ -33,11 +32,176 @@ const (
 	DELETE = "D"
 )
 
+const (
+	UsersDomain   = "users"
+	RolesDomain   = "roles"
+	ClusterDomain = "cluster"
+	NodesDomain   = "nodes"
+	BackupsDomain = "backups"
+	SchemaDomain  = "schema"
+	DataDomain    = "data"
+)
+
+var (
+	All = String("*")
+
+	AllBackups = &models.PermissionBackups{
+		Collection: All,
+	}
+	AllData = &models.PermissionData{
+		Collection: All,
+		Tenant:     All,
+		Object:     All,
+	}
+	AllNodes = &models.PermissionNodes{
+		Verbosity:  String(verbosity.OutputVerbose),
+		Collection: All,
+	}
+	AllRoles = &models.PermissionRoles{
+		Role: All,
+	}
+	AllCollections = &models.PermissionCollections{
+		Collection: All,
+		Tenant:     All,
+	}
+
+	ComponentName = "RBAC"
+
+	// Note:  if a new action added, don't forget to add it to availableWeaviateActions
+	// to be added to built in roles
+	// any action has to contain of `{verb}_{domain}` verb: CREATE, READ, UPDATE, DELETE domain: roles, users, cluster, collections, data
+	ManageRoles = "manage_roles"
+	ReadRoles   = "read_roles"
+	ManageUsers = "manage_users"
+	ReadCluster = "read_cluster"
+	ReadNodes   = "read_nodes"
+
+	ManageBackups = "manage_backups"
+
+	ManageCollections = "manage_collections"
+	CreateCollections = "create_collections"
+	ReadCollections   = "read_collections"
+	UpdateCollections = "update_collections"
+	DeleteCollections = "delete_collections"
+
+	ManageData = "manage_data"
+	CreateData = "create_data"
+	ReadData   = "read_data"
+	UpdateData = "update_data"
+	DeleteData = "delete_data"
+
+	availableWeaviateActions = []string{
+		// Roles domain
+		ManageRoles,
+		ReadRoles,
+
+		// Backups domain
+		ManageBackups,
+
+		// Users domain
+		ManageUsers,
+
+		// Cluster domain
+		ReadCluster,
+
+		// Nodes domain
+		ReadNodes,
+
+		// Collections domain
+		ManageCollections,
+		CreateCollections,
+		ReadCollections,
+		UpdateCollections,
+		DeleteCollections,
+
+		// Data domain
+		ManageData,
+		CreateData,
+		ReadData,
+		UpdateData,
+		DeleteData,
+	}
+)
+
+var (
+	Viewer       = "viewer"
+	Admin        = "admin"
+	BuiltInRoles = []string{Viewer, Admin}
+
+	// viewer : can view everything , roles, users, schema, data
+	// editor : can create/read/update everything , roles, users, schema, data
+	// Admin : aka basically super Admin or root
+	BuiltInPermissions = map[string][]*models.Permission{
+		Viewer: viewerPermissions(),
+		Admin:  adminPermissions(),
+	}
+)
+
+type Policy struct {
+	Resource string
+	Verb     string
+	Domain   string
+}
+
 // Cluster returns a string representing the cluster authorization scope.
 // The returned string is "cluster/*", which can be used to specify that
 // the authorization applies to all resources within the cluster.
 func Cluster() string {
-	return "cluster/*"
+	return fmt.Sprintf("%s/*", ClusterDomain)
+}
+
+func nodes(verbosity, class string) string {
+	if verbosity == "" {
+		verbosity = "minimal"
+	}
+	if verbosity == "minimal" {
+		return fmt.Sprintf("%s/verbosity/%s", NodesDomain, verbosity)
+	}
+	return fmt.Sprintf("%s/verbosity/%s/collections/%s", NodesDomain, verbosity, class)
+}
+
+func Nodes(verbosity string, classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{nodes(verbosity, "*")}
+	}
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = nodes(verbosity, "*")
+		} else {
+			resources[idx] = nodes(verbosity, classes[idx])
+		}
+	}
+
+	return resources
+}
+
+// Users generates a list of user resource strings based on the provided user names.
+// If no user names are provided, it returns a default user resource string "users/*".
+//
+// Parameters:
+//
+//	users - A variadic parameter representing the user names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted user resource string.
+func Users(users ...string) []string {
+	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
+		return []string{
+			fmt.Sprintf("%s/*", UsersDomain),
+		}
+	}
+
+	resources := make([]string, len(users))
+	for idx := range users {
+		resources[idx] = fmt.Sprintf("%s/%s", UsersDomain, users[idx])
+	}
+
+	return resources
 }
 
 // Roles generates a list of role resource strings based on the provided role names.
@@ -51,21 +215,21 @@ func Cluster() string {
 //
 //	A slice of strings where each string is a formatted role resource string.
 func Roles(roles ...string) []string {
-	if len(roles) == 0 {
+	if len(roles) == 0 || (len(roles) == 1 && (roles[0] == "" || roles[0] == "*")) {
 		return []string{
-			"roles/*",
+			fmt.Sprintf("%s/*", RolesDomain),
 		}
 	}
 
 	resources := make([]string, len(roles))
 	for idx := range roles {
-		resources[idx] = fmt.Sprintf("roles/%s", roles[idx])
+		resources[idx] = fmt.Sprintf("%s/%s", RolesDomain, roles[idx])
 	}
 
 	return resources
 }
 
-// Collections generates a list of resource strings for the given classes.
+// CollectionsMetadata generates a list of resource strings for the given classes.
 // If no classes are provided, it returns a default resource string "collections/*".
 // Each class is formatted as "collection/{class}".
 //
@@ -76,20 +240,45 @@ func Roles(roles ...string) []string {
 // Returns:
 //
 //	A slice of strings representing the resource paths.
-func Collections(classes ...string) []string {
-	if len(classes) == 0 || (len(classes) == 1 && classes[0] == "") {
-		return []string{"collections/*"}
+func CollectionsMetadata(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
-		resources[idx] = fmt.Sprintf("collections/%s", classes[idx])
+		if classes[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+		}
 	}
 
 	return resources
 }
 
-// Shards generates a list of shard resource strings for a given class and shards.
+func CollectionsData(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{Objects("*", "*", "*")}
+	}
+
+	var paths []string
+	for _, class := range classes {
+		paths = append(paths, Objects(class, "*", "*"))
+	}
+	return paths
+}
+
+func Collections(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+	return append(CollectionsData(classes...), CollectionsMetadata(classes...)...)
+}
+
+// ShardsMetadata generates a list of shard resource strings for a given class and shards.
 // If the class is an empty string, it defaults to "*". If no shards are provided,
 // it returns a single resource string with a wildcard for shards. If shards are
 // provided, it returns a list of resource strings for each shard.
@@ -101,25 +290,35 @@ func Collections(classes ...string) []string {
 // Returns:
 //
 //	A slice of strings representing the resource paths for the given class and shards.
-func Shards(class string, shards ...string) []string {
+func ShardsMetadata(class string, shards ...string) []string {
+	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
 	}
 
-	if len(shards) == 0 {
-		return []string{fmt.Sprintf("collection/%s/shards/*", class)}
+	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)}
 	}
 
 	resources := make([]string, len(shards))
 	for idx := range shards {
 		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("collection/%s/shards/*", class)
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)
 		} else {
-			resources[idx] = fmt.Sprintf("collection/%s/shards/%s", class, shards[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/%s", SchemaDomain, class, shards[idx])
 		}
 	}
 
 	return resources
+}
+
+func ShardsData(class string, shards ...string) []string {
+	class = schema.UppercaseClassesNames(class)[0]
+	var paths []string
+	for _, shard := range shards {
+		paths = append(paths, Objects(class, shard, "*"))
+	}
+	return paths
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.
@@ -138,20 +337,88 @@ func Shards(class string, shards ...string) []string {
 // - "collections/*/shards/*/objects/{id}" if only id is provided
 // - "collections/{class}/shards/{shard}/objects/{id}" if all parameters are provided
 func Objects(class, shard string, id strfmt.UUID) string {
-	if class == "" && shard == "" && id == "" {
-		return "collections/*/shards/*/objects/*"
-	} else if class == "" && shard == "" {
-		return fmt.Sprintf("collections/*/shards/*/objects/%s", id)
-	} else if class == "" && id == "" {
-		return fmt.Sprintf("collections/*/shards/%s/objects/*", shard)
-	} else if shard == "" && id == "" {
-		return fmt.Sprintf("collections/%s/shards/*/objects/*", class)
-	} else if class == "" {
-		return fmt.Sprintf("collections/*/shards/%s/objects/%s", shard, id)
-	} else if shard == "" {
-		return fmt.Sprintf("collections/%s/shards/*/objects/%s", class, id)
-	} else if id == "" {
-		return fmt.Sprintf("collections/%s/shards/%s/objects/*", class, shard)
+	class = schema.UppercaseClassesNames(class)[0]
+	if class == "" {
+		class = "*"
 	}
-	return fmt.Sprintf("collections/%s/shards/%s/objects/%s", class, shard, id)
+	if shard == "" {
+		shard = "*"
+	}
+	if id == "" {
+		id = "*"
+	}
+	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", DataDomain, class, shard, id)
+}
+
+// Backups generates a resource string for the given classes.
+// If the backend is an empty string, it defaults to "*".
+
+// Parameters:
+// - class: the class name (string)
+
+// Returns:
+// - A string representing the resource path for the given classes.
+
+// Example outputs:
+// - "backups/*" if the backend is an empty string
+// - "backups/{backend}" for the provided backend
+func Backups(classes ...string) []string {
+	classes = schema.UppercaseClassesNames(classes...)
+	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/*", BackupsDomain)}
+	}
+
+	resources := make([]string, len(classes))
+	for idx := range classes {
+		if classes[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/*", BackupsDomain)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s", BackupsDomain, classes[idx])
+		}
+	}
+
+	return resources
+}
+
+func String(s string) *string {
+	return &s
+}
+
+// viewer : can view everything , roles, users, schema, data
+func viewerPermissions() []*models.Permission {
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllCollections,
+		})
+	}
+
+	return perms
+}
+
+// Admin : aka basically super Admin or root
+func adminPermissions() []*models.Permission {
+	// TODO ignore CRUD if there is manage
+	perms := []*models.Permission{}
+	for _, action := range availableWeaviateActions {
+		perms = append(perms, &models.Permission{
+			Action:      &action,
+			Backups:     AllBackups,
+			Data:        AllData,
+			Nodes:       AllNodes,
+			Roles:       AllRoles,
+			Collections: AllCollections,
+		})
+	}
+
+	return perms
 }

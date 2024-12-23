@@ -257,6 +257,29 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
+func (s *Shard) multiVectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([][]float32, error) {
+	keyBuf := make([]byte, 8)
+	return s.readMultiVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
+}
+
+func (s *Shard) readMultiVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error) {
+	binary.LittleEndian.PutUint64(container.Buff8, indexID)
+
+	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondaryIntoMemory(0, container.Buff8, container.Buff)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, storobj.NewErrNotFoundf(indexID,
+			"no object for doc id, it could have been deleted")
+	}
+
+	container.Buff = newBuff
+	return storobj.MultiVectorFromBinary(bytes, container.Slice, targetVector)
+}
+
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties, properties []string,
@@ -358,7 +381,25 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	return distances, nil
 }
 
-func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
+func (s *Shard) getVectorIndex(targetVector string) (VectorIndex, error) {
+	if s.hasTargetVectors() {
+		if targetVector == "" {
+			return nil, fmt.Errorf("vector index: missing target vector")
+		}
+		vidx, ok := s.vectorIndexes[targetVector]
+		if !ok {
+			return nil, fmt.Errorf("vector index for target vector: %s doesn't exist", targetVector)
+		}
+		return vidx, nil
+	}
+	if targetVector != "" {
+		return nil, fmt.Errorf("vector index: target vector not found: %q", targetVector)
+	}
+
+	return s.vectorIndex, nil
+}
+
+func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	if s.hasTargetVectors() {
 		if targetVector == "" {
 			return nil, fmt.Errorf("index queue: missing target vector")
@@ -425,13 +466,13 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			dists []float32
 		)
 		eg.Go(func() error {
-			queue, err := s.getIndexQueue(targetVector)
+			vidx, err := s.getVectorIndex(targetVector)
 			if err != nil {
 				return err
 			}
 
 			if limit < 0 {
-				ids, dists, err = queue.SearchByVectorDistance(
+				ids, dists, err = vidx.SearchByVectorDistance(
 					ctx, searchVectors[i], targetDist, s.index.Config.QueryMaximumResults, allowList)
 				if err != nil {
 					// This should normally not fail. A failure here could indicate that more
@@ -442,7 +483,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					return err
 				}
 			} else {
-				ids, dists, err = queue.SearchByVector(ctx, searchVectors[i], limit, allowList)
+				ids, dists, err = vidx.SearchByVector(ctx, searchVectors[i], limit, allowList)
 				if err != nil {
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's

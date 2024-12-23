@@ -77,8 +77,8 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 			}
 		}
-		for targetVector, vectorIndex := range s.VectorIndexes() {
-			if err = vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range s.Queues() {
+			if err = queue.Flush(); err != nil {
 				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 			}
 		}
@@ -86,7 +86,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		if err = s.queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index: %w", err)
 		}
-		if err = s.vectorIndex.Flush(); err != nil {
+		if err = s.queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 		}
 	}
@@ -153,8 +153,8 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 			}
 		}
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range s.queues {
+			if err = queue.Flush(); err != nil {
 				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 			}
 		}
@@ -162,7 +162,7 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		if err = s.queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index: %w", err)
 		}
-		if err = s.vectorIndex.Flush(); err != nil {
+		if err = s.queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 		}
 	}

@@ -143,7 +143,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, merge bool, newProps ...*models.Property,
+	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
@@ -247,7 +247,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	vectors models.Vectors, repl *additional.ReplicationProperties, schemaVersion uint64,
+	vectors models.Vectors, multiVectors models.MultiVectors, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)

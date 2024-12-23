@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -55,6 +56,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 			appState.ServerConfig.Config,
 			appState.Traverser,
 			appState.Modules,
+			appState.Authorizer,
 		)
 		if err != nil && err != utils.ErrEmptySchema {
 			appState.Logger.WithField("action", "graphql_rebuild").
@@ -65,9 +67,9 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider,
+	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.GraphQL, error) {
-	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -106,8 +108,20 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State) authorization.Authorizer {
-	return authorization.New(appState.ServerConfig.Config)
+func configureAuthorizer(appState *state.State, authorizer authorization.Authorizer) error {
+	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
+		appState.Authorizer = authorizer
+		return nil
+	}
+
+	if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
+		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
+		return nil
+	}
+
+	appState.Authorizer = &authorization.DummyAuthorizer{}
+	return nil
 }
 
 func timeTillDeadline(ctx context.Context) string {

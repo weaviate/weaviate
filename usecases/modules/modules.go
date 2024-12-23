@@ -267,6 +267,14 @@ func (p *Provider) IsReranker(modName string) bool {
 	return mod.Type() == modulecapabilities.Text2TextReranker
 }
 
+func (p *Provider) IsMultiVector(modName string) bool {
+	mod := p.GetByName(modName)
+	if mod == nil {
+		return false
+	}
+	return mod.Type() == modulecapabilities.Text2ColBERT
+}
+
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
 	case modulecapabilities.Text2Vec,
@@ -302,12 +310,22 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 				}
 			}
 		}
+		for _, altName := range altNames {
+			if class.Vectorizer == altName {
+				return true
+			}
+		}
 		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
-		existsConfigForModule := moduleConfig[module] != nil
-		if existsConfigForModule {
+		if _, ok := moduleConfig[module]; ok {
 			return true
+		} else if len(altNames) > 0 {
+			for _, altName := range altNames {
+				if _, ok := moduleConfig[altName]; ok {
+					return true
+				}
+			}
 		}
 	}
 	// Allow Text2Text (QnA, Generative, Summarize, NER) modules to be registered to a given class
@@ -1009,9 +1027,12 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 		if c, ok := module.(modulecapabilities.MetaProvider); ok {
 			meta, err := c.MetaInfo()
 			if err != nil {
-				return nil, err
+				metaInfos[module.Name()] = map[string]interface{}{
+					"error": err.Error(),
+				}
+			} else {
+				metaInfos[module.Name()] = meta
 			}
-			metaInfos[module.Name()] = meta
 		}
 	}
 	return metaInfos, nil

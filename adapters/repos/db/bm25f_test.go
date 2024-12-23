@@ -158,7 +158,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return props
@@ -215,7 +215,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		obj := &models.Object{Class: "FilterClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return props
@@ -458,15 +458,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
-		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
-		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
-		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
-		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
+		EqualFloats(t, float32(0.5868752), noautocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), noautocutscores[1], 5) // <= autocut last element
+		EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
+		EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
+		EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, float32(0.5868752), autocutscores[0])
-		require.EqualValues(t, float32(0.5450892), autocutscores[1])
+		EqualFloats(t, float32(0.5868752), autocutscores[0], 5)
+		EqualFloats(t, float32(0.5450892), autocutscores[1], 5)
 	})
 }
 
@@ -759,15 +759,15 @@ func TestBM25FCompare(t *testing.T) {
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
 		require.Equal(t, uint64(4), objs[0].DocID)
-		require.Equal(t, uint64(5), objs[1].DocID)
-		require.Equal(t, uint64(6), objs[2].DocID)
+		require.Equal(t, uint64(6), objs[1].DocID)
+		require.Equal(t, uint64(5), objs[2].DocID)
 		require.Equal(t, uint64(1), objs[3].DocID)
 		require.Equal(t, uint64(2), objs[4].DocID)
 		require.Equal(t, uint64(0), objs[5].DocID)
 
 		require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
-		require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
-		require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+		require.Equal(t, uint64(6), withBM25Fobjs[1].DocID)
+		require.Equal(t, uint64(5), withBM25Fobjs[2].DocID)
 		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
 		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
 		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)
@@ -875,7 +875,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return className, props
@@ -1016,7 +1016,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return className, props

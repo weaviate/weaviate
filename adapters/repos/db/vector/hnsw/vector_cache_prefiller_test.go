@@ -87,6 +87,14 @@ func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []e
 	panic("not implemented")
 }
 
+func (f *fakeCache) GetAllInCurrentLock(ctx context.Context, id uint64, out [][]float32, errs []error) ([][]float32, []error, uint64, uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PageSize() uint64 {
+	return 1
+}
+
 func (f *fakeCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	f.store[id] = struct{}{}
 	return nil, nil
@@ -145,6 +153,18 @@ func (f *fakeCache) Len() int32 {
 }
 
 func (f *fakeCache) CountVectors() int64 {
+	panic("not implemented")
+}
+
+func (f *fakeCache) GetKeys(id uint64) (uint64, uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) GrowMultiCache(id uint64) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 

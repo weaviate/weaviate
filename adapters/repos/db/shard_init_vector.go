@@ -76,15 +76,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vecIdxID := s.vectorIndexID(targetVector)
 
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:               s.index.logger,
-				RootPath:             s.path(),
-				ID:                   vecIdxID,
-				ShardName:            s.name,
-				ClassName:            s.index.Config.ClassName.String(),
-				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-				DistanceProvider:     distProv,
+				Logger:                    s.index.logger,
+				RootPath:                  s.path(),
+				ID:                        vecIdxID,
+				ShardName:                 s.name,
+				ClassName:                 s.index.Config.ClassName.String(),
+				PrometheusMetrics:         s.promMetrics,
+				VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				MultiVectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
+				TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+				TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+				DistanceProvider:          distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -198,10 +200,9 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 }
 
 func (s *Shard) initTargetQueues() error {
-	s.queues = make(map[string]*IndexQueue)
+	s.queues = make(map[string]*VectorIndexQueue)
 	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
-			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
+		queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
@@ -220,8 +221,7 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyQueue() error {
-	queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
-		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
+	queue, err := NewVectorIndexQueue(s, "", s.vectorIndex)
 	if err != nil {
 		return err
 	}

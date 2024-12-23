@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -71,6 +72,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			index:            index,
 			class:            class,
 			jobQueueCh:       jobQueueCh,
+			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
 		},
 		memMonitor: memMonitor,
@@ -83,6 +85,7 @@ type deferredShardOpts struct {
 	index            *Index
 	class            *models.Class
 	jobQueueCh       chan job
+	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
@@ -114,7 +117,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -425,12 +428,12 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
-func (l *LazyLoadShard) Queue() *IndexQueue {
+func (l *LazyLoadShard) Queue() *VectorIndexQueue {
 	l.mustLoad()
 	return l.shard.Queue()
 }
 
-func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
+func (l *LazyLoadShard) Queues() map[string]*VectorIndexQueue {
 	l.mustLoad()
 	return l.shard.Queues()
 }
@@ -442,9 +445,14 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
 }
 
-func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+func (l *LazyLoadShard) ConvertQueue(targetVector string) error {
 	l.mustLoad()
-	return l.shard.PreloadQueue(targetVector)
+	return l.shard.ConvertQueue(targetVector)
+}
+
+func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
+	l.mustLoad()
+	return l.shard.FillQueue(targetVector, from)
 }
 
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
@@ -664,6 +672,11 @@ func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(ctx context.Context, vecto
 func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error {
 	l.mustLoad()
 	return l.shard.updateVectorIndexesIgnoreDelete(ctx, vectors, status)
+}
+
+func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error {
+	l.mustLoad()
+	return l.shard.updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {

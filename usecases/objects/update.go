@@ -33,6 +33,9 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
+		return nil, err
+	}
 
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
@@ -107,7 +110,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, updates.MultiVectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

@@ -66,7 +66,7 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
 		authorizer:        authorizer,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
 		metrics:           NewMetrics(prom),
 	}
 }

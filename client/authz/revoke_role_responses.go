@@ -60,6 +60,12 @@ func (o *RevokeRoleReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewRevokeRoleNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewRevokeRoleInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -315,6 +321,62 @@ func (o *RevokeRoleForbidden) readResponse(response runtime.ClientResponse, cons
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
+
+	return nil
+}
+
+// NewRevokeRoleNotFound creates a RevokeRoleNotFound with default headers values
+func NewRevokeRoleNotFound() *RevokeRoleNotFound {
+	return &RevokeRoleNotFound{}
+}
+
+/*
+RevokeRoleNotFound describes a response with status code 404, with default header values.
+
+role or user is not found.
+*/
+type RevokeRoleNotFound struct {
+}
+
+// IsSuccess returns true when this revoke role not found response has a 2xx status code
+func (o *RevokeRoleNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this revoke role not found response has a 3xx status code
+func (o *RevokeRoleNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this revoke role not found response has a 4xx status code
+func (o *RevokeRoleNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this revoke role not found response has a 5xx status code
+func (o *RevokeRoleNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this revoke role not found response a status code equal to that given
+func (o *RevokeRoleNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the revoke role not found response
+func (o *RevokeRoleNotFound) Code() int {
+	return 404
+}
+
+func (o *RevokeRoleNotFound) Error() string {
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleNotFound ", 404)
+}
+
+func (o *RevokeRoleNotFound) String() string {
+	return fmt.Sprintf("[POST /authz/users/{id}/revoke][%d] revokeRoleNotFound ", 404)
+}
+
+func (o *RevokeRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

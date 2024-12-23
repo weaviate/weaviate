@@ -13,10 +13,78 @@ package common
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/types"
 )
+
+type VectorIndex interface {
+	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
+
+	ValidateBeforeInsert(vector []float32) error
+	ValidateMultiBeforeInsert(vector [][]float32) error
+}
+
+type VectorRecord interface {
+	Len() int
+	Validate(vectorIndex VectorIndex) error
+}
+
+func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex VectorIndex) error {
+	// ensure the vector is not empty
+	if len(vectors) == 0 {
+		return errors.New("empty vectors")
+	}
+	switch vectors[0].(type) {
+	case *Vector[[]float32]:
+		ids := make([]uint64, len(vectors))
+		vecs := make([][]float32, len(vectors))
+		for i, v := range vectors {
+			ids[i] = v.(*Vector[[]float32]).ID
+			vecs[i] = v.(*Vector[[]float32]).Vector
+		}
+		return vectorIndex.AddBatch(ctx, ids, vecs)
+	case *Vector[[][]float32]:
+		ids := make([]uint64, len(vectors))
+		vecs := make([][][]float32, len(vectors))
+		for i, v := range vectors {
+			ids[i] = v.(*Vector[[][]float32]).ID
+			vecs[i] = v.(*Vector[[][]float32]).Vector
+		}
+		return vectorIndex.AddMultiBatch(ctx, ids, vecs)
+	default:
+		return fmt.Errorf("unexpected vector type %T", vectors[0])
+	}
+}
+
+type Vector[T types.Embedding] struct {
+	ID     uint64
+	Vector T
+}
+
+func (v *Vector[T]) Len() int {
+	return len(v.Vector)
+}
+
+func (v *Vector[T]) Validate(vectorIndex VectorIndex) error {
+	// ensure the vector is not empty
+	if len(v.Vector) == 0 {
+		return errors.New("empty vector")
+	}
+	// delegate the validation to the index
+	switch any(v.Vector).(type) {
+	case []float32:
+		return vectorIndex.ValidateBeforeInsert(any(v.Vector).([]float32))
+	case [][]float32:
+		return vectorIndex.ValidateMultiBeforeInsert(any(v.Vector).([][]float32))
+	default:
+		return fmt.Errorf("unexpected vector type %T", v.Vector)
+	}
+}
 
 type VectorSlice struct {
 	Slice []float32
@@ -30,12 +98,12 @@ type VectorUint64Slice struct {
 }
 
 type (
-	VectorForID[T float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
-	TempVectorForID                        func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
-	MultiVectorForID                       func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID[T []float32 | float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
+	TempVectorForID[T []float32 | float32]             func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
+	MultiVectorForID                                   func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
-type TargetVectorForID[T float32 | byte | uint64] struct {
+type TargetVectorForID[T []float32 | float32 | byte | uint64] struct {
 	TargetVector     string
 	VectorForIDThunk func(ctx context.Context, id uint64, targetVector string) ([]T, error)
 }
@@ -44,12 +112,12 @@ func (t TargetVectorForID[T]) VectorForID(ctx context.Context, id uint64) ([]T, 
 	return t.VectorForIDThunk(ctx, id, t.TargetVector)
 }
 
-type TargetTempVectorForID struct {
+type TargetTempVectorForID[T []float32 | float32] struct {
 	TargetVector         string
-	TempVectorForIDThunk func(ctx context.Context, id uint64, container *VectorSlice, targetVector string) ([]float32, error)
+	TempVectorForIDThunk func(ctx context.Context, id uint64, container *VectorSlice, targetVector string) ([]T, error)
 }
 
-func (t TargetTempVectorForID) TempVectorForID(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error) {
+func (t TargetTempVectorForID[T]) TempVectorForID(ctx context.Context, id uint64, container *VectorSlice) ([]T, error) {
 	return t.TempVectorForIDThunk(ctx, id, container, t.TargetVector)
 }
 

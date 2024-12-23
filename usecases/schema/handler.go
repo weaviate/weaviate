@@ -146,7 +146,7 @@ func NewHandler(
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
+		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator, modules: moduleConfig},
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,
@@ -166,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -176,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return schema.Schema{}, err
 	}
 
@@ -216,7 +216,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, shard)...)
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return 0, err
 	}
@@ -227,7 +227,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Shards(class, shard)...)
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return nil, err
 	}

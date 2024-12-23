@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/voyageai"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -33,15 +34,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
@@ -56,15 +49,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -80,15 +65,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2", "baseURL": server.URL}})
 
 		require.NotNil(t, err)
@@ -98,15 +75,7 @@ func TestClient(t *testing.T) {
 	t.Run("when VoyageAI key is passed using VoyageAIre-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("apiKey", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Api-Key", []string{"some-key"})
 
@@ -124,15 +93,7 @@ func TestClient(t *testing.T) {
 	t.Run("when VoyageAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -147,15 +108,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-VoyageAI-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := &vectorizer{voyageai.New("", 0, &voyageaiUrlBuilder{origin: server.URL, pathMask: "/embeddings"}, nullLogger())}
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-VoyageAI-Api-Key", []string{""})
 
@@ -165,30 +118,6 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
 			"neither in request header: X-VoyageAI-Api-Key "+
 			"nor in environment variable under VOYAGEAI_APIKEY")
-	})
-
-	t.Run("when X-VoyageAI-BaseURL header is passed", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &voyageaiUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/embeddings",
-			},
-			logger: nullLogger(),
-		}
-
-		baseURL := "http://default-url.com"
-		ctxWithValue := context.WithValue(context.Background(),
-			"X-Voyageai-Baseurl", []string{"http://base-url-passed-in-header.com"})
-
-		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL)
-		assert.Equal(t, "http://base-url-passed-in-header.com/embeddings", buildURL)
-
-		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL)
-		assert.Equal(t, "http://default-url.com/embeddings", buildURL)
 	})
 }
 
@@ -201,8 +130,8 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		resp := embeddingsResponse{
-			Detail: "nope, not gonna happen",
+		resp := map[string]interface{}{
+			"detail": "nope, not gonna happen",
 		}
 		outBytes, err := json.Marshal(resp)
 		require.Nil(f.t, err)
@@ -216,14 +145,16 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var req embeddingsRequest
+	var req map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 
 	assert.NotNil(f.t, req)
-	assert.NotEmpty(f.t, req.Input)
+	assert.NotEmpty(f.t, req["input"])
 
-	resp := embeddingsResponse{
-		Data: []embeddingsDataResponse{{Embeddings: []float32{0.1, 0.2, 0.3}}},
+	resp := map[string]interface{}{
+		"data": []map[string]interface{}{
+			{"embedding": []float32{0.1, 0.2, 0.3}},
+		},
 	}
 	outBytes, err := json.Marshal(resp)
 	require.Nil(f.t, err)
@@ -234,4 +165,46 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+}
+
+func (f fakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
+
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

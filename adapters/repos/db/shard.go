@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -103,10 +104,11 @@ type ShardLike interface {
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	Queue() *IndexQueue
-	Queues() map[string]*IndexQueue
+	Queue() *VectorIndexQueue
+	Queues() map[string]*VectorIndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
-	PreloadQueue(targetVector string) error
+	ConvertQueue(targetVector string) error
+	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -159,6 +161,7 @@ type ShardLike interface {
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
+	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
@@ -178,8 +181,9 @@ type ShardLike interface {
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
 	class             *models.Class
-	queue             *IndexQueue
-	queues            map[string]*IndexQueue
+	queue             *VectorIndexQueue
+	queues            map[string]*VectorIndexQueue
+	scheduler         *queue.Scheduler
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
@@ -263,13 +267,6 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 
 func (s *Shard) pathHashTree() string {
 	return path.Join(s.path(), "hashtree")
-}
-
-func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
-	if targetVector != "" {
-		return s.vectorIndexes[targetVector]
-	}
-	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {

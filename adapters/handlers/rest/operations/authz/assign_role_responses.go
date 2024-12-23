@@ -168,7 +168,7 @@ func (o *AssignRoleForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const AssignRoleNotFoundCode int = 404
 
 /*
-AssignRoleNotFound role is not found.
+AssignRoleNotFound role or user is not found.
 
 swagger:response assignRoleNotFound
 */

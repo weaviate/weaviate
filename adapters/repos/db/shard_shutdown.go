@@ -63,9 +63,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
+	s.mayStopHashBeater()
+
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
-		s.stopHashBeater()
 		s.closeHashTree()
 	}
 	s.hashtreeRWMux.Unlock()
@@ -73,6 +74,11 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
+			err = queue.Flush()
+			if err != nil {
+				ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
+			}
+
 			err := queue.Close()
 			if err != nil {
 				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
@@ -97,6 +103,8 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			}
 		}
 	} else {
+		err = s.queue.Flush()
+		ec.AddWrap(err, "flush vector index queue commitlog")
 		err = s.queue.Close()
 		ec.AddWrap(err, "shut down vector index queue")
 

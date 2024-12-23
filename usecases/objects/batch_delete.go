@@ -13,10 +13,10 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -36,7 +36,8 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	if match != nil {
 		class = match.Class
 	}
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(class, tenant)...)
+
+	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,16 +58,11 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 
-// DeleteObjectsFromGRPC deletes objects in batch based on the match filter
-func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *models.Principal,
+// DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter
+func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	params BatchDeleteParams,
 	repl *additional.ReplicationProperties, tenant string,
 ) (BatchDeleteResult, error) {
-	err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.Shards(params.ClassName.String(), tenant)...)
-	if err != nil {
-		return BatchDeleteResult{}, err
-	}
-
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return BatchDeleteResult{}, NewErrInternal("could not acquire lock: %v", err)
@@ -86,7 +82,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("validate: %v", err)
+		return nil, errors.Wrap(err, "validate")
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
@@ -140,20 +136,22 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 	// Validate schema given in body with the weaviate schema
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
-	if err != nil || vclasses[match.Class].Class == nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
+	if err != nil {
+		return nil, 0, errors.Wrapf(err, "failed to get class: %s", match.Class)
 	}
-
+	if vclasses[match.Class].Class == nil {
+		return nil, 0, fmt.Errorf("failed to get class: %s", match.Class)
+	}
 	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "failed to parse where filter")
 	}
 
-	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
+	err = filters.ValidateFilters(b.classGetterFunc(principal), filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "invalid where filter")
 	}
 
 	dryRunParam := false
@@ -173,4 +171,17 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		Output:    outputParam,
 	}
 	return params, vclasses[match.Class].Version, nil
+}
+
+func (b *BatchManager) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	return func(name string) (*models.Class, error) {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			return nil, err
+		}
+		class := b.schemaManager.ReadOnlyClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+		return class, nil
+	}
 }

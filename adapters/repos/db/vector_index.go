@@ -25,12 +25,17 @@ import (
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
-	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	Delete(id ...uint64) error
+	DeleteMulti(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
+	GetKeys(id uint64) (uint64, uint64, error)
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
@@ -38,7 +43,9 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup()
 	Compressed() bool
+	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
+	ValidateMultiBeforeInsert(vector [][]float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	// ContainsNode returns true if the index contains the node with the given id.
 	// It must return false if the node does not exist, or has a tombstone.
