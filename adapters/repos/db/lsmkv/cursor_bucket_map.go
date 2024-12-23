@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sort"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -42,6 +43,9 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+	fmt.Printf("Mapcursor with cfgs %v\n", cfgs)
+	//Dump stack
+	debug.PrintStack()
 	b.flushLock.RLock()
 
 	c := MapListOptionConfig{}
