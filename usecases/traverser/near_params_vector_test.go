@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 func Test_nearParamsVector_validateNearParams(t *testing.T) {
@@ -200,7 +201,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    []float32
+		want    types.Vector
 		wantErr bool
 	}{
 		{
@@ -294,7 +295,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 	tests := []struct {
 		name             string
 		args             args
-		want             []float32
+		want             types.Vector
 		returnVec        bool
 		wantErr          bool
 		wantTargetVector string

@@ -52,3 +52,16 @@ func (va *VectorAdapter) UnmarshalJSON(data []byte) error {
 	}
 	return fmt.Errorf("searchVectors: cannot unmarshal into either []float32 or [][]float32: %v", string(data))
 }
+
+func IsVectorEmpty(vector Vector) (bool, error) {
+	switch v := vector.(type) {
+	case nil:
+		return true, nil
+	case []float32:
+		return len(v) == 0, nil
+	case [][]float32:
+		return len(v) == 0, nil
+	default:
+		return false, fmt.Errorf("unrecognized vector type: %T", vector)
+	}
+}

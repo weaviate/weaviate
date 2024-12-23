@@ -23,9 +23,16 @@ import (
 type findVectorFn = func(ctx context.Context,
 	className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error)
 
+type findMultiVectorFn = func(ctx context.Context,
+	className string, id strfmt.UUID, tenant, targetVector string) ([][]float32, string, error)
+
 // Helper method for creating modulecapabilities.FindVectorFn[[]float32]
 func FindVectorFn(findVectorFn findVectorFn) modulecapabilities.FindVectorFn[[]float32] {
 	return &findVector[[]float32]{findVectorFn}
+}
+
+func FindMultiVectorFn(findMultiVectorFn findMultiVectorFn) modulecapabilities.FindVectorFn[[][]float32] {
+	return &findVector[[][]float32]{findMultiVectorFn}
 }
 
 type multiFindVectorFn = func(ctx context.Context,

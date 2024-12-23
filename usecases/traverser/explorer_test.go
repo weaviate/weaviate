@@ -2756,6 +2756,11 @@ func (p *fakeModulesProvider) MultiVectorFromInput(ctx context.Context, classNam
 	panic("not implemented")
 }
 
+func (p *fakeModulesProvider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
+	// all target vectors are regular vectors
+	return false, nil
+}
+
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn[[]float32],
 ) ([]float32, error) {

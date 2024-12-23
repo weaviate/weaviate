@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
@@ -108,7 +109,12 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 		return nil, err
 	}
 
-	if len(fa.params.SearchVector) > 0 {
+	isVectorEmpty, err := types.IsVectorEmpty(fa.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate filtered: %w", err)
+	}
+
+	if !isVectorEmpty {
 		foundIDs, _, err = fa.vectorSearch(ctx, allowList, fa.params.SearchVector)
 		if err != nil {
 			return nil, err

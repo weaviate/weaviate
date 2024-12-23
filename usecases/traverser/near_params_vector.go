@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
@@ -83,7 +84,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className, tenant, targetVector string, index int,
-) ([]float32, error) {
+) (types.Vector, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
 		return nil, err
@@ -195,15 +196,30 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 
 func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	className, paramName string, paramValue interface{}, tenant string, targetVector string,
-) ([]float32, error) {
+) (types.Vector, error) {
 	if v.modulesProvider != nil {
-		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
-		)
+		isMultiVector, err := v.modulesProvider.IsTargetVectorMultiVector(className, targetVector)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, errors.Errorf("is target vector: %s multi vector: %v", targetVector, err)
 		}
-		return vector, nil
+
+		if isMultiVector {
+			vector, err := v.modulesProvider.MultiVectorFromSearchParam(ctx,
+				className, targetVector, tenant, paramName, paramValue, generictypes.FindMultiVectorFn(v.findMultiVector),
+			)
+			if err != nil {
+				return nil, errors.Errorf("vectorize params: %v", err)
+			}
+			return vector, nil
+		} else {
+			vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
+				className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
+			)
+			if err != nil {
+				return nil, errors.Errorf("vectorize params: %v", err)
+			}
+			return vector, nil
+		}
 	}
 	return nil, errors.New("no modules defined")
 }
@@ -215,6 +231,16 @@ func (v *nearParamsVector) findVector(ctx context.Context, className string, id 
 		return v.crossClassFindVector(ctx, id, targetVector)
 	default:
 		return v.classFindVector(ctx, className, id, tenant, targetVector)
+	}
+}
+
+func (v *nearParamsVector) findMultiVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([][]float32, string, error) {
+	switch className {
+	case "":
+		// Explore cross class searches where we don't have class context
+		return v.crossClassFindMultiVector(ctx, id, targetVector)
+	default:
+		return v.classFindMultiVector(ctx, className, id, tenant, targetVector)
 	}
 }
 
@@ -246,6 +272,34 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
 	}
 	return res.Vector, targetVector, nil
+}
+
+// TODO:colbert try to unify
+func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className string,
+	id strfmt.UUID, tenant, targetVector string,
+) ([][]float32, string, error) {
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, nil, tenant)
+	if err != nil {
+		return nil, "", err
+	}
+	if res == nil {
+		return nil, "", errors.New("vector not found")
+	}
+	if targetVector != "" {
+		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
+			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
+		}
+		return res.MultiVectors[targetVector], targetVector, nil
+	} else {
+		if len(res.MultiVectors) == 1 {
+			for key, vec := range res.MultiVectors {
+				return vec, key, nil
+			}
+		} else if len(res.Vectors) > 1 {
+			return nil, "", errors.New("multiple vectors found, specify target vector")
+		}
+	}
+	return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
 }
 
 func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.UUID, targetVector string) ([]float32, string, error) {
@@ -295,6 +349,34 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 			return nil, "", fmt.Errorf("vectors with incompatible dimensions found for target: %s", targetVector)
 		}
 		return libvectorizer.CombineVectors(vectors), targetVector, nil
+	}
+}
+
+func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id strfmt.UUID, targetVector string) ([][]float32, string, error) {
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{}, "")
+	if err != nil {
+		return nil, "", errors.Wrap(err, "find objects")
+	}
+	switch len(res) {
+	case 0:
+		return nil, "", errors.New("multi vector not found")
+	case 1:
+		if targetVector != "" {
+			if len(res[0].MultiVectors) == 0 || res[0].MultiVectors[targetVector] == nil {
+				return nil, "", fmt.Errorf("multi vector not found for target: %v", targetVector)
+			}
+		} else {
+			if len(res[0].MultiVectors) == 1 {
+				for key, vec := range res[0].MultiVectors {
+					return vec, key, nil
+				}
+			} else if len(res[0].MultiVectors) > 1 {
+				return nil, "", errors.New("multiple multi vectors found, specify target vector")
+			}
+		}
+		return nil, "", fmt.Errorf("multi vector not found for target: %v", targetVector)
+	default:
+		return nil, "", fmt.Errorf("multiple multi vectors with incompatible dimensions found for target: %s", targetVector)
 	}
 }
 

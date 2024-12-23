@@ -74,9 +74,10 @@ type embedding[T types.Embedding] struct {
 }
 
 type embeddingData[T types.Embedding] struct {
-	Object    string `json:"object"`
-	Index     int    `json:"index"`
-	Embedding T      `json:"embedding"`
+	Object     string `json:"object"`
+	Index      int    `json:"index"`
+	Embedding  T      `json:"embedding"`
+	Embeddings T      `json:"embeddings"`
 }
 
 type Settings struct {
@@ -85,12 +86,6 @@ type Settings struct {
 	BaseURL    string
 	Dimensions *int64
 	Normalized bool
-}
-
-func buildUrl(settings Settings) (string, error) {
-	host := settings.BaseURL
-	path := "/v1/embeddings"
-	return url.JoinPath(host, path)
 }
 
 type Client[T types.Embedding] struct {
@@ -102,13 +97,30 @@ type Client[T types.Embedding] struct {
 	logger       logrus.FieldLogger
 }
 
-func New[T types.Embedding](jinaAIApiKey string, timeout time.Duration, defaultRPM, defaultTPM int, logger logrus.FieldLogger) *Client[T] {
+func EmbeddingsBuildUrlFn(settings Settings) (string, error) {
+	host := settings.BaseURL
+	path := "/v1/embeddings"
+	return url.JoinPath(host, path)
+}
+
+func MultiVectorBuildUrlFn(settings Settings) (string, error) {
+	host := settings.BaseURL
+	path := "/v1/multi-vector"
+	return url.JoinPath(host, path)
+}
+
+func New[T types.Embedding](jinaAIApiKey string,
+	timeout time.Duration,
+	defaultRPM, defaultTPM int,
+	buildUrlFn func(settings Settings) (string, error),
+	logger logrus.FieldLogger,
+) *Client[T] {
 	return &Client[T]{
 		jinaAIApiKey: jinaAIApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildUrlFn: buildUrl,
+		buildUrlFn: buildUrlFn,
 		defaultRPM: defaultRPM,
 		defaultTPM: defaultTPM,
 		logger:     logger,
@@ -129,7 +141,11 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string,
 	for i := range resBody.Data {
 		index := resBody.Data[i].Index
 		texts[index] = resBody.Data[i].Object
-		embeddings[index] = resBody.Data[i].Embedding
+		if resBody.Data[i].Embedding != nil {
+			embeddings[index] = resBody.Data[i].Embedding
+		} else if resBody.Data[i].Embeddings != nil {
+			embeddings[index] = resBody.Data[i].Embeddings
+		}
 	}
 
 	res := &modulecomponents.VectorizationResult[T]{
@@ -224,11 +240,15 @@ func (c *Client[T]) getError(statusCode int, errorMessage string) error {
 }
 
 func (c *Client[T]) getTextEmbeddingsRequest(input []string, settings Settings) embeddingsRequest[[]string] {
-	req := embeddingsRequest[[]string]{Input: input, Model: settings.Model, EmbeddingType: embeddingTypeFloat, Normalized: settings.Normalized}
+	req := embeddingsRequest[[]string]{
+		Input:         input,
+		Model:         settings.Model,
+		EmbeddingType: embeddingTypeFloat,
+		Normalized:    settings.Normalized, Dimensions: settings.Dimensions,
+	}
 	if strings.Contains(settings.Model, "v3") || strings.Contains(settings.Model, "clip") {
 		// v3 models require taskType and dimensions params
 		req.Task = &settings.Task
-		req.Dimensions = settings.Dimensions
 	}
 	return req
 }
