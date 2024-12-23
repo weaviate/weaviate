@@ -37,6 +37,7 @@ type RemoteIndex struct {
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
 	nodeResolver nodeResolver
+	log          logrus.FieldLogger
 }
 
 type shardingStateGetter interface {
@@ -47,13 +48,14 @@ type shardingStateGetter interface {
 
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
-	client RemoteIndexClient,
+	client RemoteIndexClient, log logrus.FieldLogger,
 ) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
 		client:       client,
 		nodeResolver: nodeResolver,
+		log:          log,
 	}
 }
 
@@ -504,6 +506,11 @@ func (ri *RemoteIndex) queryReplicas(
 			if resp, err = queryOne(node); err == nil {
 				return resp, node, nil
 			}
+			ri.log.WithFields(logrus.Fields{
+				"replica": node,
+				"class":   ri.class,
+				"shard":   shard,
+			}).WithError(err).Warn("remote index query replica attempt failed")
 		}
 		return
 	}
