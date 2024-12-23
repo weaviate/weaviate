@@ -330,7 +330,6 @@ func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) 
 	resp := cmd.QueryClassVersionsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		// fmt.Println("NATEE qcvr unmarshal", string(queryResp.Payload))
 		return map[string]uint64{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Classes, nil

@@ -74,19 +74,19 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 		return nil, err
 	}
 
-	// ci := h.schemaReader.ClassInfo(names[0])
-	// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass classinfo", ci)
-	// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass classinfo classversion", ci.ClassVersion)
-
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
 		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass getter", names)
 
 		// use current local schema regardless of version
 		vclasses := map[string]versioned.Class{}
 		for _, name := range names {
-			vc := h.schemaReader.ReadOnlyVersionedClass(name)
+			vc, err := h.schemaReader.ReadOnlyVersionedClass(name)
+			if err != nil {
+				continue
+			}
 			vclasses[name] = vc
 		}
+		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass result", vclasses, names)
 		// TODO fallback to querying leader for any classes not found
 		return vclasses, nil
 		// TODO is readonly ret val a problem here?
@@ -100,7 +100,10 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 		// versionedClassesToReturn := map[string]versioned.Class{}
 		// versionedClassesToQueryFromLeader := []string{}
 		// for _, name := range names {
-		// 	localVclass := h.schemaReader.ReadOnlyVersionedClass(name)
+		// 	localVclass, err := h.schemaReader.ReadOnlyVersionedClass(name)
+		//  if err != nil {
+		//      continue // TODO continue?
+		//  }
 		// 	leaderClassVersion, ok := classVersions[name]
 		// 	// TODO or <=?
 		// 	if !ok || localVclass.Version < leaderClassVersion {
