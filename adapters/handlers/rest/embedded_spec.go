@@ -5504,11 +5504,6 @@ func init() {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
             }
           }
         },
@@ -12234,11 +12229,6 @@ func init() {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
             }
           }
         },
@@ -12313,11 +12303,6 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

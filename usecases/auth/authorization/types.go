@@ -62,7 +62,6 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
-		Tenant:     All,
 	}
 
 	ComponentName = "RBAC"
