@@ -315,6 +315,7 @@ jobs:
         test: [
           "--acceptance-only-fast",
           "--acceptance-only-graphql",
+          "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
           "--acceptance-go-client-only-fast",
@@ -478,10 +479,6 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -491,11 +488,10 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh ${{ matrix.target }}
+        run: ./ci/push_docker.sh
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
-        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
@@ -504,10 +500,6 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
     name: push-docker-fast
     runs-on: ubuntu-latest-8-cores
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ["weaviate", "weaviate_experimental"]
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -517,11 +509,10 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh ${{ matrix.target }}
+        run: ./ci/push_docker.sh
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
       - name: Generate Report
-        if: ${{ matrix.target == 'weaviate' }}
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
