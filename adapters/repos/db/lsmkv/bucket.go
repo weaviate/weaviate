@@ -1109,6 +1109,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
 		fmt.Println("!!!!!!!!!!!!!uhoh!!!!!!!!!!!!!")
+		b.flushLock.Unlock()
 		return err
 	}
 	b.flushLock.Unlock()
