@@ -83,12 +83,16 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 
 // ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
 // The copy is read-only and should not be modified.
-func (rs SchemaReader) ReadOnlyVersionedClass(class string) (cls versioned.Class) {
+func (rs SchemaReader) ReadOnlyVersionedClass(class string) (versioned.Class, error) {
 	mc := rs.metaClass(class)
+	if mc == nil {
+		return versioned.Class{}, ErrClassNotFound
+	}
+	// fmt.Println("NATEE cluster/schema.SchemaReader.ReadOnlyVersionedClass mc", mc)
 	return versioned.Class{
 		Class:   &mc.Class,
 		Version: mc.ClassVersion,
-	}
+	}, nil
 }
 
 func (rs SchemaReader) metaClass(class string) (meta *metaClass) {

@@ -140,7 +140,7 @@ func (sm *SchemaManager) QueryClassVersions(req *cmd.QueryRequest) ([]byte, erro
 	}
 
 	// Read the meta class to get the class version
-	// .Println("NATEE cluster/schema.SchemaManager.QueryClassVersions", subCommand.Classes)
+	// fmt.Println("NATEE cluster/schema.SchemaManager.QueryClassVersions", subCommand.Classes)
 	vclasses := sm.schema.ReadOnlyClasses(subCommand.Classes...)
 	if len(vclasses) == 0 {
 		return []byte{}, nil
