@@ -292,10 +292,6 @@ func GenerateRandomString(length int) (string, error) {
 }
 
 func (s *Shard) resetDimensionsLSM() error {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b != nil {
-		b.Shutdown(context.Background())
-	}
 	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
@@ -309,7 +305,7 @@ func (s *Shard) resetDimensionsLSM() error {
 		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
 
-	b = s.store.Bucket(helpers.DimensionsBucketLSM)
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
 	}
