@@ -38,7 +38,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	// whole request fails if permissions for any collection are not present
 	for class, shards := range classesShards {
-		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 			return nil, err
 		}
 

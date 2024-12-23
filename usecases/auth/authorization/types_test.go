@@ -108,38 +108,15 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/*", SchemaDomain)}},
+		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*", SchemaDomain)}},
+		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*", SchemaDomain)}},
+		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1", SchemaDomain)}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1", SchemaDomain), fmt.Sprintf("%s/collections/Class2", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CollectionsMetadata(tt.classes...)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestShards(t *testing.T) {
-	tests := []struct {
-		name     string
-		class    string
-		shards   []string
-		expected []string
-	}{
-		{"No class, no shards", "", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Class, no shards", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
-		{"No class, single shard", "", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/*/shards/shard1", SchemaDomain)}},
-		{"Class, single shard", "class1", []string{"shard1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain)}},
-		{"Class, multiple shards", "class1", []string{"shard1", "shard2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/shard2", SchemaDomain)}},
-		{"Class, empty shard", "class1", []string{"shard1", ""}, []string{fmt.Sprintf("%s/collections/Class1/shards/shard1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ShardsMetadata(tt.class, tt.shards...)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

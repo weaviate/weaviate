@@ -184,7 +184,7 @@ func Test_policy(t *testing.T) {
 				Collections: &models.PermissionCollections{},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("*", ""),
+				Resource: CasbinSchema("*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: collectionsTests,
@@ -197,7 +197,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("Foo", ""),
+				Resource: CasbinSchema("Foo"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: collectionsTests,
@@ -208,7 +208,7 @@ func Test_policy(t *testing.T) {
 				Collections: &models.PermissionCollections{},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("*", "*"),
+				Resource: CasbinSchema("*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -221,7 +221,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("Foo", "*"),
+				Resource: CasbinSchema("Foo"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -234,7 +234,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("*", "bar"),
+				Resource: CasbinSchema("*"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -248,7 +248,7 @@ func Test_policy(t *testing.T) {
 				},
 			},
 			policy: &authorization.Policy{
-				Resource: CasbinSchema("Foo", "bar"),
+				Resource: CasbinSchema("Foo"),
 				Domain:   authorization.SchemaDomain,
 			},
 			tests: tenantsTests,
@@ -749,14 +749,14 @@ func Test_pCollections(t *testing.T) {
 		collection string
 		expected   string
 	}{
-		{collection: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
+		{collection: "", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "*", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "foo", expected: fmt.Sprintf("%s/collections/Foo", authorization.SchemaDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s", tt.collection)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinSchema(tt.collection, "")
+			p := CasbinSchema(tt.collection)
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -768,18 +768,18 @@ func Test_CasbinShards(t *testing.T) {
 		shard      string
 		expected   string
 	}{
-		{collection: "", shard: "", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "*", shard: "*", expected: fmt.Sprintf("%s/collections/.*/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", shard: "", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
-		{collection: "foo", shard: "*", expected: fmt.Sprintf("%s/collections/Foo/shards/.*", authorization.SchemaDomain)},
-		{collection: "", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar", authorization.SchemaDomain)},
-		{collection: "*", shard: "bar", expected: fmt.Sprintf("%s/collections/.*/shards/bar", authorization.SchemaDomain)},
-		{collection: "foo", shard: "bar", expected: fmt.Sprintf("%s/collections/Foo/shards/bar", authorization.SchemaDomain)},
+		{collection: "", shard: "", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "*", shard: "*", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "foo", shard: "", expected: fmt.Sprintf("%s/collections/Foo", authorization.SchemaDomain)},
+		{collection: "foo", shard: "*", expected: fmt.Sprintf("%s/collections/Foo", authorization.SchemaDomain)},
+		{collection: "", shard: "bar", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "*", shard: "bar", expected: fmt.Sprintf("%s/collections/.*", authorization.SchemaDomain)},
+		{collection: "foo", shard: "bar", expected: fmt.Sprintf("%s/collections/Foo", authorization.SchemaDomain)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("collection: %s; shard: %s", tt.collection, tt.shard)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinSchema(tt.collection, tt.shard)
+			p := CasbinSchema(tt.collection)
 			require.Equal(t, tt.expected, p)
 		})
 	}

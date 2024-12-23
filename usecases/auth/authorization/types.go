@@ -244,15 +244,15 @@ func CollectionsMetadata(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
+		return []string{fmt.Sprintf("%s/collections/*", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+			resources[idx] = fmt.Sprintf("%s/collections/*", SchemaDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s", SchemaDomain, classes[idx])
 		}
 	}
 
@@ -290,26 +290,13 @@ func Collections(classes ...string) []string {
 // Returns:
 //
 //	A slice of strings representing the resource paths for the given class and shards.
-func ShardsMetadata(class string, shards ...string) []string {
+func ShardsMetadata(class string) string {
 	class = schema.UppercaseClassesNames(class)[0]
 	if class == "" {
 		class = "*"
 	}
 
-	if len(shards) == 0 || (len(shards) == 1 && (shards[0] == "" || shards[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)}
-	}
-
-	resources := make([]string, len(shards))
-	for idx := range shards {
-		if shards[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)
-		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/%s", SchemaDomain, class, shards[idx])
-		}
-	}
-
-	return resources
+	return fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, class)
 }
 
 func ShardsData(class string, shards ...string) []string {

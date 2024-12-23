@@ -49,7 +49,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(updates.Class)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

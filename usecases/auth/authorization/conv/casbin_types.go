@@ -125,17 +125,13 @@ func CasbinRoles(role string) string {
 	return fmt.Sprintf("%s/%s", authorization.RolesDomain, role)
 }
 
-func CasbinSchema(collection, shard string) string {
+func CasbinSchema(collection string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
 	}
-	if shard == "" {
-		shard = "*"
-	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
-	shard = strings.ReplaceAll(shard, "*", ".*")
-	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
+	return fmt.Sprintf("%s/collections/%s", authorization.SchemaDomain, collection)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -193,14 +189,10 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinClusters()
 	case authorization.SchemaDomain:
 		collection := "*"
-		tenant := "*"
 		if permission.Collections != nil && permission.Collections.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		if permission.Collections != nil && permission.Collections.Tenant != nil {
-			tenant = *permission.Collections.Tenant
-		}
-		resource = CasbinSchema(collection, tenant)
+		resource = CasbinSchema(collection)
 	case authorization.DataDomain:
 		collection := "*"
 		tenant := "*"
@@ -281,7 +273,6 @@ func permission(policy []string) (*models.Permission, error) {
 	case authorization.SchemaDomain, "collections":
 		permission.Collections = &models.PermissionCollections{
 			Collection: &splits[2],
-			Tenant:     &splits[4],
 		}
 	case authorization.DataDomain:
 		permission.Data = &models.PermissionData{
