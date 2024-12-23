@@ -43,11 +43,6 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
-	fmt.Printf("Mapcursor with cfgs %v\n", cfgs)
-	//Dump stack
-	debug.PrintStack()
-	b.flushLock.RLock()
-
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)
