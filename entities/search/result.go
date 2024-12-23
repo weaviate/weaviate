@@ -73,7 +73,9 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 
 	if includeVector {
 		t.Vector = r.Vector
+		// TODO:colbert replace vectors with map[string]any
 		t.Vectors = r.Vectors
+		t.MultiVectors = r.MultiVectors
 	}
 
 	return t

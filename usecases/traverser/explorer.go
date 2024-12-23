@@ -65,6 +65,7 @@ type explorerMetrics interface {
 type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
+	IsTargetVectorMultiVector(className, targetVector string) (bool, error)
 	VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
 		findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, error)
 	MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
@@ -503,9 +504,16 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		}
 
 		if len(params.AdditionalProperties.Vectors) > 0 {
-			vectors := make(map[string][]float32)
+			vectors := make(map[string]types.Vector)
 			for _, targetVector := range params.AdditionalProperties.Vectors {
-				vectors[targetVector] = res.Vectors[targetVector]
+				if vector, ok := res.Vectors[targetVector]; ok {
+					vectors[targetVector] = vector
+				}
+			}
+			for _, targetVector := range params.AdditionalProperties.Vectors {
+				if vector, ok := res.MultiVectors[targetVector]; ok {
+					vectors[targetVector] = vector
+				}
 			}
 			additionalProperties["vectors"] = vectors
 		}
@@ -683,7 +691,7 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 
 func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
 	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string, index int,
-) ([]float32, error) {
+) (types.Vector, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target, index)
 }
 

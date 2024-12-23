@@ -827,6 +827,15 @@ func (p *Provider) TargetsFromSearchParam(className string, params interface{}) 
 	return targetVectors, nil
 }
 
+func (p *Provider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
+	class, err := p.getClass(className)
+	if err != nil {
+		return false, err
+	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
+	return p.IsMultiVector(targetModule), nil
+}
+
 // VectorFromSearchParam gets a vector for a given argument. This is used in
 // Get { Class() } for example
 func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},

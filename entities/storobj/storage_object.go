@@ -227,7 +227,8 @@ func FromBinaryOptional(data []byte,
 
 	if rw.Position < uint64(len(rw.Buffer)) {
 		multiVectorsLength := rw.ReadUint32()
-		if len(addProp.MultiVectors) > 0 {
+		// if len(addProp.MultiVectors) > 0 {
+		if len(addProp.Vectors) > 0 {
 			if multiVectorsLength > 0 {
 				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
 				if err != nil {

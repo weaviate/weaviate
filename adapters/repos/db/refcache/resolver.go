@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 type Resolver struct {
@@ -233,9 +234,16 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 		nested["vector"] = res.Vector
 	}
 	if len(additionalProperties.Vectors) > 0 {
-		vectors := make(map[string][]float32)
+		vectors := make(map[string]types.Vector)
 		for _, targetVector := range additionalProperties.Vectors {
-			vectors[targetVector] = res.Vectors[targetVector]
+			if vector, ok := res.Vectors[targetVector]; ok {
+				vectors[targetVector] = vector
+			}
+		}
+		for _, targetVector := range additionalProperties.Vectors {
+			if multiVector, ok := res.MultiVectors[targetVector]; ok {
+				vectors[targetVector] = multiVector
+			}
 		}
 		nested["vectors"] = vectors
 	}

@@ -141,14 +141,10 @@ func (db *DB) VectorSearch(ctx context.Context,
 }
 
 func isEmptyVector(searchVector types.Vector) bool {
-	switch v := searchVector.(type) {
-	case []float32:
-		return len(v) == 0
-	case [][]float32:
-		return len(v) == 0
-	default:
-		return false
+	if isVectorEmpty, err := types.IsVectorEmpty(searchVector); err == nil {
+		return isVectorEmpty
 	}
+	return false
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {

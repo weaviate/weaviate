@@ -12,11 +12,13 @@
 package aggregation
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 type Params struct {
@@ -27,7 +29,7 @@ type Params struct {
 	IncludeMetaCount bool                       `json:"includeMetaCount"`
 	Limit            *int                       `json:"limit"`
 	ObjectLimit      *int                       `json:"objectLimit"`
-	SearchVector     []float32                  `json:"searchVector"`
+	SearchVector     types.Vector               `json:"searchVector"`
 	TargetVector     string                     `json:"targetVector"`
 	Certainty        float64                    `json:"certainty"`
 	Tenant           string                     `json:"tenant"`
@@ -35,6 +37,39 @@ type Params struct {
 	NearVector       *searchparams.NearVector   `json:"nearVector"`
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
+}
+
+func (p *Params) UnmarshalJSON(data []byte) error {
+	type Alias Params
+	aux := &struct {
+		SearchVector json.RawMessage `json:"searchVector"`
+		*Alias
+	}{
+		Alias: (*Alias)(p),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Try unmarshaling as []float32
+	var vector []float32
+	if err := json.Unmarshal(aux.SearchVector, &vector); err == nil {
+		if len(vector) > 0 {
+			p.SearchVector = vector
+		}
+		return nil
+	}
+
+	// Try unmarshaling as [][]float32
+	var multiVector [][]float32
+	if err := json.Unmarshal(aux.SearchVector, &multiVector); err == nil {
+		if len(multiVector) > 0 {
+			p.SearchVector = multiVector
+		}
+		return nil
+	}
+	return fmt.Errorf("searchVector: cannot unmarshal into either []float32 or [][]float32: %v", aux.SearchVector)
 }
 
 type ParamProperty struct {

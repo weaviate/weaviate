@@ -290,8 +290,9 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		// decode vector
 		multiVec := make([][]float32, alen)
 		for i := 0; i < int(alen); i++ {
-			vec := make([]float32, alen)
 			alenvec := binary.BigEndian.Uint16(data)
+			data = data[2:]
+			vec := make([]float32, int(alenvec))
 			for j := 0; j < int(alenvec); j++ {
 				bits := binary.BigEndian.Uint32(data)
 				vec[j] = math.Float32frombits(bits)
