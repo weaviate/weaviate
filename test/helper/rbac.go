@@ -70,6 +70,15 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 	require.Nil(t, err)
 }
 
+func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	resp, err := Client(t).Authz.RevokeRole(
+		authz.NewRevokeRoleParams().WithID(user).WithBody(authz.RevokeRoleBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{
