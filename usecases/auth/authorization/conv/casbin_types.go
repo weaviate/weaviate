@@ -70,6 +70,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.TenantDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/tenants/.*$`, authorization.TenantDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -302,6 +304,11 @@ func permission(policy []string) (*models.Permission, error) {
 			Tenant:     &splits[4],
 			Object:     &splits[6],
 		}
+	case authorization.TenantDomain:
+		permission.Tenants = &models.PermissionTenants{
+			Collection: &splits[2],
+			Tenant:     &splits[4],
+		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
@@ -328,6 +335,7 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
+		permission.Tenants = authorization.AllTenants
 	case authorization.ClusterDomain, authorization.UsersDomain:
 		// do nothing
 	default:
