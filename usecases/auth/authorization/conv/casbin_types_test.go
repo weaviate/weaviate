@@ -73,6 +73,12 @@ var (
 		{permissionAction: authorization.UpdateData, testDescription: updateDesc, policyVerb: updateVerb},
 		{permissionAction: authorization.DeleteData, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
+	tenantsActionTests = []innerTest{
+		{permissionAction: authorization.CreateTenant, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadTenant, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateTenant, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
 )
 
 func Test_policy(t *testing.T) {
@@ -475,6 +481,25 @@ func Test_permission(t *testing.T) {
 				},
 			},
 			tests: nodesTests,
+		},
+		{
+			name:   "all tenants",
+			policy: []string{"p", "/collections/*/tenants/*", "", authorization.TenantDomain},
+			permission: &models.Permission{
+				Tenants: authorization.AllTenants,
+			},
+			tests: tenantsActionTests,
+		},
+		{
+			name:   "a tenant",
+			policy: []string{"p", "/collections/Foo/tenants/*", "", authorization.TenantDomain},
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{
+					Collection: foo,
+					Tenant:     authorization.All,
+				},
+			},
+			tests: tenantsActionTests,
 		},
 		{
 			name:   "all collections",
