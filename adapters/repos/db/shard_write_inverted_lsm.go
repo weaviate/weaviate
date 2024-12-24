@@ -293,7 +293,6 @@ func GenerateRandomString(length int) (string, error) {
 
 // Empty the dimensions bucket, quickly and efficiently
 func (s *Shard) resetDimensionsLSM() error {
-
 	// Load the current one, or an empty one if it doesn't exist
 	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
