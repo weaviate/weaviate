@@ -54,7 +54,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.1
 	github.com/casbin/casbin/v2 v2.102.0
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/coreos/go-oidc/v3 v3.10.0
+	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/felixge/httpsnoop v1.0.4
 	github.com/getsentry/sentry-go v0.29.0
@@ -129,7 +129,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
