@@ -54,6 +54,10 @@ var (
 		Tenant:     All,
 		Object:     All,
 	}
+	AllTenants = &models.PermissionTenants{
+		Collection: All,
+		Tenant:     All,
+	}
 	AllNodes = &models.PermissionNodes{
 		Verbosity:  String(verbosity.OutputVerbose),
 		Collection: All,
@@ -91,6 +95,11 @@ var (
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
 
+	CreateTenant = "create_tenant"
+	ReadTenant   = "read_tenant"
+	UpdateTenant = "update_tenant"
+	DeleteTenant = "delete_tenant"
+
 	availableWeaviateActions = []string{
 		// Roles domain
 		ManageRoles,
@@ -121,6 +130,12 @@ var (
 		ReadData,
 		UpdateData,
 		DeleteData,
+
+		// Tenant domain
+		CreateTenant,
+		ReadTenant,
+		UpdateTenant,
+		DeleteTenant,
 	}
 )
 
@@ -434,6 +449,7 @@ func viewerPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 
@@ -452,6 +468,7 @@ func adminPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 
