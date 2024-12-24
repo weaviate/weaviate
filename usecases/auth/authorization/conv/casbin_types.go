@@ -230,6 +230,16 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Data.Object
 		}
 		resource = CasbinData(collection, tenant, object)
+	case authorization.TenantDomain:
+		collection := "*"
+		tenant := "*"
+		if permission.Tenants != nil && permission.Tenants.Collection != nil {
+			collection = schema.UppercaseClassName(*permission.Tenants.Collection)
+		}
+		if permission.Tenants != nil && permission.Tenants.Tenant != nil {
+			tenant = *permission.Tenants.Tenant
+		}
+		resource = CasbinTenant(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {

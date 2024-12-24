@@ -39,7 +39,7 @@ const (
 	NodesDomain   = "nodes"
 	BackupsDomain = "backups"
 	SchemaDomain  = "schema"
-	TenantDomain  = "tenant"
+	TenantDomain  = "tenants"
 	DataDomain    = "data"
 )
 
@@ -95,10 +95,10 @@ var (
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
 
-	CreateTenant = "create_tenant"
-	ReadTenant   = "read_tenant"
-	UpdateTenant = "update_tenant"
-	DeleteTenant = "delete_tenant"
+	CreateTenant = "create_tenants"
+	ReadTenant   = "read_tenants"
+	UpdateTenant = "update_tenants"
+	DeleteTenant = "delete_tenants"
 
 	availableWeaviateActions = []string{
 		// Roles domain

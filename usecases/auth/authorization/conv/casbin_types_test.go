@@ -406,6 +406,70 @@ func Test_policy(t *testing.T) {
 			},
 			tests: objectsDataTests,
 		},
+		{
+			name: "a tenant",
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{
+					Collection: foo,
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinTenant("Foo", ""),
+				Domain:   authorization.TenantDomain,
+			},
+			tests: tenantsActionTests,
+		},
+		{
+			name: "all tenants in all collections",
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinTenant("*", "*"),
+				Domain:   authorization.TenantDomain,
+			},
+			tests: tenantsActionTests,
+		},
+		{
+			name: "all tenants in a collection",
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{
+					Collection: foo,
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinTenant("Foo", "*"),
+				Domain:   authorization.TenantDomain,
+			},
+			tests: tenantsActionTests,
+		},
+		{
+			name: "a tenant in all collections",
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{
+					Tenant: bar,
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinTenant("*", "bar"),
+				Domain:   authorization.TenantDomain,
+			},
+			tests: tenantsActionTests,
+		},
+		{
+			name: "a tenant in a collection",
+			permission: &models.Permission{
+				Tenants: &models.PermissionTenants{
+					Collection: foo,
+					Tenant:     bar,
+				},
+			},
+			policy: &authorization.Policy{
+				Resource: CasbinTenant("Foo", "bar"),
+				Domain:   authorization.TenantDomain,
+			},
+			tests: tenantsActionTests,
+		},
 	}
 	for _, tt := range tests {
 		for _, ttt := range tt.tests {
