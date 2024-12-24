@@ -17,7 +17,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"math/rand"
+	"crypto/rand"
 	"os"
 
 	"github.com/pkg/errors"
@@ -291,7 +291,10 @@ func GenerateRandomString(length int) (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// Empty the dimensions bucket, quickly and efficiently
 func (s *Shard) resetDimensionsLSM() error {
+
+	// Load the current one, or an empty one if it doesn't exist
 	err := s.store.CreateOrLoadBucket(context.Background(),
 		helpers.DimensionsBucketLSM,
 		s.memtableDirtyConfig(),
@@ -305,6 +308,7 @@ func (s *Shard) resetDimensionsLSM() error {
 		return fmt.Errorf("create dimensions bucket: %w", err)
 	}
 
+	// Fetch the actual bucket
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return errors.Errorf("resetDimensionsLSM: no bucket dimensions")
@@ -315,11 +319,14 @@ func (s *Shard) resetDimensionsLSM() error {
 	if err != nil {
 		return errors.Wrap(err, "generate random bucket name")
 	}
+
+	// Create a new bucket with the random name
 	err = s.createDimensionsBucket(context.Background(), name)
 	if err != nil {
 		return errors.Wrap(err, "create temporary dimensions bucket")
 	}
 
+	// Replace the old bucket with the new one
 	err = s.store.ReplaceBuckets(context.Background(), helpers.DimensionsBucketLSM, name)
 	if err != nil {
 		return errors.Wrap(err, "replace dimensions bucket")
