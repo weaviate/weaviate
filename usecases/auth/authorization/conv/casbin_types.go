@@ -155,6 +155,19 @@ func CasbinData(collection, shard, object string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
+func CasbinTenant(collection, tenant string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
+	if collection == "" {
+		collection = "*"
+	}
+	if tenant == "" {
+		tenant = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	tenant = strings.ReplaceAll(tenant, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/tenants/%s", authorization.TenantDomain, collection, tenant)
+}
+
 func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
