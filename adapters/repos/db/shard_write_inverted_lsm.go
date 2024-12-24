@@ -13,11 +13,11 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
-	"crypto/rand"
 	"os"
 
 	"github.com/pkg/errors"
