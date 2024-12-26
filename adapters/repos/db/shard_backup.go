@@ -32,6 +32,15 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 			}
 		}
 	}()
+
+	s.mayStopHashBeater()
+
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.closeHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
