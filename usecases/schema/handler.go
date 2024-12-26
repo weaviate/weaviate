@@ -79,7 +79,7 @@ type SchemaReader interface {
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	ReadOnlyClass(name string) *models.Class
-	ReadOnlyVersionedClass(name string) versioned.Class
+	ReadOnlyVersionedClass(name string) (versioned.Class, error)
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
@@ -130,6 +130,7 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
+	getClassMethod          GetClassMethod
 }
 
 // NewHandler creates a new handler
@@ -143,6 +144,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	getClassMethod GetClassMethod,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -159,6 +161,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
+		getClassMethod:          getClassMethod, // TODO caller/config
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
