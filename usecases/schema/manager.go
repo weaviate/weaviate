@@ -211,7 +211,7 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud)
+		moduleConfig, clusterState, scaleoutManager, cloud, GetClassFromLeaderAlways) // TODO config getclassfrom*
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
