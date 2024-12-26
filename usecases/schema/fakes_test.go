@@ -185,10 +185,10 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 	return model.(*models.Class)
 }
 
-func (f *fakeSchemaManager) ReadOnlyVersionedClass(class string) versioned.Class {
+func (f *fakeSchemaManager) ReadOnlyVersionedClass(class string) (versioned.Class, error) {
 	args := f.Called(class)
 	model := args.Get(0)
-	return model.(versioned.Class)
+	return model.(versioned.Class), args.Error(1)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error) {
