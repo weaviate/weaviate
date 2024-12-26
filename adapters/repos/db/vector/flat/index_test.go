@@ -298,6 +298,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 
 			index, err := New(Config{
 				ID:               "id",
+				RootPath:         t.TempDir(),
 				DistanceProvider: distancr,
 			}, flatent.UserConfig{
 				PQ: pq,
