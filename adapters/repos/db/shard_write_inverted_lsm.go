@@ -279,8 +279,17 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
+var uniqueCounter int
+var uniqueNumberLock = &sync.Mutex{}
+
+func uniqueNumber() int {
+	uniqueNumberLock.Lock()
+	defer uniqueNumberLock.Unlock()
+	uniqueCounter = uniqueCounter + 1
+
+}
 // GenerateRandomString generates a random string of the specified length
-func GenerateRandomString(length int) (string, error) {
+func  GenerateRandomString(length int) (string, error) {
 	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
 	bytes := make([]byte, length/2)
 	_, err := rand.Read(bytes)
@@ -288,7 +297,7 @@ func GenerateRandomString(length int) (string, error) {
 		return "", err
 	}
 	// Convert the bytes to a hex string
-	return hex.EncodeToString(bytes), nil
+	return fmt.Sprintf("%v%v", hex.EncodeToString(bytes), uniqueNumber()), nil
 }
 
 // Empty the dimensions bucket, quickly and efficiently
@@ -362,7 +371,7 @@ func (s *Shard) addToDimensionBucket(
 	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		return errors.Errorf("addToDimensionBucket: no bucket dimensions")
+		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
 	tv := []byte(vecName)

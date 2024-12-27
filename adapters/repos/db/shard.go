@@ -61,6 +61,7 @@ import (
 const IdLockPoolSize = 128
 
 var errAlreadyShutdown = errors.New("already shut or dropped")
+var uniquecounter int
 
 type ShardLike interface {
 	Index() *Index                  // Get the parent index

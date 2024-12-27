@@ -689,7 +689,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return shard.resetDimensionsLSM()
 		})
 		if err != nil {
-			m.logger.WithField("action", "reindex").WithField("error", err).Warn("could not reset vector dimensions")
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
 			return err
 		}
 
@@ -710,7 +710,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			m.logger.WithField("action", "reindex").WithField("error", err).Warn("could not extend vector dimensions")
+			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}
