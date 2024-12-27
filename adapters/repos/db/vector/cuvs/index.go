@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,11 +64,15 @@ type cuvs_index struct {
 	metadata *bolt.DB
 	rootPath string
 
-	idCuvsIdMap    map[uint32]uint64
+	idCuvsIdMap    BiMap
 	cuvsPoolMemory int
 
 	cuvsExtendCount uint64
 	cuvsNumExtends  uint64
+	cuvsNumFiltered uint64
+	cuvsFilter      []uint32
+	maxFiltered     uint64
+	nextCuvsId      uint32
 	count           uint64
 }
 
@@ -144,16 +149,16 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		store:          store,
 		rootPath:       cfg.RootPath,
 
-		idCuvsIdMap:    make(map[uint32]uint64),
+		idCuvsIdMap:    *NewBiMap(),
 		cuvsPoolMemory: cfg.CuvsPoolMemory,
 	}
 
-	println("pre init buckets")
+	index.maxFiltered = 30
+	index.nextCuvsId = 0
 
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init cuvs index buckets: %w", err)
 	}
-	println("post init buckets")
 
 	if err := index.initMetadata(); err != nil {
 		return nil, err
@@ -278,7 +283,9 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 	}
 
 	for i := range id {
-		index.idCuvsIdMap[uint32(index.count)] = id[i]
+		// index.idCuvsIdMap[uint32(index.count)] = id[i]
+		index.idCuvsIdMap.Insert(index.nextCuvsId, id[i])
+		index.nextCuvsId += 1
 		index.count += 1
 	}
 
@@ -340,8 +347,10 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	}
 
 	for i := range id {
-		index.idCuvsIdMap[uint32(index.count)] = id[i]
+		// index.idCuvsIdMap[uint32(index.count)] = id[i]
+		index.idCuvsIdMap.Insert(index.nextCuvsId, id[i])
 		index.count += 1
+		index.nextCuvsId += 1
 	}
 
 	err = cagra.ExtendIndex(*index.cuvsResource, ExtendParams, &tensor, &returnTensor, index.cuvsIndex)
@@ -370,7 +379,39 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 		}
 
 	}
+	index.deleteWithFilter(ids)
+	index.count--
 	return nil
+}
+
+func (index *cuvs_index) shouldUseFilter(additionalElements uint64) bool {
+	if (index.cuvsNumFiltered + additionalElements) > index.maxFiltered {
+		return false
+	}
+	return true
+}
+
+func (index *cuvs_index) deleteWithFilter(ids []uint64) {
+	for i := range ids {
+		cuvsId, _ := index.idCuvsIdMap.GetCuvsId(ids[i])
+		if !slices.Contains(index.cuvsFilter, cuvsId) {
+			index.cuvsFilter = append(index.cuvsFilter, cuvsId)
+		}
+	}
+}
+
+func (index *cuvs_index) createAllowList() []uint32 {
+	list := make([]uint32, index.count)
+
+	for i := range list {
+		list[i] = 1
+	}
+
+	for i := range index.cuvsFilter {
+		list[i] = 0
+	}
+
+	return list
 }
 
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -395,7 +436,7 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 		return nil, nil, err
 	}
 
-	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, nil)
+	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances, index.createAllowList())
 
 	_, err = neighbors.ToHost(index.cuvsResource)
 	if err != nil {
@@ -419,7 +460,8 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 	neighborsResultSlice := make([]uint64, k)
 
 	for i := range neighborsSlice[0] {
-		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
+		// neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
+		neighborsResultSlice[i], _ = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
 	}
 
 	err = distances.Close()
@@ -496,7 +538,8 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 	for j := range neighborsSlice {
 		neighborsResultSlice[j] = make([]uint64, k)
 		for i := range neighborsSlice[j] {
-			neighborsResultSlice[j][i] = index.idCuvsIdMap[neighborsSlice[j][i]]
+			// neighborsResultSlice[j][i] = index.idCuvsIdMap[neighborsSlice[j][i]]
+			neighborsResultSlice[j][i], _ = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[j][i])
 		}
 	}
 
