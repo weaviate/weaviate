@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -286,7 +287,7 @@ func uniqueNumber() int {
 	uniqueNumberLock.Lock()
 	defer uniqueNumberLock.Unlock()
 	uniqueCounter = uniqueCounter + 1
-
+	return uniqueCounter
 }
 // GenerateRandomString generates a random string of the specified length
 func  GenerateRandomString(length int) (string, error) {
