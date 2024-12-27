@@ -280,8 +280,10 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
-var uniqueCounter int
-var uniqueNumberLock = &sync.Mutex{}
+var (
+	uniqueCounter    int
+	uniqueNumberLock = &sync.Mutex{}
+)
 
 func uniqueNumber() int {
 	uniqueNumberLock.Lock()
@@ -289,8 +291,9 @@ func uniqueNumber() int {
 	uniqueCounter = uniqueCounter + 1
 	return uniqueCounter
 }
+
 // GenerateRandomString generates a random string of the specified length
-func  GenerateRandomString(length int) (string, error) {
+func GenerateRandomString(length int) (string, error) {
 	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
 	bytes := make([]byte, length/2)
 	_, err := rand.Read(bytes)
