@@ -932,7 +932,7 @@ func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []stri
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, types.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 

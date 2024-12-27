@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -30,8 +31,8 @@ type ExtractAdditionalFn = func(param []*ast.Argument, class *models.Class) inte
 
 // AdditionalPropertyWithSearchVector defines additional property params
 // with the ability to pass search vector
-type AdditionalPropertyWithSearchVector interface {
-	SetSearchVector(vector []float32)
+type AdditionalPropertyWithSearchVector[T types.Embedding] interface {
+	SetSearchVector(vector T)
 }
 
 // AdditionalPropertyFn defines interface for additional property

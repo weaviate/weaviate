@@ -224,6 +224,16 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
+// TODO:colbert unify findVector and findMultiVector
+func (v *nearParamsVector) findVectorForNearObject(ctx context.Context,
+	className string, id strfmt.UUID, tenant, targetVector string,
+) (types.Vector, string, error) {
+	if multiVector, targetVector, err := v.findMultiVector(ctx, className, id, tenant, targetVector); err == nil && len(multiVector) > 0 {
+		return multiVector, targetVector, nil
+	}
+	return v.findVector(ctx, className, id, tenant, targetVector)
+}
+
 func (v *nearParamsVector) findVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error) {
 	switch className {
 	case "":
@@ -286,7 +296,7 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 		return nil, "", errors.New("vector not found")
 	}
 	if targetVector != "" {
-		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
+		if len(res.MultiVectors) == 0 || res.MultiVectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
 		return res.MultiVectors[targetVector], targetVector, nil
@@ -382,13 +392,13 @@ func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id str
 
 func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
-) ([]float32, string, error) {
+) (types.Vector, string, error) {
 	return v.vectorFromNearObjectParams(ctx, "", params, "", "")
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	className string, params *searchparams.NearObject, tenant, targetVector string,
-) ([]float32, string, error) {
+) (types.Vector, string, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, "", errors.New("empty id and beacon")
 	}
@@ -413,7 +423,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		targetVector = params.TargetVectors[0]
 	}
 
-	return v.findVector(ctx, targetClassName, id, tenant, targetVector)
+	return v.findVectorForNearObject(ctx, targetClassName, id, tenant, targetVector)
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,

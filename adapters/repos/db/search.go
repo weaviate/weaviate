@@ -157,7 +157,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 	return float32(dist)
 }
 
-func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
+func (db *DB) CrossClassVectorSearch(ctx context.Context, vector types.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	var found search.Results
