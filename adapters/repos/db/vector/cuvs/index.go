@@ -396,6 +396,7 @@ func (index *cuvs_index) deleteWithFilter(ids []uint64) {
 		cuvsId, _ := index.idCuvsIdMap.GetCuvsId(ids[i])
 		if !slices.Contains(index.cuvsFilter, cuvsId) {
 			index.cuvsFilter = append(index.cuvsFilter, cuvsId)
+			index.cuvsNumFiltered++
 		}
 	}
 }

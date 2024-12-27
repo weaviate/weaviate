@@ -97,7 +97,7 @@ func TestPersistence(t *testing.T) {
 	// Test recall before shutdown
 	totalRecall := 0.0
 	for i := 0; i < numVectors; i++ {
-		results, _, err := index.SearchByVector(context.TODO(), vectors[i], k, nil)
+		results, _, err := index.SearchByVector(context.Background(), vectors[i], k, nil)
 		require.NoError(t, err)
 		require.Len(t, results, k)
 		recall := calculateRecall([]uint64{ids[i]}, results)
@@ -179,6 +179,73 @@ func TestBatchAddAndQuery(t *testing.T) {
 	recallRate := totalRecall / float64(numVectors)
 	t.Logf("Individual queries recall rate: %.4f", recallRate)
 	assert.GreaterOrEqual(t, recallRate, minRecallRate, "Individual queries recall rate below threshold")
+
+	// Test batch query recall
+	batchResults, _, err := index.SearchByVectorBatch(vectors, k, nil)
+	require.NoError(t, err)
+
+	totalBatchRecall := 0.0
+
+	for i := range batchResults {
+		rc := calculateRecall([]uint64{ids[i]}, batchResults[i])
+		totalBatchRecall += rc
+	}
+
+	batchRecallRate := totalBatchRecall / float64(numVectors)
+	t.Logf("Batch queries recall rate: %.4f", batchRecallRate)
+	assert.GreaterOrEqual(t, batchRecallRate, minRecallRate, "Batch queries recall rate below threshold")
+}
+
+func TestDeleteWithoutPersistence(t *testing.T) {
+	index, _, cleanup, _ := setupTestIndex(t)
+	defer cleanup()
+
+	// Create vectors
+	ids := make([]uint64, numVectors)
+	vectors := make([][]float32, numVectors)
+	for i := range ids {
+		ids[i] = uint64(i + 1)
+		vectors[i] = generateRandomVector(dims)
+	}
+
+	// Add vectors
+	err := index.AddBatch(context.Background(), ids, vectors)
+	require.NoError(t, err)
+
+	for i := 0; i < numVectors; i += 2 {
+		// Delete vectors
+		err = index.Delete(ids[i])
+		require.NoError(t, err)
+	}
+
+	// Test individual queries recall
+	totalRecall := 0.0
+	for i := 0; i < numVectors; i += 2 {
+		results, _, err := index.SearchByVector(context.TODO(), vectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecall += recall
+
+	}
+
+	recallRate := totalRecall / float64(numVectors)
+	t.Logf("Individual queries recall rate: %.4f", recallRate)
+	assert.GreaterOrEqual(t, recallRate, minRecallRate, "Individual queries recall rate below threshold")
+
+	// Test individual queries recall
+	totalRecall_deleted := 0.0
+	for i := 0; i < numVectors; i += 2 {
+		results, _, err := index.SearchByVector(context.TODO(), vectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{ids[i]}, results)
+		totalRecall_deleted += recall
+
+	}
+
+	recallRate_deleted := totalRecall_deleted / float64(numVectors)
+	t.Logf("Individual queries recall rate, deleted vectors: %.4f", recallRate_deleted)
 
 	// Test batch query recall
 	batchResults, _, err := index.SearchByVectorBatch(vectors, k, nil)
