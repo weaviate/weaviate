@@ -91,7 +91,7 @@ func (c *compactorReplace) do() error {
 	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
-		return fmt.Errorf("write compactorSet segment checksum: %w", err)
+		return fmt.Errorf("write compactorReplace segment checksum: %w", err)
 	}
 
 	return nil

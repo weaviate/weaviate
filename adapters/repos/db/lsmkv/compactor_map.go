@@ -97,7 +97,7 @@ func (c *compactorMap) do() error {
 	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
-		return fmt.Errorf("write compactorSet segment checksum: %w", err)
+		return fmt.Errorf("write compactorMap segment checksum: %w", err)
 	}
 
 	return nil
