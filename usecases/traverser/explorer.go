@@ -76,7 +76,7 @@ type ModulesProvider interface {
 	MultiCrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-		moduleParams map[string]interface{}, searchVector []float32,
+		moduleParams map[string]interface{}, searchVector types.Vector,
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
@@ -93,7 +93,7 @@ type objectsSearcher interface {
 	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors []types.Vector) ([]search.Result, error)
 
 	// GraphQL Explore{} queries
-	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
+	CrossClassVectorSearch(ctx context.Context, vector types.Vector, targetVector string, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 
 	// Near-params searcher
@@ -297,15 +297,12 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	if e.modulesProvider != nil {
 		switch searchVector := searchVectors[0].(type) {
-		case []float32:
+		case []float32, [][]float32:
 			res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 				params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 			if err != nil {
 				return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 			}
-		case [][]float32:
-			// TODO:colbert implement
-			return nil, nil, errors.Errorf("explorer: get class: extend: add support for multivector")
 		default:
 			return nil, nil, errors.Errorf("explorer: get class: extend: unsupported search vector type: %T", searchVectors[0])
 		}
@@ -697,7 +694,7 @@ func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	params ExploreParams,
-) ([]float32, string, error) {
+) (types.Vector, string, error) {
 	err := e.nearParamsVector.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
 	if err != nil {
 		return nil, "", err
