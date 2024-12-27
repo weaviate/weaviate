@@ -57,6 +57,12 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
+	if input.Class == "" {
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
@@ -126,7 +132,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			Err:  err,
 		}
 	}
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, res.MultiVectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

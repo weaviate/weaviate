@@ -31,18 +31,18 @@ const (
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = DefaultVectorIndexType
 	}
 
 	switch vectorIndexType {
 	case VectorIndexTypeHNSW:
-		return hnsw.ParseAndValidateConfig(input)
+		return hnsw.ParseAndValidateConfig(input, isMultiVector)
 	case VectorIndexTypeFLAT:
 		return flat.ParseAndValidateConfig(input)
 	case VectorIndexTypeDYNAMIC:
-		return dynamic.ParseAndValidateConfig(input)
+		return dynamic.ParseAndValidateConfig(input, isMultiVector)
 	case VectorIndexTypeCUVS:
 		return cuvs.ParseAndValidateConfig(input)
 	default:

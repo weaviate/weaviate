@@ -20,26 +20,30 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func graphqlSearch(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+func (suite *ReplicationTestSuite) TestGraphqlSearch() {
+	t := suite.T()
+	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
@@ -65,7 +69,7 @@ func graphqlSearch(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.ContainerURI(1), batch)
+		common.CreateObjects(t, compose.ContainerURI(1), batch)
 	})
 
 	t.Run("InsertArticles", func(t *testing.T) {
@@ -76,15 +80,15 @@ func graphqlSearch(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.ContainerURI(2), batch)
+		common.CreateObjects(t, compose.ContainerURI(2), batch)
 	})
 
 	t.Run("StopNode-2", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
+		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("get consistent search results with ONE (1/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		checkResultsConsistency(t, resp, true)
 	})
 
@@ -94,25 +98,25 @@ func graphqlSearch(t *testing.T) {
 	})
 
 	t.Run("get consistent search results with ALL (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.All)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.All)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with QUORUM (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.Quorum)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.Quorum)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
+		resp := common.GQLGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		require.GreaterOrEqual(t, len(resp), 1)
 		vec := resp[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
-		resp = gqlGetNearVec(t, compose.ContainerURI(1), paragraphClass.Class, vec, replica.Quorum)
+		resp = common.GQLGetNearVec(t, compose.ContainerURI(1), paragraphClass.Class, vec, replica.Quorum)
 		checkResultsConsistency(t, resp, true)
 	})
 }

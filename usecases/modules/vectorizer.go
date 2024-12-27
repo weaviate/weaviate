@@ -353,19 +353,19 @@ func (p *Provider) addVectorToObject(object *models.Object,
 	}
 	if cfg.TargetVector() == "" {
 		object.Vector = vector
-		// TODO: add support for multi vectors
-		// object.Vector = vector
 		return
 	}
-	if object.Vectors == nil {
-		object.Vectors = models.Vectors{}
+	if multiVector != nil {
+		if object.MultiVectors == nil {
+			object.MultiVectors = models.MultiVectors{}
+		}
+		object.MultiVectors[cfg.TargetVector()] = multiVector
+	} else {
+		if object.Vectors == nil {
+			object.Vectors = models.Vectors{}
+		}
+		object.Vectors[cfg.TargetVector()] = vector
 	}
-	object.Vectors[cfg.TargetVector()] = vector
-	// TODO: add support for multi vectors
-	// if object.MultiVectors == nil {
-	// 	object.MultiVectors = models.Vectors{}
-	// }
-	// object.MultiVectors[cfg.TargetVector()] = multiVectors
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,

@@ -41,18 +41,14 @@ func (w *Worker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case batch := <-w.ch:
-			stop := w.do(batch)
-
-			if stop {
-				return
-			}
+			_ = w.do(batch)
 		}
 	}
 }
 
-func (w *Worker) do(batch *Batch) (stop bool) {
+func (w *Worker) do(batch *Batch) (err error) {
 	defer func() {
-		if stop {
+		if err != nil {
 			batch.Cancel()
 		} else {
 			batch.Done()
@@ -60,13 +56,13 @@ func (w *Worker) do(batch *Batch) (stop bool) {
 	}()
 
 	for _, t := range batch.Tasks {
-		err := w.processTask(batch.Ctx, t)
+		err = w.processTask(batch.Ctx, t)
 		if err != nil {
-			return true
+			return err
 		}
 	}
 
-	return false
+	return nil
 }
 
 func (w *Worker) processTask(ctx context.Context, task Task) error {

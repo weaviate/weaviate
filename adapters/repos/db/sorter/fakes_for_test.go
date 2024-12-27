@@ -140,6 +140,7 @@ func createMyFavoriteClassObject() *storobj.Object {
 		},
 		[]float32{1, 2, 0.7},
 		nil,
+		nil,
 	)
 }
 

@@ -22,26 +22,30 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func replicationFactorIncrease(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+func (suite *ReplicationTestSuite) TestReplicationFactorIncrease() {
+	t := suite.T()
+	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		With3NodeCluster().
 		WithText2VecContextionary().
-		Start(ctx)
+		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
+		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
+	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -66,7 +70,7 @@ func replicationFactorIncrease(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("InsertArticles", func(t *testing.T) {
@@ -77,7 +81,7 @@ func replicationFactorIncrease(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
+		common.CreateObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("AddReferences", func(t *testing.T) {
@@ -88,19 +92,19 @@ func replicationFactorIncrease(t *testing.T) {
 				To:   strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
 			}
 		}
-		addReferences(t, compose.GetWeaviate().URI(), refs)
+		common.AddReferences(t, compose.GetWeaviate().URI(), refs)
 	})
 
 	t.Run("scale out paragraphs", func(t *testing.T) {
-		c := getClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
+		c := common.GetClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
 		c.ReplicationConfig.Factor = 2
-		updateClass(t, compose.GetWeaviate().URI(), c)
+		common.UpdateClass(t, compose.GetWeaviate().URI(), c)
 	})
 
 	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
 		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			n := getNodes(t, compose.GetWeaviate().URI())
+			n := common.GetNodes(t, compose.GetWeaviate().URI())
 			var shardsFound int
 			for _, node := range n.Nodes {
 				for _, shard := range node.Shards {
@@ -115,15 +119,15 @@ func replicationFactorIncrease(t *testing.T) {
 	})
 
 	t.Run("scale out articles", func(t *testing.T) {
-		c := getClass(t, compose.GetWeaviate().URI(), articleClass.Class)
+		c := common.GetClass(t, compose.GetWeaviate().URI(), articleClass.Class)
 		c.ReplicationConfig.Factor = 2
-		updateClass(t, compose.GetWeaviate().URI(), c)
+		common.UpdateClass(t, compose.GetWeaviate().URI(), c)
 	})
 
 	t.Run("assert articles were scaled out", func(t *testing.T) {
 		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
 		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			n := getNodes(t, compose.GetWeaviate().URI())
+			n := common.GetNodes(t, compose.GetWeaviate().URI())
 			var shardsFound int
 			for _, node := range n.Nodes {
 				for _, shard := range node.Shards {
@@ -138,10 +142,10 @@ func replicationFactorIncrease(t *testing.T) {
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
-		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		common.StopNodeAt(ctx, t, compose, 2)
+		p := common.GQLGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
-		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)
+		a := common.GQLGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)
 		assert.Len(t, a, 10)
 	})
 }

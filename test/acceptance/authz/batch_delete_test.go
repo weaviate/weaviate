@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package authz
 
 import (
 	"errors"
@@ -105,7 +105,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			ID:    UUIDFrom,
 			Class: classNameSource,
 			Properties: map[string]interface{}{
-				"prop": "test",
+				"someProperty": "test",
 			},
 		})
 
@@ -150,7 +150,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		params := getBatchDelete(classNameSource, []string{"prop"}, "something", true)
+		params := getBatchDelete(classNameSource, []string{"someProperty"}, "something", true)
 		resp, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
@@ -164,8 +164,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		helper.DeleteRole(t, adminKey, testRoleName)
 	})
 
-	for _, permissions := range generateMissingLists(allNonRefPermissions) {
-		t.Run("Single class without permissions", func(t *testing.T) {
+	t.Run("Single class without permissions", func(t *testing.T) {
+		for _, permissions := range generateMissingLists(allNonRefPermissions) {
 			role := &models.Role{
 				Name:        &testRoleName,
 				Permissions: permissions,
@@ -190,8 +190,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			)
 			require.Nil(t, err)
 			helper.DeleteRole(t, adminKey, testRoleName)
-		})
-	}
+		}
+	})
 
 	allRefPermissions := []*models.Permission{
 		{
@@ -201,10 +201,6 @@ func TestAuthZBatchDelete(t *testing.T) {
 		{
 			Action:      &readCollectionsAction,
 			Collections: &models.PermissionCollections{Collection: &classNameSource},
-		},
-		{
-			Action: &readDataAction,
-			Data:   &models.PermissionData{Collection: &classNameSource},
 		},
 		{
 			Action:      &readCollectionsAction,
@@ -242,8 +238,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 		helper.DeleteRole(t, adminKey, testRoleName)
 	})
 
-	for _, permissions := range generateMissingLists(allRefPermissions) {
-		t.Run("No delete rights for class ref class", func(t *testing.T) {
+	t.Run("No delete rights for class ref class", func(t *testing.T) {
+		for _, permissions := range generateMissingLists(allRefPermissions) {
 			deleteRole := &models.Role{
 				Name:        &testRoleName,
 				Permissions: permissions,
@@ -256,7 +252,7 @@ func TestAuthZBatchDelete(t *testing.T) {
 			)
 			require.Nil(t, err)
 
-			params := getBatchDelete(classNameSource, []string{"ref", classNameTarget}, "something", true)
+			params := getBatchDelete(classNameSource, []string{"ref", classNameTarget, "prop"}, "something", true)
 			_, err := helper.Client(t).Batch.BatchObjectsDelete(params, customAuth)
 			require.NotNil(t, err)
 			var batchObjectsDeleteUnauthorized *batch.BatchObjectsDeleteForbidden
@@ -268,8 +264,8 @@ func TestAuthZBatchDelete(t *testing.T) {
 			)
 			require.Nil(t, err)
 			helper.DeleteRole(t, adminKey, testRoleName)
-		})
-	}
+		}
+	})
 }
 
 func getBatchDelete(className string, path []string, valueText string, dryRun bool) *batch.BatchObjectsDeleteParams {

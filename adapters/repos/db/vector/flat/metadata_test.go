@@ -44,10 +44,18 @@ func Test_FlatDimensions(t *testing.T) {
 		require.Equal(t, int32(0), index.dims)
 	})
 
+	t.Run("metadata is closed after index creation", func(t *testing.T) {
+		require.Nil(t, index.metadata, "metadata file should be closed")
+	})
+
 	t.Run("dimensions updated", func(t *testing.T) {
 		err = index.Add(ctx, 1, []float32{1, 2, 3})
 		require.Nil(t, err)
 		require.Equal(t, int32(3), index.dims)
+	})
+
+	t.Run("metadata is closed after insert", func(t *testing.T) {
+		require.Nil(t, index.metadata, "metadata file should be closed")
 	})
 
 	t.Run("error when adding vector with wrong dimensions", func(t *testing.T) {

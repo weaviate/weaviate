@@ -58,6 +58,7 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-filesystem" \
       PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -208,6 +209,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -232,6 +234,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
       PROMETHEUS_MONITORING_PORT="2113" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -258,6 +261,7 @@ case $CONFIG in
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_PORT="2114" \
+	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -282,8 +286,11 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7106" \
         CLUSTER_DATA_BIND_PORT="7107" \
         CLUSTER_JOIN="localhost:7100" \
+        PROMETHEUS_MONITORING_PORT="2115" \
+	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         RAFT_PORT="8306" \
         RAFT_INTERNAL_RPC_PORT="8307" \
+	RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
@@ -750,6 +757,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
       PROMETHEUS_MONITORING_PORT="2113" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -782,6 +790,7 @@ case $CONFIG in
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_PORT="2114" \
+	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
