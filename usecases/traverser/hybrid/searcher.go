@@ -250,7 +250,8 @@ func processDenseSearch(ctx context.Context,
 			return nil, err
 		}
 	} else {
-		vector = params.HybridSearch.NearVectorParams.Vectors[0]
+		// TODO:colbert add support for ColBERT embeddings
+		vector = params.HybridSearch.NearVectorParams.Vectors[0].([]float32)
 	}
 
 	res, dists, err := denseSearch(vector)

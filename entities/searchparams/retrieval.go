@@ -16,17 +16,18 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type NearVector struct {
-	Certainty     float64     `json:"certainty"`
-	Distance      float64     `json:"distance"`
-	WithDistance  bool        `json:"-"`
-	Vectors       [][]float32 `json:"vectors"`
-	TargetVectors []string    `json:"targetVectors"`
+	Certainty     float64        `json:"certainty"`
+	Distance      float64        `json:"distance"`
+	WithDistance  bool           `json:"-"`
+	Vectors       []types.Vector `json:"vectors"`
+	TargetVectors []string       `json:"targetVectors"`
 }
 
 type KeywordRanking struct {

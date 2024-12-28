@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 	helper "github.com/weaviate/weaviate/test/helper"
 )
 
@@ -1233,7 +1234,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.123, 0.984}},
+				Vectors: []types.Vector{[]float32{0.123, 0.984}},
 			},
 		}
 
@@ -1254,7 +1255,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{0.123, 0.984}},
+				Vectors:      []types.Vector{[]float32{0.123, 0.984}},
 				Distance:     0.4,
 				WithDistance: true,
 			},
@@ -1276,7 +1277,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.4,
 			},
 		}
@@ -1299,7 +1300,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{0.123, 0.984}},
+				Vectors:      []types.Vector{[]float32{0.123, 0.984}},
 				Distance:     0.1,
 				WithDistance: true,
 			},
@@ -1324,7 +1325,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.1,
 			},
 		}
@@ -1348,7 +1349,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{0.123, 0.984}},
+				Vectors:      []types.Vector{[]float32{0.123, 0.984}},
 				Distance:     0.1,
 				WithDistance: true,
 			},
@@ -1373,7 +1374,7 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.1,
 			},
 		}
@@ -1394,7 +1395,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				Vectors:       []types.Vector{[]float32{1., 0}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				TargetVectors: []string{"title1", "title2", "title3"},
 			},
 		}
@@ -1414,7 +1415,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				Vectors:       []types.Vector{[]float32{1., 0}, []float32{0, 1}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				TargetVectors: []string{"title1", "title1", "title2", "title3"},
 			},
 		}
@@ -1435,7 +1436,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				Vectors:       []types.Vector{[]float32{1., 0}, []float32{0, 1}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				TargetVectors: []string{"title1", "title1", "title2", "title3"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1, 1, 1}},
@@ -1461,7 +1462,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				Vectors:       []types.Vector{[]float32{1., 0}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				TargetVectors: []string{"title1", "title2", "title3"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 3, 4}},
@@ -1487,7 +1488,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				Vectors:       []types.Vector{[]float32{1., 0}, []float32{0, 1}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				TargetVectors: []string{"title1", "title1", "title2", "title3"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 2, 3, 4}},
@@ -2151,7 +2152,7 @@ func TestHybridWithTargets(t *testing.T) {
 				SubSearches:     emptySubsearches,
 				TargetVectors:   []string{"title1", "title2", "title3"},
 				NearVectorParams: &searchparams.NearVector{
-					Vectors: [][]float32{{0.123, 0.984}, {0.123, 0.984}, {0.123, 0.984}},
+					Vectors: []types.Vector{[]float32{0.123, 0.984}, []float32{0.123, 0.984}, []float32{0.123, 0.984}},
 				},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
@@ -2180,7 +2181,7 @@ func TestHybridWithTargets(t *testing.T) {
 				SubSearches:     emptySubsearches,
 				TargetVectors:   []string{"title1", "title2", "title3"},
 				NearVectorParams: &searchparams.NearVector{
-					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {0, 0, 0, 1}},
+					Vectors: []types.Vector{[]float32{1.0, 0}, []float32{0, 0, 1}, []float32{0, 0, 0, 1}},
 				},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
@@ -2220,7 +2221,7 @@ func TestHybridWithTargets(t *testing.T) {
 				SubSearches:     emptySubsearches,
 				TargetVectors:   []string{"title1", "title2", "title2", "title3", "title3"},
 				NearVectorParams: &searchparams.NearVector{
-					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {1, 0, 0}, {0, 0, 0, 1}, {1, 0, 0, 1}},
+					Vectors: []types.Vector{[]float32{1.0, 0}, []float32{0, 0, 1}, []float32{1, 0, 0}, []float32{0, 0, 0, 1}, []float32{1, 0, 0, 1}},
 				},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
@@ -2451,7 +2452,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.123, 0.984}},
+				Vectors: []types.Vector{[]float32{0.123, 0.984}},
 			},
 		}
 
@@ -2472,7 +2473,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{0.123, 0.984}},
+				Vectors:      []types.Vector{[]float32{0.123, 0.984}},
 				Distance:     0.4,
 				WithDistance: true,
 			},
@@ -2494,7 +2495,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.4,
 			},
 		}
@@ -2517,7 +2518,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.4,
 			},
 		}
@@ -2540,7 +2541,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:      [][]float32{{0.123, 0.984}},
+				Vectors:      []types.Vector{[]float32{0.123, 0.984}},
 				Distance:     0.4,
 				WithDistance: true,
 			},
@@ -2564,7 +2565,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				Vectors:   [][]float32{{0.123, 0.984}},
+				Vectors:   []types.Vector{[]float32{0.123, 0.984}},
 				Certainty: 0.4,
 			},
 		}
@@ -2587,7 +2588,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: -1},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{0.123, 0.984}, {0.123, 0.984}},
+				Vectors:       []types.Vector{[]float32{0.123, 0.984}, []float32{0.123, 0.984}},
 				TargetVectors: []string{"test1", "test2"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
@@ -2611,7 +2612,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: -1},
 			NearVector: &searchparams.NearVector{
-				Vectors:       [][]float32{{0.123, 0.984}, {0.456, 0.789}},
+				Vectors:       []types.Vector{[]float32{0.123, 0.984}, []float32{0.456, 0.789}},
 				TargetVectors: []string{"test1", "test2"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},

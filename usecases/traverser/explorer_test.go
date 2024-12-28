@@ -48,7 +48,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "BestClass",
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.8, 0.2, 0.7}},
+				Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
 			},
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -505,7 +505,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
-						Vectors:      [][]float32{{0.8, 0.2, 0.7}},
+						Vectors:      []types.Vector{[]float32{0.8, 0.2, 0.7}},
 						Distance:     0.4,
 						WithDistance: true,
 					},
@@ -557,7 +557,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
-						Vectors:   [][]float32{{0.8, 0.2, 0.7}},
+						Vectors:   []types.Vector{[]float32{0.8, 0.2, 0.7}},
 						Certainty: 0.8,
 					},
 					Pagination: &filters.Pagination{Limit: 100},
@@ -611,7 +611,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.8, 0.2, 0.7}},
+				Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
 			},
 			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
@@ -694,7 +694,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.8, 0.2, 0.7}},
+				Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
 			},
 			Group: &dto.GroupParams{
 				Strategy: "closest",
@@ -2294,7 +2294,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.8, 0.2, 0.7}},
+				Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
 			},
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -2352,7 +2352,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			NearVector: &searchparams.NearVector{
-				Vectors: [][]float32{{0.8, 0.2, 0.7}},
+				Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
 			},
 			NearObject: &searchparams.NearObject{
 				Beacon: "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",

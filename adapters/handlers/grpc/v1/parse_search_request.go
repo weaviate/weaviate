@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/go-openapi/strfmt"
@@ -1153,7 +1154,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	vectors := make([][]float32, len(targetVectorsTmp))
+	vectors := make([]types.Vector, len(targetVectorsTmp))
 	if vector != nil {
 		for i := range targetVectorsTmp {
 			vectors[i] = vector
