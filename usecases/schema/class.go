@@ -82,7 +82,6 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}, names...)
 }
 
-// TODO make interface?
 type classGetter func(h *Handler, names []string) (map[string]versioned.Class, error)
 
 func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versioned.Class, error) {
