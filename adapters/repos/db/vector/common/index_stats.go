@@ -18,6 +18,7 @@ const (
 	IndexTypeFlat    = "flat"
 	IndexTypeNoop    = "noop"
 	IndexTypeDynamic = "dynamic"
+	IndexTypeCuvs    = "cuvs"
 )
 
 type IndexStats interface {
