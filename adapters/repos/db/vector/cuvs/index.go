@@ -176,17 +176,17 @@ func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
 
 func shouldExtend(index *cuvs_index, num_new uint64) bool {
 	if num_new > 100 {
-		// println("num_new is greater than 100; rebuilding")
+		println("num_new is greater than 100; rebuilding")
 		return false
 	}
 
 	if index.count < 300_000 {
-		// println("index count is less than 300_000; rebuilding")
+		println("index count is less than 300_000; rebuilding")
 		return false
 	}
 
 	if index.dlpackTensor == nil {
-		// println("dlpack tensor is nil; rebuilding")
+		println("dlpack tensor is nil; rebuilding")
 		return false
 	}
 
@@ -197,6 +197,8 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 		println("percentNewVectors is greater than 20; rebuilding")
 		return false
 	}
+
+	println("extending")
 
 	return true
 }
@@ -329,7 +331,6 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	if err != nil {
 		return err
 	}
-	println("return SIZE")
 	println(index.count)
 	println(index.count + uint64(len(id)))
 	ReturnDataset := make([][]float32, index.count+uint64(len(id)))
@@ -347,7 +348,6 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	}
 
 	for i := range id {
-		// index.idCuvsIdMap[uint32(index.count)] = id[i]
 		index.idCuvsIdMap.Insert(index.nextCuvsId, id[i])
 		index.count += 1
 		index.nextCuvsId += 1
@@ -370,18 +370,18 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 
 func (index *cuvs_index) Delete(ids ...uint64) error {
 	for i := range ids {
-
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
 		if err := index.store.Bucket(index.getBucketName()).Delete(idBytes); err != nil {
 			return err
 		}
-
 	}
-	index.deleteWithFilter(ids)
-	index.count--
-	return nil
+	if index.shouldUseFilter(uint64(len(ids))) {
+		return index.deleteWithFilter(ids)
+	}
+
+	return index.deleteWithRebuild(ids)
 }
 
 func (index *cuvs_index) shouldUseFilter(additionalElements uint64) bool {
@@ -391,25 +391,108 @@ func (index *cuvs_index) shouldUseFilter(additionalElements uint64) bool {
 	return true
 }
 
-func (index *cuvs_index) deleteWithFilter(ids []uint64) {
+func (index *cuvs_index) deleteWithFilter(ids []uint64) error {
 	for i := range ids {
-		cuvsId, _ := index.idCuvsIdMap.GetCuvsId(ids[i])
+		cuvsId, exists := index.idCuvsIdMap.GetCuvsId(ids[i])
+		if !exists {
+			return errors.Errorf("idCuvsIdMap does not contain id %d", ids[i])
+		}
 		if !slices.Contains(index.cuvsFilter, cuvsId) {
 			index.cuvsFilter = append(index.cuvsFilter, cuvsId)
 			index.cuvsNumFiltered++
 		}
+		index.count--
 	}
+	return nil
+}
+
+func (index *cuvs_index) deleteWithRebuild(ids []uint64) error {
+	index.logger.Debug("deleting with rebuild")
+
+	if index.cuvsIndex == nil {
+		return errors.New("cuvs index is nil")
+	}
+
+	if index.dlpackTensor == nil {
+		return errors.New("dlpack tensor is nil")
+	}
+
+	_, err := index.dlpackTensor.ToHost(index.cuvsResource)
+	slice, err := index.dlpackTensor.Slice()
+	if err != nil {
+		return err
+	}
+
+	newSlice := [][]float32{}
+
+	newIndex := uint32(0)
+
+	ids_cuvsIds := make([]uint32, len(ids))
+
+	for i := range ids {
+		var exists bool
+		ids_cuvsIds[i], exists = index.idCuvsIdMap.GetCuvsId(ids[i])
+		if !exists {
+			return errors.Errorf("idCuvsIdMap does not contain id %d", ids[i])
+		}
+	}
+	fmt.Printf("ids: %v\n", ids)
+	fmt.Printf("ids_cuvsIds: %v\n", ids_cuvsIds)
+
+	for i := range slice {
+		if !slices.Contains(index.cuvsFilter, uint32(i)) && !slices.Contains(ids_cuvsIds, uint32(i)) {
+			newSlice = append(newSlice, slice[i])
+
+			// remap
+			WeaviateId, _ := index.idCuvsIdMap.GetWeaviateId(uint32(i))
+
+			index.idCuvsIdMap.DeleteByCuvsId(uint32(i))
+
+			index.idCuvsIdMap.Insert(newIndex, WeaviateId)
+			newIndex++
+		} else {
+			index.idCuvsIdMap.DeleteByCuvsId(uint32(i))
+		}
+	}
+
+	index.cuvsNumFiltered = 0
+	index.cuvsFilter = []uint32{}
+
+	index.dlpackTensor.Close()
+
+	println(len(newSlice))
+
+	index.count = uint64(len(newSlice))
+	index.nextCuvsId = uint32(len(newSlice))
+
+	newTensor, err := cuvs.NewTensor(newSlice)
+	if err != nil {
+		return err
+	}
+
+	_, err = newTensor.ToDevice(index.cuvsResource)
+	if err != nil {
+		return err
+	}
+
+	index.dlpackTensor = &newTensor
+
+	err = cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, index.dlpackTensor, index.cuvsIndex)
+	if err != nil {
+		return err
+	}
+	println("done delete with rebuild")
+
+	return nil
 }
 
 func (index *cuvs_index) createAllowList() []uint32 {
-	list := make([]uint32, index.count)
+	list := []uint32{}
 
-	for i := range list {
-		list[i] = 1
-	}
-
-	for i := range index.cuvsFilter {
-		list[i] = 0
+	for i := 0; i < int(index.nextCuvsId); i++ {
+		if !slices.Contains(index.cuvsFilter, uint32(i)) {
+			list = append(list, uint32(i))
+		}
 	}
 
 	return list
@@ -462,7 +545,14 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 
 	for i := range neighborsSlice[0] {
 		// neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
-		neighborsResultSlice[i], _ = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
+		exists := false
+		// println("neighborsSlice[0][i]:", neighborsSlice[0][i])
+		// t_id, _ := index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
+		// println("index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i]):", t_id)
+		neighborsResultSlice[i], exists = index.idCuvsIdMap.GetWeaviateId(neighborsSlice[0][i])
+		if !exists {
+			return nil, nil, errors.Errorf("idCuvsIdMap does not contain id %d", neighborsSlice[0][i])
+		}
 	}
 
 	err = distances.Close()

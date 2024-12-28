@@ -19,7 +19,6 @@ import (
 
 type UserConfig struct {
 	// Distance              string                `json:"distance"`
-
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -32,11 +31,13 @@ func (u UserConfig) DistanceName() string {
 	return "l2-squared"
 }
 
+func (u UserConfig) IsMultiVector() bool {
+	return false
+}
+
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-
 	// u.Distance = vectorindexcommon.DefaultDistanceMetric
-
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
