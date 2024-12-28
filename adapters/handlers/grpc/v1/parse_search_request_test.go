@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/types"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -242,7 +243,7 @@ func TestGRPCRequest(t *testing.T) {
 					Query:           "nearvecquery",
 					FusionAlgorithm: 1,
 					NearVectorParams: &searchparams.NearVector{
-						Vectors:       [][]float32{{1, 2, 3}},
+						Vectors:       []types.Vector{[]float32{1, 2, 3}},
 						Certainty:     1.0,
 						Distance:      1.0,
 						WithDistance:  true,
@@ -373,7 +374,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
 					TargetVectors: []string{"custom"},
-					Vectors:       [][]float32{{1, 2, 3}},
+					Vectors:       []types.Vector{[]float32{1, 2, 3}},
 				},
 			},
 			error: false,
@@ -408,7 +409,7 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           search.SelectProperties{},
 				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
-					Vectors:       [][]float32{{1, 2, 3}, {1, 2, 3}},
+					Vectors:       []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}},
 					TargetVectors: []string{"custom", "first"},
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
@@ -1383,7 +1384,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 					Group:   true,
 				},
-				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
+				NearVector: &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}}},
 				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name", Properties: search.SelectProperties{{Name: "name", IsPrimitive: true, IsObject: false}}},
 			},
 			error: false,
@@ -1404,7 +1405,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 					Group:   true,
 				},
-				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}},
+				NearVector: &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}}},
 				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
 			},
 			error: false,
@@ -1571,7 +1572,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1591,7 +1592,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Average, Weights: []float32{0.5, 0.5}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1611,7 +1612,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.8}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1667,7 +1668,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1711,7 +1712,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}, TargetVectors: []string{"default"}},
+				NearVector: &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}}, TargetVectors: []string{"default"}},
 			},
 			error: false,
 		},
@@ -1730,7 +1731,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: true,
 				},
-				NearVector: &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}}, TargetVectors: []string{"default"}},
+				NearVector: &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}}, TargetVectors: []string{"default"}},
 			},
 			error: false,
 		},
@@ -1751,7 +1752,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false, Certainty: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
@@ -1772,7 +1773,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false, Certainty: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
 			},
 			error: false,
 		},
@@ -1793,7 +1794,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false, Certainty: false,
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.9, 0.5}},
-				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+				NearVector:              &searchparams.NearVector{Vectors: []types.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
 			},
 			error: false,
 		},

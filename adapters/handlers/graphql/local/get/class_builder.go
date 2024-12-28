@@ -17,7 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
-	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -244,24 +243,7 @@ func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Fiel
 		for targetVector := range class.VectorConfig {
 			fields[targetVector] = &graphql.Field{
 				Name: fmt.Sprintf("%sAdditionalVectors%s", class.Class, targetVector),
-				Type: graphql.NewScalar(graphql.ScalarConfig{
-					Name:        fmt.Sprintf("%sAdditionalVectorScalar%s", class.Class, targetVector),
-					Description: "A type that can be either a regular or colbert embedding",
-					Serialize: func(value interface{}) interface{} {
-						switch v := value.(type) {
-						case models.Vector, models.MultiVector, []float32, [][]float32:
-							return v
-						default:
-							return nil
-						}
-					},
-					ParseValue: func(value interface{}) interface{} {
-						return nil // do nothing, this type is meant to only serialize vectors
-					},
-					ParseLiteral: func(valueAST ast.Value) interface{} {
-						return nil // do nothing, this type is meant to only serialize vectors
-					},
-				}),
+				Type: common_filters.Vector(fmt.Sprintf("%s%s", class.Class, targetVector)),
 			}
 		}
 		return &graphql.Field{

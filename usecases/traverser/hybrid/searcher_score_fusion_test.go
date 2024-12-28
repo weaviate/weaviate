@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
@@ -284,7 +285,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				Vectors:   [][]float32{{1, 2, 3}},
+				Vectors:   []types.Vector{[]float32{1, 2, 3}},
 				Certainty: 0.8,
 			},
 			Alpha: 1.0,
@@ -329,7 +330,7 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				Vectors:   [][]float32{{1, 2, 3}},
+				Vectors:   []types.Vector{[]float32{1, 2, 3}},
 				Certainty: 0.8,
 			},
 			Alpha:      0.5,

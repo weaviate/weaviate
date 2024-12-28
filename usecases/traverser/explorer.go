@@ -296,15 +296,10 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	}
 
 	if e.modulesProvider != nil {
-		switch searchVector := searchVectors[0].(type) {
-		case []float32, [][]float32:
-			res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-				params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
-			if err != nil {
-				return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
-			}
-		default:
-			return nil, nil, errors.Errorf("explorer: get class: extend: unsupported search vector type: %T", searchVectors[0])
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
+			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
+		if err != nil {
+			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 	e.trackUsageGet(res, params)

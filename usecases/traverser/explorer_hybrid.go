@@ -262,7 +262,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				}
 
 				searchVectors := &searchparams.NearVector{}
-				searchVectors.Vectors = make([][]float32, len(targetVectors))
+				searchVectors.Vectors = make([]types.Vector, len(targetVectors))
 				searchVectors.TargetVectors = make([]string, len(targetVectors))
 				if len(params.HybridSearch.Vector) > 0 {
 					for i, targetVector := range targetVectors {

@@ -208,7 +208,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 			name: "Should get vector from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					Vectors: [][]float32{{1.1, 1.0, 0.1}},
+					Vectors: []types.Vector{[]float32{1.1, 1.0, 0.1}},
 				},
 			},
 			want:    []float32{1.1, 1.0, 0.1},
