@@ -205,11 +205,13 @@ func TestSchemaReaderClass(t *testing.T) {
 
 	// class not found
 	assert.Nil(t, sc.ReadOnlyClass("C"))
+	_, err := sc.ReadOnlyVersionedClass("C")
+	assert.ErrorIs(t, err, ErrClassNotFound)
 	assert.Nil(t, sc.CopyShardingState("C"))
 	assert.Equal(t, sc.ReadOnlySchema(), models.Schema{Classes: make([]*models.Class, 0)})
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
 
-	_, err := sc.ShardReplicas("C", "S")
+	_, err = sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
 	_, err = sc.ShardOwner("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -225,6 +227,9 @@ func TestSchemaReaderClass(t *testing.T) {
 
 	sc.schema.addClass(cls1, ss1, 1)
 	assert.Equal(t, sc.ReadOnlyClass("C"), cls1)
+	versionedClass, err := sc.ReadOnlyVersionedClass("C")
+	assert.Nil(t, err)
+	assert.Equal(t, versionedClass.Class, cls1)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{})
 	assert.Nil(t, sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil }))
 
@@ -248,6 +253,9 @@ func TestSchemaReaderClass(t *testing.T) {
 	}
 	sc.schema.addClass(cls2, ss2, 1)
 	assert.Equal(t, sc.ReadOnlyClass("D"), cls2)
+	versionedClass, err = sc.ReadOnlyVersionedClass("D")
+	assert.Nil(t, err)
+	assert.Equal(t, versionedClass.Class, cls2)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{Enabled: true})
 
 	assert.ElementsMatch(t, sc.ReadOnlySchema().Classes, []*models.Class{cls1, cls2})

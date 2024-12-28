@@ -33,7 +33,6 @@ import (
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
 func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
-	// fmt.Println("NATEE cluster.Raft.QueryReadOnlyClasses", classes)
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -276,9 +275,8 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 	return resp.State, resp.Version, nil
 }
 
-// QueryClassVersions TODO
+// QueryClassVersions returns the current version of the requested classes.
 func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) {
-	// fmt.Println("NATEE cluster.Raft.QueryClassVersions", classes)
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -330,7 +328,6 @@ func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) 
 	resp := cmd.QueryClassVersionsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		// fmt.Println("NATEE qcvr unmarshal", string(queryResp.Payload))
 		return map[string]uint64{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Classes, nil

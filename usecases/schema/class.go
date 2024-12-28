@@ -19,12 +19,12 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/replication"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -67,17 +67,9 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, err
 }
 
-type GetClassMethod int
-
-const (
-	GetClassFromLeaderAlways GetClassMethod = iota
-	GetClassFromLeaderIfVersionMismatch
-	GetClassFromLocal
-)
-
 // GetCachedClass will return the class from the cache if it exists. Note that the context cache
-// will generally be at the "request" level, so it will not be shared between requests.
-// TODO options for leader vs leader version vs local
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
@@ -86,21 +78,14 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		switch h.getClassMethod {
-		case GetClassFromLeaderAlways:
-			return h.getVersionedClassesFromLeader(names)
-		case GetClassFromLeaderIfVersionMismatch:
-			return h.getVersionedClassesFromLeaderIfVersionMismatch(names)
-		case GetClassFromLocal:
-			return h.getVersionedClassesFromLocal(names)
-		default:
-			// TODO or return error? log?
-			return h.getVersionedClassesFromLeader(names)
-		}
+		return h.classGetter(h, names)
 	}, names...)
 }
 
-func (h *Handler) getVersionedClassesFromLeader(names []string) (map[string]versioned.Class, error) {
+// TODO make interface?
+type classGetter func(h *Handler, names []string) (map[string]versioned.Class, error)
+
+func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versioned.Class, error) {
 	vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
 	if err != nil {
 		return nil, err
@@ -125,68 +110,84 @@ func (h *Handler) getVersionedClassesFromLeader(names []string) (map[string]vers
 	return vclasses, nil
 }
 
-func (h *Handler) getVersionedClassesFromLeaderIfVersionMismatch(names []string) (map[string]versioned.Class, error) {
+func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) (map[string]versioned.Class, error) {
 	classVersions, err := h.schemaManager.QueryClassVersions(names...)
 	if err != nil {
 		return nil, err
 	}
-	// TODO get rid of one of these?
 	versionedClassesToReturn := map[string]versioned.Class{}
 	versionedClassesToQueryFromLeader := []string{}
 	for _, name := range names {
 		localVclass, err := h.schemaReader.ReadOnlyVersionedClass(name)
 		leaderClassVersion, ok := classVersions[name]
-		// TODO or !=?
+		// < leaderClassVersion instead of != because there is some chance that the local version
+		// could be ahead of the version returned by the leader if the response from the leader was
+		// delayed and i don't think it would be helpful to query the leader again in that case as
+		// it would likely return a version that is at least as large as the local version.
 		if err != nil || !ok || localVclass.Version < leaderClassVersion {
 			versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
-			// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class check", name, ok, localVclass.Version, leaderClassVersion)
 			continue
 		}
 		versionedClassesToReturn[name] = localVclass
-		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass local class found", name, ok, localVclass.Version, leaderClassVersion)
 	}
 	if len(versionedClassesToQueryFromLeader) == 0 {
-		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass all classes local", versionedClassesToReturn)
 		return versionedClassesToReturn, nil
 	}
 
 	versionedClassesFromLeader, err := h.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
 	if err != nil || len(versionedClassesFromLeader) == 0 {
-		// return as many classes as we could get
+		h.logger.WithFields(logrus.Fields{
+			"classes":    versionedClassesToQueryFromLeader,
+			"error":      err,
+			"suggestion": "look for network issues between this node and the leader",
+		}).Warn("unable to query classes from leader")
+		// return as many classes as we could get (to match previous behavior of the caller)
 		return versionedClassesToReturn, err
 	}
 
 	for _, vclass := range versionedClassesFromLeader {
 		if err := h.parser.ParseClass(vclass.Class); err != nil {
-			// remove invalid classes
+			// silently remove invalid classes to match previous behavior
 			h.logger.WithFields(logrus.Fields{
 				"Class": vclass.Class.Class,
 				"Error": err,
 			}).Warn("parsing class error")
 			delete(versionedClassesFromLeader, vclass.Class.Class)
-			// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass could not parse class from leader", versionedClassesToReturn)
 			continue
 		}
 		versionedClassesToReturn[vclass.Class.Class] = vclass
-		// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass got class from leader", vclass.Class.Class)
 	}
 
-	// fmt.Println("NATEE usecases/schema.Handler.GetCachedClass return", versionedClassesToReturn)
 	return versionedClassesToReturn, nil
 }
 
-func (h *Handler) getVersionedClassesFromLocal(names []string) (map[string]versioned.Class, error) {
+func getVersionedClassesFromLocal(h *Handler, names []string) (map[string]versioned.Class, error) {
 	vclasses := map[string]versioned.Class{}
 	for _, name := range names {
 		vc, err := h.schemaReader.ReadOnlyVersionedClass(name)
 		if err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"Class": vc.Class.Class,
+				"Error": err,
+			}).Warn("parsing local class error")
 			continue
 		}
 		vclasses[name] = vc
 	}
-	// TODO get from leader if not found?
+	if len(vclasses) < len(names) {
+		missingClasses := []string{}
+		for _, name := range names {
+			if _, ok := vclasses[name]; !ok {
+				missingClasses = append(missingClasses, name)
+			}
+		}
+		h.logger.WithFields(logrus.Fields{
+			"missing": missingClasses,
+			"suggestion": "if this node is too slow to pick up new classes from the leader, " +
+				"consider changing the usecase/schema.Handler's getClassMethod",
+		}).Warn("not all classes found locally")
+	}
 	return vclasses, nil
-	// TODO is readonly ret val a problem here?
 }
 
 // AddClass to the schema
