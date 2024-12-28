@@ -40,16 +40,21 @@ type Params struct {
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {
-	type Alias Params
+	type alias Params
 	aux := &struct {
 		SearchVector json.RawMessage `json:"searchVector"`
-		*Alias
+		*alias
 	}{
-		Alias: (*Alias)(p),
+		alias: (*alias)(p),
 	}
 
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
+	}
+
+	// SearchVector is nil
+	if aux.SearchVector == nil {
+		return nil
 	}
 
 	// Try unmarshaling as []float32
