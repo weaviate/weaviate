@@ -151,6 +151,7 @@ func NewHandler(
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
 ) (Handler, error) {
+	logger.WithField("get_class_method", config.GetClassMethod).Debug("creating schema handler")
 	var classGetter classGetter
 	switch strings.ToLower(config.GetClassMethod) {
 	case GetClassAlwaysLeader:
