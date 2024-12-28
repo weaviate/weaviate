@@ -807,7 +807,7 @@ func (index *cuvs_index) Stats() (common.IndexStats, error) {
 }
 
 func (s *CuvsStats) IndexType() common.IndexType {
-	return common.IndexTypeCuvs
+	return common.IndexTypeCUVS
 }
 
 type CuvsStats struct{}
