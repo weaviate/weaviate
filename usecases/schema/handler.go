@@ -151,7 +151,7 @@ func NewHandler(
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
 ) (Handler, error) {
-	classGetter := getVersionedClassesFromLeader
+	var classGetter classGetter
 	switch strings.ToLower(config.GetClassMethod) {
 	case GetClassAlwaysLeader:
 		classGetter = getVersionedClassesFromLeader
