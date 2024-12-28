@@ -132,6 +132,9 @@ type Config struct {
 
 	// map[className][]propertyName
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
+
+	// Options are "always_leader", "leader_if_version_mismatch", or "always_local" (see usecases/schema.NewHandler)
+	GetClassMethod string `json:"get_class_method" yaml:"get_class_method"`
 }
 
 type moduleProvider interface {

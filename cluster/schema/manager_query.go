@@ -26,7 +26,6 @@ func (sm *SchemaManager) QueryReadOnlyClasses(req *cmd.QueryRequest) ([]byte, er
 	}
 
 	// Read the meta class to get both the class and sharding information
-	// fmt.Println("NATEE cluster/schema.SchemaManager.QueryReadOnlyClasses", subCommand.Classes)
 	vclasses := sm.schema.ReadOnlyClasses(subCommand.Classes...)
 	if len(vclasses) == 0 {
 		return []byte{}, nil
@@ -132,6 +131,7 @@ func (sm *SchemaManager) QueryShardingState(req *cmd.QueryRequest) ([]byte, erro
 	return payload, nil
 }
 
+// QueryClassVersions returns the versions of the requested classes
 func (sm *SchemaManager) QueryClassVersions(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
 	subCommand := cmd.QueryClassVersionsRequest{}
@@ -140,7 +140,6 @@ func (sm *SchemaManager) QueryClassVersions(req *cmd.QueryRequest) ([]byte, erro
 	}
 
 	// Read the meta class to get the class version
-	// .Println("NATEE cluster/schema.SchemaManager.QueryClassVersions", subCommand.Classes)
 	vclasses := sm.schema.ReadOnlyClasses(subCommand.Classes...)
 	if len(vclasses) == 0 {
 		return []byte{}, nil

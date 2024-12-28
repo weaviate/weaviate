@@ -130,8 +130,14 @@ type Handler struct {
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	parser                  Parser
-	getClassMethod          GetClassMethod
+	classGetter             classGetter
 }
+
+const (
+	GetClassAlwaysLeader            = "always_leader"
+	GetClassAlwaysLocal             = "always_local"
+	GetClassLeaderIfVersionMismatch = "leader_if_version_mismatch"
+)
 
 // NewHandler creates a new handler
 func NewHandler(
@@ -144,8 +150,19 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
-	getClassMethod GetClassMethod,
 ) (Handler, error) {
+	classGetter := getVersionedClassesFromLeader
+	switch strings.ToLower(config.GetClassMethod) {
+	case GetClassAlwaysLeader:
+		classGetter = getVersionedClassesFromLeader
+	case GetClassAlwaysLocal:
+		classGetter = getVersionedClassesFromLocal
+	case GetClassLeaderIfVersionMismatch:
+		classGetter = getVersionedClassesFromLeaderIfVersionMismatch
+	default:
+		logger.WithField("method", config.GetClassMethod).Error("unknown class getter method")
+		return Handler{}, fmt.Errorf("unknown class getter method: %s", config.GetClassMethod)
+	}
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
@@ -161,7 +178,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
-		getClassMethod:          getClassMethod, // TODO caller/config
+		classGetter:             classGetter,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

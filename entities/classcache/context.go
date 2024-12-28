@@ -41,7 +41,6 @@ func RemoveClassFromContext(ctxWithClassCache context.Context, name string) erro
 }
 
 func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]versioned.Class, error), names ...string) (map[string]versioned.Class, error) {
-	// fmt.Println("NATEE entities/classcache.ClassesFromContext", names)
 	cache, err := extractCache(ctxWithClassCache)
 	if err != nil {
 		return nil, err
@@ -52,12 +51,10 @@ func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...
 	for _, name := range names {
 		// collect what is not in context
 		if entry, ok := cache.Load(name); ok {
-			// fmt.Println("NATEE entities/classcache.ClassesFromContext found", name, entry)
 			versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
 			continue
 		}
 		notFoundInCtx = append(notFoundInCtx, name)
-		// fmt.Println("NATEE entities/classcache.ClassesFromContext notfound", name)
 	}
 
 	// remove dedup, empty and a void calls if there is non

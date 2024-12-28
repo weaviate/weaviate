@@ -90,9 +90,7 @@ func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 		return out, nil
 	}
 
-	// fmt.Println("parseconfig", input)
 	asMap, ok := input.(map[string]interface{})
-	// fmt.Println("parseconfig", asMap, ok)
 	if !ok || asMap == nil {
 		return out, fmt.Errorf("input %T-%v must be a non-nil", input, ok)
 	}
