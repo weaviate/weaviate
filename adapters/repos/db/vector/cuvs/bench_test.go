@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -77,7 +76,7 @@ func RunConfiguration(cuvsIndexParams *cagra.IndexParams, cuvsSearchParams *cagr
 	store, err := lsmkv.New(filepath.Join(b.TempDir(), "store"), b.TempDir(), logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	defer store.Shutdown(context.Background())
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams, RootPath: b.TempDir()}, cuvsEnt.UserConfig{}, store)
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, CuvsIndexParams: cuvsIndexParams, CuvsSearchParams: cuvsSearchParams, RootPath: b.TempDir()}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
 		panic(err)
 	}
@@ -376,7 +375,7 @@ func BenchmarkDataset(b *testing.B) {
 	}
 	defer store.Shutdown(context.Background())
 
-	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, DistanceMetric: cuvs.DistanceL2, RootPath: b.TempDir(), CuvsPoolMemory: 90}, cuvsEnt.UserConfig{}, store)
+	index, err := New(Config{ID: "a", TargetVector: "vector", Logger: logger, RootPath: b.TempDir(), CuvsPoolMemory: 90}, cuvsEnt.UserConfig{}, store)
 	if err != nil {
 		b.Fatal(err)
 	}

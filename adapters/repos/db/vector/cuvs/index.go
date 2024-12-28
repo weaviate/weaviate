@@ -145,7 +145,7 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		id:             cfg.ID,
 		targetVector:   cfg.TargetVector,
 		logger:         logger,
-		distanceMetric: cuvs.DistanceL2, // TODO: make configurable
+		distanceMetric: cuvs.DistanceL2,
 		store:          store,
 		rootPath:       cfg.RootPath,
 
@@ -172,6 +172,48 @@ func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
 		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vector[i]))
 	}
 	return slice
+}
+
+func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) error {
+	_, ok := initial.(cuvsEnt.UserConfig)
+	if !ok {
+		return errors.Errorf("initial is not UserConfig, but %T", initial)
+	}
+
+	_, ok = updated.(cuvsEnt.UserConfig)
+	if !ok {
+		return errors.Errorf("updated is not UserConfig, but %T", updated)
+	}
+
+	return nil
+}
+
+func (index *cuvs_index) AddMulti(ctx context.Context, docId uint64, vector [][]float32) error {
+	return errors.Errorf("AddMulti is not supported for cuvs index")
+}
+
+func (index *cuvs_index) AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error {
+	return errors.Errorf("AddMultiBatch is not supported for cuvs index")
+}
+
+func (index *cuvs_index) DeleteMulti(id ...uint64) error {
+	return errors.Errorf("DeleteMulti is not supported for cuvs index")
+}
+
+func (index *cuvs_index) SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return nil, nil, errors.Errorf("SearchByMultiVector is not supported for cuvs index")
+}
+
+func (index *cuvs_index) ValidateMultiBeforeInsert(vector [][]float32) error {
+	return errors.Errorf("ValidateMultiBeforeInsert is not supported for cuvs index")
+}
+
+func (index *cuvs_index) GetKeys(id uint64) (uint64, uint64, error) {
+	return 0, 0, errors.Errorf("GetKeys is not supported for cuvs index")
+}
+
+func (index *cuvs_index) Multivector() bool {
+	return false
 }
 
 func shouldExtend(index *cuvs_index, num_new uint64) bool {

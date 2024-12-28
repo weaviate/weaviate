@@ -12,18 +12,17 @@
 package cuvs_index
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type Config struct {
-	ID               string
-	TargetVector     string
-	Logger           logrus.FieldLogger
-	RootPath         string
-	DistanceMetric   cuvs.Distance
+	ID           string
+	TargetVector string
+	Logger       logrus.FieldLogger
+	RootPath     string
+
 	CuvsIndexParams  *cagra.IndexParams
 	CuvsSearchParams *cagra.SearchParams
 	CuvsPoolMemory   int
