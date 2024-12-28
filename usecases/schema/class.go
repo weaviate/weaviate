@@ -183,7 +183,7 @@ func getVersionedClassesFromLocal(h *Handler, names []string) (map[string]versio
 		h.logger.WithFields(logrus.Fields{
 			"missing": missingClasses,
 			"suggestion": "if this node is too slow to pick up new classes from the leader, " +
-				"consider changing the usecase/schema.Handler's getClassMethod",
+				"consider changing the GET_CLASS_METHOD config to `always_leader`",
 		}).Warn("not all classes found locally")
 	}
 	return vclasses, nil
