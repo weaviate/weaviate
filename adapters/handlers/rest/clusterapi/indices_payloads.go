@@ -433,6 +433,70 @@ func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (
 	return ct, ct == p.MIME()
 }
 
+type searchParametersPayload struct {
+	SearchVector      []float32                    `json:"searchVector"`
+	TargetVector      string                       `json:"targetVector"`
+	Distance          float32                      `json:"distance"`
+	Limit             int                          `json:"limit"`
+	Filters           *filters.LocalFilter         `json:"filters"`
+	KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
+	Sort              []filters.Sort               `json:"sort"`
+	Cursor            *filters.Cursor              `json:"cursor"`
+	GroupBy           *searchparams.GroupBy        `json:"groupBy"`
+	Additional        additional.Properties        `json:"additional"`
+	SearchVectors     []types.Vector               `json:"searchVectors"`
+	TargetVectors     []string                     `json:"TargetVectors"`
+	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
+	Properties        []string                     `json:"properties"`
+}
+
+func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
+	type alias searchParametersPayload
+	aux := &struct {
+		SearchVectors json.RawMessage `json:"searchVectors"`
+		*alias
+	}{
+		alias: (*alias)(p),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// SearchVectors are nil
+	if aux.SearchVectors == nil {
+		return nil
+	}
+
+	// Try unmarshaling as []float32
+	var vectors [][]float32
+	if err := json.Unmarshal(aux.SearchVectors, &vectors); err == nil {
+		if len(vectors) > 0 {
+			asVectors := make([]types.Vector, len(vectors))
+			for i := range vectors {
+				asVectors[i] = vectors[i]
+			}
+			p.SearchVectors = asVectors
+		}
+		return nil
+	}
+
+	// Try unmarshaling as [][]float32
+	var multiVectors [][][]float32
+	if err := json.Unmarshal(aux.SearchVectors, &multiVectors); err == nil {
+		if len(multiVectors) > 0 {
+			asVectors := make([]types.Vector, len(multiVectors))
+			for i := range multiVectors {
+				asVectors[i] = multiVectors[i]
+			}
+			p.SearchVectors = asVectors
+		}
+		return nil
+	}
+
+	return fmt.Errorf("searchVectors: cannot unmarshal into either [][]float32 or [][][]float32: %v", aux.SearchVectors)
+}
+
 type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vectors []types.Vector, targetVectors []string, limit int,
@@ -475,32 +539,15 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]types.Vector, []string, flo
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
-	type searchParametersPayload struct {
-		SearchVector      []float32                    `json:"searchVector"`
-		TargetVector      string                       `json:"targetVector"`
-		Distance          float32                      `json:"distance"`
-		Limit             int                          `json:"limit"`
-		Filters           *filters.LocalFilter         `json:"filters"`
-		KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
-		Sort              []filters.Sort               `json:"sort"`
-		Cursor            *filters.Cursor              `json:"cursor"`
-		GroupBy           *searchparams.GroupBy        `json:"groupBy"`
-		Additional        additional.Properties        `json:"additional"`
-		SearchVectors     []types.VectorAdapter        `json:"searchVectors"`
-		TargetVectors     []string                     `json:"targetVectors"`
-		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        []string                     `json:"properties"`
-	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
 
-	searchVectors := types.AsVectors(par.SearchVectors)
 	if len(par.SearchVector) > 0 {
-		searchVectors = []types.Vector{par.SearchVector}
+		par.SearchVectors = []types.Vector{par.SearchVector}
 		par.TargetVectors = []string{par.TargetVector}
 	}
 
-	return searchVectors, par.TargetVectors, par.Distance, par.Limit,
+	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
 		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, err
 }
 
