@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -49,6 +50,7 @@ const (
 	StatusConflict = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
+	StatusObjectNotFound
 )
 
 // Error reports error happening during replication
@@ -105,6 +107,8 @@ func statusText(code StatusCode) string {
 		return "local index not ready"
 	case StatusReadOnly:
 		return "read only"
+	case StatusObjectNotFound:
+		return "object not found"
 	default:
 		return ""
 	}
@@ -182,13 +186,13 @@ type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
-		id strfmt.UUID, schemaVersion uint64) (SimpleResponse, error)
+		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) (SimpleResponse, error)
 	PutObjects(ctx context.Context, host, index, shard, requestID string,
 		objs []*storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	MergeObject(ctx context.Context, host, index, shard, requestID string,
 		mergeDoc *objects.MergeDocument, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) (SimpleResponse, error)
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) (SimpleResponse, error)
 	AddReferences(ctx context.Context, host, index, shard, requestID string,
 		refs []objects.BatchReference, schemaVersion uint64) (SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
@@ -200,7 +204,7 @@ type rClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (objects.Replica, error)
+		additional additional.Properties, numRetries int) (objects.Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
@@ -215,7 +219,7 @@ type rClient interface {
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -238,8 +242,9 @@ func (fc finderClient) FullRead(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties,
+	numRetries int,
 ) (objects.Replica, error) {
-	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional)
+	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
 func (fc finderClient) HashTreeLevel(ctx context.Context,
@@ -251,10 +256,10 @@ func (fc finderClient) HashTreeLevel(ctx context.Context,
 // DigestReads reads digests of all specified objects
 func (fc finderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, numRetries int,
 ) ([]RepairResponse, error) {
 	n := len(ids)
-	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}

@@ -68,6 +68,8 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -132,6 +134,8 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -208,6 +212,8 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -278,6 +284,8 @@ func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOpti
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -362,6 +370,8 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -454,6 +464,8 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -512,6 +524,8 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -582,6 +596,8 @@ func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -657,6 +673,8 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -710,6 +728,8 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -768,6 +788,8 @@ func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOpti
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -832,6 +854,8 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -1066,6 +1090,8 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -1157,6 +1183,8 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -1446,6 +1474,8 @@ func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

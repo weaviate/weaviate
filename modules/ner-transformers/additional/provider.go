@@ -14,6 +14,8 @@ package additional
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/tailor-inc/graphql"
@@ -26,7 +28,7 @@ type AdditionalProperty interface {
 	AdditionalPropertyFn(ctx context.Context,
 		in []search.Result, params interface{}, limit *int,
 		argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
-	ExtractAdditionalFn(param []*ast.Argument) interface{}
+	ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{}
 	AdditionalPropertyDefaultValue() interface{}
 	AdditionalFieldFn(classname string) *graphql.Field
 }

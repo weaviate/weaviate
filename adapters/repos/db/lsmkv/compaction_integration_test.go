@@ -384,6 +384,63 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+		{
+			name: "compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer",
+			f:    compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		// Inverted
+		{
+			name: "compactionInvertedStrategy",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionInvertedStrategy(ctx, t, opts, 8627, 8627)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_KeepTombstones",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionInvertedStrategy(ctx, t, opts, 8931, 8931)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_RemoveUnnecessary",
+			f:    compactionInvertedStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionInvertedStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_FrequentPutDeleteOperations",
+			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+			},
+		},
+		{
+			name: "compactionInvertedStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyInverted),
+				WithKeepTombstones(true),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }

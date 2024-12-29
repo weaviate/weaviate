@@ -15,6 +15,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -95,24 +96,31 @@ func bucket_WasDeleted_KeepTombstones(ctx context.Context, t *testing.T, opts []
 	})
 
 	t.Run("assert object was not deleted yet", func(t *testing.T) {
-		deleted, err := b.WasDeleted(key)
+		deleted, _, err := b.WasDeleted(key)
 		require.Nil(t, err)
 		assert.False(t, deleted)
 	})
 
+	deletionTime := time.Now()
+
+	time.Sleep(3 * time.Millisecond)
+
 	t.Run("delete object", func(t *testing.T) {
-		err = b.Delete(key)
+		err = b.DeleteWith(key, deletionTime)
 		require.Nil(t, err)
 	})
 
+	time.Sleep(1 * time.Millisecond)
+
 	t.Run("assert object was deleted", func(t *testing.T) {
-		deleted, err := b.WasDeleted(key)
+		deleted, ts, err := b.WasDeleted(key)
 		require.Nil(t, err)
 		assert.True(t, deleted)
+		require.WithinDuration(t, deletionTime, ts, 1*time.Millisecond)
 	})
 
 	t.Run("assert a nonexistent object is not detected as deleted", func(t *testing.T) {
-		deleted, err := b.WasDeleted([]byte("DNE"))
+		deleted, _, err := b.WasDeleted([]byte("DNE"))
 		require.Nil(t, err)
 		assert.False(t, deleted)
 	})
@@ -140,7 +148,7 @@ func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts
 	})
 
 	t.Run("fails on WasDeleted without keepTombstones set (before delete)", func(t *testing.T) {
-		deleted, err := b.WasDeleted(key)
+		deleted, _, err := b.WasDeleted(key)
 		require.ErrorContains(t, err, "keepTombstones")
 		require.False(t, deleted)
 	})
@@ -151,13 +159,13 @@ func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts
 	})
 
 	t.Run("fails on WasDeleted without keepTombstones set (after delete)", func(t *testing.T) {
-		deleted, err := b.WasDeleted(key)
+		deleted, _, err := b.WasDeleted(key)
 		require.ErrorContains(t, err, "keepTombstones")
 		require.False(t, deleted)
 	})
 
 	t.Run("fails on WasDeleted without keepTombstones set (non-existent key)", func(t *testing.T) {
-		deleted, err := b.WasDeleted([]byte("DNE"))
+		deleted, _, err := b.WasDeleted([]byte("DNE"))
 		require.ErrorContains(t, err, "keepTombstones")
 		require.False(t, deleted)
 	})
@@ -170,7 +178,6 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -184,6 +191,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
+	b.Shutdown(ctx)
 
 	b2, err := NewBucketCreator().NewBucket(ctx, b.dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)

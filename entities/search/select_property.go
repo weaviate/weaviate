@@ -142,3 +142,11 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 
 	return nil
 }
+
+func (sp SelectProperties) GetPropertyNames() []string {
+	names := make([]string, len(sp))
+	for i := range sp {
+		names[i] = sp[i].Name
+	}
+	return names
+}

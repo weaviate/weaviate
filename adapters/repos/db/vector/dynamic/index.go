@@ -32,12 +32,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	werrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
@@ -46,13 +46,23 @@ const composerUpgradedKey = "upgraded"
 
 var dynamicBucket = []byte("dynamic")
 
+type MultiVectorIndex interface {
+	AddMulti(ctx context.Context, docId uint64, vector [][]float32) error
+	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
+	DeleteMulti(id ...uint64) error
+	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	GetKeys(id uint64) (uint64, uint64, error)
+	ValidateMultiBeforeInsert(vector [][]float32) error
+}
+
 type VectorIndex interface {
+	MultiVectorIndex
 	Dump(labels ...string)
-	Add(id uint64, vector []float32) error
+	Add(ctx context.Context, id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	Delete(id ...uint64) error
-	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
+	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
@@ -62,12 +72,19 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup()
 	Compressed() bool
+	Multivector() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	// Iterate over all nodes in the index.
+	// Consistency is not guaranteed, as the
+	// index may be concurrently modified.
+	// If the callback returns false, the iteration will stop.
+	Iterate(fn func(id uint64) bool)
+	Stats() (common.IndexStats, error)
 }
 
 type upgradableIndexer interface {
@@ -78,30 +95,28 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                       string
-	targetVector             string
-	store                    *lsmkv.Store
-	logger                   logrus.FieldLogger
-	rootPath                 string
-	shardName                string
-	className                string
-	prometheusMetrics        *monitoring.PrometheusMetrics
-	vectorForIDThunk         common.VectorForID[float32]
-	tempVectorForIDThunk     common.TempVectorForID
-	distanceProvider         distancer.Provider
-	makeCommitLoggerThunk    hnsw.MakeCommitLogger
-	threshold                uint64
-	index                    VectorIndex
-	upgraded                 atomic.Bool
-	tombstoneCallbacks       cyclemanager.CycleCallbackGroup
-	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
-	hnswUC                   hnswent.UserConfig
-	db                       *bolt.DB
+	id                    string
+	targetVector          string
+	store                 *lsmkv.Store
+	logger                logrus.FieldLogger
+	rootPath              string
+	shardName             string
+	className             string
+	prometheusMetrics     *monitoring.PrometheusMetrics
+	vectorForIDThunk      common.VectorForID[float32]
+	tempVectorForIDThunk  common.TempVectorForID[float32]
+	distanceProvider      distancer.Provider
+	makeCommitLoggerThunk hnsw.MakeCommitLogger
+	threshold             uint64
+	index                 VectorIndex
+	upgraded              atomic.Bool
+	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	hnswUC                hnswent.UserConfig
+	db                    *bolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if !configbase.Enabled(os.Getenv("ASYNC_INDEXING")) {
+	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
 		return nil, errors.New("the dynamic index can only be created under async indexing environment")
 	}
 	if err := cfg.Validate(); err != nil {
@@ -117,29 +132,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
+		RootPath:         cfg.RootPath,
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
 	}
 
 	index := &dynamic{
-		id:                       cfg.ID,
-		targetVector:             cfg.TargetVector,
-		logger:                   logger,
-		rootPath:                 cfg.RootPath,
-		shardName:                cfg.ShardName,
-		className:                cfg.ClassName,
-		prometheusMetrics:        cfg.PrometheusMetrics,
-		vectorForIDThunk:         cfg.VectorForIDThunk,
-		tempVectorForIDThunk:     cfg.TempVectorForIDThunk,
-		distanceProvider:         cfg.DistanceProvider,
-		makeCommitLoggerThunk:    cfg.MakeCommitLoggerThunk,
-		store:                    store,
-		threshold:                uc.Threshold,
-		tombstoneCallbacks:       cfg.TombstoneCallbacks,
-		shardCompactionCallbacks: cfg.ShardCompactionCallbacks,
-		shardFlushCallbacks:      cfg.ShardFlushCallbacks,
-		hnswUC:                   uc.HnswUC,
+		id:                    cfg.ID,
+		targetVector:          cfg.TargetVector,
+		logger:                logger,
+		rootPath:              cfg.RootPath,
+		shardName:             cfg.ShardName,
+		className:             cfg.ClassName,
+		prometheusMetrics:     cfg.PrometheusMetrics,
+		vectorForIDThunk:      cfg.VectorForIDThunk,
+		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
+		distanceProvider:      cfg.DistanceProvider,
+		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
+		store:                 store,
+		threshold:             uc.Threshold,
+		tombstoneCallbacks:    cfg.TombstoneCallbacks,
+		hnswUC:                uc.HnswUC,
 	}
 
 	path := filepath.Join(cfg.RootPath, "index.db")
@@ -189,8 +203,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
-			index.shardCompactionCallbacks,
-			index.shardFlushCallbacks,
 			index.store,
 		)
 		if err != nil {
@@ -214,16 +226,34 @@ func (dynamic *dynamic) Compressed() bool {
 	return dynamic.index.Compressed()
 }
 
+func (dynamic *dynamic) Multivector() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Multivector()
+}
+
 func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 
-func (dynamic *dynamic) Add(id uint64, vector []float32) error {
+func (dynamic *dynamic) AddMultiBatch(ctx context.Context, ids []uint64, vectors [][][]float32) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.Add(id, vector)
+	return dynamic.index.AddMultiBatch(ctx, ids, vectors)
+}
+
+func (dynamic *dynamic) Add(ctx context.Context, id uint64, vector []float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Add(ctx, id, vector)
+}
+
+func (dynamic *dynamic) AddMulti(ctx context.Context, docId uint64, vectors [][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.AddMulti(ctx, docId, vectors)
 }
 
 func (dynamic *dynamic) Delete(ids ...uint64) error {
@@ -232,16 +262,28 @@ func (dynamic *dynamic) Delete(ids ...uint64) error {
 	return dynamic.index.Delete(ids...)
 }
 
-func (dynamic *dynamic) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) DeleteMulti(ids ...uint64) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVector(vector, k, allow)
+	return dynamic.index.DeleteMulti(ids...)
 }
 
-func (dynamic *dynamic) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (dynamic *dynamic) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
+	return dynamic.index.SearchByVector(ctx, vector, k, allow)
+}
+
+func (dynamic *dynamic) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByMultiVector(ctx, vectors, k, allow)
+}
+
+func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
 }
 
 func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {
@@ -261,6 +303,12 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
 	return nil
+}
+
+func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.GetKeys(id)
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context) error {
@@ -306,6 +354,12 @@ func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
 	return dynamic.index.ValidateBeforeInsert(vector)
 }
 
+func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ValidateMultiBeforeInsert(vector)
+}
+
 func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
@@ -322,7 +376,7 @@ func (dynamic *dynamic) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistanceBetweenVectors(x, y)
@@ -396,8 +450,6 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
-		dynamic.shardCompactionCallbacks,
-		dynamic.shardFlushCallbacks,
 		dynamic.store,
 	)
 	if err != nil {
@@ -416,10 +468,15 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	ch := make(chan task, workerCount)
 
+	// For now use an unlimited context here – for backward compatibility. This
+	// is probably not ideal and I assume also an upgrade operation should have
+	// some sort of a timeout.
+	ctx := context.TODO()
+
 	for i := 0; i < workerCount; i++ {
 		g.Go(func() error {
 			for t := range ch {
-				err := index.Add(t.id, t.vector)
+				err := index.Add(ctx, t.id, t.vector)
 				if err != nil {
 					return err
 				}
@@ -460,4 +517,18 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgraded.Store(true)
 	callback()
 	return nil
+}
+
+func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
+	dynamic.index.Iterate(fn)
+}
+
+func (dynamic *dynamic) Stats() (common.IndexStats, error) {
+	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }

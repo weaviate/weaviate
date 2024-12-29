@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -66,10 +67,7 @@ type cycleCombinedCallbackCtrl struct {
 // Methods (activate, deactivate, unregister) calls nested controllers' methods in parallel by number of
 // goroutines given as argument. If < 1 value given, NumCPU is used.
 func NewCombinedCallbackCtrl(routinesLimit int, logger logrus.FieldLogger, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
-	if routinesLimit <= 0 {
-		routinesLimit = _NUMCPU
-	}
-
+	routinesLimit = concurrency.NoMoreThanNUMCPU(routinesLimit)
 	return &cycleCombinedCallbackCtrl{routinesLimit: routinesLimit, logger: logger, ctrls: ctrls}
 }
 
@@ -183,7 +181,7 @@ func (c *cycleCombinedCallbackCtrl) locked(lock *sync.Mutex, mutate func()) {
 }
 
 func (c *cycleCombinedCallbackCtrl) combineErrors(errors ...error) error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	for _, err := range errors {
 		ec.Add(err)
 	}

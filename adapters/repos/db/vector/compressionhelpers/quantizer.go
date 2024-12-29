@@ -14,8 +14,8 @@ package compressionhelpers
 import "encoding/binary"
 
 type quantizerDistancer[T byte | uint64] interface {
-	Distance(x []T) (float32, bool, error)
-	DistanceToFloat(x []float32) (float32, bool, error)
+	Distance(x []T) (float32, error)
+	DistanceToFloat(x []float32) (float32, error)
 }
 
 type quantizer[T byte | uint64] interface {
@@ -27,6 +27,12 @@ type quantizer[T byte | uint64] interface {
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
 	PersistCompression(logger CommitLogger)
+
+	// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
+	// instead of allocating a new slice you can pass in a buffer to use. It will
+	// slice something off of that buffer. If the buffer is too small, it will
+	// allocate a new buffer.
+	FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]T) []T
 }
 
 func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
@@ -65,12 +71,49 @@ func (bq *BinaryQuantizer) FromCompressedBytes(compressed []byte) []uint64 {
 	return slice
 }
 
+// FromCompressedBytesWithSubsliceBuffer is like FromCompressedBytes, but
+// instead of allocating a new slice you can pass in a buffer to use. It will
+// slice something off of that buffer. If the buffer is too small, it will
+// allocate a new buffer.
+func (bq *BinaryQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]uint64) []uint64 {
+	l := len(compressed) / 8
+	if len(compressed)%8 != 0 {
+		l++
+	}
+
+	if len(*buffer) < l {
+		*buffer = make([]uint64, 1000*l)
+	}
+
+	// take from end so we can address the start of the buffer
+	slice := (*buffer)[len(*buffer)-l:]
+	*buffer = (*buffer)[:len(*buffer)-l]
+
+	for i := range slice {
+		slice[i] = binary.LittleEndian.Uint64(compressed[i*8:])
+	}
+	return slice
+}
+
 func (pq *ProductQuantizer) CompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
 func (pq *ProductQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
+}
+
+func (pq *ProductQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
+	if len(*buffer) < len(compressed) {
+		*buffer = make([]byte, len(compressed)*1000)
+	}
+
+	// take from end so we can address the start of the buffer
+	out := (*buffer)[len(*buffer)-len(compressed):]
+	copy(out, compressed)
+	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
+
+	return out
 }
 
 type BQDistancer struct {
@@ -95,18 +138,16 @@ func (bq *BinaryQuantizer) NewCompressedQuantizerDistancer(a []uint64) quantizer
 	}
 }
 
-func (d *BQDistancer) Distance(x []uint64) (float32, bool, error) {
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
-	return dist, err == nil, err
+func (d *BQDistancer) Distance(x []uint64) (float32, error) {
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
 }
 
-func (d *BQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *BQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if len(d.x) > 0 {
 		return d.bq.distancer.SingleDist(d.x, x)
 	}
 	xComp := d.bq.Encode(x)
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {

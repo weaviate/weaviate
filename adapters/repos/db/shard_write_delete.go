@@ -15,19 +15,19 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -53,7 +53,11 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
-	err = bucket.Delete(idBytes)
+	if deletionTime.IsZero() {
+		err = bucket.Delete(idBytes)
+	} else {
+		err = bucket.DeleteWith(idBytes, deletionTime)
+	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
@@ -73,8 +77,8 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 			}
 		}
-		for targetVector, vectorIndex := range s.VectorIndexes() {
-			if err = vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range s.Queues() {
+			if err = queue.Flush(); err != nil {
 				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 			}
 		}
@@ -82,7 +86,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		if err = s.queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index: %w", err)
 		}
-		if err = s.vectorIndex.Flush(); err != nil {
+		if err = s.queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 		}
 	}
@@ -118,11 +122,18 @@ func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv
 	return bucket, existing, uid, docID, updateTime, nil
 }
 
-func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64, updateTime int64) error {
+func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64, currentUpdateTime int64, deletionTime time.Time) error {
 	if obj == nil || bucket == nil {
 		return nil
 	}
-	err := bucket.Delete(idBytes)
+
+	var err error
+
+	if deletionTime.IsZero() {
+		err = bucket.Delete(idBytes)
+	} else {
+		err = bucket.DeleteWith(idBytes, deletionTime)
+	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
@@ -142,8 +153,8 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
 			}
 		}
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if err = vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range s.queues {
+			if err = queue.Flush(); err != nil {
 				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
 			}
 		}
@@ -151,12 +162,12 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		if err = s.queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index: %w", err)
 		}
-		if err = s.vectorIndex.Flush(); err != nil {
+		if err = s.queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 		}
 	}
 
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, currentUpdateTime); err != nil {
 		return fmt.Errorf("store object deletion in hashtree: %w", err)
 	}
 

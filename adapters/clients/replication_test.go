@@ -160,32 +160,33 @@ func TestReplicationDeleteObject(t *testing.T) {
 
 	ctx := context.Background()
 	uuid := UUID1
-	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
+	deletionTime := time.Now()
+	path := fmt.Sprintf("/replicas/indices/C1/shards/S1/objects/%s/%d", uuid.String(), deletionTime.UnixMilli())
 	fs := newFakeReplicationServer(t, http.MethodDelete, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
 
 	client := newReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid, 0)
+		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid, deletionTime, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid, 0)
+		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid, deletionTime, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid, 0)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid, deletionTime, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid, 0)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid, deletionTime, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -319,26 +320,28 @@ func TestReplicationDeleteObjects(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 
 	uuids := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
+	deletionTime := time.Now()
+
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, false, 123)
+		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, deletionTime, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, false, 123)
+		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, deletionTime, false, 123)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, false, 123)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, deletionTime, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, false, 123)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, deletionTime, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -442,7 +445,7 @@ func TestReplicationFetchObject(t *testing.T) {
 
 	c := newReplicationClient(server.Client())
 	resp, err := c.FetchObject(context.Background(), server.URL[7:],
-		"C1", "S1", expected.ID, nil, additional.Properties{})
+		"C1", "S1", expected.ID, nil, additional.Properties{}, 9)
 	require.Nil(t, err)
 	assert.Equal(t, expected.ID, resp.ID)
 	assert.Equal(t, expected.Deleted, resp.Deleted)
@@ -511,6 +514,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 		},
 		{
 			ID:         UUID2.String(),
+			Deleted:    true,
 			UpdateTime: now.UnixMilli(),
 			Version:    1,
 		},
@@ -525,7 +529,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 	resp, err := c.DigestObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{
 		strfmt.UUID(expected[0].ID),
 		strfmt.UUID(expected[1].ID),
-	})
+	}, 9)
 	require.Nil(t, err)
 	require.Len(t, resp, 2)
 	assert.Equal(t, expected[0].ID, resp[0].ID)

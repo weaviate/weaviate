@@ -502,7 +502,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedResult: map[string]interface{}{
 				"_additional": map[string]interface{}{
 					"classification": map[string]interface{}{
-						"id":               "12345",
+						"id":               strfmt.UUID("12345"),
 						"basedOn":          []interface{}{"primitiveProp"},
 						"scope":            []interface{}{"refprop1", "refprop2", "refprop3"},
 						"classifiedFields": []interface{}{"refprop3"},
@@ -1233,7 +1233,7 @@ func TestNearVectorRanker(t *testing.T) {
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
+				Vectors: [][]float32{{0.123, 0.984}},
 			},
 		}
 
@@ -1254,9 +1254,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Distance:        0.4,
-				WithDistance:    true,
+				Vectors:      [][]float32{{0.123, 0.984}},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1276,8 +1276,8 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.4,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -1299,9 +1299,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Distance:        0.1,
-				WithDistance:    true,
+				Vectors:      [][]float32{{0.123, 0.984}},
+				Distance:     0.1,
+				WithDistance: true,
 			},
 		}
 
@@ -1324,8 +1324,8 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.1,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.1,
 			},
 		}
 
@@ -1348,9 +1348,9 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Distance:        0.1,
-				WithDistance:    true,
+				Vectors:      [][]float32{{0.123, 0.984}},
+				Distance:     0.1,
+				WithDistance: true,
 			},
 		}
 
@@ -1373,8 +1373,8 @@ func TestNearVectorRanker(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.1,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.1,
 			},
 		}
 
@@ -1382,6 +1382,142 @@ func TestNearVectorRanker(t *testing.T) {
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title2", "title3"},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and multiple entries for a vector", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and multiple entries for a vector and targets", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {targetVectors: ["title1", "title1", "title2", "title3"], combinationMethod: sum}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1, 1, 1}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and weights", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+							combinationMethod: manualWeights,
+							weights: {title1: 1, title2: 3, title3: 4}
+						}
+					}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 3, 4}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and multiple entries for a vector and weights", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title1", "title2", "title3"], 
+							combinationMethod: manualWeights,
+							weights: {title1: [1, 2], title2: 3, title3: 4}
+						}
+					}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 2, 3, 4}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with non fitting target vectors", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+						}
+					}) { intField } } }`
+		resolver.AssertFailToResolve(t, query)
+	})
+
+	t.Run("with non fitting target vectors 2", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1:  [0,1], title2: [0, 0, 1], title3:[[1, 0], [0,1]]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+						}
+					}) { intField } } }`
+		resolver.AssertFailToResolve(t, query)
 	})
 }
 
@@ -1898,6 +2034,238 @@ func TestHybridWithSort(t *testing.T) {
 	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
 }
 
+func TestHybridWithTargets(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	var emptySubsearches []searchparams.WeightedSearchResult
+
+	t.Run("hybrid search", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple"}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets and vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+                    vector: [0.123, 0.984],
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				Vector:          []float32{0.123, 0.984},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets and vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+                    vector: [0.123, 0.984],
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				Vector:          []float32{0.123, 0.984},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vector: [0.123, 0.984],
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{0.123, 0.984}, {0.123, 0.984}, {0.123, 0.984}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and wrong input", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, "fish"], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+                    }}
+					}){intField}}}`
+		resolver.AssertFailToResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title2", "title3", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [[0, 0, 1], [1,0,0]], title3: [[0, 0, 0, 1], [1, 0, 0, 1]]}
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title2", "title3", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {1, 0, 0}, {0, 0, 0, 1}, {1, 0, 0, 1}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [[0, 0, 1], [1,0,0]], title3: [[0, 0, 0, 1], [1, 0, 0, 1]]}
+                    }}
+					}){intField}}}`
+		resolver.AssertFailToResolve(t, query)
+	})
+}
+
+func TestHybridWithVectorDistance(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(hybrid:{query:"apple", maxVectorDistance: 0.5}){intField}}}`
+
+	var emptySubsearches []searchparams.WeightedSearchResult
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		HybridSearch: &searchparams.HybridSearch{
+			Query:           "apple",
+			Distance:        0.5,
+			WithDistance:    true,
+			FusionAlgorithm: 1,
+			Alpha:           0.75,
+			Type:            "hybrid",
+			SubSearches:     emptySubsearches,
+		},
+	}
+	resolver.On("GetClass", expectedParams).
+		Return([]interface{}{}, nil).Once()
+
+	resolver.AssertResolve(t, query)
+}
+
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 
@@ -2083,7 +2451,7 @@ func TestNearVectorNoModules(t *testing.T) {
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
+				Vectors: [][]float32{{0.123, 0.984}},
 			},
 		}
 
@@ -2104,9 +2472,9 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Distance:        0.4,
-				WithDistance:    true,
+				Vectors:      [][]float32{{0.123, 0.984}},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2126,8 +2494,8 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.4,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2149,8 +2517,8 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: 4},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.4,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2172,9 +2540,9 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Distance:        0.4,
-				WithDistance:    true,
+				Vectors:      [][]float32{{0.123, 0.984}},
+				Distance:     0.4,
+				WithDistance: true,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2196,8 +2564,8 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {0.123, 0.984}},
-				Certainty:       0.4,
+				Vectors:   [][]float32{{0.123, 0.984}},
+				Certainty: 0.4,
 			},
 		}
 		resolver.On("GetClass", expectedParams).
@@ -2219,8 +2587,8 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: -1},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"test1": {0.123, 0.984}, "test2": {0.123, 0.984}},
-				TargetVectors:   []string{"test1", "test2"},
+				Vectors:       [][]float32{{0.123, 0.984}, {0.123, 0.984}},
+				TargetVectors: []string{"test1", "test2"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
 		}
@@ -2243,8 +2611,8 @@ func TestNearVectorNoModules(t *testing.T) {
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: -1},
 			NearVector: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"test1": {0.123, 0.984}, "test2": {0.456, 0.789}},
-				TargetVectors:   []string{"test1", "test2"},
+				Vectors:       [][]float32{{0.123, 0.984}, {0.456, 0.789}},
+				TargetVectors: []string{"test1", "test2"},
 			},
 			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
 		}
@@ -2361,7 +2729,7 @@ func TestGroupBy(t *testing.T) {
 
 				expectedParams := dto.GetParams{
 					ClassName:            "SomeAction",
-					GroupBy:              &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3},
+					GroupBy:              &searchparams.GroupBy{Property: "path", Groups: 2, ObjectsPerGroup: 3, Properties: search.SelectProperties{}},
 					AdditionalProperties: additional.Properties{Group: true},
 				}
 

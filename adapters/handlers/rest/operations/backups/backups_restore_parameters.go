@@ -46,7 +46,7 @@ type BackupsRestoreParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Backup backend name e.g. filesystem, gcs, s3.
+	/*Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`.
 	  Required: true
 	  In: path
 	*/

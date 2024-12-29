@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -eou pipefail
 
@@ -33,7 +33,7 @@ go install golang.org/x/tools/cmd/goimports@v0.1.12
 (cd "$DIR"/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
-(cd "$DIR"/..; GO111MODULE=on go generate ./deprecations)
+(cd "$DIR"/..; GO111MODULE=on GOWORK=off go generate ./deprecations)
 
 echo Now add the header to the generated code too.
 (cd "$DIR"/..; GO111MODULE=on go run ./tools/license_headers/main.go)

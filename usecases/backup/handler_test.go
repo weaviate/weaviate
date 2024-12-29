@@ -26,17 +26,21 @@ import (
 // helper methods
 func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	classes := req.Include
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
-	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
+
+	overrideBucket := req.Bucket
+	overridePath := req.Path
+
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes, overrideBucket, overridePath); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)
@@ -44,6 +48,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 			Classes: classes,
 			ID:      req.ID,
 			Backend: req.Backend,
+			Bucket:  req.Bucket,
 			Status:  &status,
 			Path:    meta.Path,
 		}, nil
@@ -53,7 +58,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -112,12 +117,6 @@ func (f *fakeSchemaManger) NodeName() string {
 	return f.nodeName
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 func TestFilterClasses(t *testing.T) {
 	tests := []struct {
 		in  []string
@@ -150,6 +149,8 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 			Classes:  []string{"class1"},
 			Backend:  "s3",
 			Duration: time.Millisecond * 20,
+			Bucket:   "bucket",
+			Path:     "path",
 		}
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "unknown backup operation")

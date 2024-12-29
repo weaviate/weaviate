@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -107,15 +109,8 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 	}
 
 	targetVectors := t.targetVectorParamHelper.GetTargetVectorsFromParams(params)
-	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
+	if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
 		return err
-	}
-
-	for _, conf := range vectorConfig {
-		if dn := conf.DistanceName(); dn != common.DistanceCosine {
-			return certaintyUnsupportedError(dn)
-		}
 	}
 
 	return nil
@@ -138,7 +133,7 @@ func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
 	}
 	errorMsg = strings.TrimSuffix(errorMsg, ",")
 
-	return fmt.Errorf(errorMsg)
+	return errors.New(errorMsg)
 }
 
 func certaintyUnsupportedError(distType string) error {

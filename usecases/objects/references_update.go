@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -48,6 +50,19 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+
+	if input.Class == "" {
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+	}
+
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
 		errnf := ErrNotFound{}
@@ -62,11 +77,6 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 	input.Class = res.ClassName
-
-	path := fmt.Sprintf("objects/%s/%s", input.Class, input.ID)
-	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
-		return &Error{path, StatusForbidden, err}
-	}
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -96,6 +106,10 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Refs[i].Class.String(), tenant)...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+
 		if err := input.validateExistence(ctx, validator, tenant, parsedTargetRefs[i]); err != nil {
 			return &Error{"validate existence", StatusBadRequest, err}
 		}
@@ -118,7 +132,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			Err:  err,
 		}
 	}
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, res.MultiVectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

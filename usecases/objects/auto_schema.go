@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -34,6 +36,7 @@ import (
 
 type autoSchemaManager struct {
 	mutex         sync.RWMutex
+	authorizer    authorization.Authorizer
 	schemaManager schemaManager
 	vectorRepo    VectorRepo
 	config        config.AutoSchema
@@ -41,13 +44,14 @@ type autoSchemaManager struct {
 }
 
 func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
-	config *config.WeaviateConfig, logger logrus.FieldLogger,
+	config *config.WeaviateConfig, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) *autoSchemaManager {
 	return &autoSchemaManager{
 		schemaManager: schemaManager,
 		vectorRepo:    vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
+		authorizer:    authorizer,
 	}
 }
 
@@ -72,6 +76,11 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		classes = append(classes, schema.UppercaseClassName(object.Class))
 	}
 
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classes...)...)
+	if err != nil {
+		return 0, err
+	}
+
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
 	if err != nil {
 		return 0, err
@@ -79,23 +88,23 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 	for _, object := range objects {
 		if object == nil {
-			return 0, fmt.Errorf(validation.ErrorMissingObject)
+			return 0, ErrInvalidUserInput{validation.ErrorMissingObject}
 		}
 
 		if len(object.Class) == 0 {
 			// stop performing auto schema
-			return 0, fmt.Errorf(validation.ErrorMissingClass)
+			return 0, ErrInvalidUserInput{validation.ErrorMissingClass}
 		}
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		vclass := vclasses[schema.UppercaseClassName(object.Class)]
+		vclass := vclasses[object.Class]
 
 		schemaClass := vclass.Class
 		schemaVersion := vclass.Version
 
 		if schemaClass == nil && !allowCreateClass {
-			return 0, fmt.Errorf("given class does not exist")
+			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
 		properties, err := m.getProperties(object)
 		if err != nil {
@@ -103,6 +112,11 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
+			err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(object.Class)...)
+			if err != nil {
+				return 0, err
+			}
+
 			// it returns the newly created class and version
 			schemaClass, schemaVersion, err = m.createClass(ctx, principal, object.Class, properties)
 			if err != nil {
@@ -113,8 +127,12 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
+				err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(schemaClass.Class)...)
+				if err != nil {
+					return 0, err
+				}
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, schemaClass, true, newProperties...)
+					principal, schemaClass, schemaClass.Class, true, newProperties...)
 				if err != nil {
 					return 0, err
 				}
@@ -245,6 +263,19 @@ func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) 
 				determinedDataType = dataType
 			}
 			if dataType != "" {
+				// if an array contains text and UUID/Date, the type should be text
+				if determinedDataType == schema.DataTypeTextArray && (dataType == schema.DataTypeUUIDArray || dataType == schema.DataTypeDateArray) {
+					continue
+				}
+				if determinedDataType == schema.DataTypeDateArray && (dataType == schema.DataTypeUUIDArray || dataType == schema.DataTypeTextArray) {
+					determinedDataType = schema.DataTypeTextArray
+					continue
+				}
+				if determinedDataType == schema.DataTypeUUIDArray && (dataType == schema.DataTypeDateArray || dataType == schema.DataTypeTextArray) {
+					determinedDataType = schema.DataTypeTextArray
+					continue
+				}
+
 				if isRef {
 					return nil, fmt.Errorf("element [%d]: mismatched data type - reference expected, got '%s'",
 						i, asSingleDataType(dataType))
@@ -480,7 +511,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object,
-) (uint64, error) {
+) (uint64, int, error) {
 	classTenants := make(map[string]map[string]struct{})
 
 	// group by tenants by class
@@ -499,16 +530,21 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
+	totalTenants := 0
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
 		vclass, exists := vclasses[schema.UppercaseClassName(className)]
 		if !exists || // invalid class
-			vclass.Class == nil || // class is nil
-			!schema.MultiTenancyEnabled(vclass.Class) || // non-MT class
+			vclass.Class == nil { // class is nil
+			continue
+		}
+		totalTenants += len(tenantNames)
+
+		if !schema.MultiTenancyEnabled(vclass.Class) || // non-MT class
 			!vclass.Class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
@@ -519,14 +555,20 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			i++
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
-			return 0, fmt.Errorf("add tenants to class %q: %w", className, err)
+			return 0, totalTenants, fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
 
 		if vclass.Version > maxSchemaVersion {
 			maxSchemaVersion = vclass.Version
 		}
 	}
-	return maxSchemaVersion, nil
+
+	if totalTenants == 0 {
+		// if we exclusively hit non-MT classes, count them as a single tenant
+		totalTenants = 1
+	}
+
+	return maxSchemaVersion, totalTenants, nil
 }
 
 func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,

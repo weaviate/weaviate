@@ -17,12 +17,15 @@ import (
 	"net"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,6 +33,8 @@ import (
 const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
 
 func TestServerNewError(t *testing.T) {
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+
 	var (
 		addr      = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
 		members   = &MockMembers{leader: addr}
@@ -38,18 +43,20 @@ func TestServerNewError(t *testing.T) {
 	)
 
 	t.Run("Empty server address", func(t *testing.T) {
-		srv := NewServer(members, executor, "", logger, raftGrpcMessageMaxSize)
+		srv := NewServer(members, executor, "", raftGrpcMessageMaxSize, false, sm, logger)
 		assert.NotNil(t, srv.Open())
 	})
 
 	t.Run("Invalid IP", func(t *testing.T) {
-		srv := NewServer(members, executor, "abc", logger, raftGrpcMessageMaxSize)
+		srv := NewServer(members, executor, "abc", raftGrpcMessageMaxSize, false, sm, logger)
 		netErr := &net.OpError{}
 		assert.ErrorAs(t, srv.Open(), &netErr)
 	})
 }
 
 func TestRaftRelatedRPC(t *testing.T) {
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+
 	tests := []struct {
 		name     string
 		members  *MockMembers
@@ -64,17 +71,17 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Join(ctx, leaderAddr, &cmd.JoinPeerRequest{Id: "Node1", Address: leaderAddr, Voter: false})
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Internal)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -86,10 +93,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Join(ctx, leaderAddr, &cmd.JoinPeerRequest{Id: "Node1", Address: leaderAddr, Voter: false})
@@ -104,10 +111,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Notify(ctx, leaderAddr, &cmd.NotifyPeerRequest{Id: "Node1", Address: leaderAddr})
@@ -126,10 +133,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Notify(ctx, leaderAddr, &cmd.NotifyPeerRequest{Id: "Node1", Address: leaderAddr})
@@ -144,17 +151,17 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Remove(ctx, leaderAddr, &cmd.RemovePeerRequest{Id: "node1"})
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.NotFound)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrNotLeader.Error())
 			},
 		},
@@ -166,10 +173,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Remove(ctx, leaderAddr, &cmd.RemovePeerRequest{Id: "node1"})
@@ -188,6 +195,8 @@ func TestRaftRelatedRPC(t *testing.T) {
 }
 
 func TestQueryEndpoint(t *testing.T) {
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+
 	tests := []struct {
 		name     string
 		testFunc func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor)
@@ -198,10 +207,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				_, err := client.Query(ctx, leaderAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})
@@ -214,10 +223,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				n := 0
@@ -240,10 +249,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				executor.qf = func(*cmd.QueryRequest) (*cmd.QueryResponse, error) {
@@ -253,7 +262,7 @@ func TestQueryEndpoint(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Internal)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -275,6 +284,8 @@ func TestQueryEndpoint(t *testing.T) {
 }
 
 func TestApply(t *testing.T) {
+	sm := monitoring.NewServerMetrics("rpc_test", prometheus.NewPedanticRegistry())
+
 	tests := []struct {
 		name     string
 		members  *MockMembers
@@ -292,17 +303,17 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Internal)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -313,10 +324,10 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
 				n := 0
@@ -328,7 +339,7 @@ func TestApply(t *testing.T) {
 					return nil
 				}
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.Nil(t, err)
 				assert.Greater(t, n, 1)
 			},
@@ -340,13 +351,13 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, raftGrpcMessageMaxSize, false, sm, logger)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
 				defer client.Close()
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.Nil(t, err)
 			},
 		},
@@ -389,7 +400,7 @@ type MockExecutor struct {
 	qf func(*cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
-func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) (uint64, error) {
+func (m *MockExecutor) Execute(_ context.Context, cmd *cmd.ApplyRequest) (uint64, error) {
 	if m.ef != nil {
 		return 0, m.ef()
 	}

@@ -31,7 +31,7 @@ type (
 type Indexer interface {
 	AddClass(api.AddClassRequest) error
 	UpdateClass(api.UpdateClassRequest) error
-	DeleteClass(string) error
+	DeleteClass(className string, hasFrozen bool) error
 	AddProperty(class string, req api.AddPropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error

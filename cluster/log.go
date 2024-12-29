@@ -16,19 +16,18 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 )
 
-type rLog struct {
-	*raftboltdb.BoltStore
-}
+func (st *Store) LastAppliedCommand() (uint64, error) {
+	if st.logStore == nil {
+		return 0, fmt.Errorf("log store can't be nil")
+	}
 
-func (l rLog) LastAppliedCommand() (uint64, error) {
-	first, err := l.FirstIndex()
+	first, err := st.logStore.FirstIndex()
 	if err != nil {
 		return 0, fmt.Errorf("first index: %w", err)
 	}
-	last, err := l.LastIndex()
+	last, err := st.logStore.LastIndex()
 	if err != nil {
 		return 0, fmt.Errorf("last index: %w", err)
 	}
@@ -37,7 +36,7 @@ func (l rLog) LastAppliedCommand() (uint64, error) {
 	}
 	var rLog raft.Log
 	for ; last >= first; last-- {
-		err := l.GetLog(last, &rLog)
+		err := st.logStore.GetLog(last, &rLog)
 		if err != nil && !errors.Is(err, raft.ErrLogNotFound) {
 			return 0, fmt.Errorf("get log at index %d: %w", last, err)
 		}

@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -436,7 +437,7 @@ type searchParamsPayload struct{}
 func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	addP additional.Properties, targetCombination *dto.TargetCombination,
+	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector      []float32                    `json:"searchVector"`
@@ -451,6 +452,7 @@ func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string
 		SearchVectors     [][]float32                  `json:"searchVectors"`
 		TargetVectors     []string                     `json:"targetVectors"`
 		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
+		Properties        []string                     `json:"properties"`
 	}
 	var vector []float32
 	var targetVector string
@@ -460,13 +462,13 @@ func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string
 		targetVector = targetVectors[0]
 	}
 
-	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination}
+	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector      []float32                    `json:"searchVector"`
@@ -482,6 +484,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float3
 		SearchVectors     [][]float32                  `json:"searchVectors"`
 		TargetVectors     []string                     `json:"targetVectors"`
 		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
+		Properties        []string                     `json:"properties"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -491,7 +494,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float3
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, err
 }
 
 func (p searchParamsPayload) MIME() string {
@@ -724,24 +727,26 @@ func (p findUUIDsResultsPayload) CheckContentTypeHeader(r *http.Response) (strin
 
 type batchDeleteParamsPayload struct{}
 
-func (p batchDeleteParamsPayload) Marshal(uuids []strfmt.UUID, dryRun bool) ([]byte, error) {
+func (p batchDeleteParamsPayload) Marshal(uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) ([]byte, error) {
 	type params struct {
-		UUIDs  []strfmt.UUID `json:"uuids"`
-		DryRun bool          `json:"dryRun"`
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
 	}
 
-	par := params{uuids, dryRun}
+	par := params{uuids, deletionTime.UnixMilli(), dryRun}
 	return json.Marshal(par)
 }
 
-func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]strfmt.UUID, bool, error) {
+func (p batchDeleteParamsPayload) Unmarshal(in []byte) ([]strfmt.UUID, time.Time, bool, error) {
 	type batchDeleteParametersPayload struct {
-		UUIDs  []strfmt.UUID `json:"uuids"`
-		DryRun bool          `json:"dryRun"`
+		UUIDs                 []strfmt.UUID `json:"uuids"`
+		DeletionTimeUnixMilli int64         `json:"deletionTimeUnixMilli"`
+		DryRun                bool          `json:"dryRun"`
 	}
 	var par batchDeleteParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.UUIDs, par.DryRun, err
+	return par.UUIDs, time.UnixMilli(par.DeletionTimeUnixMilli), par.DryRun, err
 }
 
 func (p batchDeleteParamsPayload) MIME() string {

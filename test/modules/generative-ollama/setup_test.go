@@ -26,17 +26,18 @@ func TestGenerativeOllama_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 	ollamaApiEndpoint := compose.GetOllamaGenerative().GetEndpoint("apiEndpoint")
 
-	t.Run("tests", testGenerativeOllama(endpoint, ollamaApiEndpoint))
+	t.Run("tests", testGenerativeOllama(endpointREST, endpointGRPC, ollamaApiEndpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviate().
-		WithWeaviateEnv("EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }

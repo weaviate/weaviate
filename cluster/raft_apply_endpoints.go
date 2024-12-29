@@ -12,9 +12,12 @@
 package cluster
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -25,7 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (s *Raft) AddClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
 	}
@@ -40,10 +43,10 @@ func (s *Raft) AddClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
 	}
@@ -57,18 +60,18 @@ func (s *Raft) UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) DeleteClass(name string) (uint64, error) {
+func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {
 	command := &cmd.ApplyRequest{
 		Type:  cmd.ApplyRequest_TYPE_DELETE_CLASS,
 		Class: name,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error) {
+func (s *Raft) RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
 	}
@@ -82,10 +85,10 @@ func (s *Raft) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, erro
 		Class:      cls.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) AddProperty(class string, props ...*models.Property) (uint64, error) {
+func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.Property) (uint64, error) {
 	for _, p := range props {
 		if p == nil || p.Name == "" || class == "" {
 			return 0, fmt.Errorf("empty property or empty class name : %w", schema.ErrBadRequest)
@@ -101,10 +104,10 @@ func (s *Raft) AddProperty(class string, props ...*models.Property) (uint64, err
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateShardStatus(class, shard, status string) (uint64, error) {
+func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
 		return 0, fmt.Errorf("empty class or shard : %w", schema.ErrBadRequest)
 	}
@@ -118,10 +121,10 @@ func (s *Raft) UpdateShardStatus(class, shard, status string) (uint64, error) {
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) AddTenants(class string, req *cmd.AddTenantsRequest) (uint64, error) {
+func (s *Raft) AddTenants(ctx context.Context, class string, req *cmd.AddTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
 	}
@@ -134,10 +137,10 @@ func (s *Raft) AddTenants(class string, req *cmd.AddTenantsRequest) (uint64, err
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) (uint64, error) {
+func (s *Raft) UpdateTenants(ctx context.Context, class string, req *cmd.UpdateTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
 	}
@@ -150,10 +153,10 @@ func (s *Raft) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) (uint6
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (uint64, error) {
+func (s *Raft) DeleteTenants(ctx context.Context, class string, req *cmd.DeleteTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
 	}
@@ -166,10 +169,10 @@ func (s *Raft) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (uint6
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest) (uint64, error) {
+func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.TenantProcessRequest) (uint64, error) {
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
 	}
@@ -182,39 +185,59 @@ func (s *Raft) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest)
 		Class:      class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(command)
+	return s.Execute(ctx, command)
 }
 
 func (s *Raft) StoreSchemaV1() error {
 	command := &cmd.ApplyRequest{
 		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
 	}
-	_, err := s.Execute(command)
+	_, err := s.Execute(context.Background(), command)
 	return err
 }
 
-func (s *Raft) Execute(req *cmd.ApplyRequest) (uint64, error) {
+func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, error) {
 	t := prometheus.NewTimer(
 		monitoring.GetMetrics().SchemaWrites.WithLabelValues(
 			req.Type.String(),
 		))
 	defer t.ObserveDuration()
 
-	if s.store.IsLeader() {
-		return s.store.Execute(req)
-	}
-	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
-		return 0, types.ErrUnknownCommand
-	}
+	var schemaVersion uint64
+	err := backoff.Retry(func() error {
+		var err error
 
-	leader := s.store.Leader()
-	if leader == "" {
-		return 0, s.leaderErr()
-	}
-	resp, err := s.cl.Apply(leader, req)
-	if err != nil {
-		return 0, err
-	}
+		// Validate the apply first
+		if _, ok := cmd.ApplyRequest_Type_name[int32(req.Type.Number())]; !ok {
+			err = types.ErrUnknownCommand
+			// This is an invalid apply command, don't retry
+			return backoff.Permanent(err)
+		}
 
-	return resp.Version, err
+		// We are the leader, let's apply
+		if s.store.IsLeader() {
+			schemaVersion, err = s.store.Execute(req)
+			// We might fail due to leader not found as we are losing or transferring leadership, retry
+			return err
+		}
+
+		leader := s.store.Leader()
+		if leader == "" {
+			err = s.leaderErr()
+			s.log.Warnf("apply: could not find leader: %s", err)
+			return err
+		}
+
+		var resp *cmd.ApplyResponse
+		resp, err = s.cl.Apply(ctx, leader, req)
+		if err != nil {
+			// Don't retry if the actual apply to the leader failed, we have retry at the network layer already
+			return backoff.Permanent(err)
+		}
+		schemaVersion = resp.Version
+		return nil
+		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
+	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+
+	return schemaVersion, err
 }

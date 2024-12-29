@@ -31,7 +31,7 @@ func NewRpc(isLocalHost bool, rpcPort int) *Rpc {
 	return &Rpc{isLocalCluster: isLocalHost, rpcPort: rpcPort}
 }
 
-// rpcAddressFromRAFT returns the FQDN raft address (rpcAddr:rpcPort) based on raftAddr (raftAddr:raftPort).
+// rpcAddressFromRAFT returns the rpc address (rpcAddr:rpcPort) based on raftAddr (raftAddr:raftPort).
 // In a real cluster, the RPC port is the same for all nodes. In a local environment, the RPC ports need to be
 // different. Specifically, we calculate the RPC port as the RAFT port + 1.
 // Returns an error if raftAddr is not parseable.

@@ -12,18 +12,22 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeOpenAI(host string) func(t *testing.T) {
+func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -40,8 +44,9 @@ func testGenerativeOpenAI(host string) func(t *testing.T) {
 			},
 		}
 		tests := []struct {
-			name            string
-			generativeModel string
+			name               string
+			generativeModel    string
+			absentModuleConfig bool
 		}{
 			{
 				name:            "gpt-3.5-turbo",
@@ -51,13 +56,22 @@ func testGenerativeOpenAI(host string) func(t *testing.T) {
 				name:            "gpt-4",
 				generativeModel: "gpt-4",
 			},
+			{
+				name:               "absent module config",
+				generativeModel:    "gpt-4",
+				absentModuleConfig: true,
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					"generative-openai": map[string]interface{}{
-						"model": tt.generativeModel,
-					},
+				if tt.absentModuleConfig {
+					t.Log("skipping adding module config configuration to class")
+				} else {
+					class.ModuleConfig = map[string]interface{}{
+						"generative-openai": map[string]interface{}{
+							"model": tt.generativeModel,
+						},
+					}
 				}
 				// create schema
 				helper.CreateClass(t, class)
@@ -83,7 +97,31 @@ func testGenerativeOpenAI(host string) func(t *testing.T) {
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "openai:{temperature:0.1}"
+					if tt.absentModuleConfig {
+						params = fmt.Sprintf("openai:{temperature:0.1 model:\"%s\" baseURL:\"https://api.openai.com\" isAzure:false}", tt.generativeModel)
+					}
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					openaiParams := &pb.GenerativeOpenAI{
+						MaxTokens:        grpchelper.ToPtr(int64(90)),
+						Model:            tt.generativeModel,
+						Temperature:      grpchelper.ToPtr(0.9),
+						N:                grpchelper.ToPtr(int64(90)),
+						TopP:             grpchelper.ToPtr(0.9),
+						FrequencyPenalty: grpchelper.ToPtr(0.9),
+						PresencePenalty:  grpchelper.ToPtr(0.9),
+					}
+					if tt.absentModuleConfig {
+						openaiParams.BaseUrl = grpchelper.ToPtr("https://api.openai.com")
+					}
+					params := &pb.GenerativeProvider_Openai{
+						Openai: openaiParams,
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}

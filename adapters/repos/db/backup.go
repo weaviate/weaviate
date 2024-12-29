@@ -44,13 +44,16 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 
 // ListBackupable returns a list of all classes which can be backed up.
 func (db *DB) ListBackupable() []string {
-	cs := make([]string, 0, len(db.indices))
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
+
+	cs := make([]string, 0, len(db.indices))
+
 	for _, idx := range db.indices {
 		cls := string(idx.Config.ClassName)
 		cs = append(cs, cls)
 	}
+
 	return cs
 }
 
@@ -243,7 +246,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
 	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
-	defer i.resetBackupState()
+	i.resetBackupState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
 	}

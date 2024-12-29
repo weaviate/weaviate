@@ -14,13 +14,18 @@ package hnsw
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math/rand"
+	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func BenchmarkDeserializer2ReadUint64(b *testing.B) {
@@ -132,7 +137,8 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 func TestDeserializerReadDeleteNode(t *testing.T) {
 	nodes := generateDummyVertices(4)
 	res := &DeserializationResult{
-		Nodes: nodes,
+		Nodes:        nodes,
+		NodesDeleted: map[uint64]struct{}{},
 	}
 	ids := []uint64{2, 3, 4, 5, 6}
 
@@ -144,9 +150,15 @@ func TestDeserializerReadDeleteNode(t *testing.T) {
 		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
 
-		err := d.ReadDeleteNode(reader, res)
+		err := d.ReadDeleteNode(reader, res, res.NodesDeleted)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
+		}
+	}
+
+	for _, id := range ids {
+		if _, ok := res.NodesDeleted[id]; !ok {
+			t.Errorf("Node %d not marked deleted", id)
 		}
 	}
 }
@@ -425,4 +437,67 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 		err := d.ReadClearLinksAtLevel(reader, res, true)
 		require.Nil(t, err)
 	}
+}
+
+func TestDeserializerTotalReadPQ(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	dimensions := 16
+	centroids := 16
+
+	t.Run("add pq data to the first log", func(t *testing.T) {
+		data, _ := testinghelpers.RandomVecs(20, 0, dimensions)
+		kms := make([]compressionhelpers.PQEncoder, 4)
+		for i := 0; i < 4; i++ {
+			kms[i] = compressionhelpers.NewKMeans(
+				dimensions,
+				4,
+				int(i),
+			)
+			err := kms[i].Fit(data)
+			require.Nil(t, err)
+		}
+		pqData := compressionhelpers.PQData{
+			Ks:                  uint16(centroids),
+			M:                   4,
+			Dimensions:          uint16(dimensions),
+			EncoderType:         compressionhelpers.UseKMeansEncoder,
+			EncoderDistribution: byte(compressionhelpers.NormalEncoderDistribution),
+			UseBitsEncoding:     false,
+			TrainingLimit:       100_000,
+			Encoders:            kms,
+		}
+
+		commitLogger.AddPQCompression(pqData)
+		require.Nil(t, commitLogger.Flush())
+		require.Nil(t, commitLogger.Shutdown(ctx))
+	})
+
+	t.Run("deserialize the first log", func(t *testing.T) {
+		nullLogger, _ := test.NewNullLogger()
+		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
+
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		require.Nil(t, err)
+		require.True(t, found)
+
+		t.Logf("name: %v\n", fileName)
+
+		fd, err := os.Open(commitLoggerPath + "/" + fileName)
+		require.Nil(t, err)
+
+		defer fd.Close()
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		require.Nil(t, err)
+
+		require.Equal(t, 4*centroids*dimensions+10, deserializeSize)
+		t.Logf("deserializeSize: %v\n", deserializeSize)
+	})
 }

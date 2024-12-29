@@ -72,16 +72,11 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // The returned value is returned to the client as the ApplyFuture.Response.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
-	st.log.WithFields(logrus.Fields{
-		"log_type":  l.Type,
-		"log_name":  l.Type.String(),
-		"log_index": l.Index,
-	}).Debug("apply fsm store command")
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
 			"index": l.Index,
-		}).Info("not a valid command")
+		}).Warn("not a valid command")
 		return ret
 	}
 	cmd := api.ApplyRequest{}
@@ -93,19 +88,22 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
+	// we check for index !=0 to force apply of the 1st index in both db and schema
+	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
+		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-			}).Debug("reloading local DB as RAFT and local DB are now caught up")
+				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
+
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
@@ -121,6 +119,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}()
 
 	cmd.Version = l.Index
+	// Report only when not ready the progress made on applying log entries. This help users with big schema and long
+	// startup time to keep track of progress.
+	if !st.Ready() {
+		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
 		"log_name":        l.Type.String(),
@@ -137,27 +140,27 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly)
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		f = func() {
-			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		f = func() {
-			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
@@ -172,7 +175,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
-			ret.Data, ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
@@ -188,6 +191,27 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {
 			ret.Error = st.StoreSchemaV1()
+		}
+
+	case api.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.UpsertRolesPermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ROLES:
+		f = func() {
+			ret.Error = st.authZManager.DeleteRoles(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_PERMISSIONS:
+		f = func() {
+			ret.Error = st.authZManager.RemovePermissions(&cmd)
+		}
+	case api.ApplyRequest_TYPE_ADD_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.AddRolesForUser(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER:
+		f = func() {
+			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
 
 	default:

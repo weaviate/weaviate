@@ -11,13 +11,17 @@
 
 package sharding
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
+)
 
 func (s *State) JSON() ([]byte, error) {
 	return json.Marshal(s)
 }
 
-func StateFromJSON(in []byte, nodes nodes) (*State, error) {
+func StateFromJSON(in []byte, nodes cluster.NodeSelector) (*State, error) {
 	s := State{}
 
 	if err := json.Unmarshal(in, &s); err != nil {

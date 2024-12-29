@@ -1,0 +1,36 @@
+version: '3.4'
+services:
+  weaviate-auth:
+    image: weaviate/test-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    restart: on-failure:0
+    ports:
+      - "8081:8080"
+      - "6061:6060"
+      - "2113:2112"
+      - "7103:7101"
+      - "50052:50051"
+    environment:
+      LOG_LEVEL: "debug"
+      QUERY_DEFAULTS_LIMIT: 20
+      PERSISTENCE_DATA_PATH: "./data-auth"
+      ENABLE_MODULES: backup-filesystem,generative-dummy,reranker-dummy
+      BACKUP_FILESYSTEM_PATH: "/var/lib/backups"
+      CLUSTER_GOSSIP_BIND_PORT: "7102"
+      CLUSTER_DATA_BIND_PORT: "7103"
+      CLUSTER_HOSTNAME: "weaviate-auth-test"
+      RAFT_JOIN: "weaviate-auth-test"
+      RAFT_BOOTSTRAP_EXPECT: "1"
+      DISABLE_TELEMETRY: "true"
+      DISABLE_RECOVERY_ON_PANIC: "true"
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: 'viewer-key,editor-key,admin-key,custom-key'
+      AUTHENTICATION_APIKEY_USERS: 'viewer-user,editor-user,admin-user,custom-user'
+      AUTHORIZATION_ENABLE_RBAC: "true"
+      AUTHORIZATION_ADMIN_USERS: "admin-user"
+      AUTHORIZATION_VIEWER_USERS: "viewer-user"
+
+

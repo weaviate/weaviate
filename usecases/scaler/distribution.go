@@ -14,6 +14,7 @@ package scaler
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -55,7 +56,7 @@ func (m nodeShardDist) nodes() []string {
 }
 
 // hosts resolve node names into host addresses
-func hosts(nodes []string, resolver cluster) ([]string, error) {
+func hosts(nodes []string, resolver cluster.NodeSelector) ([]string, error) {
 	hs := make([]string, len(nodes))
 	for i, node := range nodes {
 		host, ok := resolver.NodeHostname(node)

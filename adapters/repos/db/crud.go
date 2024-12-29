@@ -30,10 +30,11 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
+	vector []float32, vectors models.Vectors, multivectors models.MultiVectors,
+	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
-	object := storobj.FromObject(obj, vector, vectors)
+	object := storobj.FromObject(obj, vector, vectors, multivectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
@@ -48,14 +49,14 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 
 // DeleteObject from of a specific class giving its ID
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl, tenant, schemaVersion)
+	err := idx.deleteObject(ctx, id, deletionTime, repl, tenant, schemaVersion)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}

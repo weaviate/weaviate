@@ -41,8 +41,8 @@ type NestedProperty struct {
 	// index filterable
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
-	// index rangeable
-	IndexRangeable *bool `json:"indexRangeable,omitempty"`
+	// index range filters
+	IndexRangeFilters *bool `json:"indexRangeFilters,omitempty"`
 
 	// index searchable
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
@@ -50,11 +50,11 @@ type NestedProperty struct {
 	// name
 	Name string `json:"name,omitempty"`
 
-	// nested properties
+	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// tokenization
-	// Enum: [word lowercase whitespace field]
+	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -106,7 +106,7 @@ var nestedPropertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -127,6 +127,18 @@ const (
 
 	// NestedPropertyTokenizationField captures enum value "field"
 	NestedPropertyTokenizationField string = "field"
+
+	// NestedPropertyTokenizationTrigram captures enum value "trigram"
+	NestedPropertyTokenizationTrigram string = "trigram"
+
+	// NestedPropertyTokenizationGse captures enum value "gse"
+	NestedPropertyTokenizationGse string = "gse"
+
+	// NestedPropertyTokenizationKagomeKr captures enum value "kagome_kr"
+	NestedPropertyTokenizationKagomeKr string = "kagome_kr"
+
+	// NestedPropertyTokenizationKagomeJa captures enum value "kagome_ja"
+	NestedPropertyTokenizationKagomeJa string = "kagome_ja"
 )
 
 // prop value enum

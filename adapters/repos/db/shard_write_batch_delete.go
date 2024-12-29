@@ -24,19 +24,18 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
+	if err := s.isReadOnly(); err != nil {
 		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
+			objects.BatchSimpleObject{Err: err},
 		}
 	}
-	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
+	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 }
 
 type deleteObjectsBatcher struct {
@@ -49,17 +48,19 @@ func newDeleteObjectsBatcher(shard ShardLike) *deleteObjectsBatcher {
 	return &deleteObjectsBatcher{shard: shard}
 }
 
-func (b *deleteObjectsBatcher) Delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
-	b.delete(ctx, uuids, dryRun)
+func (b *deleteObjectsBatcher) Delete(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
+	b.delete(ctx, uuids, deletionTime, dryRun)
 	b.flushWALs(ctx)
 	return b.objects
 }
 
-func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) {
-	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, dryRun)
+func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) {
+	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, deletionTime, dryRun)
 }
 
-func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
+	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
+) objects.BatchSimpleObjects {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
@@ -82,7 +83,7 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 		docID := docID
 		f := func() error {
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, docID, deletionTime, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
@@ -96,11 +97,13 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 	return result
 }
 
-func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context, uuid strfmt.UUID, dryRun bool) objects.BatchSimpleObject {
+func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
+	uuid strfmt.UUID, deletionTime time.Time, dryRun bool,
+) objects.BatchSimpleObject {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 	if !dryRun {
-		err := b.shard.batchDeleteObject(ctx, uuid)
+		err := b.shard.batchDeleteObject(ctx, uuid, deletionTime)
 		return objects.BatchSimpleObject{UUID: uuid, Err: err}
 	}
 
@@ -118,15 +121,15 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 	}
 
 	if b.shard.hasTargetVectors() {
-		for targetVector, vectorIndex := range b.shard.VectorIndexes() {
-			if err := vectorIndex.Flush(); err != nil {
+		for targetVector, queue := range b.shard.Queues() {
+			if err := queue.Flush(); err != nil {
 				for i := range b.objects {
 					b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
 				}
 			}
 		}
 	} else {
-		if err := b.shard.VectorIndex().Flush(); err != nil {
+		if err := b.shard.Queue().Flush(); err != nil {
 			for i := range b.objects {
 				b.setErrorAtIndex(err, i)
 			}
@@ -174,6 +177,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]
 			// TODO: More than likely this will occur due to an object which has already been deleted.
 			//       However, this is not a guarantee. This can be improved by logging, or handling
 			//       errors other than `id not found` rather than skipping them entirely.
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).WithError(err).Debug("failed to find UUID for docID")
 			continue
 		}
 		uuids[currIdx] = uuid

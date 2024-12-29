@@ -69,6 +69,11 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"trainingLimit": float64(100000),
 						"rescoreLimit":  float64(20),
 					},
+					"filterStrategy": "sweeping",
+					"multivector": map[string]interface{}{
+						"enabled":     false,
+						"aggregation": "maxSim",
+					},
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),
@@ -81,8 +86,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"virtualPerPhysical":  float64(128),
 				},
 				"replicationConfig": map[string]interface{}{
-					"asyncEnabled": false,
-					"factor":       float64(1),
+					"asyncEnabled":     false,
+					"factor":           float64(1),
+					"deletionStrategy": "NoAutomatedResolution",
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{

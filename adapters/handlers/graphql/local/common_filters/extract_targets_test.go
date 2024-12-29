@@ -19,7 +19,6 @@ import (
 )
 
 func TestTargetExtraction(t *testing.T) {
-	emptyWeights := make(map[string]float32)
 	cases := []struct {
 		name                  string
 		source                map[string]interface{}
@@ -31,7 +30,7 @@ func TestTargetExtraction(t *testing.T) {
 			name:                  "two target vectors with default",
 			source:                map[string]interface{}{"targets": map[string]interface{}{"targetVectors": []interface{}{"a", "b"}}},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: emptyWeights},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 		},
 		{
 			name: "two target vectors with min",
@@ -42,7 +41,7 @@ func TestTargetExtraction(t *testing.T) {
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: emptyWeights},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 		},
 		{
 			name: "two target vectors with sum",
@@ -53,7 +52,7 @@ func TestTargetExtraction(t *testing.T) {
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Sum, Weights: map[string]float32{"a": 1.0, "b": 1.0}},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1.0, 1.0}},
 		},
 		{
 			name: "two target vectors with average",
@@ -64,7 +63,7 @@ func TestTargetExtraction(t *testing.T) {
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Average, Weights: map[string]float32{"a": 0.5, "b": 0.5}},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Average, Weights: []float32{0.5, 0.5}},
 		},
 		{
 			name: "two target vectors with manual weights",
@@ -72,11 +71,11 @@ func TestTargetExtraction(t *testing.T) {
 				"targets": map[string]interface{}{
 					"targetVectors":     []interface{}{"a", "b"},
 					"combinationMethod": dto.ManualWeights,
-					"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+					"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"a": 0.5, "b": 0.25}},
+			expectCombinationType: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.5, 0.25}},
 		},
 		{
 			name: "two target vectors with relative score",
@@ -84,18 +83,18 @@ func TestTargetExtraction(t *testing.T) {
 				"targets": map[string]interface{}{
 					"targetVectors":     []interface{}{"a", "b"},
 					"combinationMethod": dto.RelativeScore,
-					"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+					"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"a": 0.5, "b": 0.25}},
+			expectCombinationType: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{0.5, 0.25}},
 		},
 		{
 			name: "relative score, weights missmatch",
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": dto.RelativeScore,
-				"weights":           map[string]float64{"a": 0.5},
+				"weights":           map[string]interface{}{"a": 0.5},
 			}},
 			wantErr: true,
 		},
@@ -104,7 +103,7 @@ func TestTargetExtraction(t *testing.T) {
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": dto.ManualWeights,
-				"weights":           map[string]float64{"a": 0.5},
+				"weights":           map[string]interface{}{"a": 0.5},
 			}},
 			wantErr: true,
 		},
@@ -113,7 +112,7 @@ func TestTargetExtraction(t *testing.T) {
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": "wrong",
-				"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+				"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 			}},
 			wantErr: true,
 		},

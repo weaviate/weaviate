@@ -21,8 +21,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -35,7 +38,7 @@ type Manager struct {
 	validator    validator
 	repo         SchemaStore
 	logger       logrus.FieldLogger
-	Authorizer   authorizer
+	Authorizer   authorization.Authorizer
 	config       config.Config
 	clusterState clusterState
 
@@ -48,7 +51,7 @@ type Manager struct {
 	SchemaReader
 }
 
-type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -63,8 +66,8 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantsShards(class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(class string, tenants string) (map[string]string, error)
+	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -77,6 +80,10 @@ type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
+	GetByName(name string) modulecapabilities.Module
+	IsGenerative(string) bool
+	IsReranker(string) bool
+	IsMultiVector(string) bool
 }
 
 // State is a cached copy of the schema that can also be saved into a remote
@@ -168,15 +175,13 @@ type ClassPayload struct {
 }
 
 type clusterState interface {
+	cluster.NodeSelector
 	// Hostnames initializes a broadcast
 	Hostnames() []string
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
-	Candidates() []string
-	LocalName() string
 	NodeCount() int
-	NodeHostname(nodeName string) (string, bool)
 
 	// ClusterHealthScore gets the whole cluster health, the lower number the better
 	ClusterHealthScore() int
@@ -196,11 +201,12 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -208,7 +214,7 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager)
+		moduleConfig, clusterState, scaleoutManager, cloud)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
@@ -224,10 +230,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 // func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
@@ -331,7 +333,7 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
 	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
@@ -339,7 +341,7 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 		return status, err
 	}
 
-	return m.activateTenantIfInactive(class, status)
+	return m.activateTenantIfInactive(ctx, class, status)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -366,7 +368,7 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
 	var foundTenant bool
 	var status string
 	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
@@ -386,7 +388,7 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	if !foundTenant || status != models.TenantActivityStatusHOT {
 		// either no state at all or state does not imply happy path -> delegate to
 		// leader
-		return m.TenantsShards(class, tenant)
+		return m.TenantsShards(ctx, class, tenant)
 	}
 
 	return map[string]string{
@@ -394,11 +396,12 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	}, nil
 }
 
-func (m *Manager) activateTenantIfInactive(class string,
+func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(status)),
+		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
 	for tenant, s := range status {
@@ -413,7 +416,7 @@ func (m *Manager) activateTenantIfInactive(class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(class, req)
+	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

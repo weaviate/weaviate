@@ -72,7 +72,7 @@ func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) 
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster(2).
+		WithWeaviateCluster(3).
 		Start(ctx)
 	return
 }
@@ -83,16 +83,17 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecTransformers().
 		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2VecVoyageAI().
-		WithText2VecPaLM(os.Getenv("PALM_APIKEY")).
+		WithText2VecVoyageAI(os.Getenv("VOYAGEAI_APIKEY")).
+		WithText2VecGoogle(os.Getenv("GOOGLE_APIKEY")).
 		WithText2VecHuggingFace().
 		WithText2VecAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
+		WithGenerativeGoogle(os.Getenv("GOOGLE_APIKEY")).
 		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
-		WithGenerativeAnthropic().
+		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).
+		WithGenerativeFriendliAI(os.Getenv("FRIENDLI_TOKEN")).
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()

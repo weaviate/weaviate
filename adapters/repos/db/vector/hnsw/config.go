@@ -27,24 +27,29 @@ import (
 // Config.UserConfig
 type Config struct {
 	// internal
-	RootPath              string
-	ID                    string
-	MakeCommitLoggerThunk MakeCommitLogger
-	VectorForIDThunk      common.VectorForID[float32]
-	TempVectorForIDThunk  common.TempVectorForID
-	Logger                logrus.FieldLogger
-	DistanceProvider      distancer.Provider
-	PrometheusMetrics     *monitoring.PrometheusMetrics
-	AllocChecker          memwatch.AllocChecker
-	WaitForCachePrefill   bool
+	RootPath                  string
+	ID                        string
+	MakeCommitLoggerThunk     MakeCommitLogger
+	VectorForIDThunk          common.VectorForID[float32]
+	MultiVectorForIDThunk     common.VectorForID[[]float32]
+	TempVectorForIDThunk      common.TempVectorForID[float32]
+	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	Logger                    logrus.FieldLogger
+	DistanceProvider          distancer.Provider
+	PrometheusMetrics         *monitoring.PrometheusMetrics
+	AllocChecker              memwatch.AllocChecker
+	WaitForCachePrefill       bool
+	FlatSearchConcurrency     int
 
 	// metadata for monitoring
 	ShardName string
 	ClassName string
+
+	VisitedListPoolMaxSize int
 }
 
 func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")
@@ -69,16 +74,32 @@ func (c Config) Validate() error {
 	return ec.ToError()
 }
 
-func NewVectorForIDThunk(targetVector string, fn func(ctx context.Context, id uint64, targetVector string) ([]float32, error)) common.VectorForID[float32] {
-	t := common.TargetVectorForID[float32]{
+func NewVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, id uint64, targetVector string) ([]T, error)) common.VectorForID[T] {
+	t := common.TargetVectorForID[T]{
 		TargetVector:     targetVector,
 		VectorForIDThunk: fn,
 	}
 	return t.VectorForID
 }
 
-func NewTempVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error)) common.TempVectorForID {
-	t := common.TargetTempVectorForID{
+func NewMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, id uint64, targetVector string) ([][]float32, error)) common.VectorForID[[]float32] {
+	t := common.TargetVectorForID[[]float32]{
+		TargetVector:     targetVector,
+		VectorForIDThunk: fn,
+	}
+	return t.VectorForID
+}
+
+func NewTempVectorForIDThunk[T float32 | []float32](targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]T, error)) common.TempVectorForID[T] {
+	t := common.TargetTempVectorForID[T]{
+		TargetVector:         targetVector,
+		TempVectorForIDThunk: fn,
+	}
+	return t.TempVectorForID
+}
+
+func NewTempMultiVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([][]float32, error)) common.TempVectorForID[[]float32] {
+	t := common.TargetTempVectorForID[[]float32]{
 		TargetVector:         targetVector,
 		TempVectorForIDThunk: fn,
 	}

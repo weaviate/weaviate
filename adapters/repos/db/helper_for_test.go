@@ -270,7 +270,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
 		shardCreateLocks:      esync.NewKeyLocker(),
-		shardInUseLocks:       esync.NewKeyRWLocker(),
+		scheduler:             repo.scheduler,
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -279,8 +279,11 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
-	err = idx.initAndStoreShard(ctx, shardName, class, nil)
+
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards)
 	require.NoError(t, err)
+
+	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
 }

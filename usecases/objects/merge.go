@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -44,9 +46,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	path := fmt.Sprintf("objects/%s/%s", cls, id)
-	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
-		return &Error{path, StatusForbidden, err}
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	m.metrics.MergeObjectInc()
@@ -54,7 +58,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
-		return &Error{path, StatusInternalServerError, err}
+		return &Error{err.Error(), StatusInternalServerError, err}
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)
@@ -64,6 +68,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		case ErrMultiTenancy:
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
+			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+				m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+				return &Error{"not found", StatusNotFound, err}
+			}
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}
 	}
@@ -133,7 +141,12 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 			Err:  err,
 		}
 	}
+
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
+		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+			return &Error{"not found", StatusNotFound, err}
+		}
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 

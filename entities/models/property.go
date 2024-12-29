@@ -32,20 +32,20 @@ import (
 // swagger:model Property
 type Property struct {
 
-	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
+	// Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.
 	DataType []string `json:"dataType"`
 
 	// Description of the property.
 	Description string `json:"description,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters. This property has no affect on vectorization decisions done by modules
+	// Whether to include this property in the filterable, Roaring Bitmap index. If `false`, this property cannot be used in `where` filters. <br/><br/>Note: Unrelated to vectorization behavior.
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
-	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
+	// (Deprecated). Whether to include this property in the inverted index. If `false`, this property cannot be used in `where` filters, `bm25` or `hybrid` search. <br/><br/>Unrelated to vectorization behavior (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
 	IndexInverted *bool `json:"indexInverted,omitempty"`
 
-	// Optional. TODO roaring-set-range
-	IndexRangeable *bool `json:"indexRangeable,omitempty"`
+	// Whether to include this property in the filterable, range-based Roaring Bitmap index. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.
+	IndexRangeFilters *bool `json:"indexRangeFilters,omitempty"`
 
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
@@ -53,14 +53,14 @@ type Property struct {
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig interface{} `json:"moduleConfig,omitempty"`
 
-	// Name of the property as URI relative to the schema URL.
+	// The name of the property (required). Multiple words should be concatenated in camelCase, e.g. `nameOfAuthor`.
 	Name string `json:"name,omitempty"`
 
 	// The properties of the nested object(s). Applies to object and object[] data types.
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
-	// Enum: [word lowercase whitespace field trigram gse kagome_kr]
+	// Enum: [word lowercase whitespace field trigram gse kagome_kr kagome_ja]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -112,7 +112,7 @@ var propertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr","kagome_ja"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -142,6 +142,9 @@ const (
 
 	// PropertyTokenizationKagomeKr captures enum value "kagome_kr"
 	PropertyTokenizationKagomeKr string = "kagome_kr"
+
+	// PropertyTokenizationKagomeJa captures enum value "kagome_ja"
+	PropertyTokenizationKagomeJa string = "kagome_ja"
 )
 
 // prop value enum

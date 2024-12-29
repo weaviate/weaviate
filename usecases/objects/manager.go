@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -43,7 +44,7 @@ type schemaManager interface {
 	ReadOnlyClass(name string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
+	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
 	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
@@ -73,7 +74,7 @@ type Manager struct {
 	locks             locks
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
-	authorizer        authorizer
+	authorizer        authorization.Authorizer
 	vectorRepo        VectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
@@ -119,14 +120,11 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
-
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
+	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+		vectors models.Vectors, multiVectors models.MultiVectors,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
-	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
+	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
@@ -162,7 +160,7 @@ type ModulesProvider interface {
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorRepo VectorRepo,
+	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 ) *Manager {
 	if allocChecker == nil {
@@ -178,7 +176,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},
 		modulesProvider:   modulesProvider,
-		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, authorizer, logger),
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}

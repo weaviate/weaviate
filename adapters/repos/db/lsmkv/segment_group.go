@@ -20,8 +20,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -36,6 +38,12 @@ type SegmentGroup struct {
 	// operation
 	maintenanceLock sync.RWMutex
 	dir             string
+
+	// flushVsCompactLock is a simple synchronization mechanism between the
+	// compaction and flush cycle. In general, those are independent, however,
+	// there are parts of it that are not. See the comments of the routines
+	// interacting with this lock for more details.
+	flushVsCompactLock sync.Mutex
 
 	strategy string
 
@@ -64,6 +72,11 @@ type SegmentGroup struct {
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
+
+	segmentCleaner     segmentCleaner
+	cleanupInterval    time.Duration
+	lastCleanupCall    time.Time
+	lastCompactionCall time.Time
 }
 
 type sgConfig struct {
@@ -77,6 +90,7 @@ type sgConfig struct {
 	calcCountNetAdditions bool
 	forceCompaction       bool
 	maxSegmentSize        int64
+	cleanupInterval       time.Duration
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -88,6 +102,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		return nil, err
 	}
 
+	now := time.Now()
 	sg := &SegmentGroup{
 		segments:                make([]*segment, len(list)),
 		dir:                     cfg.dir,
@@ -102,7 +117,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
 		maxSegmentSize:          cfg.maxSegmentSize,
+		cleanupInterval:         cfg.cleanupInterval,
 		allocChecker:            allocChecker,
+		lastCompactionCall:      now,
+		lastCleanupCall:         now,
 	}
 
 	segmentIndex := 0
@@ -126,6 +144,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		jointSegments := segmentID(potentialCompactedSegmentFileName)
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+		if len(jointSegmentsIDs) == 1 {
+			// cleanup leftover, to be removed
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
+			}
+			continue
+		}
 
 		if len(jointSegmentsIDs) != 2 {
 			logger.WithField("action", "lsm_segment_init").
@@ -177,7 +203,22 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
-			err = rightSegment.drop()
+			// https://github.com/weaviate/weaviate/pull/6128 introduces the ability
+			// to drop segments delayed by renaming them first and then dropping them
+			// later.
+			//
+			// The existing functionality (previously .drop) was renamed to
+			// .dropImmediately. We are keeping the old behavior in this mainly for
+			// backward compatbility, but also because the motivation behind the
+			// delayed deletion does not apply here:
+			//
+			// The new behavior is meant to split the deletion into two steps, to
+			// reduce the time that an expensive lock – which could block readers -
+			// is held. In this scenario, the segment has not been initialized yet,
+			// so there is no one we could be blocking.
+			//
+			// The total time is the same, so we can also just drop it immediately.
+			err = rightSegment.dropImmediately()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
@@ -206,6 +247,20 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	for _, entry := range list {
+		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
+			// marked for deletion, but never actually deleted. Delete now.
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				// don't abort if the delete fails, we can still continue (albeit
+				// without freeing disk space that should have been freed)
+				sg.logger.WithError(err).WithFields(logrus.Fields{
+					"action": "lsm_segment_init_deleted_previously_marked_files",
+					"file":   entry.Name(),
+				}).Error("failed to delete file already marked for deletion")
+			}
+			continue
+
+		}
+
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
@@ -259,8 +314,15 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		sg.metrics.ObjectCount(sg.count())
 	}
 
+	sc, err := newSegmentCleaner(sg)
+	if err != nil {
+		return nil, err
+	}
+	sg.segmentCleaner = sc
+
+	// TODO AL: use separate cycle callback for cleanup?
 	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactIfLevelsMatch)
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
 }
@@ -299,8 +361,22 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
+
+	sg.segments = append(sg.segments, segment)
+	return nil
+}
+
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
+	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.RLock()
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
+			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
+	}
 	defer sg.maintenanceLock.RUnlock()
 
 	return sg.getWithUpperSegmentBoundary(key, len(sg.segments)-1)
@@ -314,7 +390,15 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := topMostSegment; i >= 0; i-- {
+		beforeSegment := time.Now()
 		v, err := sg.segments[i].get(key)
+		if time.Since(beforeSegment) > 100*time.Millisecond {
+			sg.logger.WithField("duration", time.Since(beforeSegment)).
+				WithField("action", "lsm_segment_group_get_individual_segment").
+				WithError(err).
+				WithField("segment_pos", i).
+				Debug("waited over 100ms to get result from individual segment")
+		}
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
@@ -362,7 +446,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMos
 		return v, nil
 	}
 
-	return nil, nil
+	return nil, lsmkv.NotFound
 }
 
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
@@ -420,29 +504,34 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
+func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segment, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
 	out := make([][]value, len(sg.segments))
+	segments := make([]*segment, len(sg.segments))
 
 	i := 0
 	// start with first and do not exit
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if !errors.Is(err, lsmkv.NotFound) {
+				return nil, nil, err
+			}
+			// inverted segments need to be loaded anyway, even if they don't have
+			// the key, as we need to know if they have tombstones
+			if segment.strategy != segmentindex.StrategyInverted {
 				continue
 			}
-
-			return nil, err
 		}
 
 		out[i] = v
+		segments[i] = segment
 		i++
 	}
 
-	return out[:i], nil
+	return out[:i], segments[:i], nil
 }
 
 func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
@@ -483,6 +572,9 @@ func (sg *SegmentGroup) count() int {
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
+	}
+	if err := sg.segmentCleaner.close(); err != nil {
+		return err
 	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
@@ -536,4 +628,56 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	sg.monitorSegments()
+
+	compact := func() bool {
+		sg.lastCompactionCall = time.Now()
+		compacted, err := sg.compactOnce()
+		if err != nil {
+			sg.logger.WithField("action", "lsm_compaction").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("compaction failed")
+		} else if !compacted {
+			sg.logger.WithField("action", "lsm_compaction").
+				WithField("path", sg.dir).
+				Trace("no segments eligible for compaction")
+		}
+		return compacted
+	}
+	cleanup := func() bool {
+		sg.lastCleanupCall = time.Now()
+		cleaned, err := sg.segmentCleaner.cleanupOnce(shouldAbort)
+		if err != nil {
+			sg.logger.WithField("action", "lsm_cleanup").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("cleanup failed")
+		}
+		return cleaned
+	}
+
+	// alternatively run compaction or cleanup first
+	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
+	//
+	// compaction has the precedence over cleanup, however if cleanup
+	// was not called for over [forceCleanupInterval], force at least one execution
+	// in between compactions.
+	// (ignore if compaction was not called within that time either)
+	forceCleanupInterval := time.Hour * 12
+
+	if time.Since(sg.lastCleanupCall) > forceCleanupInterval && sg.lastCleanupCall.Before(sg.lastCompactionCall) {
+		return cleanup() || compact()
+	}
+	return compact() || cleanup()
+}
+
+func (sg *SegmentGroup) Len() int {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return len(sg.segments)
 }

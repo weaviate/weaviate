@@ -22,11 +22,21 @@ import (
 
 // VObject is a versioned object for detecting replication inconsistencies
 type VObject struct {
+	// ID of the Object.
+	// Format: uuid
+	ID strfmt.UUID `json:"id,omitempty"`
+
+	Deleted bool `json:"deleted"`
+
+	// Timestamp of the last Object update in milliseconds since epoch UTC.
+	LastUpdateTimeUnixMilli int64 `json:"lastUpdateTimeUnixMilli,omitempty"`
+
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
-	Vector  []float32      `json:"vector"`
-	Vectors models.Vectors `json:"vectors"`
+	Vector       []float32           `json:"vector"`
+	Vectors      models.Vectors      `json:"vectors"`
+	MultiVectors models.MultiVectors `json:"multiVectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`
@@ -41,19 +51,25 @@ type VObject struct {
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the model bytes resulting from the underlying call to MarshalBinary
 type vobjectMarshaler struct {
-	StaleUpdateTime int64
-	Version         uint64
-	Vector          []float32
-	Vectors         models.Vectors
-	LatestObject    []byte
+	ID                      strfmt.UUID
+	Deleted                 bool
+	LastUpdateTimeUnixMilli int64
+	StaleUpdateTime         int64
+	Version                 uint64
+	Vector                  []float32
+	Vectors                 models.Vectors
+	LatestObject            []byte
 }
 
 func (vo *VObject) MarshalBinary() ([]byte, error) {
 	b := vobjectMarshaler{
-		StaleUpdateTime: vo.StaleUpdateTime,
-		Vector:          vo.Vector,
-		Vectors:         vo.Vectors,
-		Version:         vo.Version,
+		ID:                      vo.ID,
+		Deleted:                 vo.Deleted,
+		LastUpdateTimeUnixMilli: vo.LastUpdateTimeUnixMilli,
+		StaleUpdateTime:         vo.StaleUpdateTime,
+		Vector:                  vo.Vector,
+		Vectors:                 vo.Vectors,
+		Version:                 vo.Version,
 	}
 	if vo.LatestObject != nil {
 		obj, err := vo.LatestObject.MarshalBinary()
@@ -73,6 +89,10 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	vo.ID = b.ID
+	vo.Deleted = b.Deleted
+	vo.LastUpdateTimeUnixMilli = b.LastUpdateTimeUnixMilli
 	vo.StaleUpdateTime = b.StaleUpdateTime
 	vo.Vector = b.Vector
 	vo.Vectors = b.Vectors
@@ -92,9 +112,10 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 
 // Replica represents a replicated data item
 type Replica struct {
-	ID      strfmt.UUID     `json:"id,omitempty"`
-	Deleted bool            `json:"deleted"`
-	Object  *storobj.Object `json:"object,omitempty"`
+	ID                      strfmt.UUID     `json:"id,omitempty"`
+	Deleted                 bool            `json:"deleted"`
+	Object                  *storobj.Object `json:"object,omitempty"`
+	LastUpdateTimeUnixMilli int64           `json:"lastUpdateTimeUnixMilli"`
 }
 
 // robjectMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
@@ -103,13 +124,18 @@ type Replica struct {
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the storobj bytes resulting from the underlying call to MarshalBinary
 type robjectMarshaler struct {
-	ID      strfmt.UUID
-	Deleted bool
-	Object  []byte
+	ID                      strfmt.UUID
+	Deleted                 bool
+	LastUpdateTimeUnixMilli int64
+	Object                  []byte
 }
 
 func (r *Replica) MarshalBinary() ([]byte, error) {
-	b := robjectMarshaler{ID: r.ID, Deleted: r.Deleted}
+	b := robjectMarshaler{
+		ID:                      r.ID,
+		Deleted:                 r.Deleted,
+		LastUpdateTimeUnixMilli: r.LastUpdateTimeUnixMilli,
+	}
 	if r.Object != nil {
 		obj, err := r.Object.MarshalBinary()
 		if err != nil {
@@ -130,6 +156,7 @@ func (r *Replica) UnmarshalBinary(data []byte) error {
 	}
 	r.ID = b.ID
 	r.Deleted = b.Deleted
+	r.LastUpdateTimeUnixMilli = b.LastUpdateTimeUnixMilli
 
 	if b.Object != nil {
 		var obj storobj.Object
@@ -149,7 +176,11 @@ func (ro Replicas) MarshalBinary() ([]byte, error) {
 	ms := make([]robjectMarshaler, len(ro))
 
 	for i, obj := range ro {
-		m := robjectMarshaler{ID: obj.ID, Deleted: obj.Deleted}
+		m := robjectMarshaler{
+			ID:                      obj.ID,
+			Deleted:                 obj.Deleted,
+			LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnixMilli,
+		}
 		if obj.Object != nil {
 			b, err := obj.Object.MarshalBinary()
 			if err != nil {
@@ -173,7 +204,11 @@ func (ro *Replicas) UnmarshalBinary(data []byte) error {
 
 	reps := make(Replicas, len(ms))
 	for i, m := range ms {
-		rep := Replica{ID: m.ID, Deleted: m.Deleted}
+		rep := Replica{
+			ID:                      m.ID,
+			Deleted:                 m.Deleted,
+			LastUpdateTimeUnixMilli: m.LastUpdateTimeUnixMilli,
+		}
 		if m.Object != nil {
 			var obj storobj.Object
 			err = obj.UnmarshalBinary(m.Object)
@@ -194,5 +229,5 @@ func (r Replica) UpdateTime() int64 {
 	if r.Object != nil {
 		return r.Object.LastUpdateTimeUnix()
 	}
-	return 0
+	return r.LastUpdateTimeUnixMilli
 }

@@ -29,7 +29,7 @@ import (
 )
 
 func (h *hnsw) init(cfg Config) error {
-	h.pools = newPools(h.maximumConnectionsLayerZero)
+	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
 
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
@@ -192,7 +192,7 @@ func (h *hnsw) restoreFromDisk() error {
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
 	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512)
+	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
 
 	return nil
 }
@@ -249,6 +249,11 @@ func (h *hnsw) prefillCache() {
 	f := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
+
+		h.logger.WithFields(logrus.Fields{
+			"action":   "prefill_cache",
+			"duration": 60 * time.Minute,
+		}).Debug("context.WithTimeout")
 
 		var err error
 		if h.compressed.Load() {

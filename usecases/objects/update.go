@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -29,12 +30,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	path := fmt.Sprintf("objects/%s/%s", class, id)
-	if class == "" {
-		path = fmt.Sprintf("objects/%s", id)
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+		return nil, err
 	}
-	err := m.authorizer.Authorize(principal, "update", path)
-	if err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(updates.Class, updates.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -111,7 +110,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, updates.MultiVectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

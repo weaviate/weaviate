@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -57,6 +59,9 @@ type (
 type Finder struct {
 	resolver     *resolver // host names of replicas
 	finderStream           // stream of objects
+	// control the op backoffs in the coordinator's Pull
+	coordinatorPullBackoffInitialInterval time.Duration
+	coordinatorPullBackoffMaxElapsedTime  time.Duration
 }
 
 // NewFinder constructs a new finder instance
@@ -64,18 +69,24 @@ func NewFinder(className string,
 	resolver *resolver,
 	client rClient,
 	l logrus.FieldLogger,
+	coordinatorPullBackoffInitialInterval time.Duration,
+	coordinatorPullBackoffMaxElapsedTime time.Duration,
+	deletionStrategy string,
 ) *Finder {
 	cl := finderClient{client}
 	return &Finder{
 		resolver: resolver,
 		finderStream: finderStream{
 			repairer: repairer{
-				class:  className,
-				client: cl,
-				logger: l,
+				class:            className,
+				deletionStrategy: deletionStrategy,
+				client:           cl,
+				logger:           l,
 			},
 			log: l,
 		},
+		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
+		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
 	}
 }
 
@@ -86,22 +97,32 @@ func (f *Finder) GetOne(ctx context.Context,
 	props search.SelectProperties,
 	adds additional.Properties,
 ) (*storobj.Object, error) {
-	c := newReadCoordinator[findOneReply](f, shard)
+	c := newReadCoordinator[findOneReply](f, shard,
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
+
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
+
 			var x RepairResponse
+
 			if len(xs) == 1 {
 				x = xs[0]
 			}
-			r := objects.Replica{ID: id, Deleted: x.Deleted}
+
+			r := objects.Replica{
+				ID:                      id,
+				Deleted:                 x.Deleted,
+				LastUpdateTimeUnixMilli: x.UpdateTime,
+			}
+
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "")
+	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -109,6 +130,9 @@ func (f *Finder) GetOne(ctx context.Context,
 	result := <-f.readOne(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+			err = objects.NewErrDirtyReadOfDeletedObject(err)
+		}
 	}
 	return result.Value, err
 }
@@ -116,13 +140,14 @@ func (f *Finder) GetOne(ctx context.Context,
 func (f *Finder) FindUUIDs(ctx context.Context,
 	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
 ) (uuids []strfmt.UUID, err error) {
-	c := newReadCoordinator[[]strfmt.UUID](f, shard)
+	c := newReadCoordinator[[]strfmt.UUID](f, shard,
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 
 	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pull(ctx, l, op, "")
+	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -132,6 +157,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 
 	for r := range replyCh {
 		if r.Err != nil {
+			f.logger.WithField("op", "finder.find_uuids").WithError(r.Err).Debug("error in reply channel")
 			continue
 		}
 
@@ -200,16 +226,17 @@ func (f *Finder) Exists(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 ) (bool, error) {
-	c := newReadCoordinator[existReply](f, shard)
+	c := newReadCoordinator[existReply](f, shard,
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "")
+	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -217,6 +244,9 @@ func (f *Finder) Exists(ctx context.Context,
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+			err = objects.NewErrDirtyReadOfDeletedObject(err)
+		}
 	}
 	return result.Value, err
 }
@@ -233,7 +263,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
@@ -244,7 +274,8 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch shardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c         = newReadCoordinator[batchReply](f, batch.Shard)
+		c = newReadCoordinator[batchReply](f, batch.Shard,
+			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
@@ -252,12 +283,12 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -270,14 +301,19 @@ type ShardDifferenceReader struct {
 	RangeReader hashtree.AggregatedHashTreeRangeReader
 }
 
+func (f *Finder) NodeName() string {
+	return f.resolver.NodeName
+}
+
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree,
 ) (replyCh <-chan _Result[*ShardDifferenceReader], hosts []string, err error) {
-	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
+	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName,
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.deletionStrategy)
 
-	sourceHost, ok := f.resolver.NodeHostname(f.resolver.NodeName)
+	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
 	if !ok {
-		return nil, nil, fmt.Errorf("getting host %s", f.resolver.NodeName)
+		return nil, nil, fmt.Errorf("getting host %s", f.NodeName())
 	}
 
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
@@ -321,7 +357,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "")
+	replyCh, state, err := coord.Pull(ctx, One, op, "", 20*time.Second)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}

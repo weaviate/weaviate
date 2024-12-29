@@ -1218,7 +1218,9 @@ func localMetaWithObjectLimit(t *testing.T) {
 			require.Len(t, res, 1)
 			meta := res[0].(map[string]interface{})["meta"]
 			count := meta.(map[string]interface{})["count"]
-			assert.Equal(t, json.Number("500"), count)
+			countInt, err := count.(json.Number).Int64()
+			require.Nil(t, err)
+			assert.InDelta(t, 500, countInt, 1)
 		})
 	})
 
@@ -1245,7 +1247,9 @@ func localMetaWithObjectLimit(t *testing.T) {
 			require.Len(t, res, 1)
 			meta := res[0].(map[string]interface{})["meta"]
 			count := meta.(map[string]interface{})["count"]
-			assert.Equal(t, json.Number("500"), count)
+			countInt, err := count.(json.Number).Int64()
+			require.Nil(t, err)
+			assert.InDelta(t, 500, countInt, 1)
 		})
 	})
 

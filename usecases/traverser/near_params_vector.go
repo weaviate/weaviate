@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -81,7 +82,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className, tenant, targetVector string,
+	moduleParams map[string]interface{}, className, tenant, targetVector string, index int,
 ) ([]float32, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
@@ -95,11 +96,14 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		return nearVector.VectorPerTarget[targetVector], nil
+		if index >= len(nearVector.Vectors) {
+			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
+		}
+		return nearVector.Vectors[index], nil
 	}
 
 	if nearObject != nil {
-		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant)
+		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant, targetVector)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
@@ -194,7 +198,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 ) ([]float32, error) {
 	if v.modulesProvider != nil {
 		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, targetVector, tenant, paramName, paramValue, v.findVector,
+			className, targetVector, tenant, paramName, paramValue, generictypes.FindVectorFn(v.findVector),
 		)
 		if err != nil {
 			return nil, errors.Errorf("vectorize params: %v", err)
@@ -237,6 +241,9 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		} else if len(res.Vectors) > 1 {
 			return nil, "", errors.New("multiple vectors found, specify target vector")
 		}
+	}
+	if len(res.Vector) == 0 {
+		return nil, "", fmt.Errorf("nearObject search-object with id %v has no vector", id)
 	}
 	return res.Vector, targetVector, nil
 }
@@ -294,11 +301,11 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
 ) ([]float32, string, error) {
-	return v.vectorFromNearObjectParams(ctx, "", params, "")
+	return v.vectorFromNearObjectParams(ctx, "", params, "", "")
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
-	className string, params *searchparams.NearObject, tenant string,
+	className string, params *searchparams.NearObject, tenant, targetVector string,
 ) ([]float32, string, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, "", errors.New("empty id and beacon")
@@ -320,8 +327,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		}
 	}
 
-	targetVector := ""
-	if len(params.TargetVectors) >= 1 {
+	if targetVector == "" && len(params.TargetVectors) >= 1 {
 		targetVector = params.TargetVectors[0]
 	}
 
@@ -348,6 +354,9 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 	}
 
 	if hybrid != nil {
+		if hybrid.WithDistance {
+			return additional.DistToCertainty(float64(hybrid.Distance))
+		}
 		if hybrid.NearVectorParams != nil {
 			if hybrid.NearVectorParams.Certainty != 0 {
 				return hybrid.NearVectorParams.Certainty

@@ -22,12 +22,13 @@ import (
 func TestWhereFilter(t *testing.T) {
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, "localhost:8080"))
 	t.Run("Contains Text", testContainsText(t, "localhost:8080"))
+	t.Run("Numerical filters", testNumericalFilters("localhost:8080"))
 }
 
 func TestWhereFilter_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviateCluster(2).
+		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.NoError(t, err)
@@ -39,4 +40,5 @@ func TestWhereFilter_Cluster(t *testing.T) {
 
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, endpoint))
 	t.Run("Contains Text", testContainsText(t, endpoint))
+	t.Run("Numerical filters", testNumericalFilters(endpoint))
 }

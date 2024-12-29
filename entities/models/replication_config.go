@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // ReplicationConfig Configure how replication is executed in a cluster
@@ -28,15 +31,73 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
-	// Enable asynchronous replication
+	// Enable asynchronous replication (default: false).
 	AsyncEnabled bool `json:"asyncEnabled"`
 
-	// Number of times a class is replicated
+	// Conflict resolution strategy for deleted objects.
+	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
+	DeletionStrategy string `json:"deletionStrategy,omitempty"`
+
+	// Number of times a class is replicated (default: 1).
 	Factor int64 `json:"factor,omitempty"`
 }
 
 // Validate validates this replication config
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateDeletionStrategy(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var replicationConfigTypeDeletionStrategyPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","DeleteOnConflict","TimeBasedResolution"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationConfigTypeDeletionStrategyPropEnum = append(replicationConfigTypeDeletionStrategyPropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationConfigDeletionStrategyNoAutomatedResolution captures enum value "NoAutomatedResolution"
+	ReplicationConfigDeletionStrategyNoAutomatedResolution string = "NoAutomatedResolution"
+
+	// ReplicationConfigDeletionStrategyDeleteOnConflict captures enum value "DeleteOnConflict"
+	ReplicationConfigDeletionStrategyDeleteOnConflict string = "DeleteOnConflict"
+
+	// ReplicationConfigDeletionStrategyTimeBasedResolution captures enum value "TimeBasedResolution"
+	ReplicationConfigDeletionStrategyTimeBasedResolution string = "TimeBasedResolution"
+)
+
+// prop value enum
+func (m *ReplicationConfig) validateDeletionStrategyEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationConfigTypeDeletionStrategyPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationConfig) validateDeletionStrategy(formats strfmt.Registry) error {
+	if swag.IsZero(m.DeletionStrategy) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateDeletionStrategyEnum("deletionStrategy", "body", m.DeletionStrategy); err != nil {
+		return err
+	}
+
 	return nil
 }
 

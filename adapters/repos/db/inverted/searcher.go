@@ -77,7 +77,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 // Objects returns a list of full objects
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
+	className schema.ClassName, properties []string,
 ) ([]*storobj.Object, error) {
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
@@ -95,7 +95,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional, limit)
+	return s.objectsByDocID(ctx, it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -108,24 +108,46 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties, limit int,
+func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
+	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
 	}
 
-	out := make([]*storobj.Object, it.Len())
-	docIDBytes := make([]byte, 8)
-
 	// Prevent unbounded iteration
 	if limit == 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
+	outlen := it.Len()
+	if outlen > limit {
+		outlen = limit
+	}
+
+	out := make([]*storobj.Object, outlen)
+	docIDBytes := make([]byte, 8)
+
+	propStrings := make([]string, len(properties))
+	propStringsList := make([][]string, len(properties))
+	for j := range properties {
+		propStrings[j] = properties[j]
+		propStringsList[j] = []string{properties[j]}
+	}
+
+	props := &storobj.PropertyExtraction{
+		PropStrings:     propStrings,
+		PropStringsList: propStringsList,
+	}
 
 	i := 0
+	loop := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		if loop%1000 == 0 && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		loop++
+
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
@@ -140,7 +162,7 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
@@ -191,14 +213,17 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(s, limit); err != nil {
+	if err := pv.fetchDocIDs(ctx, s, limit); err != nil {
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
+	beforeMerge := time.Now()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
 
 	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
 }
@@ -251,9 +276,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	property, err := schema.GetPropertyByName(class, propName)
-	if err != nil {
-		return nil, err
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -914,10 +936,4 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
-}
-
-type docPointerWithScore struct {
-	id         uint64
-	frequency  float32
-	propLength float32
 }

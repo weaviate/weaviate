@@ -1587,7 +1587,7 @@ func TestGRPCReply(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		replier := NewReplier(tt.usesWeaviateStruct, false)
+		replier := NewReplier(tt.usesWeaviateStruct, false, false, fakeGenerativeParams{}, nil)
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
@@ -1609,4 +1609,14 @@ func TestGRPCReply(t *testing.T) {
 			}
 		})
 	}
+}
+
+type fakeGenerativeParams struct{}
+
+func (f fakeGenerativeParams) ProviderName() string {
+	return ""
+}
+
+func (f fakeGenerativeParams) ReturnMetadata() bool {
+	return false
 }

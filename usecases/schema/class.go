@@ -19,7 +19,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/replication"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -39,9 +41,11 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, err
 	}
+	name = schema.UppercaseClassName(name)
+
 	cl := h.schemaReader.ReadOnlyClass(name)
 	return cl, nil
 }
@@ -49,21 +53,24 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 		return nil, 0, err
 	}
+
+	name = schema.UppercaseClassName(name)
+
 	if consistency {
 		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
-	class, _ := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
-	return class, 0, nil
+	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	return class, 0, err
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(names...)...); err != nil {
 		return nil, err
 	}
 
@@ -97,13 +104,24 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
+	cls.Class = schema.UppercaseClassName(cls.Class)
+	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...)
 	if err != nil {
 		return nil, 0, err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(cls.Class)...); err != nil {
+		return nil, 0, err
+	}
 
-	cls.Class = schema.UppercaseClassName(cls.Class)
-	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
+	classGetterWithAuth := func(name string) (*models.Class, error) {
+		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+			return nil, err
+		}
+		return h.schemaReader.ReadOnlyClass(name), nil
+	}
+
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
 		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
@@ -112,9 +130,11 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	h.setClassDefaults(cls)
+	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
+		return nil, 0, err
+	}
 
-	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
+	if err := h.validateCanAddClass(ctx, cls, classGetterWithAuth, false); err != nil {
 		return nil, 0, err
 	}
 	// migrate only after validation in completed
@@ -130,12 +150,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState, cls.ReplicationConfig.Factor,
+		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
-		return nil, 0, fmt.Errorf("init sharding state: %w", err)
+		return nil, 0, errors.Wrap(err, "init sharding state")
 	}
-	version, err := h.schemaManager.AddClass(cls, shardState)
+	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -165,8 +185,16 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	h.setClassDefaults(class)
-	err = h.validateCanAddClass(ctx, class, true)
+	if err := h.setClassDefaults(class, h.config.Replication); err != nil {
+		return err
+	}
+
+	// no validation of reference for restore
+	classGetterWrapper := func(name string) (*models.Class, error) {
+		return h.schemaReader.ReadOnlyClass(name), nil
+	}
+
+	err = h.validateCanAddClass(ctx, class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -184,32 +212,56 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.schemaManager.RestoreClass(class, &shardingState)
+	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
 	return err
 }
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, "delete", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+		return err
+	}
 
-	_, err = h.schemaManager.DeleteClass(class)
+	class = schema.UppercaseClassName(class)
+
+	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...)
 	if err != nil || updated == nil {
 		return err
 	}
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	h.setClassDefaults(updated)
+	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
+		return err
+	}
+
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
+
+	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
+	// used in many different areas of the codebase that may cause BC issues with the
+	// new validation logic. Issue ref: gh-5860
+	// As our testing becomes more comprehensive, we can move these calls into ParseClass
+	if err := h.parser.parseModuleConfig(updated); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := h.parser.parseVectorConfig(updated); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
@@ -245,11 +297,30 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.schemaManager.UpdateClass(updated, shardingState)
+	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
 }
 
-func (h *Handler) setClassDefaults(class *models.Class) {
+func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if err := m.setClassDefaults(class, globalCfg); err != nil {
+		return err
+	}
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:           int64(m.config.Replication.MinimumFactor),
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		}
+		return nil
+	}
+
+	if class.ReplicationConfig.DeletionStrategy == "" {
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
+	}
+	return nil
+}
+
+func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set only when no target vectors configured
 	if !hasTargetVectors(class) {
 		if class.Vectorizer == "" {
@@ -275,10 +346,20 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	}
 
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+	}
+
+	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
+		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
+			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if class.ReplicationConfig.Factor < 1 {
+		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
 
 	h.moduleConfig.SetClassDefaults(class)
+	return nil
 }
 
 func setPropertyDefaults(props ...*models.Property) {
@@ -319,7 +400,7 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
 			prop.IndexSearchable == nil &&
-			prop.IndexRangeable == nil {
+			prop.IndexRangeFilters == nil {
 			continue
 		}
 
@@ -340,8 +421,8 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 				prop.IndexSearchable = &vFalse
 			}
 		}
-		if prop.IndexRangeable == nil {
-			prop.IndexRangeable = &vFalse
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = &vFalse
 		}
 	}
 }
@@ -402,8 +483,8 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 		}
 	}
 
-	if property.IndexRangeable == nil {
-		property.IndexRangeable = &vFalse
+	if property.IndexRangeFilters == nil {
+		property.IndexRangeFilters = &vFalse
 	}
 }
 
@@ -454,7 +535,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
 			prop.IndexSearchable == nil &&
-			prop.IndexRangeable == nil {
+			prop.IndexRangeFilters == nil {
 			prop.IndexFilterable = prop.IndexInverted
 			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 			// string/string[] are already migrated into text/text[], can be skipped here
@@ -463,7 +544,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 			default:
 				prop.IndexSearchable = &vFalse
 			}
-			prop.IndexRangeable = &vFalse
+			prop.IndexRangeFilters = &vFalse
 		}
 		// new options have precedence so inverted can be reset
 		prop.IndexInverted = nil
@@ -472,7 +553,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 
 func (h *Handler) validateProperty(
 	class *models.Class, existingPropertyNames map[string]bool,
-	relaxCrossRefValidation bool, props ...*models.Property,
+	relaxCrossRefValidation bool, classGetterWithAuth func(string) (*models.Class, error), props ...*models.Property,
 ) error {
 	for _, property := range props {
 		if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -484,14 +565,14 @@ func (h *Handler) validateProperty(
 		}
 
 		if existingPropertyNames[strings.ToLower(property.Name)] {
-			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", class.Class, property.Name)
 		}
 
 		// Validate data type of property.
-		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.schemaReader.ReadOnlyClass, property.DataType,
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefsAndAuth(classGetterWithAuth, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
-			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+			return errors.Wrapf(err, "property '%s': invalid dataType: %v", property.Name, property.DataType)
 		}
 
 		if propertyDataType.IsNested() {
@@ -545,7 +626,7 @@ func setInvertedConfigDefaults(class *models.Class) {
 }
 
 func (h *Handler) validateCanAddClass(
-	ctx context.Context, class *models.Class,
+	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidateClassName(class.Class); err != nil {
@@ -554,7 +635,7 @@ func (h *Handler) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := h.validateProperty(class, existingPropertyNames, relaxCrossRefValidation, property); err != nil {
+		if err := h.validateProperty(class, existingPropertyNames, relaxCrossRefValidation, classGetterWithAuth, property); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
@@ -598,13 +679,18 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				models.PropertyTokenizationTrigram:
 				return nil
 			case models.PropertyTokenizationGse:
-				if !configbase.Enabled(os.Getenv("USE_GSE")) && !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:
-				if !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeJa:
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+					return fmt.Errorf("the Japanese tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_JA' to 'true' to enable")
 				}
 				return nil
 			}
@@ -629,8 +715,8 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
-		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeable`")
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeFilters != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeFilters`")
 		}
 	}
 
@@ -650,7 +736,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			}
 		}
 	}
-	if prop.IndexRangeable != nil {
+	if prop.IndexRangeFilters != nil {
 		switch dataType {
 		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
 			// true or false allowed
@@ -658,8 +744,8 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			// not supported (yet?)
 			fallthrough
 		default:
-			if *prop.IndexRangeable {
-				return fmt.Errorf("`indexRangeable` is allowed only for number/int/date data types. " +
+			if *prop.IndexRangeFilters {
+				return fmt.Errorf("`indexRangeFilters` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
 		}
@@ -766,8 +852,13 @@ func validateImmutableFields(initial, updated *models.Class) error {
 		return err
 	}
 
-	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return errors.Errorf("module config is immutable")
+	for k, v := range updated.VectorConfig {
+		if _, ok := initial.VectorConfig[k]; !ok {
+			return fmt.Errorf("vector config is immutable")
+		}
+		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		}
 	}
 
 	return nil

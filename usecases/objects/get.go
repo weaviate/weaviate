@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // GetObject Class from the connected DB
@@ -29,11 +30,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	path := fmt.Sprintf("objects/%s", id)
-	if class != "" {
-		path = fmt.Sprintf("objects/%s/%s", class, id)
-	}
-	err := m.authorizer.Authorize(principal, "get", path)
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +61,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(principal, "list", "objects")
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +80,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
+	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
 	if err != nil {
 		return nil, err
 	}

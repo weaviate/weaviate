@@ -43,9 +43,10 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class  string
-	client finderClient // needed to commit and abort operation
-	logger logrus.FieldLogger
+	class            string
+	deletionStrategy string
+	client           finderClient // needed to commit and abort operation
+	logger           logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -56,25 +57,67 @@ func (r *repairer) repairOne(ctx context.Context,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
-		lastUTime int64
-		winnerIdx int
-		cl        = r.client
+		deleted      bool
+		deletionTime int64
+		lastUTime    int64
+		winnerIdx    int
+		cl           = r.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
-			return nil, errConflictExistOrDeleted
+			deleted = true
+
+			if x.UTime > deletionTime {
+				deletionTime = x.UTime
+			}
 		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
 		}
 	}
+
+	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+		gr := enterrors.NewErrorGroupWrapper(r.logger)
+		for _, vote := range votes {
+			if vote.o.Deleted && vote.UTime == deletionTime {
+				continue
+			}
+
+			vote := vote
+
+			gr.Go(func() error {
+				ups := []*objects.VObject{{
+					ID:                      id,
+					Deleted:                 true,
+					LastUpdateTimeUnixMilli: deletionTime,
+					StaleUpdateTime:         vote.UTime,
+				}}
+				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				if err != nil {
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+				}
+				if len(resp) > 0 && resp[0].Err != "" {
+					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				}
+				return nil
+			})
+		}
+
+		return nil, gr.Wait()
+	}
+
+	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+		return nil, errConflictExistOrDeleted
+	}
+
 	// fetch most recent object
 	updates := votes[contentIdx].o
 	winner := votes[winnerIdx]
+
 	if updates.UpdateTime() != lastUTime {
 		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
-			search.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
@@ -88,21 +131,33 @@ func (r *repairer) repairOne(ctx context.Context,
 		if vote.UTime == lastUTime {
 			continue
 		}
+
 		vote := vote
+
 		gr.Go(func() error {
+			var latestObject *models.Object
+			var vector []float32
 			var vectors models.Vectors
-			if updates.Object.Vectors != nil {
-				vectors = make(models.Vectors, len(updates.Object.Vectors))
-				for i, v := range updates.Object.Vectors {
-					vectors[i] = v
+
+			if !updates.Deleted {
+				latestObject = &updates.Object.Object
+				vector = updates.Object.Vector
+				if updates.Object.Vectors != nil {
+					vectors = make(models.Vectors, len(updates.Object.Vectors))
+					for i, v := range updates.Object.Vectors {
+						vectors[i] = v
+					}
 				}
 			}
 
 			ups := []*objects.VObject{{
-				LatestObject:    &updates.Object.Object,
-				Vector:          updates.Object.Vector,
-				Vectors:         vectors,
-				StaleUpdateTime: vote.UTime,
+				ID:                      updates.ID,
+				Deleted:                 updates.Deleted,
+				LastUpdateTimeUnixMilli: updates.UpdateTime(),
+				LatestObject:            latestObject,
+				Vector:                  vector,
+				Vectors:                 vectors,
+				StaleUpdateTime:         vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
 			if err != nil {
@@ -134,48 +189,106 @@ func (r *repairer) repairExist(ctx context.Context,
 	st rState,
 ) (_ bool, err error) {
 	var (
-		lastUTime int64
-		winnerIdx int
-		cl        = r.client
+		deleted      bool
+		deletionTime int64
+		lastUTime    int64
+		winnerIdx    int
+		cl           = r.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
-			return false, errConflictExistOrDeleted
+			deleted = true
+
+			if x.UTime > deletionTime {
+				deletionTime = x.UTime
+			}
 		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
 		}
 	}
+
+	if deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+		gr := enterrors.NewErrorGroupWrapper(r.logger)
+
+		for _, vote := range votes {
+			if vote.o.Deleted && vote.UTime == deletionTime {
+				continue
+			}
+
+			vote := vote
+
+			gr.Go(func() error {
+				ups := []*objects.VObject{{
+					ID:                      id,
+					Deleted:                 true,
+					LastUpdateTimeUnixMilli: deletionTime,
+					StaleUpdateTime:         vote.UTime,
+				}}
+				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				if err != nil {
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+				}
+				if len(resp) > 0 && resp[0].Err != "" {
+					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				}
+				return nil
+			})
+		}
+
+		return false, gr.Wait()
+	}
+
+	if deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+		return false, errConflictExistOrDeleted
+	}
+
 	// fetch most recent object
 	winner := votes[winnerIdx]
-	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{})
+	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
 	if resp.UpdateTime() != lastUTime {
 		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 	}
+
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
+
 	for _, vote := range votes { // repair
 		if vote.UTime == lastUTime {
 			continue
 		}
+
 		vote := vote
+
 		gr.Go(func() error {
+			var latestObject *models.Object
+			var vector []float32
 			var vectors models.Vectors
-			if resp.Object.Vectors != nil {
-				vectors = make(models.Vectors, len(resp.Object.Vectors))
-				for i, v := range resp.Object.Vectors {
-					vectors[i] = v
+
+			if !resp.Deleted {
+				latestObject = &resp.Object.Object
+				vector = resp.Object.Vector
+				if resp.Object.Vectors != nil {
+					vectors = make(models.Vectors, len(resp.Object.Vectors))
+					for i, v := range resp.Object.Vectors {
+						vectors[i] = v
+					}
 				}
 			}
+
 			ups := []*objects.VObject{{
-				LatestObject:    &resp.Object.Object,
-				Vector:          resp.Object.Vector,
-				Vectors:         vectors,
-				StaleUpdateTime: vote.UTime,
+				ID:                      resp.ID,
+				Deleted:                 resp.Deleted,
+				LastUpdateTimeUnixMilli: resp.UpdateTime(),
+				LatestObject:            latestObject,
+				Vector:                  vector,
+				Vectors:                 vectors,
+				StaleUpdateTime:         vote.UTime,
 			}}
+
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
 			if err != nil {
 				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
@@ -183,9 +296,11 @@ func (r *repairer) repairExist(ctx context.Context,
 			if len(resp) > 0 && resp[0].Err != "" {
 				return fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
 			}
+
 			return nil
 		})
 	}
+
 	return !resp.Deleted, gr.Wait()
 }
 
@@ -198,12 +313,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	contentIdx int,
 ) ([]*storobj.Object, error) {
 	var (
-		result     = make([]*storobj.Object, len(ids)) // final result
-		lastTimes  = make([]iTuple, len(ids))          // most recent times
-		ms         = make([]iTuple, 0, len(ids))       // mismatches
-		nDeletions = 0
-		cl         = r.client
-		nVotes     = len(votes)
+		result            = make([]*storobj.Object, len(ids)) // final result
+		lastTimes         = make([]iTuple, len(ids))          // most recent times
+		lastDeletionTimes = make([]int64, len(ids))           // most recent deletion times
+		ms                = make([]iTuple, 0, len(ids))       // mismatches
+		cl                = r.client
+		nVotes            = len(votes)
 		// The input objects cannot be used for repair because
 		// their attributes might have been filtered out
 		reFetchSet = make(map[int]struct{})
@@ -212,20 +327,27 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	// find most recent objects
 	for i, x := range votes[contentIdx].FullData {
 		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
+		if x.Deleted {
+			lastDeletionTimes[i] = x.UpdateTime()
+		}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
 
 	for i, vote := range votes {
 		if i != contentIdx {
 			for j, x := range vote.DigestData {
-				deleted := lastTimes[j].Deleted || x.Deleted
 				if curTime := lastTimes[j].T; x.UpdateTime > curTime {
+					// input object is not up to date
 					lastTimes[j] = iTuple{S: i, O: j, T: x.UpdateTime}
-					delete(reFetchSet, j) // input object is not up to date
-				} else if x.UpdateTime < curTime {
 					reFetchSet[j] = struct{}{} // we need to fetch this object again
 				}
-				lastTimes[j].Deleted = deleted
+
+				lastTimes[j].Deleted = lastTimes[j].Deleted || x.Deleted
+
+				if x.Deleted && x.UpdateTime > lastDeletionTimes[j] {
+					lastDeletionTimes[j] = x.UpdateTime
+				}
+
 				votes[i].Count[j] = nVotes
 			}
 		}
@@ -233,16 +355,17 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	// find missing content (diff)
 	for i, p := range votes[contentIdx].FullData {
-		if lastTimes[i].Deleted { // conflict
-			nDeletions++
-			result[i] = nil
-			votes[contentIdx].Count[i] = 0
-		} else if _, ok := reFetchSet[i]; ok || (contentIdx != lastTimes[i].S) {
+		if lastTimes[i].Deleted && lastDeletionTimes[i] == lastTimes[i].T {
+			continue
+		}
+
+		if _, ok := reFetchSet[i]; ok {
 			ms = append(ms, lastTimes[i])
 		} else {
 			result[i] = p.Object
 		}
 	}
+
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
 		sort.SliceStable(ms, func(i, j int) bool { return ms[i].S < ms[j].S })
@@ -289,35 +412,88 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	// concurrent repairs
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
+
 	for rid, vote := range votes {
 		query := make([]*objects.VObject, 0, len(ids)/2)
 		m := make(map[string]int, len(ids)/2) //
+
 		for j, x := range lastTimes {
+			if !x.Deleted && result[j] == nil {
+				// latest object could not be fetched
+				continue
+			}
+
+			if x.Deleted && r.deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
+				alreadyDeleted := false
+
+				if rid == contentIdx {
+					alreadyDeleted = vote.batchReply.FullData[j].Deleted
+				} else {
+					alreadyDeleted = vote.batchReply.DigestData[j].Deleted
+				}
+
+				if alreadyDeleted && lastDeletionTimes[j] == vote.UpdateTimeAt(j) {
+					continue
+				}
+
+				obj := objects.VObject{
+					ID:                      ids[j],
+					Deleted:                 true,
+					LastUpdateTimeUnixMilli: lastDeletionTimes[j],
+					StaleUpdateTime:         vote.UpdateTimeAt(j),
+				}
+				query = append(query, &obj)
+				m[string(ids[j])] = j
+
+				continue
+			}
+
+			if x.Deleted && r.deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
+				// note: conflict is not resolved
+				continue
+			}
+
 			cTime := vote.UpdateTimeAt(j)
-			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
+
+			if x.T != cTime && vote.Count[j] == nVotes {
+				var latestObject *models.Object
+				var vector []float32
 				var vectors models.Vectors
-				if result[j].Vectors != nil {
-					vectors = make(models.Vectors, len(result[j].Vectors))
-					for i, v := range result[j].Vectors {
-						vectors[i] = v
+
+				deleted := x.Deleted && lastDeletionTimes[j] == x.T
+
+				if !deleted {
+					latestObject = &result[j].Object
+					vector = result[j].Vector
+					if result[j].Vectors != nil {
+						vectors = make(models.Vectors, len(result[j].Vectors))
+						for i, v := range result[j].Vectors {
+							vectors[i] = v
+						}
 					}
 				}
 
 				obj := objects.VObject{
-					LatestObject:    &result[j].Object,
-					Vector:          result[j].Vector,
-					Vectors:         vectors,
-					StaleUpdateTime: cTime,
+					ID:                      ids[j],
+					Deleted:                 deleted,
+					LastUpdateTimeUnixMilli: x.T,
+					LatestObject:            latestObject,
+					Vector:                  vector,
+					Vectors:                 vectors,
+					StaleUpdateTime:         cTime,
 				}
 				query = append(query, &obj)
-				m[string(result[j].ID())] = j
+				m[string(ids[j])] = j
 			}
 		}
+
 		if len(query) == 0 {
 			continue
 		}
+
 		receiver := vote.Sender
 		rid := rid
+
 		gr.Go(func() error {
 			rs, err := cl.Overwrite(ctx, receiver, r.class, shard, query)
 			if err != nil {

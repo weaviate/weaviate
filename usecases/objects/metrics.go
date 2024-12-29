@@ -24,6 +24,8 @@ type Metrics struct {
 	dimensions         *prometheus.CounterVec
 	dimensionsCombined prometheus.Counter
 	groupClasses       bool
+	batchTenants       prometheus.Summary
+	batchObjects       prometheus.Summary
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -37,6 +39,8 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 		dimensions:         prom.QueryDimensions,
 		dimensionsCombined: prom.QueryDimensionsCombined,
 		groupClasses:       prom.Group,
+		batchTenants:       prom.BatchSizeTenants,
+		batchObjects:       prom.BatchSizeObjects,
 	}
 }
 
@@ -170,6 +174,22 @@ func (m *Metrics) BatchOp(op string, startNs int64) {
 		"class_name": "n/a",
 		"shard_name": "n/a",
 	}).Observe(float64(took))
+}
+
+func (m *Metrics) BatchTenants(tenants int) {
+	if m == nil {
+		return
+	}
+
+	m.batchTenants.Observe(float64(tenants))
+}
+
+func (m *Metrics) BatchObjects(objects int) {
+	if m == nil {
+		return
+	}
+
+	m.batchObjects.Observe(float64(objects))
 }
 
 func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {

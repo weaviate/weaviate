@@ -15,8 +15,8 @@ import (
 	"os"
 	"sync/atomic"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema/config"
@@ -55,6 +55,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "distance",
 			accessor: func(c ent.UserConfig) interface{} { return c.Distance },
+		},
+		{
+			name:     "multivector enabled",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.Enabled },
 		},
 	}
 
@@ -100,6 +104,8 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
+	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
+
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
 		callback()
 		return nil
@@ -124,7 +130,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 }
 
 func asyncEnabled() bool {
-	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) Upgrade(callback func()) error {

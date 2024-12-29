@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -48,7 +49,7 @@ type hnsw struct {
 	tombstoneLock *sync.RWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.Mutex
+	resetLock *sync.RWMutex
 	// indicates whether reset operation occurred or not - if so tombstones cleanup method
 	// is aborted as it makes no sense anymore
 	resetCtx       context.Context
@@ -92,17 +93,22 @@ type hnsw struct {
 	efFactor int64
 
 	// on filtered searches with less than n elements, perform flat search
-	flatSearchCutoff int64
+	flatSearchCutoff      int64
+	flatSearchConcurrency int
 
 	levelNormalizer float64
 
 	nodes []*vertex
 
-	vectorForID          common.VectorForID[float32]
-	TempVectorForIDThunk common.TempVectorForID
-	multiVectorForID     common.MultiVectorForID
-	trackDimensionsOnce  sync.Once
-	dims                 int32
+	vectorForID common.VectorForID[float32]
+	// TODO:colbert
+	// multiVecForID             common.VectorForID[[]float32]
+	TempVectorForIDThunk common.TempVectorForID[float32]
+	// TODO:colbert
+	// TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
+	multiVectorForID    common.MultiVectorForID
+	trackDimensionsOnce sync.Once
+	dims                int32
 
 	cache               cache.Cache[float32]
 	waitForCachePrefill bool
@@ -116,8 +122,6 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	tombstoneCleanupCallbackCtrl cyclemanager.CycleCallbackCtrl
-	shardCompactionCallbacks     cyclemanager.CycleCallbackGroup
-	shardFlushCallbacks          cyclemanager.CycleCallbackGroup
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -159,11 +163,16 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	acornSearch  atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
+	// rescore sequentially, as that would take very long. This setting allows us
+	// to define the rescoring concurrency.
+	rescoreConcurrency int
 
 	compressActionLock *sync.RWMutex
 	className          string
@@ -172,7 +181,15 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	allocChecker memwatch.AllocChecker
+	allocChecker            memwatch.AllocChecker
+	tombstoneCleanupRunning atomic.Bool
+
+	visitedListPoolMaxSize int
+
+	multivector  atomic.Bool
+	docIDVectors map[uint64][]uint64
+	vecIDcounter uint64
+	maxDocID     uint64
 }
 
 type CommitLogger interface {
@@ -210,8 +227,8 @@ type MakeCommitLogger func() (CommitLogger, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
-	shardFlushCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
+func New(cfg Config, uc ent.UserConfig,
+	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -228,9 +245,15 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	var vectorCache cache.Cache[float32]
 
+	if uc.Multivector.Enabled {
+		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	} else {
+		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -240,27 +263,28 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:     1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:      uc.EFConstruction,
-		flatSearchCutoff:    int64(uc.FlatSearchCutoff),
-		nodes:               make([]*vertex, cache.InitialSize),
-		cache:               vectorCache,
-		waitForCachePrefill: cfg.WaitForCachePrefill,
-		vectorForID:         vectorCache.Get,
-		multiVectorForID:    vectorCache.MultiGet,
-		id:                  cfg.ID,
-		rootPath:            cfg.RootPath,
-		tombstones:          map[uint64]struct{}{},
-		logger:              cfg.Logger,
-		distancerProvider:   cfg.DistanceProvider,
-		deleteLock:          &sync.Mutex{},
-		tombstoneLock:       &sync.RWMutex{},
-		resetLock:           &sync.Mutex{},
-		resetCtx:            resetCtx,
-		resetCtxCancel:      resetCtxCancel,
-		shutdownCtx:         shutdownCtx,
-		shutdownCtxCancel:   shutdownCtxCancel,
-		initialInsertOnce:   &sync.Once{},
+		levelNormalizer:       1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:        uc.EFConstruction,
+		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
+		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
+		nodes:                 make([]*vertex, cache.InitialSize),
+		cache:                 vectorCache,
+		waitForCachePrefill:   cfg.WaitForCachePrefill,
+		vectorForID:           vectorCache.Get,
+		multiVectorForID:      vectorCache.MultiGet,
+		id:                    cfg.ID,
+		rootPath:              cfg.RootPath,
+		tombstones:            map[uint64]struct{}{},
+		logger:                cfg.Logger,
+		distancerProvider:     cfg.DistanceProvider,
+		deleteLock:            &sync.Mutex{},
+		tombstoneLock:         &sync.RWMutex{},
+		resetLock:             &sync.RWMutex{},
+		resetCtx:              resetCtx,
+		resetCtxCancel:        resetCtxCancel,
+		shutdownCtx:           shutdownCtx,
+		shutdownCtxCancel:     shutdownCtxCancel,
+		initialInsertOnce:     &sync.Once{},
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -278,19 +302,30 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		pqConfig:             uc.PQ,
 		bqConfig:             uc.BQ,
 		sqConfig:             uc.SQ,
+		rescoreConcurrency:   2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
-		shardCompactionCallbacks: shardCompactionCallbacks,
-		shardFlushCallbacks:      shardFlushCallbacks,
-		store:                    store,
-		allocChecker:             cfg.AllocChecker,
+		store:                  store,
+		allocChecker:           cfg.AllocChecker,
+		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+
+		docIDVectors: make(map[uint64][]uint64),
 	}
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+
+	index.multivector.Store(uc.Multivector.Enabled)
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if !uc.Multivector.Enabled {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -299,6 +334,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		index.cache = nil
 	}
 
+	cfg.MakeCommitLoggerThunk()
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
@@ -413,7 +449,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 
 // }
 
-func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
+func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, targetLevel int,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer,
 ) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
@@ -421,28 +457,25 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		eps := priorityqueue.NewMin[any](1)
 		var dist float32
-		var ok bool
 		var err error
 		if h.compressed.Load() {
-			dist, ok, err = distancer.DistanceToNode(entryPointID)
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				continue
-			}
+			dist, err = distancer.DistanceToNode(entryPointID)
 		} else {
-			dist, ok, err = h.distToNode(distancer, entryPointID, nodeVec)
+			dist, err = h.distToNode(distancer, entryPointID, nodeVec)
+		}
+
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
+			continue
 		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
-		if !ok {
-			continue
-		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVectorWithDistancer(nodeVec, eps, 1, level, nil, distancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, nodeVec, eps, 1, level, nil, distancer)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -464,137 +497,92 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
+func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), a, b)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, false, nil
-			} else {
-				return 0, false, err
-			}
+			return 0, err
 		}
 
-		return dist, true, nil
+		return dist, nil
 	}
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
-	if err != nil {
+	vecA, errA := h.vectorForID(context.Background(), a)
+
+	if errA != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", a)
+		if errors.As(errA, &e) {
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(errA,
+			"could not get vector of object at docID %d", a)
 	}
 
 	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
-	vecB, err := h.vectorForID(context.Background(), b)
-	if err != nil {
+	vecB, errB := h.vectorForID(context.Background(), b)
+
+	if errB != nil {
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", b)
+		if errors.As(errB, &e) {
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(errB,
+			"could not get vector of object at docID %d", b)
 	}
 
 	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32) (float32, bool, error) {
+func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32) (float32, error) {
 	if h.compressed.Load() {
-		dist, _, err := distancer.DistanceToNode(node)
+		dist, err := distancer.DistanceToNode(node)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, false, nil
-			} else {
-				return 0, false, err
-			}
+			return 0, err
 		}
 
-		return dist, true, nil
+		return dist, nil
 	}
 
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
+	var vecA []float32
+	var err error
+	vecA, err = h.vectorForID(context.Background(), node)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", node)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err,
+			"could not get vector of object at docID %d", node)
 	}
 
 	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"got a nil or zero-length vector at docID %d", node)
 	}
 
 	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"got a nil or zero-length vector as search vector")
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
-}
-
-func (h *hnsw) Stats() {
-	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
-
-	perLevelCount := map[int]uint{}
-
-	for _, node := range h.nodes {
-		if node == nil {
-			continue
-		}
-		l := node.level
-		if l == 0 && len(node.connections) == 0 {
-			// filter out allocated space without nodes
-			continue
-		}
-		c, ok := perLevelCount[l]
-		if !ok {
-			perLevelCount[l] = 0
-		}
-
-		perLevelCount[l] = c + 1
-	}
-
-	for level, count := range perLevelCount {
-		fmt.Printf("unique count on level %d: %d\n", level, count)
-	}
 }
 
 func (h *hnsw) isEmpty() bool {
@@ -687,17 +675,50 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
-	defer h.RUnlock()
 	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.shardedNodeLocks.RUnlock(id)
+	h.RUnlock()
 
-	return len(h.nodes) > int(id) && h.nodes[id] != nil
+	return exists && !h.hasTombstone(id)
+}
+
+func (h *hnsw) Iterate(fn func(id uint64) bool) {
+	var id uint64
+
+	for {
+		if h.shutdownCtx.Err() != nil {
+			return
+		}
+		if h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		h.shardedNodeLocks.RLock(id)
+		stop := int(id) >= len(h.nodes)
+		exists := !stop && h.nodes[id] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		h.RUnlock()
+
+		if stop {
+			return
+		}
+
+		if exists && !h.hasTombstone(id) {
+			if !fn(id) {
+				return
+			}
+		}
+
+		id++
+	}
 }
 
 func (h *hnsw) DistancerProvider() distancer.Provider {
@@ -723,12 +744,21 @@ func (h *hnsw) Compressed() bool {
 	return h.compressed.Load()
 }
 
+func (h *hnsw) Multivector() bool {
+	return h.multivector.Load()
+}
+
 func (h *hnsw) Upgraded() bool {
 	return h.Compressed()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) GetKeys(id uint64) (uint64, uint64, error) {
+	docID, relativeID := h.cache.GetKeys(id)
+	return docID, relativeID, nil
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
@@ -738,4 +768,139 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		normalized := make([][]float32, len(vecs))
+		for i, vec := range vecs {
+			normalized[i] = distancer.Normalize(vec)
+		}
+		return normalized
+	}
+	return vecs
+}
+
+func IsHNSWIndex(index any) bool {
+	_, ok := index.(*hnsw)
+	return ok
+}
+
+func AsHNSWIndex(index any) Index {
+	h, _ := index.(*hnsw)
+	return h
+}
+
+// This interface exposes public methods of the HNSW index
+// that are not part of the VectorIndex interface.
+// It is a workaround to avoid circular dependencies.
+type Index interface {
+	CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error
+}
+
+type nodeLevel struct {
+	nodeId uint64
+	level  int
+}
+
+func (h *hnsw) calculateUnreachablePoints() []uint64 {
+	h.RLock()
+	defer h.RUnlock()
+
+	visitedPairs := make(map[nodeLevel]bool)
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
+
+	for len(candidateList) > 0 {
+		currentNode := candidateList[len(candidateList)-1]
+		candidateList = candidateList[:len(candidateList)-1]
+		if !visitedPairs[currentNode] {
+			visitedPairs[currentNode] = true
+			h.shardedNodeLocks.RLock(currentNode.nodeId)
+			node := h.nodes[currentNode.nodeId]
+			if node != nil {
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
+			}
+			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
+		}
+	}
+
+	visitedNodes := make(map[uint64]bool, len(visitedPairs))
+	for k, v := range visitedPairs {
+		if v {
+			visitedNodes[k.nodeId] = true
+		}
+	}
+
+	unvisitedNodes := []uint64{}
+	for i := 0; i < len(h.nodes); i++ {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
+			continue
+		}
+		if !visitedNodes[uint64(i)] {
+			unvisitedNodes = append(unvisitedNodes, id)
+		}
+
+	}
+	return unvisitedNodes
+}
+
+type HnswStats struct {
+	Dimensions         int32        `json:"dimensions"`
+	EntryPointID       uint64       `json:"entryPointID"`
+	DistributionLayers map[int]uint `json:"distributionLayers"`
+	UnreachablePoints  []uint64     `json:"unreachablePoints"`
+	NumTombstones      int          `json:"numTombstones"`
+	CacheSize          int32        `json:"cacheSize"`
+	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+}
+
+func (s *HnswStats) IndexType() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) Stats() (common.IndexStats, error) {
+	h.RLock()
+	defer h.RUnlock()
+	distributionLayers := map[int]uint{}
+
+	for _, node := range h.nodes {
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
+
+			distributionLayers[l] = c + 1
+		}()
+	}
+
+	stats := HnswStats{
+		Dimensions:         h.dims,
+		EntryPointID:       h.entryPointID,
+		DistributionLayers: distributionLayers,
+		UnreachablePoints:  h.calculateUnreachablePoints(),
+		NumTombstones:      len(h.tombstones),
+		CacheSize:          h.cache.Len(),
+		PQConfiguration:    h.pqConfig,
+	}
+
+	return &stats, nil
 }

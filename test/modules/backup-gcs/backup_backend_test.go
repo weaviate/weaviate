@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -34,7 +33,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_GCSBackend_Backup(t *testing.T) {
+func Test_GcsBackend_Start(t *testing.T) {
+	gCSBackend_Backup(t, "", "")
+
+	gCSBackend_Backup(t, "gcsbetestbucketoverride", "gcsbetestBucketPathOverride")
+}
+
+func gCSBackend_Backup(t *testing.T, overrideBucket, overridePath string) {
 	ctx := context.Background()
 	compose, err := docker.New().WithGCS().Start(ctx)
 	if err != nil {
@@ -43,23 +48,25 @@ func Test_GCSBackend_Backup(t *testing.T) {
 
 	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 
-	t.Run("store backup meta", moduleLevelStoreBackupMeta)
-	t.Run("copy objects", moduleLevelCopyObjects)
-	t.Run("copy files", moduleLevelCopyFiles)
+	t.Run("store backup meta", func(t *testing.T) { moduleLevelStoreBackupMeta(t, overrideBucket, overridePath) })
+	t.Run("copy objects", func(t *testing.T) { moduleLevelCopyObjects(t, overrideBucket, overridePath) })
+	t.Run("copy files", func(t *testing.T) { moduleLevelCopyFiles(t, overrideBucket, overridePath) })
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
 	}
 }
 
-func moduleLevelStoreBackupMeta(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath string) {
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if overrideBucket != "" {
+		bucketName = overrideBucket
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	metadataFilename := "backup.json"
@@ -81,12 +88,12 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := gcs.Initialize(testCtx, backupID)
+			err := gcs.Initialize(testCtx, backupID, overrideBucket, overridePath)
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+			meta, err := gcs.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -109,16 +116,21 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
+			err = gcs.PutObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath, b)
 			require.Nil(t, err)
 
-			dest := gcs.HomeDir(backupID)
-			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
-			assert.Equal(t, expected, dest)
+			dest := gcs.HomeDir(backupID, overrideBucket, overridePath)
+			if overridePath == "" {
+				expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
+				assert.Equal(t, expected, dest)
+			} else {
+				expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, overridePath, backupID)
+				assert.Equal(t, expected, dest)
+			}
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename, overrideBucket, overridePath)
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -136,14 +148,16 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	})
 }
 
-func moduleLevelCopyObjects(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if overrideBucket != "" {
+		bucketName = overrideBucket
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"
@@ -164,26 +178,28 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := gcs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
-			meta, err := gcs.GetObject(testCtx, backupID, key)
+			meta, err := gcs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
 	})
 }
 
-func moduleLevelCopyFiles(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
+	testCtx := context.Background()
 
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if overrideBucket != "" {
+		bucketName = overrideBucket
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"
@@ -214,11 +230,10 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := gcs.PutFile(testCtx, backupID, key, srcPath)
+			err := gcs.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents)
 			require.Nil(t, err)
 
-			contents, err := gcs.GetObject(testCtx, backupID, key)
+			contents, err := gcs.GetObject(testCtx, backupID, key, overrideBucket, overridePath)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
@@ -226,7 +241,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			err := gcs.WriteToFile(testCtx, backupID, key, destPath)
+			err := gcs.WriteToFile(testCtx, backupID, key, destPath, overrideBucket, overridePath)
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)

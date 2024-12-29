@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -32,7 +33,7 @@ type IndexAndDistance struct {
 
 func distance(dp distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
-		dist, _, _ := dp.SingleDist(x, y)
+		dist, _ := dp.SingleDist(x, y)
 		return dist
 	}
 }
@@ -96,7 +97,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 
 		distancer := pq.NewDistancer(query)
 		for v := range vectors {
-			d, _, _ := distancer.Distance(encoded[v])
+			d, _ := distancer.Distance(encoded[v])
 			distances[v] = IndexAndDistance{index: uint64(v), distance: d}
 		}
 		sort.Slice(distances, func(a, b int) bool {
@@ -215,4 +216,31 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 			assert.Equal(t, code, uint8(i))
 		}
 	})
+}
+
+func Test_PQDistanceError(t *testing.T) {
+	distanceProvider := distancer.NewL2SquaredProvider()
+
+	cfg := ent.PQConfig{
+		Enabled: true,
+		Encoder: ent.PQEncoder{
+			Type:         ent.PQEncoderTypeKMeans,
+			Distribution: ent.PQEncoderDistributionLogNormal,
+		},
+		Centroids: 256,
+		Segments:  128,
+	}
+
+	q, err := compressionhelpers.NewProductQuantizer(
+		cfg,
+		distanceProvider,
+		128,
+		logger,
+	)
+	require.NoError(t, err)
+
+	_, err = q.DistanceBetweenCompressedVectors(nil, nil)
+	require.Error(t, err)
+	msg := "ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths"
+	assert.EqualError(t, err, msg)
 }

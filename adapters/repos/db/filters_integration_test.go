@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -125,7 +127,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, nil, 0))
 			})
 		}
 	}
@@ -148,7 +150,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, nil, 0))
 			})
 		}
 	}
@@ -1084,7 +1086,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil, nil, 0)
+				}, []float32{0.5}, nil, nil, nil, 0)
 			}
 		}
 	}
@@ -1228,7 +1230,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0))
 			})
 		}
 	})
@@ -1341,6 +1343,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 					ClassName:  class.Class,
 					Pagination: &filters.Pagination{Limit: test.limit},
 					Filters:    test.filter,
+					Properties: search.SelectProperties{{Name: "name"}},
 				}
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)
@@ -1599,7 +1602,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0))
 			})
 		}
 	})
@@ -1629,7 +1632,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("Delete object and filter again", func(t *testing.T) {
-		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "", 0)
+		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, time.Now(), nil, "", 0)
 
 		filterNil := buildFilter("other", true, null, dtBool)
 		paramsNil := dto.GetParams{

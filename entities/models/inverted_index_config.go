@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// InvertedIndexConfig Configure the inverted index built into Weaviate
+// InvertedIndexConfig Configure the inverted index built into Weaviate (default: 60).
 //
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
@@ -35,13 +35,13 @@ type InvertedIndexConfig struct {
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
-	// Index each object with the null state
+	// Index each object with the null state (default: 'false').
 	IndexNullState bool `json:"indexNullState,omitempty"`
 
-	// Index length of properties
+	// Index length of properties (default: 'false').
 	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
 
-	// Index each object by its internal timestamps
+	// Index each object by its internal timestamps (default: 'false').
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 
 	// stopwords

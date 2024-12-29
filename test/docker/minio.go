@@ -23,7 +23,7 @@ import (
 
 const MinIO = "test-minio"
 
-func startMinIO(ctx context.Context, networkName string) (*DockerContainer, error) {
+func startMinIO(ctx context.Context, networkName string, buckets map[string]string) (*DockerContainer, error) {
 	port := nat.Port("9000/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
@@ -52,13 +52,29 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	if err != nil {
 		return nil, err
 	}
+
+	if len(buckets) > 0 {
+		for bName, region := range buckets {
+			if bName == "" {
+				continue
+			}
+			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
+			}
+			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
+			}
+		}
+	}
 	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, port.Port())
-	envSettings["S3_ENDPOINT_URL"] = fmt.Sprintf("http://%s:%s", MinIO, port.Port())
+	envSettings["OFFLOAD_S3_ENDPOINT"] = fmt.Sprintf("http://%s:%s", MinIO, port.Port())
 	envSettings["BACKUP_S3_USE_SSL"] = "false"
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"

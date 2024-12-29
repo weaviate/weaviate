@@ -21,15 +21,16 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -78,11 +79,11 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh              chan job
-	asyncIndexRetryInterval time.Duration
-	shutDownWg              sync.WaitGroup
-	maxNumberGoroutines     int
-	ratePerSecond           atomic.Int64
+	jobQueueCh          chan job
+	scheduler           *queue.Scheduler
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+	ratePerSecond       atomic.Int64
 
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
@@ -101,21 +102,16 @@ func (db *DB) GetConfig() Config {
 	return db.config
 }
 
-func (db *DB) GetIndices() []*Index {
-	out := make([]*Index, 0, len(db.indices))
-	for _, index := range db.indices {
-		out = append(out, index)
-	}
-
-	return out
-}
-
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 	return db.remoteIndex
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
+}
+
+func (db *DB) GetScheduler() *queue.Scheduler {
+	return db.scheduler
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
@@ -141,19 +137,18 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor = memwatch.NewDummyMonitor()
 	}
 	db := &DB{
-		logger:                  logger,
-		config:                  config,
-		indices:                 map[string]*Index{},
-		remoteIndex:             remoteIndex,
-		nodeResolver:            nodeResolver,
-		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:           replicaClient,
-		promMetrics:             promMetrics,
-		shutdown:                make(chan struct{}),
-		asyncIndexRetryInterval: 5 * time.Second,
-		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:       newResourceScanState(),
-		memMonitor:              memMonitor,
+		logger:              logger,
+		config:              config,
+		indices:             map[string]*Index{},
+		remoteIndex:         remoteIndex,
+		nodeResolver:        nodeResolver,
+		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:       replicaClient,
+		promMetrics:         promMetrics,
+		shutdown:            make(chan struct{}),
+		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:   newResourceScanState(),
+		memMonitor:          memMonitor,
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -164,46 +159,54 @@ func New(logger logrus.FieldLogger, config Config,
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			i := i
-			enterrors.GoWrapper(func() { db.worker(i == 0) }, db.logger)
+			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
+		// since queues are created regardless of the async setting, we need to
+		// create a scheduler anyway, but there is no need to start it
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger: logger,
+		})
 	} else {
 		logger.Info("async indexing enabled")
-		w := runtime.GOMAXPROCS(0) - 1
-		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job)
-		for i := 0; i < w; i++ {
-			f := func() {
-				defer db.shutDownWg.Done()
-				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
-			}
-			enterrors.GoWrapper(f, db.logger)
-		}
+
+		db.shutDownWg.Add(1)
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger:  logger,
+			OnClose: db.shutDownWg.Done,
+		})
+
+		db.scheduler.Start()
 	}
 
 	return db, nil
 }
 
 type Config struct {
-	RootPath                  string
-	QueryLimit                int64
-	QueryMaximumResults       int64
-	QueryNestedRefLimit       int64
-	ResourceUsage             config.ResourceUsage
-	MaxImportGoroutinesFactor float64
-	MemtablesFlushDirtyAfter  int
-	MemtablesInitialSizeMB    int
-	MemtablesMaxSizeMB        int
-	MemtablesMinActiveSeconds int
-	MemtablesMaxActiveSeconds int
-	MaxSegmentSize            int64
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	TrackVectorDimensions     bool
-	ServerVersion             string
-	GitHash                   string
-	AvoidMMap                 bool
-	DisableLazyLoadShards     bool
-	Replication               replication.GlobalConfig
+	RootPath                       string
+	QueryLimit                     int64
+	QueryMaximumResults            int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	MaxImportGoroutinesFactor      float64
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	MaxSegmentSize                 int64
+	HNSWMaxLogSize                 int64
+	HNSWWaitForCachePrefill        bool
+	HNSWFlatSearchConcurrency      int
+	VisitedListPoolMaxSize         int
+	TrackVectorDimensions          bool
+	ServerVersion                  string
+	GitHash                        string
+	AvoidMMap                      bool
+	DisableLazyLoadShards          bool
+	ForceFullReplicasSearch        bool
+	Replication                    replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -299,6 +302,14 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	if asyncEnabled() {
+		// shut down the async workers
+		err := db.scheduler.Close()
+		if err != nil {
+			return errors.Wrap(err, "close scheduler")
+		}
+	}
+
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
 	}
@@ -311,11 +322,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
-		// shut down the async workers
-		close(db.jobQueueCh)
-	}
-
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
 	if asyncEnabled() {
@@ -325,7 +331,15 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) worker(first bool) {
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
+}
+
+func (db *DB) batchWorker(first bool) {
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
@@ -341,58 +355,6 @@ func (db *DB) worker(first bool) {
 
 			objectCounter = 0
 			checkTime = time.Now().Add(time.Second)
-		}
-	}
-}
-
-type job struct {
-	object  *storobj.Object
-	status  objectInsertStatus
-	index   int
-	ctx     context.Context
-	batcher *objectsBatcher
-
-	// async only
-	indexer batchIndexer
-	ids     []uint64
-	vectors [][]float32
-	done    func()
-}
-
-func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
-	for job := range ch {
-		stop := func() bool {
-			defer job.done()
-
-			for {
-				err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
-				if err == nil {
-					return false
-				}
-
-				if errors.Is(err, context.Canceled) {
-					logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
-					return true
-				}
-
-				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
-
-				t := time.NewTimer(retryInterval)
-				select {
-				case <-job.ctx.Done():
-					// drain the timer
-					if !t.Stop() {
-						<-t.C
-					}
-
-					return true
-				case <-t.C:
-				}
-			}
-		}()
-
-		if stop {
-			return
 		}
 	}
 }

@@ -15,11 +15,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
-func (m *Memtable) newRoaringSetRangeCursor() roaringsetrange.InnerCursor {
+func (m *Memtable) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	m.RLock()
 	defer m.RUnlock()
 
-	// Since Nodes makes deep copy of memtable bitmaps,
-	// no further memtable's locking in required on cursor's methods
-	return roaringsetrange.NewMemtableCursor(m.roaringSetRange)
+	return roaringsetrange.NewMemtableReader(m.roaringSetRange)
 }

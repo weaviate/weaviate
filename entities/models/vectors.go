@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// Vectors A Multi Vector map of named vectors
+// Vectors A map of named vectors for multi-vector representations.
 //
 // swagger:model Vectors
 type Vectors map[string]Vector

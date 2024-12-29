@@ -16,15 +16,14 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"runtime"
 	"runtime/metrics"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
@@ -187,26 +186,32 @@ func (m *Monitor) obtainCurrentMappings() {
 func getCurrentMappings() int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsCommand()
+		return currentMappingsLinux()
 	default:
 		return 0
 	}
 }
 
-func currentMappingsCommand() int64 {
-	cmd := exec.Command("wc", "-l", fmt.Sprintf("/proc/%s/maps", strconv.Itoa(os.Getpid()))) // print mappings
+// Counts the number of mappings by counting the number of lines within the maps file
+func currentMappingsLinux() int64 {
+	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
 
-	output, err := cmd.Output()
-	if err != nil {
+	var mappings int64
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		mappings++
+	}
+
+	if err := scanner.Err(); err != nil {
 		return 0
 	}
-	outputNoSpaces := strings.TrimSpace(string(output))
-	stringsSplit := strings.Split(outputNoSpaces, " ")
-	mappings, err := strconv.Atoi(stringsSplit[0])
-	if err != nil {
-		return 0
-	}
-	return int64(mappings)
+
+	return mappings
 }
 
 func getMaxMemoryMappings() int64 {
@@ -309,6 +314,15 @@ func EstimateObjectMemory(object *models.Object) int64 {
 	// prevent OOM crashes. Given the fuzziness and async style of the
 	// memtracking somewhat decent estimate should be good enough.
 	return int64(len(object.Vector)*4 + 30)
+}
+
+func EstimateStorObjectMemory(object *storobj.Object) int64 {
+	// Note: The estimation is not super accurate. It assumes that the
+	// memory is mostly used by the vector of float32 + the fixed
+	// overhead. It assumes a fixed overhead of 46 Bytes per object
+	// (30 Bytes from the data field models.Object + 16 Bytes from
+	// remaining data fields of storobj.Object).
+	return int64(len(object.Vector)*4 + 46)
 }
 
 func EstimateObjectDeleteMemory() int64 {

@@ -327,7 +327,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 			params: dto.GetParams{
 				ClassName: "ClassOne",
 				NearVector: &searchparams.NearVector{
-					VectorPerTarget: map[string][]float32{"": {0.8, 0.2, 0.7}},
+					Vectors: [][]float32{{0.8, 0.2, 0.7}},
 				},
 				Sort: []filters.Sort{
 					{Path: []string{"text_prop"}, Order: "asc"},

@@ -13,22 +13,23 @@ package fakes
 
 import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 )
 
 type FakeClusterState struct {
-	hosts       []string
+	cluster.NodeSelector
 	syncIgnored bool
 	skipRepair  bool
 }
 
 func NewFakeClusterState(hosts ...string) *FakeClusterState {
+	if len(hosts) == 0 {
+		hosts = []string{"node-1"}
+	}
+
 	return &FakeClusterState{
-		hosts: func() []string {
-			if len(hosts) == 0 {
-				return []string{"node-1"}
-			}
-			return hosts
-		}(),
+		NodeSelector: mocks.NewMockNodeSelector(hosts...),
 	}
 }
 
@@ -41,15 +42,11 @@ func (f *FakeClusterState) SkipSchemaRepair() bool {
 }
 
 func (f *FakeClusterState) Hostnames() []string {
-	return f.hosts
+	return f.StorageCandidates()
 }
 
 func (f *FakeClusterState) AllNames() []string {
-	return f.hosts
-}
-
-func (f *FakeClusterState) Candidates() []string {
-	return f.hosts
+	return f.StorageCandidates()
 }
 
 func (f *FakeClusterState) LocalName() string {

@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -29,8 +28,22 @@ const (
 )
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	ctx := context.Background()
+
+	multiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		multiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	azureBackupJourneyContainerName := containerName
+	azureBackupJourneyBackupIDCluster := "azure-backup-cluster-multi-tenant"
+	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node-multi-tenant"
+	if override {
+		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-multi-tenant-override"
+		azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node-multi-tenant-override"
+	}
 
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
@@ -47,19 +60,23 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
+		defer func() {
+			require.Nil(t, compose.Terminate(ctx))
+		}()
 
 		t.Log("post-instance env setup")
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
+		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
+
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
-
-		require.Nil(t, compose.Terminate(ctx))
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
@@ -69,21 +86,25 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviateCluster(2).
+			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
+		defer func() {
+			require.Nil(t, compose.Terminate(ctx))
+		}()
 
 		t.Log("post-instance env setup")
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
+		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
+
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, tenantNames, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+				azureBackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
-
-		require.Nil(t, compose.Terminate(ctx))
 	})
 }

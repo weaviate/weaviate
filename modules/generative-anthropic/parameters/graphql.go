@@ -19,10 +19,14 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s settings", name),
+		Description: fmt.Sprintf("%s settings", Name),
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInputObject", prefix, name),
+			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
+				"baseURL": &graphql.InputObjectFieldConfig{
+					Description: "baseURL",
+					Type:        graphql.String,
+				},
 				"model": &graphql.InputObjectFieldConfig{
 					Description: "model",
 					Type:        graphql.String,
@@ -35,17 +39,17 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 					Description: "maxTokens",
 					Type:        graphql.Int,
 				},
-				"topK": &graphql.InputObjectFieldConfig{
-					Description: "topK",
-					Type:        graphql.Int,
+				"stopSequences": &graphql.InputObjectFieldConfig{
+					Description: "stopSequences",
+					Type:        graphql.NewList(graphql.String),
 				},
 				"topP": &graphql.InputObjectFieldConfig{
 					Description: "topP",
 					Type:        graphql.Float,
 				},
-				"stopSequences": &graphql.InputObjectFieldConfig{
-					Description: "stopSequences",
-					Type:        graphql.NewList(graphql.String),
+				"topK": &graphql.InputObjectFieldConfig{
+					Description: "topK",
+					Type:        graphql.Int,
 				},
 			},
 		}),
@@ -55,11 +59,11 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 
 func output(prefix string) *graphql.Field {
 	return &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%s%sFields", prefix, name),
+		Name: fmt.Sprintf("%s%sFields", prefix, Name),
 		Fields: graphql.Fields{
 			"type": &graphql.Field{Type: graphql.String},
 			"error": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sErrorFields", prefix, name),
+				Name: fmt.Sprintf("%s%sErrorFields", prefix, Name),
 				Fields: graphql.Fields{
 					"type":    &graphql.Field{Type: graphql.String},
 					"message": &graphql.Field{Type: graphql.String},
@@ -68,20 +72,20 @@ func output(prefix string) *graphql.Field {
 			"id":   &graphql.Field{Type: graphql.String},
 			"role": &graphql.Field{Type: graphql.String},
 			"content": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sContentFields", prefix, name),
+				Name: fmt.Sprintf("%s%sContentFields", prefix, Name),
 				Fields: graphql.Fields{
 					"type": &graphql.Field{Type: graphql.String},
 					"text": &graphql.Field{Type: graphql.String},
 				},
 			}))},
-			"model":         &graphql.Field{Type: graphql.String},
-			"stop_reason":   &graphql.Field{Type: graphql.String},
-			"stop_sequence": &graphql.Field{Type: graphql.String},
+			"model":        &graphql.Field{Type: graphql.String},
+			"stopReason":   &graphql.Field{Type: graphql.String},
+			"stopSequence": &graphql.Field{Type: graphql.String},
 			"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sUsageFields", prefix, name),
+				Name: fmt.Sprintf("%s%sUsageFields", prefix, Name),
 				Fields: graphql.Fields{
-					"input_tokens":  &graphql.Field{Type: graphql.Int},
-					"output_tokens": &graphql.Field{Type: graphql.Int},
+					"inputTokens":  &graphql.Field{Type: graphql.Int},
+					"outputTokens": &graphql.Field{Type: graphql.Int},
 				},
 			})},
 		},

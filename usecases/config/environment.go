@@ -15,21 +15,27 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
-	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftPort         = 8300
+	DefaultRaftInternalPort = 8301
+	DefaultRaftGRPCMaxSize  = 1024 * 1024 * 1024
+	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
+	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
+	// on a single node cluster.
+	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 )
@@ -38,13 +44,14 @@ const (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "" // to support backward compabitlity. Metric names won't have prefix by default.
 
-		if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -54,33 +61,55 @@ func FromEnv(config *Config) error {
 			// not about classes or shards.
 			config.Monitoring.Group = true
 		}
+
+		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
+			config.Monitoring.MetricsNamespace = val
+		}
+
+		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITOR_CRITICAL_BUCKETS_ONLY")) {
+			config.Monitoring.MonitorCriticalBucketsOnly = true
+		}
 	}
 
-	if configbase.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if configbase.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
-	if configbase.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		config.DisableLazyLoadShards = true
 	}
 
+	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
+		config.ForceFullReplicasSearch = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if configbase.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if configbase.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if entcfg.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if configbase.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if entcfg.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
+	}
+
+	// variable expects string in format:
+	// "Class1:property11,property12;Class2:property21,property22"
+	if v := os.Getenv("REINDEX_INDEXES_AT_STARTUP"); v != "" {
+		asClassesWithProps, err := parseClassNamesWithPropsNames(v)
+		if err != nil {
+			return fmt.Errorf("parse REINDEX_INDEXES_AT_STARTUP as class with props: %w", err)
+		}
+		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
@@ -101,14 +130,14 @@ func FromEnv(config *Config) error {
 		config.Profiling.Port = asInt
 	}
 
-	if configbase.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -133,21 +162,22 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if configbase.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
-			keys := strings.Split(keysString, ",")
+		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(rawKeys, ",")
 			config.Authentication.APIKey.AllowedKeys = keys
 		}
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
-			keys := strings.Split(keysString, ",")
-			config.Authentication.APIKey.Users = keys
+		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			users := strings.Split(rawUsers, ",")
+			config.Authentication.APIKey.Users = users
 		}
+
 	}
 
-	if configbase.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -171,7 +201,21 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	config.Profiling.Disabled = configbase.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+		config.Authorization.Rbac.Enabled = true
+
+		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.Admins = strings.Split(adminsString, ",")
+		}
+
+		viewersString, ok := os.LookupEnv("AUTHORIZATION_VIEWER_USERS")
+		if ok {
+			config.Authorization.Rbac.Viewers = strings.Split(viewersString, ",")
+		}
+	}
+
+	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -192,6 +236,18 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
 	}
 
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
+		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
+		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
+	); err != nil {
+		return err
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SEPARATE_OBJECTS_COMPACTIONS")) {
+		config.Persistence.LSMSeparateObjectsCompactions = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -201,6 +257,23 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = parsed
 	} else {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
+	}
+
+	if err := parseInt(
+		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
+		DefaultHNSWVisitedListPoolSize,
+		func(size int) error { return nil },
+		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"HNSW_FLAT_SEARCH_CONCURRENCY",
+		func(val int) { config.HNSWFlatSearchConcurrency = val },
+		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -269,6 +342,14 @@ func FromEnv(config *Config) error {
 		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
+	if err := parsePositiveInt(
+		"QUERY_CROSS_REFERENCE_DEPTH_LIMIT",
+		func(val int) { config.QueryCrossReferenceDepthLimit = val },
+		DefaultQueryCrossReferenceDepthLimit,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
 		asFloat, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -310,7 +391,7 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
-	if configbase.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
 		config.EnableApiBasedModules = true
 	}
 
@@ -366,6 +447,13 @@ func FromEnv(config *Config) error {
 	}
 
 	if err := parsePositiveInt(
+		"GRPC_MAX_MESSAGE_SIZE",
+		func(val int) { config.GRPC.MaxMsgSize = val },
+		DefaultGRPCMaxMsgSize,
+	); err != nil {
+		return err
+	}
+	if err := parsePositiveInt(
 		"GRPC_PORT",
 		func(val int) { config.GRPC.Port = val },
 		DefaultGRPCPort,
@@ -381,7 +469,7 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	config.DisableGraphQL = configbase.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
@@ -395,13 +483,40 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
+		config.Replication.DeletionStrategy = v
+	}
+
 	config.DisableTelemetry = false
-	if configbase.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
+	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
 	}
 
-	if configbase.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
+	if entcfg.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
 		config.HNSWStartupWaitForVectorCache = true
+	}
+
+	// explicitly reset sentry config
+	sentry.Config = nil
+	config.Sentry, err = sentry.InitSentryConfig()
+	if err != nil {
+		return fmt.Errorf("parse sentry config from env: %w", err)
+	}
+
+	config.MetadataServer.Enabled = false
+	if entcfg.Enabled(os.Getenv("EXPERIMENTAL_METADATA_SERVER_ENABLED")) {
+		config.MetadataServer.Enabled = true
+	}
+	config.MetadataServer.GrpcListenAddress = DefaultMetadataServerGrpcListenAddress
+	if v := os.Getenv("EXPERIMENTAL_METADATA_SERVER_GRPC_LISTEN_ADDRESS"); v != "" {
+		config.MetadataServer.GrpcListenAddress = v
+	}
+	if err := parsePositiveInt(
+		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
+		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
+		DefaultMetadataServerDataEventsChannelCapacity,
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -410,7 +525,7 @@ func FromEnv(config *Config) error {
 func parseRAFTConfig(hostname string) (Raft, error) {
 	// flag.IntVar()
 	cfg := Raft{
-		MetadataOnlyVoters: configbase.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
+		MetadataOnlyVoters: entcfg.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
 	}
 
 	if err := parsePositiveInt(
@@ -500,6 +615,17 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
+	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
+
+	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
+	// docker without a TLD available. However is running in k8s for example you have a TLD available.
+	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
+		cfg.EnableFQDNResolver = true
+	}
+
+	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
+
 	return cfg, nil
 }
 
@@ -578,26 +704,103 @@ func (c *Config) parseMemtableConfig() error {
 	return nil
 }
 
-func parsePositiveInt(varName string, cb func(val int), defaultValue int) error {
-	if v := os.Getenv(varName); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("parse %s as int: %w", varName, err)
-		} else if asInt <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0", varName)
+func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
 		}
+		return nil
+	}, cb)
+}
 
-		cb(asInt)
-	} else {
-		cb(defaultValue)
+func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
+	return parseInt(envName, defaultValue, func(val int) error {
+		if val < 0 {
+			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseInt(envName string, defaultValue int, verify func(val int) error, cb func(val int)) error {
+	var err error
+	asInt := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asInt, err = strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as int: %w", envName, err)
+		}
+		if err = verify(asInt); err != nil {
+			return err
+		}
 	}
 
+	cb(asInt)
 	return nil
 }
 
+// expects "Class1:property11,property12;Class2:property21,property22"
+// returns map[Class][]property
+func parseClassNamesWithPropsNames(v string) (map[string][]string, error) {
+	classNamesWithPropsNames := map[string][]string{}
+
+	regexClass := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
+	regexProp := regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`)
+	uniqueClasses := map[string]struct{}{}
+	var uniqueProps map[string]struct{}
+
+	ec := &errorcompounder.ErrorCompounder{}
+	parts := strings.Split(v, ";")
+	for _, part := range parts {
+		err := func() error {
+			parts2 := strings.Split(part, ":")
+			if len(parts2) != 2 {
+				return fmt.Errorf("invalid class+property setting %q", part)
+			}
+
+			class := parts2[0]
+			if _, ok := uniqueClasses[class]; ok {
+				return fmt.Errorf("class name %q duplicated", class)
+			}
+			if !regexClass.MatchString(class) {
+				return fmt.Errorf("invalid class name %q", class)
+			}
+			uniqueClasses[class] = struct{}{}
+
+			uniqueProps = map[string]struct{}{}
+			props := strings.Split(parts2[1], ",")
+			for _, prop := range props {
+				if _, ok := uniqueProps[prop]; ok {
+					return fmt.Errorf("prop name %q duplicated in class %q", prop, class)
+				}
+				if !regexProp.MatchString(prop) {
+					return fmt.Errorf("invalid prop name %q in class %q", prop, class)
+				}
+				uniqueProps[prop] = struct{}{}
+			}
+
+			classNamesWithPropsNames[class] = props
+			return nil
+		}()
+		ec.Add(err)
+	}
+
+	if err := ec.ToError(); err != nil {
+		return nil, err
+	}
+	if len(classNamesWithPropsNames) > 0 {
+		return classNamesWithPropsNames, nil
+	}
+	return nil, nil
+}
+
 const (
-	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
+	DefaultQueryCrossReferenceDepthLimit = 5
 )
 
 const (
@@ -607,6 +810,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration     = 45
 	DefaultMaxConcurrentGetRequests            = 0
 	DefaultGRPCPort                            = 50051
+	DefaultGRPCMaxMsgSize                      = 10 * 1024 * 1024
 	DefaultMinimumReplicationFactor            = 1
 )
 
@@ -689,7 +893,7 @@ func parseClusterConfig() (cluster.Config, error) {
 	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
 	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
 
-	cfg.Localhost = configbase.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
+	cfg.Localhost = entcfg.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 
@@ -732,9 +936,9 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = configbase.Enabled(
+	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
-	cfg.SkipSchemaSyncRepair = configbase.Enabled(
+	cfg.SkipSchemaSyncRepair = entcfg.Enabled(
 		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
@@ -745,6 +949,28 @@ func parseClusterConfig() (cluster.Config, error) {
 			Username: basicAuthUsername,
 			Password: basicAuthPassword,
 		},
+	}
+
+	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+
+	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
+	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
+	// return an error for all data requests, but will still participate in the raft cluster and
+	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
+	// data requests and you need to start up the node to give it time to "catch up". Note that in
+	// general one should not use the MaintenanceNodes field directly, but since we don't have
+	// access to the State here and the cluster has not yet initialized, we have to set it here.
+
+	// avoid the case where strings.Split creates a slice with only the empty string as I think
+	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
+	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
+	cfg.MaintenanceNodes = []string{}
+	if m := os.Getenv("MAINTENANCE_NODES"); m != "" {
+		for _, node := range strings.Split(m, ",") {
+			if node != "" {
+				cfg.MaintenanceNodes = append(cfg.MaintenanceNodes, node)
+			}
+		}
 	}
 
 	return cfg, nil

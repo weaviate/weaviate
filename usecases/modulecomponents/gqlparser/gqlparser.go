@@ -72,3 +72,10 @@ func GetValueAsBool(f *ast.ObjectField) *bool {
 	}
 	return nil
 }
+
+func GetValueAsBoolOrFalse(f *ast.ObjectField) bool {
+	if asBool := GetValueAsBool(f); asBool != nil {
+		return *asBool
+	}
+	return false
+}

@@ -214,6 +214,10 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 		c.currentTransactionContext = context.Background()
 	} else {
 		ctx, cancel = context.WithTimeout(ctx, ttl)
+		c.logger.WithFields(logrus.Fields{
+			"action":   "reset_tx_expiry",
+			"duration": ttl,
+		}).Debug("context.WithTimeout")
 		c.currentTransactionContext = ctx
 	}
 

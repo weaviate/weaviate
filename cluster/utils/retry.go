@@ -28,3 +28,12 @@ func NewBackoff() backoff.BackOff {
 func ConstantBackoff(maxrtry int, interval time.Duration) backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewConstantBackOff(interval), uint64(maxrtry))
 }
+
+// After MaxElapsedTime the backoff.BackOff returns Stop.
+// It never stops if MaxElapsedTime == 0.
+func NewExponentialBackoff(initialInverval time.Duration, maxElapsedTime time.Duration) backoff.BackOff {
+	eb := backoff.NewExponentialBackOff()
+	eb.InitialInterval = initialInverval
+	eb.MaxElapsedTime = maxElapsedTime
+	return eb
+}

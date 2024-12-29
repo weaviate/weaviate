@@ -26,21 +26,20 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -90,6 +89,7 @@ type Config struct {
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
 	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
@@ -113,6 +113,7 @@ type Config struct {
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -121,10 +122,17 @@ type Config struct {
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
+	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
+
+	// map[className][]propertyName
+	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 }
 
 type moduleProvider interface {
@@ -200,9 +208,10 @@ type Contextionary struct {
 
 // Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port     int    `json:"port" yaml:"port"`
-	CertFile string `json:"certFile" yaml:"certFile"`
-	KeyFile  string `json:"keyFile" yaml:"keyFile"`
+	Port       int    `json:"port" yaml:"port"`
+	CertFile   string `json:"certFile" yaml:"certFile"`
+	KeyFile    string `json:"keyFile" yaml:"keyFile"`
+	MaxMsgSize int    `json:"maxMsgSize" yaml:"maxMsgSize"`
 }
 
 type Profiling struct {
@@ -219,6 +228,8 @@ type Persistence struct {
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
 	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions     bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
 	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
@@ -230,7 +241,29 @@ const DefaultPersistenceDataPath string = "./data"
 // some noise about it. This is technically a breaking change.
 const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 
+// DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0 for backward compatibility.
+// value = 0 means cleanup is turned off.
+const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
+
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+// MetadataServer is experimental.
+type MetadataServer struct {
+	// When enabled startup will include a "metadata server"
+	// for separation of storage/compute Weaviate.
+	Enabled                   bool   `json:"enabled" yaml:"enabled"`
+	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
+	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
+}
+
+const (
+	DefaultMetadataServerGrpcListenAddress         = ":9050"
+	DefaultMetadataServerDataEventsChannelCapacity = 100
+)
+
+const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
+
+const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -288,7 +321,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key "
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -317,6 +350,12 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
+
+	EnableFQDNResolver bool
+	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -376,6 +415,7 @@ func (r *Raft) Validate() error {
 	if r.ConsistencyWaitTimeout <= 0 {
 		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
+
 	return nil
 }
 

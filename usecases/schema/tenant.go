@@ -23,14 +23,17 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)
 
-// tenantsPath is the main path used for authorization
-const tenantsPath = "schema/tenants"
+const (
+	ErrMsgMaxAllowedTenants = "maximum number of tenants allowed to be updated simultaneously is 100. Please reduce the number of tenants in your request and try again"
+)
 
 // AddTenants is used to add new tenants to a class
 // Class must exist and has partitioning enabled
@@ -39,21 +42,21 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(class)...); err != nil {
 		return 0, err
 	}
 
-	validated, err := validateTenants(tenants)
+	validated, err := validateTenants(tenants, true)
 	if err != nil {
 		return 0, err
 	}
 
-	if err = validateActivityStatuses(validated, true); err != nil {
+	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
 	}
 
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -63,10 +66,14 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
-func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
+func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
+	if !allowOverHundred && len(tenants) > 100 {
+		err = uco.NewErrInvalidUserInput(ErrMsgMaxAllowedTenants)
+		return
+	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
 		if !regexTenantName.MatchString(requested.Name) {
@@ -81,9 +88,11 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 			return
 		}
 		_, found := uniq[requested.Name]
-		if !found {
-			uniq[requested.Name] = requested
+		if found {
+			err = uco.NewErrInvalidUserInput("tenant name %s existed multiple times", requested.Name)
+			return
 		}
+		uniq[requested.Name] = requested
 	}
 	validated = make([]*models.Tenant, len(uniq))
 	i := 0
@@ -94,25 +103,43 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 	return
 }
 
-func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
+func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
+	allowEmpty, allowFrozen bool,
+) error {
 	msgs := make([]string, 0, len(tenants))
 
 	for _, tenant := range tenants {
+		tenant.ActivityStatus = convertNewTenantNames(tenant.ActivityStatus)
 		switch status := tenant.ActivityStatus; status {
-		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD, models.TenantActivityStatusFROZEN:
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			continue
+		case models.TenantActivityStatusFROZEN:
+			if mod := h.moduleConfig.GetByName(modsloads3.Name); mod == nil {
+				return fmt.Errorf(
+					"can't offload tenants, because offload-s3 module is not enabled")
+			}
+
+			if allowFrozen && h.cloud != nil {
+				if err := h.cloud.VerifyBucket(ctx); err != nil {
+					return err
+				}
+			}
+
+			if allowFrozen {
+				continue
+			}
 
 		default:
 			if status == "" && allowEmpty {
 				continue
 			}
-			msgs = append(msgs, fmt.Sprintf(
-				"invalid activity status '%s' for tenant %q", status, tenant.Name))
 		}
+		msgs = append(msgs, fmt.Sprintf(
+			"invalid activity status '%s' for tenant %q", tenant.ActivityStatus, tenant.Name))
 	}
 
 	if len(msgs) != 0 {
-		return uco.NewErrInvalidUserInput(strings.Join(msgs, ", "))
+		return uco.NewErrInvalidUserInput("%s", strings.Join(msgs, ", "))
 	}
 	return nil
 }
@@ -123,7 +150,15 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	shardNames := make([]string, len(tenants))
+	for idx := range tenants {
+		shardNames[idx] = tenants[idx].Name
+	}
+
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
+		return nil, err
+	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
 		return nil, err
 	}
 
@@ -132,17 +167,17 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		"tenants": tenants,
 	}).Debug("update tenants status")
 
-	validated, err := validateTenants(tenants)
+	validated, err := validateTenants(tenants, false)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateActivityStatuses(validated, false); err != nil {
+	if err := h.validateActivityStatuses(ctx, validated, false, true); err != nil {
 		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
@@ -150,7 +185,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
 		return nil, err
 	}
 
@@ -160,16 +195,20 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	return uTenants, err
+	return TenantResponsesToTenants(uTenants), err
 }
 
 // DeleteTenants is used to delete tenants of a class.
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	if err := h.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenants...)...); err != nil {
+		return err
+	}
+
 	for i, name := range tenants {
 		if name == "" {
 			return fmt.Errorf("empty tenant name at index %d", i)
@@ -180,7 +219,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
 	return err
 }
 
@@ -188,14 +227,14 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
 		return nil, err
 	}
 	return h.getTenants(class)
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
 		return nil, err
 	}
 
@@ -249,22 +288,22 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
 		return err
 	}
 
-	var tenants []*models.Tenant
+	var tenantResponses []*models.TenantResponse
 	var err error
 	if consistency {
-		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenantResponses, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
-		tenants, err = h.getTenantsByNames(class, []string{tenant})
+		tenantResponses, err = h.getTenantsByNames(class, []string{tenant})
 	}
 	if err != nil {
 		return err
 	}
-	if len(tenants) == 1 {
+	if len(tenantResponses) == 1 {
 		return nil
 	}
 
@@ -278,24 +317,53 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.TenantResponse, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, 0, len(names))
+	ts := make([]*models.TenantResponse, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
-			ts = append(ts, &models.Tenant{
-				Name:           name,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
-			})
+			physical := ss.Physical[name]
+			ts = append(ts, clusterSchema.MakeTenantWithBelongsToNodes(name, schema.ActivityStatus(physical.Status), physical.BelongsToNodes))
 		}
 		return nil
 	}
 	return ts, h.schemaReader.Read(class, f)
+}
+
+// convert the new tenant names (that are only used as input) to the old tenant names that are used throughout the code
+func convertNewTenantNames(status string) string {
+	if status == models.TenantActivityStatusACTIVE {
+		return models.TenantActivityStatusHOT
+	}
+	if status == models.TenantActivityStatusINACTIVE {
+		return models.TenantActivityStatusCOLD
+	}
+	if status == models.TenantActivityStatusOFFLOADED {
+		return models.TenantActivityStatusFROZEN
+	}
+	return status
+}
+
+// tenantResponseToTenant converts a TenantResponse to a Tenant
+func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
+	return &models.Tenant{
+		Name:           tenantResponse.Name,
+		ActivityStatus: tenantResponse.ActivityStatus,
+	}
+}
+
+// TenantResponsesToTenants converts a slice of TenantResponses to a slice of Tenants
+func TenantResponsesToTenants(tenantResponses []*models.TenantResponse) []*models.Tenant {
+	tenants := make([]*models.Tenant, len(tenantResponses))
+	for i, tenantResponse := range tenantResponses {
+		tenants[i] = tenantResponseToTenant(tenantResponse)
+	}
+	return tenants
 }

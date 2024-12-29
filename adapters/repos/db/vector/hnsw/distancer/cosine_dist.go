@@ -19,14 +19,14 @@ type CosineDistance struct {
 	a []float32
 }
 
-func (d *CosineDistance) Distance(b []float32) (float32, bool, error) {
+func (d *CosineDistance) Distance(b []float32) (float32, error) {
 	if len(d.a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(d.a), len(b))
 	}
 
 	dist := 1 - dotProductImplementation(d.a, b)
-	return dist, true, nil
+	return dist, nil
 }
 
 type CosineDistanceProvider struct{}
@@ -35,15 +35,15 @@ func NewCosineDistanceProvider() CosineDistanceProvider {
 	return CosineDistanceProvider{}
 }
 
-func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, bool, error) {
+func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(a), len(b))
 	}
 
 	prod := 1 - dotProductImplementation(a, b)
 
-	return prod, true, nil
+	return prod, nil
 }
 
 func (d CosineDistanceProvider) Type() string {

@@ -20,6 +20,7 @@ import (
 
 type Config struct {
 	ID               string
+	RootPath         string
 	TargetVector     string
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
@@ -27,10 +28,14 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 
 	if c.ID == "" {
 		ec.Addf("id cannot be empty")
+	}
+
+	if c.RootPath == "" {
+		ec.Addf("rootPath cannot be empty")
 	}
 
 	if c.DistanceProvider == nil {

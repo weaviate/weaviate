@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"context"
@@ -49,24 +49,15 @@ func TestGenerativeManyModules_SingleNode(t *testing.T) {
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
 	}
-	googleApiKey := os.Getenv("PALM_APIKEY")
+	googleApiKey := os.Getenv("GOOGLE_APIKEY")
 	if googleApiKey == "" {
-		t.Skip("skipping, PALM_APIKEY environment variable not present")
+		t.Skip("skipping, GOOGLE_APIKEY environment variable not present")
 	}
 	// OpenAI
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
-	if openAIApiKey == "" {
-		t.Skip("skipping, OPENAI_APIKEY environment variable not present")
-	}
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
-	if openAIApiKey == "" {
-		t.Skip("skipping, OPENAI_ORGANIZATION environment variable not present")
-	}
 	// Cohere
 	cohereApiKey := os.Getenv("COHERE_APIKEY")
-	if cohereApiKey == "" {
-		t.Skip("skipping, COHERE_APIKEY environment variable not present")
-	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, accessKey, secretKey, sessionToken,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
@@ -76,8 +67,9 @@ func TestGenerativeManyModules_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
+	ollamaApiEndpoint := compose.GetOllamaGenerative().GetEndpoint("apiEndpoint")
 
-	t.Run("tests", testGenerativeManyModules(endpoint, region, gcpProject))
+	t.Run("tests", testGenerativeManyModules(endpoint, ollamaApiEndpoint, region, gcpProject))
 }
 
 func createSingleNodeEnvironment(ctx context.Context,
@@ -89,7 +81,7 @@ func createSingleNodeEnvironment(ctx context.Context,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
 	).
 		WithWeaviate().
-		WithWeaviateEnv("EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }
@@ -100,11 +92,10 @@ func composeModules(accessKey, secretKey, sessionToken string,
 ) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecTransformers().
-		WithText2VecAWS(accessKey, secretKey, sessionToken).
+		WithGenerativeOllama().
 		WithGenerativeAWS(accessKey, secretKey, sessionToken).
+		WithGenerativeGoogle(googleApiKey).
 		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
-		WithGenerativePaLM(googleApiKey).
-		WithGenerativeCohere(cohereApiKey).
-		WithGenerativeOllama()
+		WithGenerativeCohere(cohereApiKey)
 	return
 }

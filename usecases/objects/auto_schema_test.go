@@ -402,6 +402,51 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			want: []schema.DataType{schema.DataTypeUUIDArray},
 		},
 		{
+			name: "determine mixed string arrays, string first",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"string",
+					"57a8564d089b4cd9be3956681605e0da",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
+			name: "determine mixed string/UUID arrays, string later",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"57a8564d089b4cd9be3956681605e0da",
+					"string",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
+			name: "determine mixed string/date arrays, string later",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"2002-10-02T15:00:00Z",
+					"string",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeTextArray},
+		},
+		{
 			name: "[deprecated string] determine string",
 			fields: fields{
 				config: config.AutoSchema{
@@ -554,7 +599,8 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 
 	var obj *models.Object
@@ -579,7 +625,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -652,7 +699,8 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			DefaultNumber: "int",
 			DefaultDate:   "date",
 		},
-		logger: logger,
+		authorizer: fakeAuthorizer{},
+		logger:     logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -1226,6 +1274,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
+		authorizer: fakeAuthorizer{},
 	}
 
 	for i, tc := range testCases {
@@ -1587,7 +1636,8 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		logger: logger,
+		logger:     logger,
+		authorizer: fakeAuthorizer{},
 	}
 
 	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, object)
@@ -1625,4 +1675,10 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 		assert.Equal(t, pA.DataType, pB.DataType)
 		test_utils.AssertNestedPropsMatch(t, pA.NestedProperties, pB.NestedProperties)
 	}
+}
+
+type fakeAuthorizer struct{}
+
+func (f fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+	return nil
 }

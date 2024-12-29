@@ -31,7 +31,6 @@ func maxTokensPerBatch(cfg moduletools.ClassConfig) int {
 }
 
 func TestBatch(t *testing.T) {
-	client := &fakeBatchClient{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 	cases := []struct {
@@ -70,16 +69,16 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 10"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization from provider: got 43, total limit: 20, remaining: 10")}},
 		{name: "token too long, last item in batch", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 10"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization from provider: got 43, total limit: 20, remaining: 10")}},
 		{name: "skip last item", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "fir test object"}}, // set limit
-			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "second object first batch"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "1. test object"}}, // set limit
+			{Class: "Car", Properties: map[string]interface{}{"test": "1. obj 1. batch"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "2. obj 1. batch"}},
 		}, skip: []bool{false, false, true}},
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 40"}}, // set limit so next two items are in a batch
@@ -95,7 +94,59 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+			client := &fakeBatchClientWithRL[[]float32]{} // has state
+
+			v := NewBatchVectorizer(client, 1*time.Second,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, ReturnsRateLimit: true, HasTokenLimit: true},
+				logger, "test") // avoid waiting for rate limit
+			deadline := time.Now().Add(10 * time.Second)
+			if tt.deadline != 0 {
+				deadline = time.Now().Add(tt.deadline)
+			}
+
+			texts, tokenCounts := generateTokens(tt.objects)
+
+			ctx, cancl := context.WithDeadline(context.Background(), deadline)
+			vecs, errs := v.SubmitBatchAndWait(ctx, cfg, tt.skip, tokenCounts, texts)
+
+			require.Len(t, errs, len(tt.wantErrors))
+			require.Len(t, vecs, len(tt.objects))
+
+			for i := range tt.objects {
+				if tt.wantErrors[i] != nil {
+					require.Equal(t, tt.wantErrors[i], errs[i])
+				} else if tt.skip[i] {
+					require.Nil(t, vecs[i])
+				} else {
+					require.NotNil(t, vecs[i])
+				}
+			}
+			cancl()
+		})
+	}
+}
+
+func TestBatchNoRLreturn(t *testing.T) {
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	logger, _ := test.NewNullLogger()
+	cases := []struct {
+		name       string
+		objects    []*models.Object
+		skip       []bool
+		wantErrors map[int]error
+		deadline   time.Duration
+		resetRate  int
+		tokenLimit int
+	}{
+		{name: "low reset time - dont deadlock", objects: []*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "more tokens than TL"}}}, skip: []bool{false}, resetRate: 0, tokenLimit: 1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeBatchClientWithoutRL[[]float32]{defaultResetRate: tt.resetRate, defaultTPM: tt.tokenLimit} // has state
+
+			v := NewBatchVectorizer(client, 1*time.Second,
+				Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10},
+				logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -124,11 +175,11 @@ func TestBatch(t *testing.T) {
 }
 
 func TestBatchMultiple(t *testing.T) {
-	client := &fakeBatchClient{}
+	client := &fakeBatchClientWithRL[[]float32]{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+	v := NewBatchVectorizer(client, 40*time.Second, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -162,7 +213,7 @@ func TestBatchMultiple(t *testing.T) {
 }
 
 func TestBatchTimeouts(t *testing.T) {
-	client := &fakeBatchClient{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL[[]float32]{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
@@ -183,7 +234,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("BatchTimeouts", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 
@@ -195,7 +246,7 @@ func TestBatchTimeouts(t *testing.T) {
 }
 
 func TestBatchRequestLimit(t *testing.T) {
-	client := &fakeBatchClient{defaultResetRate: 1}
+	client := &fakeBatchClientWithRL[[]float32]{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
 	logger, _ := test.NewNullLogger()
@@ -216,37 +267,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("Test request limit with", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
-
-			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
-			require.Len(t, errs, tt.expectedErrors)
-		})
-	}
-}
-
-func TestBatchMaxTokens(t *testing.T) {
-	client := &fakeBatchClient{defaultResetRate: 1, defaultTPM: 100, defaultRPM: 100}
-	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
-	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
-	logger, _ := test.NewNullLogger()
-
-	objs := []*models.Object{
-		{Class: "Car", Properties: map[string]interface{}{"test": longString}},
-	}
-	skip := []bool{false, false, false, false}
-	texts, tokenCounts := generateTokens(objs)
-
-	cases := []struct {
-		name           string
-		maxTokens      func(cfg moduletools.ClassConfig) int
-		expectedErrors int
-	}{
-		{name: "20", maxTokens: func(cfg moduletools.ClassConfig) int { return 20 }, expectedErrors: 1},
-		{name: "100", maxTokens: func(cfg moduletools.ClassConfig) int { return 100 }, expectedErrors: 0},
-	}
-	for _, tt := range cases {
-		t.Run(fmt.Sprint("Max tokens", tt.name), func(t *testing.T) {
-			v := NewBatchVectorizer(client, time.Second, 2000, tt.maxTokens, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, Settings{MaxObjectsPerBatch: 2000, MaxTokensPerBatch: maxTokensPerBatch, MaxTimePerBatch: 10, HasTokenLimit: true, ReturnsRateLimit: true}, logger, "test") // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)

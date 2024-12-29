@@ -535,6 +535,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
+		Length:             len(value),
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
 		HasRangeableIndex:  HasRangeableIndex(prop),
@@ -602,10 +603,10 @@ func HasFilterableIndex(prop *models.Property) bool {
 func HasRangeableIndex(prop *models.Property) bool {
 	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
-		if prop.IndexRangeable == nil {
+		if prop.IndexRangeFilters == nil {
 			return false
 		}
-		return *prop.IndexRangeable
+		return *prop.IndexRangeFilters
 	default:
 		return false
 	}

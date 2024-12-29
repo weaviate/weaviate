@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # This scripts starts a Weaviate server with the test scheme and waits until weaviate is up and running.
@@ -7,8 +7,10 @@ function build() {
   echo "Pull images..."
   surpress_on_success docker pull golang:1.19-alpine
   echo "Build containers (this will take the longest)..."
-  GIT_HASH=$(git rev-parse --short HEAD)
-  docker compose -f "$1" build --build-arg GITHASH="$GIT_HASH" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  echo_red $1 $2
+  docker compose -f "$1" build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
   echo "Start up docker compose setup..."
 }
 
@@ -45,11 +47,14 @@ surpress_on_success() {
 
 function echo_red() {
   red='\033[0;31m'
-  nc='\033[0m' 
+  nc='\033[0m'
   echo -e "${red}${*}${nc}"
 }
 
 build "$@" docker-compose-test.yml weaviate
+build "$@" docker-compose-auth-test.yml weaviate-auth
 surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+surpress_on_success docker compose -f docker-compose-auth-test.yml up --force-recreate -d weaviate-auth
 
 wait "$@" docker-compose-test.yml
+wait "$@" docker-compose-auth-test.yml

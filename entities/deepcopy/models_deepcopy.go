@@ -36,7 +36,10 @@ func Class(c *models.Class) *models.Class {
 	}
 	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
-		replicationConf = &models.ReplicationConfig{Factor: c.ReplicationConfig.Factor}
+		replicationConf = &models.ReplicationConfig{
+			Factor:           c.ReplicationConfig.Factor,
+			DeletionStrategy: c.ReplicationConfig.DeletionStrategy,
+		}
 	}
 
 	return &models.Class{
@@ -55,14 +58,14 @@ func Class(c *models.Class) *models.Class {
 
 func Prop(p *models.Property) *models.Property {
 	return &models.Property{
-		DataType:        p.DataType,
-		Description:     p.Description,
-		ModuleConfig:    p.ModuleConfig,
-		Name:            p.Name,
-		Tokenization:    p.Tokenization,
-		IndexFilterable: ptrBoolCopy(p.IndexFilterable),
-		IndexSearchable: ptrBoolCopy(p.IndexSearchable),
-		IndexRangeable:  ptrBoolCopy(p.IndexRangeable),
+		DataType:          p.DataType,
+		Description:       p.Description,
+		ModuleConfig:      p.ModuleConfig,
+		Name:              p.Name,
+		Tokenization:      p.Tokenization,
+		IndexFilterable:   ptrBoolCopy(p.IndexFilterable),
+		IndexSearchable:   ptrBoolCopy(p.IndexSearchable),
+		IndexRangeFilters: ptrBoolCopy(p.IndexRangeFilters),
 	}
 }
 

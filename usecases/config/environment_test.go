@@ -271,20 +271,22 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
-				Hostname:       hostname,
-				GossipBindPort: 7100,
-				DataBindPort:   7101,
-				AdvertiseAddr:  "193.0.0.1",
-				AdvertisePort:  9999,
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7101,
+				AdvertiseAddr:    "193.0.0.1",
+				AdvertisePort:    9999,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
 			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
-				Hostname:       hostname,
-				GossipBindPort: DefaultGossipBindPort,
-				DataBindPort:   DefaultGossipBindPort + 1,
-				AdvertiseAddr:  "",
+				Hostname:         hostname,
+				GossipBindPort:   DefaultGossipBindPort,
+				DataBindPort:     DefaultGossipBindPort + 1,
+				AdvertiseAddr:    "",
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -293,9 +295,10 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
-				Hostname:       hostname,
-				GossipBindPort: 7777,
-				DataBindPort:   7778,
+				Hostname:         hostname,
+				GossipBindPort:   7777,
+				DataBindPort:     7778,
+				MaintenanceNodes: make([]string, 0),
 			},
 		},
 		{
@@ -325,6 +328,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				GossipBindPort:          7946,
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
+				MaintenanceNodes:        make([]string, 0),
 			},
 		},
 	}
@@ -802,6 +806,64 @@ func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.HNSWStartupWaitForVectorCache)
+			}
+		})
+	}
+}
+
+func TestEnvironmentHNSWVisitedListPoolMaxSize(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"3"}, 3, false},
+		{"not given", []string{}, DefaultHNSWVisitedListPoolSize, false},
+		{"valid negative", []string{"-1"}, -1, false},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_VISITED_LIST_POOL_MAX_SIZE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWVisitedListPoolMaxSize)
+			}
+		})
+	}
+}
+
+func TestEnvironmentHNSWFlatSearchConcurrency(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"3"}, 3, false},
+		{"not given", []string{}, DefaultHNSWFlatSearchConcurrency, false},
+		{"valid negative", []string{"-1"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_FLAT_SEARCH_CONCURRENCY", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWFlatSearchConcurrency)
 			}
 		})
 	}

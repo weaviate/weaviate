@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sync"
 
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,13 +40,12 @@ const serviceConfig = `
 				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "5s",
+				"MaxBackoff": "15s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
 					"INTERNAL",
-					"UNAVAILABLE",
-					"NOT_FOUND"
+					"UNAVAILABLE"
 				]
 			}
 		}
@@ -73,11 +74,17 @@ type Client struct {
 	// change we store that setting to re-use it. We set a custom limit to ensure that big queries that would exceed the
 	// default maximum can still get through
 	rpcMessageMaxSize int
+
+	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
+	sentryEnabled bool
+
+	// logger is the logger to log client warns etc.
+	logger *logrus.Logger
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
-func NewClient(r rpcAddressResolver, rpcMessageMaxSize int) *Client {
-	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize}
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, logger *logrus.Logger) *Client {
+	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize, sentryEnabled: sentryEnabled, logger: logger}
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -85,12 +92,12 @@ func NewClient(r rpcAddressResolver, rpcMessageMaxSize int) *Client {
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if joining the node fails
 func (cl *Client) Join(ctx context.Context, leaderRaftAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	conn, err := cl.getConn(leaderRaftAddr)
+	conn, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
-	c := cmd.NewClusterServiceClient(conn)
-	return c.JoinPeer(ctx, req)
+
+	return cmd.NewClusterServiceClient(conn).JoinPeer(ctx, req)
 }
 
 // Notify will contact the node at remoteAddr using the configured resolver and notify it of it's readiness to join a
@@ -111,43 +118,38 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
-	c := cmd.NewClusterServiceClient(conn)
-	return c.NotifyPeer(ctx, req)
+
+	return cmd.NewClusterServiceClient(conn).NotifyPeer(ctx, req)
 }
 
 // Remove will contact the node at leaderRaftAddr and remove the client node from the RAFT cluster using req
 // Returns the server response to the remove request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	conn, err := cl.getConn(leaderRaftAddr)
+	conn, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
-	c := cmd.NewClusterServiceClient(conn)
-	return c.RemovePeer(ctx, req)
+
+	return cmd.NewClusterServiceClient(conn).RemovePeer(ctx, req)
 }
 
 // Apply will contact the node at leaderRaftAddr and send req to be applied in the RAFT store
-// It does not take a context and will instead use a background context to ensure that request to apply a change isn't
-// cancelled by a context exiting early/timeouting/failing.
-// TODO: Check here if we want to keep the context in background or accept a callee context.
 // Returns the server response to the apply request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the apply command fails
-func (cl *Client) Apply(leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	ctx := context.Background()
-	conn, err := cl.getConn(leaderRaftAddr)
+func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	conn, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	c := cmd.NewClusterServiceClient(conn)
-	return c.Apply(ctx, req)
+	return cmd.NewClusterServiceClient(conn).Apply(ctx, req)
 }
 
 // Query will contact the node at leaderRaftAddr and send req to read data in the RAFT store
@@ -155,28 +157,35 @@ func (cl *Client) Apply(leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.Appl
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the query command fails
 func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	conn, err := cl.getConn(leaderRaftAddr)
+	conn, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	c := cmd.NewClusterServiceClient(conn)
-	return c.Query(ctx, req)
+	return cmd.NewClusterServiceClient(conn).Query(ctx, req)
 }
 
-// Close the client and allocated ressources
-func (cl *Client) Close() error {
-	if cl.leaderRpcConn != nil {
-		return cl.leaderRpcConn.Close()
+// Close the client and allocated resources
+func (cl *Client) Close() {
+	if cl.leaderRpcConn == nil {
+		return
 	}
-	return nil
+
+	if err := cl.leaderRpcConn.Close(); err != nil {
+		cl.logger.WithFields(
+			logrus.Fields{
+				"error":       err,
+				"leader_addr": cl.leaderRaftAddr,
+			},
+		).Warn("error closing the leader gRPC connection")
+	}
 }
 
 // getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
 // leaderRaftAddr and close the old one
 // Returns the gRPC client connection to leaderRaftAddr
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
-func (cl *Client) getConn(leaderRaftAddr string) (*grpc.ClientConn, error) {
+func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.ClientConn, error) {
 	cl.connLock.Lock()
 	defer cl.connLock.Unlock()
 
@@ -185,8 +194,15 @@ func (cl *Client) getConn(leaderRaftAddr string) (*grpc.ClientConn, error) {
 	}
 
 	if cl.leaderRpcConn != nil {
-		// close open conn if leader addr changed
-		cl.leaderRpcConn.Close()
+		if err := cl.leaderRpcConn.Close(); err != nil {
+			cl.logger.WithFields(
+				logrus.Fields{
+					"error":                  err,
+					"closing_on_leader_addr": cl.leaderRaftAddr,
+					"new_leader_addr":        leaderRaftAddr,
+				},
+			).Warn("error closing the leader gRPC connection")
+		}
 	}
 
 	addr, err := cl.addrResolver.Address(leaderRaftAddr)
@@ -194,12 +210,17 @@ func (cl *Client) getConn(leaderRaftAddr string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	cl.leaderRpcConn, err = grpc.Dial(
-		addr,
+	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
-	)
+	}
+
+	if cl.sentryEnabled {
+		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
+	}
+
+	cl.leaderRpcConn, err = grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}

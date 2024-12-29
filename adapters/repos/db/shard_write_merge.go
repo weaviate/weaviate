@@ -19,15 +19,16 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+var errObjectNotFound = errors.New("object not found")
+
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
 
 	if s.hasTargetVectors() {
@@ -74,17 +75,17 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range obj.Vectors {
-			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
 	} else {
-		if err := s.updateVectorIndex(obj.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(obj, status); err != nil {
+	if err := s.updatePropertySpecificIndices(ctx, obj, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
@@ -119,6 +120,10 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
+		}
+
+		if prevObj == nil {
+			return errObjectNotFound
 		}
 
 		obj, _, err = s.mergeObjectData(prevObj, merge)
@@ -240,6 +245,7 @@ func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
 	if prevObj == nil {
+		s.index.logger.WithField("id", merge.ID).Error("resurrecting a zombie object")
 		// DocID must be overwritten after status check, simply set to initial
 		// value
 		prevObj = storobj.New(0)

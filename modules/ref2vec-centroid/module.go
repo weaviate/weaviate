@@ -60,13 +60,16 @@ func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 	findRefVecsFn modulecapabilities.FindObjectFn,
 ) ([]float32, error) {
-	vzr := vectorizer.New(cfg, findRefVecsFn)
+	vzr, err := vectorizer.New(cfg, findRefVecsFn)
+	if err != nil {
+		return nil, err
+	}
 	return vzr.Object(ctx, obj)
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.ReferenceVectorizer(New())
+	_ = modulecapabilities.ReferenceVectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 )

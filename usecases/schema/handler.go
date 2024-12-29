@@ -21,9 +21,11 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -37,27 +39,28 @@ var ErrNotFound = errors.New("not found")
 // For local schema lookup where eventual consistency is acceptable, see [SchemaReader].
 type SchemaManager interface {
 	// Schema writes operation.
-	AddClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	DeleteClass(name string) (uint64, error)
-	AddProperty(class string, p ...*models.Property) (uint64, error)
-	UpdateShardStatus(class, shard, status string) (uint64, error)
-	AddTenants(class string, req *command.AddTenantsRequest) (uint64, error)
-	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)
-	DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error)
+	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	DeleteClass(ctx context.Context, name string) (uint64, error)
+	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
+	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
+	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
+	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
+	DeleteTenants(ctx context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
+	StorageCandidates() []string
 	StoreSchemaV1() error
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
+	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -111,10 +114,12 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
+	cloud modulecapabilities.OffloadCloud
+
 	validator validator
 
 	logger                  logrus.FieldLogger
-	Authorizer              authorizer
+	Authorizer              authorization.Authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -130,17 +135,18 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
+		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator, modules: moduleConfig},
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,
@@ -150,6 +156,7 @@ func NewHandler(
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
+		cloud:                   cloud,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
@@ -159,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -169,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return schema.Schema{}, err
 	}
 
@@ -209,24 +216,23 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", class, shard))
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return 0, err
 	}
 
-	return h.schemaManager.UpdateShardStatus(class, shard, status)
+	return h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class, tenant string,
+	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, tenant)
+	return h.schemaReader.GetShardsStatus(class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

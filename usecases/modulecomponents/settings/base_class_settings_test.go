@@ -54,7 +54,7 @@ func Test_BaseClassSettings(t *testing.T) {
 	}
 
 	cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
-	ic := NewBaseClassSettings(cfg)
+	ic := NewBaseClassSettings(cfg, false)
 
 	assert.True(t, ic.PropertyIndexed(propertyToIndex))
 	assert.True(t, ic.VectorizePropertyName(propertyToIndex))
@@ -149,7 +149,7 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			class := getClass(tt.settings)
 			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
-			s := NewBaseClassSettings(cfg)
+			s := NewBaseClassSettings(cfg, false)
 			err := s.ValidateClassSettings()
 			if tt.wantErr != nil {
 				require.Error(t, err)

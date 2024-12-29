@@ -15,12 +15,13 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sort"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -94,54 +95,25 @@ func (f *fakeShardingState) CopyShardingState(class string) *sharding.State {
 	return &state
 }
 
-// func newShardingState(nShard, rf int, localNode string) fakeShardingState {
-// 	m := make(map[string][]string)
-// 	for i := 0; i < nShard; i++ {
-// 		replicas := make([]string, rf)
-// 		for j := 0; j < rf; j++ {
-// 			replicas[j] = "N" + strconv.Itoa(j+1)
-// 		}
-// 		m["S"+strconv.Itoa(i+1)] = replicas
-// 	}
-// 	return fakeShardingState{M: m, LocalNode: localNode}
-// }
-
 // node resolver
 type fakeNodeResolver struct {
+	cluster.NodeSelector
 	NodeName string
 	M        map[string]string
 }
 
 func newFakeNodeResolver(localNode string, nodeHostMap map[string]string) *fakeNodeResolver {
-	return &fakeNodeResolver{NodeName: localNode, M: nodeHostMap}
-}
-
-func (r *fakeNodeResolver) AllHostnames() []string {
-	hosts := make([]string, 0, len(r.M))
-
-	for _, h := range r.M {
-		hosts = append(hosts, h)
+	var names []string
+	for name := range nodeHostMap {
+		names = append(names, name)
 	}
-
-	return hosts
+	return &fakeNodeResolver{NodeName: localNode, M: nodeHostMap, NodeSelector: mocks.NewMockNodeSelector(names...)}
 }
 
+// NodeHostname needed to override the common cluster.NodeSelector
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	host, ok := r.M[nodeName]
 	return host, ok
-}
-
-func (r *fakeNodeResolver) Candidates() []string {
-	xs := make([]string, 0, len(r.M))
-	for k := range r.M {
-		xs = append(xs, k)
-	}
-	sort.Strings(xs)
-	return xs
-}
-
-func (r *fakeNodeResolver) LocalName() string {
-	return r.NodeName
 }
 
 type fakeSource struct {

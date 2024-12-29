@@ -68,11 +68,10 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map
 }
 
 func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := a.getParameters(cfg, options)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
-	anthropicURL, err := a.getAnthropicURL(ctx, settings.BaseURL())
+	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
@@ -127,7 +126,7 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	var resBody generateResponse
 
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if res.StatusCode != 200 && resBody.Type == "error" {
@@ -150,21 +149,23 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 		params = p
 	}
 
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
 	if params.Model == "" {
-		model := settings.Model()
-		params.Model = model
+		params.Model = settings.Model()
 	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature()
 		params.Temperature = &temperature
 	}
 	if params.TopK == nil {
-		k := settings.K()
-		params.TopK = &k
+		topK := settings.TopK()
+		params.TopK = &topK
 	}
 	if params.TopP == nil {
-		p := settings.P()
-		params.TopP = &p
+		topP := settings.TopP()
+		params.TopP = &topP
 	}
 	if len(params.StopSequences) == 0 {
 		params.StopSequences = settings.StopSequences()
@@ -187,7 +188,16 @@ func (a *anthropic) getDebugInformation(debug bool, prompt string) *modulecapabi
 
 func (a *anthropic) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"anthropic": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{anthropicparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[anthropicparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -293,4 +303,8 @@ type usage struct {
 type errorMessage struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

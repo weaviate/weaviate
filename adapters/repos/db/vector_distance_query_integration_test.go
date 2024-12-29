@@ -85,7 +85,12 @@ func TestVectorDistanceQuery(t *testing.T) {
 		{0, 0, 0, 1},
 	}
 	index := repo.GetIndex(schema.ClassName(class.Class))
-	shards := index.GetShards()
+
+	var shards []ShardLike
+	index.shards.Range(func(_ string, shard ShardLike) error {
+		shards = append(shards, shard)
+		return nil
+	})
 
 	t.Run("error cases", func(t *testing.T) {
 		require.Nil(t, repo.PutObject(
@@ -93,6 +98,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			&models.Object{ID: ids[0], Class: class.Class},
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
+			nil,
 			nil,
 			0),
 		)
@@ -139,6 +145,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 			nil,
+			nil,
 			0),
 		)
 		docId, err := docIdFromUUID(shards[0].(*Shard), ids[1])
@@ -162,6 +169,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 			&models.Object{ID: ids[2], Class: class.Class},
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
+			nil,
 			nil,
 			0),
 		)

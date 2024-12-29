@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -46,7 +47,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors))
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors, item.Object.MultiVectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}
@@ -68,7 +69,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 							len(objs), origIdx)
 						break
 					}
-					objs[origIdx].Err = fmt.Errorf(msg)
+					objs[origIdx].Err = errors.New(msg)
 				}
 				continue
 			}
@@ -89,6 +90,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
 		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
+		index.metrics.BatchCount(len(queue.objects))
+		index.metrics.BatchCountBytes(estimateStorBatchMemory(queue.objects))
+
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -160,7 +164,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	className := params.ClassName
@@ -197,16 +201,17 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl, schemaVersion)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, deletionTime, params.DryRun, repl, schemaVersion)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}
 
 	result := objects.BatchDeleteResult{
-		Matches: matches,
-		Limit:   db.config.QueryMaximumResults,
-		DryRun:  params.DryRun,
-		Objects: deletedObjects,
+		Matches:      matches,
+		Limit:        db.config.QueryMaximumResults,
+		DeletionTime: deletionTime,
+		DryRun:       params.DryRun,
+		Objects:      deletedObjects,
 	}
 	return result, nil
 }
@@ -215,6 +220,15 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
 		sum += memwatch.EstimateObjectMemory(item.Object)
+	}
+
+	return sum
+}
+
+func estimateStorBatchMemory(objs []*storobj.Object) int64 {
+	var sum int64
+	for _, item := range objs {
+		sum += memwatch.EstimateStorObjectMemory(item)
 	}
 
 	return sum

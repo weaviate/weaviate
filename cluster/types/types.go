@@ -37,5 +37,4 @@ type RaftResolver interface {
 const (
 	TenantActivityStatusFREEZING   = "FREEZING"
 	TenantActivityStatusUNFREEZING = "UNFREEZING"
-	TenantActivityStatusUNFROZEN   = "UNFROZEN"
 )

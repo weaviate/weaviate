@@ -23,6 +23,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
+type txPayload struct {
+	Type          cluster.TransactionType `json:"type"`
+	ID            string                  `json:"id"`
+	Payload       interface{}             `json:"payload"`
+	DeadlineMilli int64                   `json:"deadlineMilli"`
+}
+
 type ClusterClassifications struct {
 	client *http.Client
 }

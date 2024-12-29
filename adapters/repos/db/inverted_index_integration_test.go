@@ -92,7 +92,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
 		Name:         "updateWithIINil",
@@ -151,7 +150,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Properties: map[string]interface{}{"initialWithIINil": "0", "initialWithIITrue": "0", "initialWithoutII": "1", "updateWithIINil": "2", "updateWithIITrue": "2", "updateWithoutII": "3"},
 		}
 		vec := []float32{1, 2, 3}
-		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil, nil, 0))
+		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil, nil, nil, 0))
 
 		testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
 		objWithoutProperty := &models.Object{
@@ -159,7 +158,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Class:      "TestClass",
 			Properties: map[string]interface{}{},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil, nil, 0))
+		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil, nil, nil, 0))
 
 		testID3 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a64")
 		objWithNilProperty := &models.Object{
@@ -167,11 +166,11 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Class:      "TestClass",
 			Properties: map[string]interface{}{"initialWithIINil": nil, "initialWithIITrue": nil, "initialWithoutII": nil, "updateWithIINil": nil, "updateWithIITrue": nil, "updateWithoutII": nil},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objWithNilProperty, vec, nil, nil, 0))
+		require.Nil(t, repo.PutObject(context.Background(), objWithNilProperty, vec, nil, nil, nil, 0))
 	})
 
 	t.Run("delete class", func(t *testing.T) {
-		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
+		require.Nil(t, migrator.DropClass(context.Background(), class.Class, false))
 		for _, idx := range migrator.db.indices {
 			idx.ForEachShard(func(name string, shd ShardLike) error {
 				require.Nil(t, shd.Store().Bucket("property__creationTimeUnix"))
@@ -303,7 +302,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				},
 			},
 		} {
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -573,7 +572,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 				},
 			},
 		} {
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -925,7 +924,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 			},
 		} {
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})

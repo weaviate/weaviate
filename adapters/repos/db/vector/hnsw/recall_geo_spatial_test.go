@@ -33,6 +33,7 @@ import (
 )
 
 func TestRecallGeo(t *testing.T) {
+	ctx := context.Background()
 	size := 10000
 	queries := 100
 	efConstruction := 128
@@ -71,8 +72,7 @@ func TestRecallGeo(t *testing.T) {
 		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 		require.Nil(t, err)
 		vectorIndex = index
@@ -93,7 +93,7 @@ func TestRecallGeo(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.Add(uint64(originalIndex), vec)
+					err := vectorIndex.Add(ctx, uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)
@@ -114,7 +114,7 @@ func TestRecallGeo(t *testing.T) {
 		for i := 0; i < queries; i++ {
 			controlList := bruteForce(vectors, queryVectors[i], k)
 			before := time.Now()
-			results, _, err := vectorIndex.knnSearchByVector(queryVectors[i], k, 800, nil)
+			results, _, err := vectorIndex.knnSearchByVector(ctx, queryVectors[i], k, 800, nil)
 			times += time.Since(before)
 
 			require.Nil(t, err)
@@ -157,7 +157,7 @@ func TestRecallGeo(t *testing.T) {
 				for i := 0; i < queries; i++ {
 					controlList := bruteForceMaxDist(vectors, queryVectors[i], maxDist)
 					before := time.Now()
-					results, err := vectorIndex.KnnSearchByVectorMaxDist(queryVectors[i], maxDist, 800, nil)
+					results, err := vectorIndex.KnnSearchByVectorMaxDist(ctx, queryVectors[i], maxDist, 800, nil)
 					times += time.Since(before)
 					require.Nil(t, err)
 
@@ -207,7 +207,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 
 	distancer := distancer.NewGeoProvider().New(query)
 	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
@@ -240,7 +240,7 @@ func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []
 
 	distancer := distancer.NewGeoProvider().New(query)
 	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,

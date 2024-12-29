@@ -85,3 +85,61 @@ func TestFusionRelativeScoreExplain(t *testing.T) {
 	require.Contains(t, fused[0].ExplainScore, "(Result Set keyword) Document 1: original score 0.5, normalized score: 0.5")
 	require.Contains(t, fused[0].ExplainScore, "(Result Set vector) Document 1: original score 2, normalized score: 0.5")
 }
+
+func TestFusionOrderRelative(t *testing.T) {
+	docId1 := uint64(1)
+	docId2 := uint64(2)
+
+	result1 := []*search.Result{
+		{DocID: &docId1, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+		{DocID: &docId2, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(2))},
+	}
+
+	result2 := []*search.Result{
+		{DocID: &docId1, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+		{DocID: &docId2, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(2))},
+	}
+
+	results := [][]*search.Result{result1, result2}
+
+	for _, desc := range []bool{true, false} {
+		t.Run(fmt.Sprintf("descending %v", desc), func(t *testing.T) {
+			fused1 := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"}, desc)
+
+			// repeat multiple times to ensure order does not flip
+			for i := 0; i < 10; i++ {
+				fused2 := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"}, desc)
+				for j := range fused1 {
+					assert.Equal(t, fused1[j], fused2[j])
+				}
+			}
+		})
+	}
+}
+
+func TestFusionOrderRanked(t *testing.T) {
+	docId1 := uint64(1)
+	docId2 := uint64(2)
+
+	result1 := []*search.Result{
+		{DocID: &docId1, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+		{DocID: &docId2, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(2))},
+	}
+
+	result2 := []*search.Result{
+		{DocID: &docId2, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(2))},
+		{DocID: &docId1, SecondarySortValue: 0.5, Score: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+	}
+
+	results := [][]*search.Result{result1, result2}
+
+	fused1 := FusionRanked([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})
+
+	// repeat multiple times to ensure order does not flip
+	for i := 0; i < 10; i++ {
+		fused2 := FusionRanked([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})
+		for j := range fused1 {
+			assert.Equal(t, fused1[j], fused2[j])
+		}
+	}
+}

@@ -13,9 +13,10 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -23,14 +24,20 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
+	class := "*"
+	if match != nil {
+		class = match.Class
+	}
+
+	err := b.authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -48,19 +55,14 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenant)
+	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 
-// DeleteObjectsFromGRPC deletes objects in batch based on the match filter
-func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *models.Principal,
+// DeleteObjectsFromGRPCAfterAuth deletes objects in batch based on the match filter
+func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	params BatchDeleteParams,
 	repl *additional.ReplicationProperties, tenant string,
 ) (BatchDeleteResult, error) {
-	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
-	if err != nil {
-		return BatchDeleteResult{}, err
-	}
-
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return BatchDeleteResult{}, NewErrInternal("could not acquire lock: %v", err)
@@ -70,23 +72,29 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant, 0)
+	deletionTime := time.UnixMilli(b.timeSource.Now())
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, deletionTime, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
-		return nil, NewErrInvalidUserInput("validate: %v", err)
+		return nil, errors.Wrap(err, "validate")
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, schemaVersion)
+	var deletionTime time.Time
+	if deletionTimeUnixMilli != nil {
+		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
+	}
+
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, deletionTime, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -98,9 +106,10 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 	result BatchDeleteResult,
 ) (*BatchDeleteResponse, error) {
 	response := &BatchDeleteResponse{
-		Match:  match,
-		Output: output,
-		DryRun: result.DryRun,
+		Match:        match,
+		Output:       output,
+		DeletionTime: result.DeletionTime,
+		DryRun:       result.DryRun,
 		Result: BatchDeleteResult{
 			Matches: result.Matches,
 			Limit:   result.Limit,
@@ -127,20 +136,22 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 	// Validate schema given in body with the weaviate schema
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
-	if err != nil || vclasses[match.Class].Class == nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
+	if err != nil {
+		return nil, 0, errors.Wrapf(err, "failed to get class: %s", match.Class)
 	}
-
+	if vclasses[match.Class].Class == nil {
+		return nil, 0, fmt.Errorf("failed to get class: %s", match.Class)
+	}
 	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "failed to parse where filter")
 	}
 
-	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
+	err = filters.ValidateFilters(b.classGetterFunc(principal), filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid where filter: %s", err)
+		return nil, 0, errors.Wrapf(err, "invalid where filter")
 	}
 
 	dryRunParam := false
@@ -160,4 +171,17 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		Output:    outputParam,
 	}
 	return params, vclasses[match.Class].Version, nil
+}
+
+func (b *BatchManager) classGetterFunc(principal *models.Principal) func(string) (*models.Class, error) {
+	return func(name string) (*models.Class, error) {
+		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			return nil, err
+		}
+		class := b.schemaManager.ReadOnlyClass(name)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", name)
+		}
+		return class, nil
+	}
 }

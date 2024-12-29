@@ -40,7 +40,7 @@ func (c *Classifier) run(params models.Classification,
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
-		params.Class, params.ClassifyProperties, filters.Source())
+		params.Class, params.ClassifyProperties, params.BasedOnProperties, filters.Source())
 	if err != nil {
 		c.failRunWithError(params, errors.Wrap(err, "retrieve to-be-classifieds"))
 		return

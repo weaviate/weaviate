@@ -14,11 +14,13 @@ package docker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type DockerCompose struct {
@@ -33,7 +35,10 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 func (d *DockerCompose) Terminate(ctx context.Context) error {
 	var errs error
 	for _, c := range d.containers {
-		if err := c.container.Terminate(ctx); err != nil {
+		// TODO : remove this once issue got resolved in testcontainers
+		// this because the timeout is too short and hardcoded
+		// ref https://github.com/testcontainers/testcontainers-go/blob/35bf0cd0707d6ff21a8e7c7fdb39c5dfa560f142/docker.go#L309
+		if err := c.container.Terminate(ctx); err != nil && !strings.Contains(err.Error(), "is already in progress") {
 			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
 		}
 	}
@@ -60,7 +65,10 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
 	for idx, c := range d.containers {
 		if c.name == container {
-			if err := c.container.Terminate(ctx); err != nil {
+			// TODO : remove this once issue got resolved in testcontainers
+			// this because the timeout is too short and hardcoded
+			// ref https://github.com/testcontainers/testcontainers-go/blob/35bf0cd0707d6ff21a8e7c7fdb39c5dfa560f142/docker.go#L309
+			if err := c.container.Terminate(ctx); err != nil && !strings.Contains(err.Error(), "is already in progress") {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
 			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
@@ -86,14 +94,22 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return nil
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
-	return d.containers[nodeIndex].container.Stop(ctx, timeout)
+	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
+		return err
+	}
+
+	// sleep to make sure that the off node is detected by memberlist and marked failed
+	// it shall be used with combination of "FAST_FAILURE_DETECTION" env flag
+	time.Sleep(3 * time.Second)
+
+	return nil
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	if nodeIndex >= len(d.containers) {
-		return nil
+		return errors.Errorf("node index is greater than available nodes")
 	}
 
 	c := d.containers[nodeIndex]
@@ -108,6 +124,15 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+
+		// wait until node is ready
+		if name != HTTP {
+			continue
+		}
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
+			return err
+		}
 	}
 	c.endpoints = endPoints
 	return nil
@@ -177,6 +202,10 @@ func (d *DockerCompose) GetOllamaVectorizer() *DockerContainer {
 
 func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
 	return d.getContainerByName(OllamaGenerative)
+}
+
+func (d *DockerCompose) GetMockOIDC() *DockerContainer {
+	return d.getContainerByName(MockOIDC)
 }
 
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {

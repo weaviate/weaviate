@@ -102,7 +102,7 @@ func nearObjectFields(prefix string, addTarget bool) graphql.InputObjectConfigFi
 
 var vectorPerTarget = graphql.NewScalar(graphql.ScalarConfig{
 	Name:        "VectorPerTarget",
-	Description: "A custom scalar type for a map with strings as keys and list of floats as values",
+	Description: "A custom scalar type for a map with strings as keys and list of floats or list of lists of floats as values",
 	Serialize: func(value interface{}) interface{} {
 		return value
 	},
@@ -112,22 +112,42 @@ var vectorPerTarget = graphql.NewScalar(graphql.ScalarConfig{
 	ParseLiteral: func(valueAST ast.Value) interface{} {
 		switch v := valueAST.(type) {
 		case *ast.ObjectValue:
-			result := make(map[string][]float32)
+			result := make(map[string]interface{})
 			for _, field := range v.Fields {
 				key := field.Name.Value
 				switch value := field.Value.(type) {
 				case *ast.ListValue:
-					floatValues := make([]float32, len(value.Values))
-					for i, value := range value.Values {
-						floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
-						if err != nil {
-							return nil
+					if len(value.Values) > 0 {
+						switch value.Values[0].(type) {
+						case *ast.ListValue:
+							// Handle list of lists of floats
+							listOfLists := make([][]float32, len(value.Values))
+							for i, listValue := range value.Values {
+								innerList := listValue.(*ast.ListValue)
+								floatValues := make([]float32, len(innerList.Values))
+								for j, innerValue := range innerList.Values {
+									floatValue, err := strconv.ParseFloat(innerValue.GetValue().(string), 64)
+									if err != nil {
+										return nil
+									}
+									floatValues[j] = float32(floatValue)
+								}
+								listOfLists[i] = floatValues
+							}
+							result[key] = listOfLists
+						default:
+							// Handle list of floats
+							floatValues := make([]float32, len(value.Values))
+							for i, value := range value.Values {
+								floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
+								if err != nil {
+									return nil
+								}
+								floatValues[i] = float32(floatValue)
+							}
+							result[key] = floatValues
 						}
-						floatValues[i] = float32(floatValue)
 					}
-
-					result[key] = floatValues
-
 				default:
 					return nil
 				}

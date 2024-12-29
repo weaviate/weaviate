@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -29,7 +30,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	principal := &models.Principal{}
 	logger, _ := test.NewNullLogger()
 	locks := &fakeLocks{}
-	authorizer := &fakeAuthorizer{}
+	authorizer := mocks.NewMockAuthorizer()
 	vectorRepo := &fakeVectorRepo{}
 	explorer := &fakeExplorer{}
 	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}

@@ -296,7 +296,7 @@ func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != pq.m || len(y) != pq.m {
-		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+		return 0, fmt.Errorf("ProductQuantizer.DistanceBetweenCompressedVectors: inconsistent compressed vectors lengths")
 	}
 
 	dist := float32(0)
@@ -340,24 +340,22 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 	pq.dlutPool.Return(d.lut)
 }
 
-func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+func (d *PQDistancer) Distance(x []byte) (float32, error) {
 	if d.lut == nil {
-		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
-		return dist, err == nil, err
+		return d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 	}
 	if len(x) != d.pq.m {
-		return 0, false, fmt.Errorf("inconsistent compressed vector length")
+		return 0, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return d.pq.Distance(x, d.lut), true, nil
+	return d.pq.Distance(x, d.lut), nil
 }
 
-func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *PQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if d.lut != nil {
 		return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 	}
 	xComp := d.pq.Encode(x)
-	dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) error {

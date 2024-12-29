@@ -79,7 +79,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut, params.Properties.GetPropertyNames())
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -124,7 +124,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination, params.Properties.GetPropertyNames())
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -168,7 +168,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 
 			objs, dist, err := index.objectVectorSearch(ctx, [][]float32{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil)
+				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -227,7 +227,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0)
+		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
 	if err != nil {
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
@@ -268,8 +268,15 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 
 		for _, index := range db.indices {
 			// TODO support all additional props
+			scheme := index.getSchema.GetSchemaSkipAuth()
+			props := scheme.GetClass(string(index.Config.ClassName)).Properties
+			propsNames := make([]string, len(props))
+			for i, prop := range props {
+				propsNames[i] = prop.Name
+			}
+
 			res, _, err := index.objectSearch(ctx, totalLimit,
-				filters, nil, sort, nil, additional, nil, tenant, 0)
+				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
 			if err != nil {
 				// Multi tenancy specific errors
 				if errors.As(err, &objects.ErrMultiTenancy{}) {
@@ -317,7 +324,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	}
 
 	if groupBy != nil {
-		res, err := refcache.NewResolverWithGroup(refcache.NewCacherWithGroup(db, db.logger, tenant)).
+		res, err := refcache.NewResolverWithGroup(refcache.NewCacher(db, db.logger, tenant), groupBy.Properties).
 			Do(ctx, objs, props, addl)
 		if err != nil {
 			return nil, fmt.Errorf("resolve cross-refs: %w", err)

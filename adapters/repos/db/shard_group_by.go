@@ -28,7 +28,7 @@ import (
 
 func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	dists []float32, groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	className := s.index.Config.ClassName
@@ -45,7 +45,13 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s", err, groupBy.Property)
 	}
 
-	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional).Do(ctx)
+	var props []string
+	props = append(props, properties...)
+	for _, propTmp := range groupBy.Properties {
+		props = append(props, propTmp.Name)
+	}
+
+	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional, props).Do(ctx)
 }
 
 type grouper struct {
@@ -55,12 +61,13 @@ type grouper struct {
 	additional       additional.Properties
 	propertyDataType schema.PropertyDataType
 	objBucket        *lsmkv.Bucket
+	properties       []string
 }
 
 func newGrouper(ids []uint64, dists []float32,
 	groupBy *searchparams.GroupBy, objBucket *lsmkv.Bucket,
 	propertyDataType schema.PropertyDataType,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) *grouper {
 	return &grouper{
 		ids:              ids,
@@ -69,6 +76,7 @@ func newGrouper(ids []uint64, dists []float32,
 		objBucket:        objBucket,
 		propertyDataType: propertyDataType,
 		additional:       additional,
+		properties:       properties,
 	}
 }
 
@@ -79,6 +87,18 @@ func (g *grouper) Do(ctx context.Context) ([]*storobj.Object, []float32, error) 
 	groups := map[string][]uint64{}
 	docIDObject := map[uint64]*storobj.Object{}
 	docIDDistance := map[uint64]float32{}
+
+	propStrings := make([]string, len(g.properties))
+	propStringsList := make([][]string, len(g.properties))
+	for j := range g.properties {
+		propStrings[j] = g.properties[j]
+		propStringsList[j] = []string{g.properties[j]}
+	}
+
+	props := &storobj.PropertyExtraction{
+		PropStrings:     propStrings,
+		PropStringsList: propStringsList,
+	}
 
 DOCS_LOOP:
 	for i, docID := range g.ids {
@@ -119,7 +139,7 @@ DOCS_LOOP:
 
 			if _, ok := docIDObject[docID]; !ok {
 				// whole object, might be that we only need value and ID to be extracted
-				unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional)
+				unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, props)
 				if err != nil {
 					return nil, nil, fmt.Errorf("%w: unmarshal data object at position %d", err, i)
 				}
@@ -198,7 +218,7 @@ func (g *grouper) getUnmarshalled(docID uint64,
 		if err != nil {
 			return nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
 		}
-		unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional)
+		unmarshalled, err := storobj.FromBinaryOptional(objData, g.additional, nil)
 		if err != nil {
 			return nil, fmt.Errorf("%w: unmarshal data object doc id %d", err, docID)
 		}

@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -25,21 +26,29 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
+type modulesProvider interface {
+	IsGenerative(string) bool
+	IsReranker(string) bool
+	IsMultiVector(string) bool
+}
+
 type Parser struct {
 	clusterState clusterState
 	configParser VectorConfigParser
 	validator    validator
+	modules      modulesProvider
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
 	return &Parser{
 		clusterState: cs,
 		configParser: vCfg,
 		validator:    v,
+		modules:      modules,
 	}
 }
 
-func (m *Parser) ParseClass(class *models.Class) error {
+func (p *Parser) ParseClass(class *models.Class) error {
 	if class == nil {
 		return fmt.Errorf("class cannot be nil")
 	}
@@ -48,20 +57,97 @@ func (m *Parser) ParseClass(class *models.Class) error {
 		return fmt.Errorf("parse class name: %w", fmt.Errorf("class name `raft` is reserved"))
 	}
 
-	if err := m.parseShardingConfig(class); err != nil {
+	if err := p.parseShardingConfig(class); err != nil {
 		return fmt.Errorf("parse sharding config: %w", err)
 	}
 
-	if err := m.parseVectorIndexConfig(class); err != nil {
+	if err := p.parseVectorIndexConfig(class); err != nil {
 		return fmt.Errorf("parse vector index config: %w", err)
 	}
+
 	return nil
 }
 
-func (m *Parser) parseVectorIndexConfig(class *models.Class,
+func (p *Parser) parseModuleConfig(class *models.Class) error {
+	if class.ModuleConfig == nil {
+		return nil
+	}
+
+	mapMC, ok := class.ModuleConfig.(map[string]any)
+	if !ok {
+		return fmt.Errorf("module config is not a map, got %v", class.ModuleConfig)
+	}
+
+	mc, err := p.moduleConfig(mapMC)
+	if err != nil {
+		return fmt.Errorf("module config: %w", err)
+	}
+	class.ModuleConfig = mc
+
+	return nil
+}
+
+func (p *Parser) parseVectorConfig(class *models.Class) error {
+	if class.VectorConfig == nil {
+		return nil
+	}
+
+	newVC := map[string]models.VectorConfig{}
+	for vector, config := range class.VectorConfig {
+		mapMC, ok := config.Vectorizer.(map[string]any)
+		if !ok {
+			return fmt.Errorf("vectorizer for %s is not a map, got %v", vector, config)
+		}
+
+		mc, err := p.moduleConfig(mapMC)
+		if err != nil {
+			return fmt.Errorf("vectorizer config: %w", err)
+		}
+
+		config.Vectorizer = mc
+		newVC[vector] = config
+	}
+	class.VectorConfig = newVC
+	return nil
+}
+
+func (p *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, error) {
+	parsedMC := map[string]any{}
+	for module, config := range moduleConfig {
+		if config == nil {
+			parsedMC[module] = nil // nil is allowed, do no further parsing
+			continue
+		}
+		mapC, ok := config.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("module config for %s is not a map, got %v", module, config)
+		}
+		parsedC := map[string]any{}
+		// raft interprets all `json.Number` types as float64 when unmarshalling
+		// we parse them explicitly here so that UpdateClass can compare the new class
+		// with the old one read from the raft schema manager
+		for key, value := range mapC {
+			if number, ok := value.(json.Number); ok {
+				if integer, err := number.Int64(); err == nil {
+					parsedC[key] = float64(integer)
+				} else if float, err := number.Float64(); err == nil {
+					parsedC[key] = float
+				} else {
+					parsedC[key] = number.String()
+				}
+				continue
+			}
+			parsedC[key] = value
+		}
+		parsedMC[module] = parsedC
+	}
+	return parsedMC, nil
+}
+
+func (p *Parser) parseVectorIndexConfig(class *models.Class,
 ) error {
 	if !hasTargetVectors(class) {
-		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		parsed, err := p.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, p.modules.IsMultiVector(class.Vectorizer))
 		if err != nil {
 			return err
 		}
@@ -73,18 +159,18 @@ func (m *Parser) parseVectorIndexConfig(class *models.Class,
 		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
 	}
 
-	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
+	if err := p.parseTargetVectorsVectorIndexConfig(class); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *Parser) parseShardingConfig(class *models.Class) (err error) {
+func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 	// multiTenancyConfig and shardingConfig are mutually exclusive
 	cfg := shardingConfig.Config{} // cfg is empty in case of MT
 	if !schema.MultiTenancyEnabled(class) {
 		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
-			m.clusterState.NodeCount())
+			p.clusterState.NodeCount())
 		if err != nil {
 			return err
 		}
@@ -94,9 +180,15 @@ func (m *Parser) parseShardingConfig(class *models.Class) (err error) {
 	return nil
 }
 
-func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
-		parsed, err := m.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		isMultiVector := false
+		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+			for name := range vectorizer {
+				isMultiVector = p.modules.IsMultiVector(name)
+			}
+		}
+		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
@@ -106,8 +198,8 @@ func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 	return nil
 }
 
-func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
-	vectorIndexConfig interface{},
+func (p *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
+	vectorIndexConfig interface{}, isMultiVector bool,
 ) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
@@ -115,7 +207,7 @@ func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 			vectorIndexType)
 	}
 
-	parsed, err := m.configParser(vectorIndexConfig, vectorIndexType)
+	parsed, err := p.configParser(vectorIndexConfig, vectorIndexType, isMultiVector)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse vector index config")
 	}
@@ -133,6 +225,10 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	if err := validateImmutableFields(class, update); err != nil {
+		return nil, err
+	}
+
+	if err := p.validateModuleConfigsParityAndImmutables(class, update); err != nil {
 		return nil, err
 	}
 
@@ -184,6 +280,92 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 
 func hasTargetVectors(class *models.Class) bool {
 	return len(class.VectorConfig) > 0
+}
+
+func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *models.Class) error {
+	if updated.ModuleConfig == nil || reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
+		return nil
+	}
+
+	updatedModConf, ok := updated.ModuleConfig.(map[string]any)
+	if !ok {
+		return fmt.Errorf("module config for %s is not a map, got %v", updated.ModuleConfig, updated.ModuleConfig)
+	}
+
+	updatedModConf, err := p.moduleConfig(updatedModConf)
+	if err != nil {
+		return err
+	}
+
+	var initialModConf map[string]any
+	if initial.ModuleConfig != nil {
+		initialModConf, _ = initial.ModuleConfig.(map[string]any)
+	}
+
+	// this part:
+	// - only allows updating generative and rerankers
+	// - only one gen/rerank module can be present. Existing ones will be replaced, updating with more than one is not
+	//   allowed
+	// - other modules will not be changed. They can be present in the update if they have EXACTLY the same settings
+	hasGenerativeUpdate := false
+	hasRerankerUpdate := false
+	for module := range updatedModConf {
+
+		if p.modules.IsGenerative(module) {
+			if hasGenerativeUpdate {
+				return fmt.Errorf("updated moduleconfig has multiple generative modules: %v", updatedModConf)
+			}
+			hasGenerativeUpdate = true
+			continue
+		}
+
+		if p.modules.IsReranker(module) {
+			if hasRerankerUpdate {
+				return fmt.Errorf("updated moduleconfig has multiple reranker modules: %v", updatedModConf)
+			}
+			hasRerankerUpdate = true
+			continue
+		}
+
+		if initialModConf != nil && reflect.DeepEqual(initialModConf[module], updatedModConf[module]) {
+			continue
+		}
+
+		return fmt.Errorf("can only update generative and reranker module configs. Got: %v", module)
+	}
+
+	if initial.ModuleConfig == nil {
+		initial.ModuleConfig = updatedModConf
+		return nil
+	}
+
+	if _, ok := initial.ModuleConfig.(map[string]any); !ok {
+		initial.ModuleConfig = updatedModConf
+		return nil
+	}
+	if hasGenerativeUpdate {
+		// clear out old generative module
+		for module := range initialModConf {
+			if p.modules.IsGenerative(module) {
+				delete(initialModConf, module)
+			}
+		}
+	}
+
+	if hasRerankerUpdate {
+		// clear out old reranker module
+		for module := range initialModConf {
+			if p.modules.IsReranker(module) {
+				delete(initialModConf, module)
+			}
+		}
+	}
+
+	for module := range updatedModConf {
+		initialModConf[module] = updatedModConf[module]
+	}
+	updated.ModuleConfig = initialModConf
+	return nil
 }
 
 func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) error {

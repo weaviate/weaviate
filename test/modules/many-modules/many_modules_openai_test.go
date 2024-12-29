@@ -123,7 +123,7 @@ func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 				require.True(t, ok)
 				require.NotEmpty(t, text2vecOpenAI)
 				if tt.expectDefaultSettings {
-					assert.Equal(t, "ada", text2vecOpenAI["model"])
+					assert.Equal(t, "text-embedding-3-small", text2vecOpenAI["model"])
 					assert.Equal(t, true, text2vecOpenAI["vectorizeClassName"])
 				} else {
 					assert.Equal(t, tt.text2vecOpenAI["model"], text2vecOpenAI["model"])

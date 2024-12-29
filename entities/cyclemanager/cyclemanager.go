@@ -14,14 +14,11 @@ package cyclemanager
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
-
-var _NUMCPU = runtime.NumCPU()
 
 type (
 	// indicates whether cyclemanager's stop was requested to allow safely

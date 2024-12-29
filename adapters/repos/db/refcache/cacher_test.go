@@ -37,7 +37,7 @@ func TestCacher(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger, "")
-		err := cr.Build(context.Background(), nil, nil, additional.Properties{})
+		err := cr.Build(context.Background(), nil, nil, additional.Properties{}, nil)
 		assert.Nil(t, err)
 	})
 
@@ -51,7 +51,7 @@ func TestCacher(t *testing.T) {
 				ClassName: "BestClass",
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
 		assert.Nil(t, err)
 	})
 
@@ -69,7 +69,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
 		assert.Nil(t, err)
 	})
 
@@ -90,7 +90,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, additional.Properties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		_, ok := cr.Get(multi.Identifier{ID: "123", ClassName: "SomeClass"})
 		assert.False(t, ok)
@@ -145,7 +145,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -251,7 +251,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -378,7 +378,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -574,13 +574,13 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
 		input2 := []search.Result{expectedInner, expectedInner2}
-		err = cr.Build(context.Background(), input2, nil, additional.Properties{})
+		err = cr.Build(context.Background(), input2, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		nested1, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -639,7 +639,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger, "")
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -672,9 +672,9 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := search.SelectProperties{
+		groupByProps := search.SelectProperties{
 			search.SelectProperty{
-				Name: "_additional:group:hits:nestedRef",
+				Name: "nestedRef",
 				Refs: []search.SelectClass{
 					{
 						ClassName: "SomeNestedClass",
@@ -697,7 +697,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -748,7 +748,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger, "")
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -781,9 +781,9 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		selectProps := search.SelectProperties{
+		groupByProps := search.SelectProperties{
 			search.SelectProperty{
-				Name: "_additional:group:hits:nestedRef",
+				Name: "nestedRef",
 				Refs: []search.SelectClass{
 					{
 						ClassName: "SomeNestedClass",
@@ -797,7 +797,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 			search.SelectProperty{
-				Name: "_additional:group:hits:otherNestedRef",
+				Name: "otherNestedRef",
 				Refs: []search.SelectClass{
 					{
 						ClassName: "OtherNestedClass",
@@ -828,7 +828,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, nil, additional.Properties{}, groupByProps)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id2, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
@@ -880,7 +880,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCacherWithGroup(repo, logger, "")
+		cr := NewCacher(repo, logger, "")
 		input := []search.Result{
 			{
 				ID:        "foo",
@@ -942,8 +942,10 @@ func TestCacher(t *testing.T) {
 					},
 				},
 			},
+		}
+		groupByProps := search.SelectProperties{
 			search.SelectProperty{
-				Name: "_additional:group:hits:innerNestedRef",
+				Name: "innerNestedRef",
 				Refs: []search.SelectClass{
 					{
 						ClassName: "InnerNestedClass",
@@ -957,7 +959,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 			search.SelectProperty{
-				Name: "_additional:group:hits:otherNestedRef",
+				Name: "otherNestedRef",
 				Refs: []search.SelectClass{
 					{
 						ClassName: "OtherNestedClass",
@@ -1014,7 +1016,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, additional.Properties{})
+		err := cr.Build(context.Background(), input, selectProps, additional.Properties{}, groupByProps)
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, ClassName: "SomeClass"})
 		require.True(t, ok)

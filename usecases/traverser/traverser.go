@@ -19,8 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/ratelimiter"
@@ -32,16 +32,12 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
-
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
 	config                  *config.WeaviateConfig
 	locks                   locks
 	logger                  logrus.FieldLogger
-	authorizer              authorizer
+	authorizer              authorization.Authorizer
 	vectorSearcher          VectorSearcher
 	explorer                explorer
 	schemaGetter            schema.SchemaGetter
@@ -67,7 +63,7 @@ type explorer interface {
 
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(config *config.WeaviateConfig, locks locks,
-	logger logrus.FieldLogger, authorizer authorizer,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter,
 	modulesProvider ModulesProvider,
@@ -86,13 +82,6 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		metrics:                 metrics,
 		ratelimiter:             ratelimiter.New(maxGetRequests),
 	}
-}
-
-// TraverserRepo describes the dependencies of the Traverser UC to the
-// connected database
-type TraverserRepo interface {
-	GetClass(context.Context, *dto.GetParams) (interface{}, error)
-	Aggregate(context.Context, *aggregation.Params) (interface{}, error)
 }
 
 // SearchResult is a single search result. See wrapping Search Results for the Type

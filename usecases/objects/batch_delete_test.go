@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -63,7 +64,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider := getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -94,7 +95,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						},
 					},
 				},
-				expectedError: "validate: failed to get class: SomeClass, with err=<nil>",
+				expectedError: "validate: failed to get class: SomeClass",
 			},
 			{
 				input: &models.BatchDelete{
@@ -172,7 +173,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DryRun, test.input.Output, nil, "")
+			_, err := manager.DeleteObjects(ctx, nil, test.input.Match, test.input.DeletionTimeUnixMilli, test.input.DryRun, test.input.Output, nil, "")
 			assert.Equal(t, test.expectedError, err.Error())
 		}
 	})

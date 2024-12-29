@@ -31,12 +31,15 @@ import (
 // swagger:model BackupConfig
 type BackupConfig struct {
 
+	// Name of the bucket, container, volume, etc
+	Bucket string `json:"Bucket,omitempty"`
+
 	// Desired CPU core utilization ranging from 1%-80%
 	// Maximum: 80
 	// Minimum: 1
 	CPUPercentage int64 `json:"CPUPercentage,omitempty"`
 
-	// Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB
+	// Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.
 	// Maximum: 512
 	// Minimum: 2
 	ChunkSize int64 `json:"ChunkSize,omitempty"`
@@ -44,6 +47,12 @@ type BackupConfig struct {
 	// compression level used by compression algorithm
 	// Enum: [DefaultCompression BestSpeed BestCompression]
 	CompressionLevel string `json:"CompressionLevel,omitempty"`
+
+	// name of the endpoint, e.g. s3.amazonaws.com
+	Endpoint string `json:"Endpoint,omitempty"`
+
+	// Path or key within the bucket
+	Path string `json:"Path,omitempty"`
 }
 
 // Validate validates this backup config

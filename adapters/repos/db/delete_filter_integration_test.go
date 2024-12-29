@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -96,7 +97,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Vector: []float32{0.1},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -109,7 +110,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Properties.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -208,13 +209,13 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0)
+		}, []float32{0, 1}, nil, nil, nil, 0)
 
 		require.Nil(t, err)
 	})
 
 	t.Run("delete first object", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "Test", firstID, nil, "", 0)
+		err := repo.DeleteObject(context.Background(), "Test", firstID, time.Now(), nil, "", 0)
 		require.Nil(t, err)
 	})
 
@@ -227,7 +228,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil, nil, 0)
+		}, []float32{0, 1}, nil, nil, nil, 0)
 
 		require.Nil(t, err)
 	})
@@ -240,6 +241,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 				Offset: 0,
 				Limit:  100,
 			},
+			Properties: search.SelectProperties{{Name: "author"}},
 		})
 
 		require.Nil(t, err)
@@ -255,6 +257,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 				Offset: 0,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{{Name: "author"}},
 		})
 
 		require.Nil(t, err)

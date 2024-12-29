@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -27,20 +28,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	s.activityTracker.Add(1)
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
+	if err := s.isReadOnly(); err != nil {
+		return err
 	}
-	uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
-	return s.putOne(ctx, uuid, object)
+	return s.putOne(ctx, uid, object)
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
@@ -57,17 +58,22 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range object.Vectors {
-			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
+		for targetVector, multiVector := range object.MultiVectors {
+			if err := s.updateMultiVectorIndexForName(ctx, multiVector, status, targetVector); err != nil {
+				return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
+			}
+		}
 	} else {
-		if err := s.updateVectorIndex(object.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, object.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
 
-	if err := s.updatePropertySpecificIndices(object, status); err != nil {
+	if err := s.updatePropertySpecificIndices(ctx, object, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
@@ -89,7 +95,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
-func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
+func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32,
 	status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
@@ -105,7 +111,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 		return nil
 	}
 
-	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
+	if err := s.queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -115,8 +121,8 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
-func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
-	status objectInsertStatus,
+func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
+	vectors map[string][]float32, status objectInsertStatus,
 ) error {
 	// vector was not changed, object was not changed or changed without changing vector
 	// https://github.com/weaviate/weaviate/issues/3948
@@ -132,8 +138,8 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 	}
 
 	for targetVector, vector := range vectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-			if err := vectorIndex.Add(status.docID, vector); err != nil {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 			}
 		}
@@ -142,60 +148,71 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 	return nil
 }
 
-func (s *Shard) updateVectorIndex(vector []float32,
-	status objectInsertStatus,
+// this method implements the same logic as updateVectorIndexesIgnoreDelete but
+// supports multi vectors
+func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
+	multiVectors map[string][][]float32, status objectInsertStatus,
 ) error {
-	return s.updateVectorInVectorIndex(vector, status, s.queue, s.vectorIndex)
-}
-
-func (s *Shard) updateVectorIndexForName(vector []float32,
-	status objectInsertStatus, targetVector string,
-) error {
-	queue, ok := s.queues[targetVector]
-	if !ok {
-		return fmt.Errorf("vector queue not found for target vector %s", targetVector)
-	}
-	vectorIndex := s.VectorIndexForName(targetVector)
-	if vectorIndex == nil {
-		return fmt.Errorf("vector index not found for target vector %s", targetVector)
-	}
-	return s.updateVectorInVectorIndex(vector, status, queue, vectorIndex)
-}
-
-func (s *Shard) updateVectorInVectorIndex(vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
-) error {
-	// even if no vector is provided in an update, we still need
-	// to delete the previous vector from the index, if it
-	// exists. otherwise, the associated doc id is left dangling,
-	// resulting in failed attempts to merge an object on restarts.
-	if status.docIDChanged {
-		if err := queue.Delete(status.oldDocID); err != nil {
-			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
-		}
-	}
-
-	// vector was not changed, object was updated without changing docID
+	// vector was not changed, object was not changed or changed without changing vector
 	// https://github.com/weaviate/weaviate/issues/3948
-	if status.docIDPreserved {
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.docIDPreserved || status.skipUpsert {
 		return nil
 	}
 
 	// vector is now optional as of
 	// https://github.com/weaviate/weaviate/issues/1800
-	if len(vector) == 0 {
+	if len(multiVectors) == 0 {
 		return nil
 	}
 
-	if err := vectorIndex.Add(status.docID, vector); err != nil {
-		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
-	}
-
-	if err := vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
+	for targetVector, vector := range multiVectors {
+		if q := s.QueueForName(targetVector); q != nil {
+			if err := q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector}); err != nil {
+				return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
+			}
+		}
 	}
 
 	return nil
+}
+
+func (s *Shard) updateVectorIndex(ctx context.Context, vector []float32,
+	status objectInsertStatus,
+) error {
+	return updateVectorInVectorIndex(ctx, vector, status, s.queue, s.vectorIndex)
+}
+
+func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
+	status objectInsertStatus, targetVector string,
+) error {
+	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
+	if err != nil {
+		return fmt.Errorf("update vector index: %w", err)
+	}
+	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
+}
+
+func (s *Shard) updateMultiVectorIndexForName(ctx context.Context, vector [][]float32,
+	status objectInsertStatus, targetVector string,
+) error {
+	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
+	if err != nil {
+		return fmt.Errorf("update multi vector index: %w", err)
+	}
+	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
+}
+
+func (s *Shard) getQueueAndVectorIndexForName(targetVector string) (*VectorIndexQueue, VectorIndex, error) {
+	queue, ok := s.queues[targetVector]
+	if !ok {
+		return nil, nil, fmt.Errorf("vector queue not found for target vector %s", targetVector)
+	}
+	vectorIndex := s.VectorIndexForName(targetVector)
+	if vectorIndex == nil {
+		return nil, nil, fmt.Errorf("vector index not found for target vector %s", targetVector)
+	}
+	return queue, vectorIndex, nil
 }
 
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
@@ -327,11 +344,7 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 
 	copy(objectDigest[:], uuidBytes)
 
-	if status.docIDChanged {
-		if status.oldUpdateTime < 1 {
-			return fmt.Errorf("invalid object previous update time")
-		}
-
+	if status.oldUpdateTime > 0 {
 		// Given only latest object version is maintained, previous registration is erased
 		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
 		s.hashtree.AggregateLeafWith(token, objectDigest[:])
@@ -433,7 +446,10 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	docID uint64,
 ) error {
 	keyBuf := bytes.NewBuffer(nil)
-	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
+	if err != nil {
+		return fmt.Errorf("write doc id to buffer: %w", err)
+	}
 	docIDBytes := keyBuf.Bytes()
 
 	h := murmur3.New64()
@@ -521,9 +537,22 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
-		return fmt.Errorf("put inverted indices props: %w", err)
+
+	// This change is related to the patching/update behavior under new inverted index implementation
+	// https://github.com/weaviate/weaviate/pull/6176
+	// - on the old implementation, patching a document would result on only changing the entries for the terms that were changed
+	// - on the new implementation, patching a document will result on inserting all terms into the newer segment
+	// The goal is to enable searching through the segments independently of the previous segments.
+	if prevObject != nil && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		if err := s.extendInvertedIndicesLSM(props, nilprops, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
+	} else {
+		if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
 	}
+
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
@@ -738,4 +767,40 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 	}
 
 	return true
+}
+
+func updateVectorInVectorIndex[T types.Embedding](ctx context.Context, vector T,
+	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
+) error {
+	// even if no vector is provided in an update, we still need
+	// to delete the previous vector from the index, if it
+	// exists. otherwise, the associated doc id is left dangling,
+	// resulting in failed attempts to merge an object on restarts.
+	if status.docIDChanged {
+		if err := queue.Delete(status.oldDocID); err != nil {
+			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
+		}
+	}
+
+	// vector was not changed, object was updated without changing docID
+	// https://github.com/weaviate/weaviate/issues/3948
+	if status.docIDPreserved {
+		return nil
+	}
+
+	// vector is now optional as of
+	// https://github.com/weaviate/weaviate/issues/1800
+	if len(vector) == 0 {
+		return nil
+	}
+
+	if err := queue.Insert(ctx, &common.Vector[T]{ID: status.docID, Vector: vector}); err != nil {
+		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
+	}
+
+	if err := queue.Flush(); err != nil {
+		return errors.Wrap(err, "flush all vector index buffered WALs")
+	}
+
+	return nil
 }

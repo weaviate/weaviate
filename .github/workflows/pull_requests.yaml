@@ -38,7 +38,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -57,33 +57,44 @@ jobs:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
     env:
-      # USE WITH CAUTION, IT IMPLIES RISK
-      # This is a list of vulnerabilities that will be skipped from the check
-      # It is mostly used for vulnerabilities which haven't fixed by the depending projects
-      # The format is space separated string: "CVE-XXXX-XXXX CVE-XXXX-XXXX CVE-XXXX-XXXX"
-      SKIPPED_VULN: ""
+      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-          cache: true
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
-      - name: Skip vulnerabilities
-        if: ${{ env.SKIPPED_VULN != '' }}
-        run: |
-          echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
-      - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.22.0
+      - name: Run Orca Container Image Scan
+        id: orcasecurity_container_image_scan
+        uses: orcasecurity/shiftleft-container-image-action@v1
         with:
-          image-ref: 'weaviate:${{ github.sha }}'
-          exit-code: '1'
-          format: 'table'
-          ignore-unfixed: true
-          severity: 'HIGH,CRITICAL'
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: 'weaviate:${{ github.sha }}'
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ always() && steps.orcasecurity_container_image_scan.outputs.exit_code != 1 }}
+        with:
+          sarif_file: results/image.sarif
+  SAST-Scanning:
+    name: sast-scanning
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_KEY: ${{secrets.ORCA_PROJECT_KEY}}
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Orca SAST Scan
+        id: orcasecurity_container_sast_action
+        uses: orcasecurity/shiftleft-sast-action@v1
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          path:
+            # scanning the entire repository
+            "."
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
@@ -92,7 +103,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -102,14 +113,14 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -132,21 +143,27 @@ jobs:
           "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
-          "--only-module-multi2vec-clip",
+          "--only-module-many-generative",
           "--only-module-ref2vec-centroid",
-          "--only-module-reranker-transformers",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
-          "--only-module-generative-ollama"
+          "--only-module-generative-ollama",
+          "--only-module-many-generative"
         ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests (modules)
         uses: nick-fields/retry@v3
         with:
@@ -155,20 +172,56 @@ jobs:
           max_attempts: 3
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
+  Modules-On-Demand-Tests-Check:
+    name: modules-on-demand-tests-check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    outputs:
+      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: check
+        name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[api]"* || "$commit_message" == "prepare release"* || "$commit_message" == *"[test]"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [api]"
+            echo "run_pipeline=false" >> $GITHUB_OUTPUT
+          fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-qna-transformers", "--only-module-sum-transformers"]
+        test: [
+          "--only-module-qna-transformers",
+          "--only-module-sum-transformers",
+          "--only-module-multi2vec-clip",
+          "--only-module-reranker-transformers"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
         uses: nick-fields/retry@v3
         with:
@@ -180,16 +233,20 @@ jobs:
   Modules-Acceptance-Tests-api:
     name: modules-acceptance-tests-api
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     strategy:
       fail-fast: false
       matrix:
         test: [
-          "--only-module-multi2vec-palm",
-          "--only-module-generative-palm",
-          "--only-module-text2vec-palm",
-          "--only-module-text2vec-aws",
-          "--only-module-generative-aws"
+          "--only-module-multi2vec-cohere",
+          "--only-module-multi2vec-google",
+          "--only-module-generative-aws",
+          "--only-module-generative-cohere",
+          "--only-module-generative-google",
+          "--only-module-generative-openai",
+          "--only-module-text2vec-google",
+          "--only-module-text2vec-aws"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -198,7 +255,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: check
         env:
@@ -213,7 +270,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure gcp
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -224,7 +281,7 @@ jobs:
           echo "::add-mask::$google_apikey"
           echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
       - name: configure aws
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-aws
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -236,14 +293,18 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-          PALM_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
+          GOOGLE_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ steps.creds-aws.outputs.aws-access-key-id }}
           AWS_SECRET_ACCESS_KEY: ${{ steps.creds-aws.outputs.aws-secret-access-key }}
           AWS_SESSION_TOKEN: ${{ steps.creds-aws.outputs.aws-session-token }}
+          OPENAI_APIKEY: ${{ secrets.OPENAI_APIKEY }}
+          OPENAI_ORGANIZATION: ${{ secrets.OPENAI_ORGANIZATION }}
+          COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
+          ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
@@ -251,23 +312,68 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-go-client", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
+        test: [
+          "--acceptance-only-fast",
+          "--acceptance-only-graphql",
+          "--acceptance-only-authz",
+          "--acceptance-only-replication",
+          "--acceptance-only-async-replication",
+          "--acceptance-go-client-only-fast",
+          "--acceptance-only-python",
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests
-        uses: nick-fields/retry@v3
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+        run: ./test/run.sh ${{ matrix.test }}
+  Acceptance-Tests-large:
+    name: acceptance-tests-large
+    runs-on: ubuntu-latest-4-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--acceptance-go-client-named-vectors-single-node", "--acceptance-go-client-named-vectors-cluster", "--acceptance-lsmkv"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Determine retry max_attempts value
+        env:
+          MATRIX_TEST: ${{ matrix.test }}
+        run: |
+          if [[ "$MATRIX_TEST" == *"lsmkv"* ]]; then
+            echo "retry_max_attempts=2" >> $GITHUB_ENV
+          else
+            echo "retry_max_attempts=1" >> $GITHUB_ENV
+          fi
+      - name: Acceptance tests Large
+        uses: nick-fields/retry@v3
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: ${{ env.retry_max_attempts }}
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Codecov:
@@ -286,7 +392,7 @@ jobs:
         with:
           name: coverage-report-integration
       - name: Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
@@ -299,7 +405,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -307,7 +413,7 @@ jobs:
           install-only: true
       - name: goreleaser
         run: |
-          GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
+          GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
         with:
@@ -346,6 +452,7 @@ jobs:
       CLUSTER_HOSTNAME: node1
       RAFT_BOOTSTRAP_EXPECT: 1
       RAFT_JOIN: node1
+      GRPC_PORT: 50052
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries
@@ -355,7 +462,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.22'
           cache: true
       - name: start weaviate
         shell: bash
@@ -368,10 +475,10 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, Integration-Tests]
+    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
+    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -387,4 +494,26 @@ jobs:
       - name: Generate Report
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
+        run: ./ci/generate_docker_report.sh
+  Push-Docker-Fast:
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
+    name: push-docker-fast
+    runs-on: ubuntu-latest-8-cores
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Push container
+        id: push-container
+        run: ./ci/push_docker.sh
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+      - name: Generate Report
+        env:
+          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh

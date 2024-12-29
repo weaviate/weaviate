@@ -18,12 +18,16 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -32,55 +36,55 @@ import (
 
 func Test_Kinds_Authorization(t *testing.T) {
 	type testCase struct {
-		methodName       string
-		additionalArgs   []interface{}
-		expectedVerb     string
-		expectedResource string
+		methodName        string
+		additionalArgs    []interface{}
+		expectedVerb      string
+		expectedResources []string
 	}
 
 	tests := []testCase{
 		// single kind
 		{
-			methodName:       "AddObject",
-			additionalArgs:   []interface{}{(*models.Object)(nil)},
-			expectedVerb:     "create",
-			expectedResource: "objects",
+			methodName:        "AddObject",
+			additionalArgs:    []interface{}{(*models.Object)(nil)},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
 		{
-			methodName:       "ValidateObject",
-			additionalArgs:   []interface{}{(*models.Object)(nil)},
-			expectedVerb:     "validate",
-			expectedResource: "objects",
+			methodName:        "ValidateObject",
+			additionalArgs:    []interface{}{(*models.Object)(nil)},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "")},
 		},
 		{
-			methodName:       "GetObject",
-			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
-			expectedVerb:     "get",
-			expectedResource: "objects/foo",
+			methodName:        "GetObject",
+			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 		{
-			methodName:       "DeleteObject",
-			additionalArgs:   []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
-			expectedResource: "objects/class/foo",
+			methodName:        "DeleteObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{ // deprecated by the one above
-			methodName:       "DeleteObject",
-			additionalArgs:   []interface{}{"", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
-			expectedResource: "objects/foo",
+			methodName:        "DeleteObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{
-			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "objects/class/foo",
+			methodName:        "UpdateObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{ // deprecated by the one above
-			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "objects/foo",
+			methodName:        "UpdateObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{
 			methodName: "MergeObject",
@@ -88,67 +92,67 @@ func Test_Kinds_Authorization(t *testing.T) {
 				&models.Object{Class: "class", ID: "foo"},
 				(*additional.ReplicationProperties)(nil),
 			},
-			expectedVerb:     "update",
-			expectedResource: "objects/class/foo",
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{
-			methodName:       "GetObjectsClass",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
-			expectedResource: "objects/foo",
+			methodName:        "GetObjectsClass",
+			additionalArgs:    []interface{}{strfmt.UUID("foo")},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 		{
-			methodName:       "GetObjectClassFromName",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
-			expectedResource: "objects/foo",
+			methodName:        "GetObjectClassFromName",
+			additionalArgs:    []interface{}{strfmt.UUID("foo")},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 		{
-			methodName:       "HeadObject",
-			additionalArgs:   []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:     "head",
-			expectedResource: "objects/class/foo",
+			methodName:        "HeadObject",
+			additionalArgs:    []interface{}{"class", strfmt.UUID("foo")},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{ // deprecated by the one above
-			methodName:       "HeadObject",
-			additionalArgs:   []interface{}{"", strfmt.UUID("foo")},
-			expectedVerb:     "head",
-			expectedResource: "objects/foo",
+			methodName:        "HeadObject",
+			additionalArgs:    []interface{}{"", strfmt.UUID("foo")},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 
 		// query objects
 		{
-			methodName:       "Query",
-			additionalArgs:   []interface{}{new(QueryParams)},
-			expectedVerb:     "list",
-			expectedResource: "objects",
+			methodName:        "Query",
+			additionalArgs:    []interface{}{new(QueryParams)},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.ShardsMetadata("", "")[0]},
 		},
 
 		{ // list objects is deprecated by query
-			methodName:       "GetObjects",
-			additionalArgs:   []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
-			expectedVerb:     "list",
-			expectedResource: "objects",
+			methodName:        "GetObjects",
+			additionalArgs:    []interface{}{(*int64)(nil), (*int64)(nil), (*string)(nil), (*string)(nil), additional.Properties{}},
+			expectedVerb:      authorization.READ,
+			expectedResources: []string{authorization.Objects("", "", "")},
 		},
 
 		// reference on objects
 		{
-			methodName:       "AddObjectReference",
-			additionalArgs:   []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "objects/class/foo",
+			methodName:        "AddObjectReference",
+			additionalArgs:    []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 		{
-			methodName:       "DeleteObjectReference",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
-			expectedResource: "objects/foo",
+			methodName:        "DeleteObjectReference",
+			additionalArgs:    []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("", "", "foo")},
 		},
 		{
-			methodName:       "UpdateObjectReferences",
-			additionalArgs:   []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
-			expectedVerb:     "update",
-			expectedResource: "objects/class/foo",
+			methodName:        "UpdateObjectReferences",
+			additionalArgs:    []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: []string{authorization.Objects("class", "", "foo")},
 		},
 	}
 
@@ -158,7 +162,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Manager{}) {
+		for _, method := range allExportedMethods(&Manager{}, "") {
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -174,7 +178,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
-				authorizer := &authDenier{}
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
 					cfg, logger, authorizer,
@@ -183,15 +188,15 @@ func Test_Kinds_Authorization(t *testing.T) {
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
 
-				require.Len(t, authorizer.calls, 1, "authorizer must be called")
+				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
 				if err, ok := aerr.(*Error); !ok || !err.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}
 
-				assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-					authorizer.calls[0], "correct parameters must have been used on authorizer")
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
+					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}
 	})
@@ -199,55 +204,46 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 func Test_BatchKinds_Authorization(t *testing.T) {
 	type testCase struct {
-		methodName       string
-		additionalArgs   []interface{}
-		expectedVerb     string
-		expectedResource string
+		methodName        string
+		additionalArgs    []interface{}
+		expectedVerb      string
+		expectedResources []string
 	}
+
+	uri := strfmt.URI("weaviate://localhost/Class/" + uuid.New().String())
 
 	tests := []testCase{
 		{
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
-				[]*models.Object{},
+				[]*models.Object{{}},
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:     "create",
-			expectedResource: "batch/objects",
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.ShardsMetadata("", ""),
 		},
-
 		{
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
-				[]*models.BatchReference{},
+				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: ""}},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:     "update",
-			expectedResource: "batch/*",
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("Class", ""),
 		},
-
 		{
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{},
+				(*int64)(nil),
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:     "delete",
-			expectedResource: "batch/objects",
-		},
-		{
-			methodName: "DeleteObjectsFromGRPC",
-			additionalArgs: []interface{}{
-				BatchDeleteParams{},
-				&additional.ReplicationProperties{},
-				"",
-			},
-			expectedVerb:     "delete",
-			expectedResource: "batch/objects",
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.ShardsData("", ""),
 		},
 	}
 
@@ -257,7 +253,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&BatchManager{}) {
+		// exception is public method for GRPC which has its own authorization check
+		for _, method := range allExportedMethods(&BatchManager{}, "DeleteObjectsFromGRPCAfterAuth", "AddObjectsGRPCAfterAuth") {
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -269,7 +266,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
-			authorizer := &authDenier{}
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
 			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
@@ -277,28 +275,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
 
-			require.Len(t, authorizer.calls, 1, "authorizer must be called")
+			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-				authorizer.calls[0], "correct parameters must have been used on authorizer")
+			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources},
+				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})
-}
-
-type authorizeCall struct {
-	principal *models.Principal
-	verb      string
-	resource  string
-}
-
-type authDenier struct {
-	calls []authorizeCall
-}
-
-func (a *authDenier) Authorize(principal *models.Principal, verb, resource string) error {
-	a.calls = append(a.calls, authorizeCall{principal, verb, resource})
-	return errors.New("just a test fake")
 }
 
 // inspired by https://stackoverflow.com/a/33008200
@@ -316,11 +299,17 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 	return
 }
 
-func allExportedMethods(subject interface{}) []string {
+func allExportedMethods(subject interface{}, exceptions ...string) []string {
 	var methods []string
 	subjectType := reflect.TypeOf(subject)
+methodLoop:
 	for i := 0; i < subjectType.NumMethod(); i++ {
 		name := subjectType.Method(i).Name
+		for j := range exceptions {
+			if name == exceptions[j] {
+				continue methodLoop
+			}
+		}
 		if name[0] >= 'A' && name[0] <= 'Z' {
 			methods = append(methods, name)
 		}

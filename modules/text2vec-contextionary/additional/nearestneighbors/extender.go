@@ -48,7 +48,7 @@ func (e *Extender) AdditionalPropertyFn(ctx context.Context,
 	return e.Multi(ctx, in, limit)
 }
 
-func (e *Extender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (e *Extender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -72,7 +72,7 @@ func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([
 
 	vectors := make([][]float32, len(in))
 	for i, res := range in {
-		if res.Vector == nil || len(res.Vector) == 0 {
+		if len(res.Vector) == 0 {
 			return nil, fmt.Errorf("item %d has no vector", i)
 		}
 		vectors[i] = res.Vector

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -25,24 +26,24 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) findAndConnectNeighbors(node *vertex,
+func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, false)
 
-	return nfc.Do()
+	return nfc.Do(ctx)
 }
 
-func (h *hnsw) reconnectNeighboursOf(node *vertex,
+func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, true)
 
-	return nfc.Do()
+	return nfc.Do(ctx)
 }
 
 type neighborFinderConnector struct {
@@ -78,9 +79,9 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	}
 }
 
-func (n *neighborFinderConnector) Do() error {
+func (n *neighborFinderConnector) Do(ctx context.Context) error {
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
-		err := n.doAtLevel(level)
+		err := n.doAtLevel(ctx, level)
 		if err != nil {
 			return errors.Wrapf(err, "at level %d", level)
 		}
@@ -90,27 +91,43 @@ func (n *neighborFinderConnector) Do() error {
 }
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
-	dist, ok, err := n.graph.distToNode(n.distancer, id, n.nodeVec)
+	var dist float32
+	var err error
+
+	if n.distancer == nil {
+		dist, err = n.graph.distToNode(n.distancer, id, n.nodeVec)
+	} else {
+		dist, err = n.distancer.DistanceToNode(id)
+	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID, "processNode")
+		return math.MaxFloat32, nil
+	}
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return math.MaxFloat32, nil
 	}
 	return dist, nil
 }
 
 func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+	if top <= 0 {
+		return nil
+	}
 	if err := n.ctx.Err(); err != nil {
 		return err
 	}
 
+	n.graph.RLock()
+	nodesLen := uint64(len(n.graph.nodes))
+	n.graph.RUnlock()
 	var pending []uint64
 	// lock the nodes slice
 	n.graph.shardedNodeLocks.RLock(from)
-	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
-		n.graph.handleDeletedNode(from)
+	if nodesLen < from || n.graph.nodes[from] == nil {
+		n.graph.handleDeletedNode(from, "processRecursively")
 		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
@@ -175,7 +192,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	return nil
 }
 
-func (n *neighborFinderConnector) doAtLevel(level int) error {
+func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) error {
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
@@ -230,7 +247,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		eps.Insert(n.entryPointID, n.entryPointDist)
 		var err error
 
-		results, err = n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
 			level, nil, n.distancer)
 		if err != nil {
 			return errors.Wrapf(err, "search layer at level %d", level)
@@ -322,29 +339,31 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	} else {
 		// we need to run the heuristic
 
-		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		if err != nil {
-			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
-		}
-
-		if !ok {
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		var e storobj.ErrNotFound
+		if err != nil && errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
+		}
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
 		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
-			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil {
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			if !ok {
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
 				// was deleted in the meantime
 				continue
+			}
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
 			candidates.Insert(existingConnection, dist)
@@ -441,6 +460,10 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	// underlying object store and we cannot retrieve the vector in time, etc.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	n.graph.logger.WithFields(logrus.Fields{
+		"action":   "pick_entrypoint",
+		"duration": 60 * time.Second,
+	}).Debug("context.WithTimeout")
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -485,12 +508,20 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	dist, ok, err := n.graph.distToNode(n.distancer, candidate, n.nodeVec)
+	var dist float32
+	var err error
+	if n.distancer == nil {
+		dist, err = n.graph.distToNode(n.distancer, candidate, n.nodeVec)
+	} else {
+		dist, err = n.distancer.DistanceToNode(candidate)
+	}
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID, "tryEpCandidate")
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return false, nil
 	}
 
 	// we were able to calculate a distance, we're good

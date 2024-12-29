@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"testing"
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeManyModules(host, region, gcpProject string) func(t *testing.T) {
+func testGenerativeManyModules(host, ollamaApiEndpoint, region, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -45,9 +45,12 @@ func testGenerativeManyModules(host, region, gcpProject string) func(t *testing.
 				"region":  region,
 				"model":   "amazon.titan-text-lite-v1",
 			},
-			"generative-palm": map[string]interface{}{
+			"generative-google": map[string]interface{}{
 				"projectId": gcpProject,
 				"modelId":   "gemini-1.0-pro",
+			},
+			"generative-ollama": map[string]interface{}{
+				"apiEndpoint": ollamaApiEndpoint,
 			},
 		}
 		// create schema
@@ -75,7 +78,15 @@ func testGenerativeManyModules(host, region, gcpProject string) func(t *testing.
 		}{
 			{
 				name:   "ollama",
-				params: "ollama:{temperature:0.1}",
+				params: `ollama:{temperature:0.1 model:"tinyllama"}`,
+			},
+			{
+				name:   "aws",
+				params: `aws:{temperature:0.9 model:"ai21.j2-mid-v1"}`,
+			},
+			{
+				name:   "google",
+				params: `google:{topP:0.8 topK:30 model:"chat-bison"}`,
 			},
 		}
 		for _, tt := range tests {

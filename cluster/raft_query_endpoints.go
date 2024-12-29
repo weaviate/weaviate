@@ -16,11 +16,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	entSentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -29,6 +33,16 @@ import (
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
 func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.read_only_classes"),
+			sentry.WithDescription("Query class schema"),
+		)
+		transaction.SetData("classes", classes)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	if len(classes) == 0 {
 		return nil, fmt.Errorf("empty classes names: %w", schema.ErrBadRequest)
 	}
@@ -54,7 +68,7 @@ func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Cla
 		Type:       cmd.QueryRequest_TYPE_GET_CLASSES,
 		SubCommand: subCommand,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
 		return map[string]versioned.Class{}, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -78,10 +92,19 @@ func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Cla
 // QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
 // with strong consistency
 func (s *Raft) QuerySchema() (models.Schema, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.schema"),
+			sentry.WithDescription("Query the schema"),
+		)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	command := &cmd.QueryRequest{
 		Type: cmd.QueryRequest_TYPE_GET_SCHEMA,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
 		return models.Schema{}, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -97,27 +120,38 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.tenants"),
+			sentry.WithDescription("Query the status of tenants in a given class"),
+		)
+		transaction.SetData("class", class)
+		transaction.SetData("tenants", tenants)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	// Build the query and execute it
 	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
 		SubCommand: subCommand,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return []*models.TenantResponse{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
 	return resp.Tenants, resp.ShardVersion, nil
@@ -126,6 +160,17 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 // QueryShardOwner build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the tenant with strong consistency and return the shard owner node
 func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.shard_owner"),
+			sentry.WithDescription("Query the owner of a given shard in a given class"),
+		)
+		transaction.SetData("class", class)
+		transaction.SetData("shard", shard)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	// Build the query and execute it
 	req := cmd.QueryShardOwnerRequest{Class: class, Shard: shard}
 	subCommand, err := json.Marshal(&req)
@@ -136,7 +181,7 @@ func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
 		Type:       cmd.QueryRequest_TYPE_GET_SHARD_OWNER,
 		SubCommand: subCommand,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -155,6 +200,17 @@ func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
 func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.tenants_shards"),
+			sentry.WithDescription("Query the tenants of a given class"),
+		)
+		transaction.SetData("class", class)
+		transaction.SetData("tenants", tenants)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	// Build the query and execute it
 	req := cmd.QueryTenantsShardsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
@@ -165,7 +221,7 @@ func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]s
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS,
 		SubCommand: subCommand,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -184,6 +240,16 @@ func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]s
 // The request will be directed to the leader to ensure we  will read the shard state with strong consistency and return the
 // state and it's version.
 func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	ctx := context.Background()
+	if entSentry.Enabled() {
+		transaction := sentry.StartSpan(ctx, "grpc.client",
+			sentry.WithTransactionName("raft.query.sharding_state"),
+			sentry.WithDescription("Query the sharding state of a given class"),
+		)
+		transaction.SetData("class", class)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	// Build the query and execute it
 	req := cmd.QueryShardingStateRequest{Class: class}
 	subCommand, err := json.Marshal(&req)
@@ -194,7 +260,7 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 		Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
 		SubCommand: subCommand,
 	}
-	queryResp, err := s.Query(context.Background(), command)
+	queryResp, err := s.Query(ctx, command)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -222,10 +288,25 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		return s.store.Query(req)
 	}
 
-	leader := s.store.Leader()
-	if leader == "" {
-		return &cmd.QueryResponse{}, s.leaderErr()
+	// find out who the leader is
+	var leader string
+	if err := backoff.Retry(func() error {
+		if leader = s.store.Leader(); leader == "" {
+			err := s.leaderErr()
+			s.log.Warnf("query: could not find leader: %s", err)
+			return err
+		}
+
+		return nil
+	}, backoff.WithContext(backoff.WithMaxRetries(
+		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx)); err != nil {
+		s.log.Errorf("query: failed to find leader after retries: %s", err)
+		return &cmd.QueryResponse{}, err
 	}
 
-	return s.cl.Query(ctx, leader, req)
+	resp, err := s.cl.Query(ctx, leader, req)
+	if err != nil {
+		s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+	}
+	return resp, err
 }

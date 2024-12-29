@@ -30,7 +30,7 @@ func TestGetClassWithConsistency(t *testing.T) {
 	defer cancel()
 
 	// 3 Node cluster so that we can verify that the proxy to leader feature work
-	compose, err := docker.New().With2NodeCluster().
+	compose, err := docker.New().WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)

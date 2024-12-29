@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	sentryhttp "github.com/getsentry/sentry-go/http"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
@@ -107,7 +109,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
@@ -127,11 +129,28 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
+		if appState.ServerConfig.Config.Monitoring.Enabled {
+			handler = monitoring.InstrumentHTTP(
+				handler,
+				context,
+				appState.ServerMetrics.InflightRequests,
+				appState.ServerMetrics.RequestDuration,
+				appState.ServerMetrics.RequestBodySize,
+				appState.ServerMetrics.ResponseBodySize,
+			)
+		}
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			handler = addSentryHandler(handler)
+		}
 
 		return handler
 	}
+}
+
+func addSentryHandler(next http.Handler) http.Handler {
+	return sentryhttp.New(sentryhttp.Options{}).Handle(next)
 }
 
 func makeAddLogging(logger logrus.FieldLogger) func(http.Handler) http.Handler {
@@ -162,6 +181,8 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 					"shard_name": "n/a",
 				}).
 					Observe(float64(time.Since(before) / time.Millisecond))
+
+				metrics.BatchSizeBytes.WithLabelValues("rest").Observe(float64(r.ContentLength))
 			}
 		})
 	}
@@ -208,9 +229,18 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
-			code := http.StatusServiceUnavailable
-			if state.ClusterService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
-				code = http.StatusOK
+			code := http.StatusOK
+			// if this node is in maintenance mode, we want to return live but not ready
+			// so that kubernetes will allow this pod to run but not send traffic to it
+			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+				code = http.StatusServiceUnavailable
+			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
+				code = http.StatusServiceUnavailable
+			} else if state.Modules != nil {
+				_, err := state.Modules.GetMeta()
+				if err != nil {
+					code = http.StatusServiceUnavailable
+				}
 			}
 			w.WriteHeader(code)
 			return

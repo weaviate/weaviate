@@ -17,11 +17,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	generative "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	generate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
@@ -39,15 +41,33 @@ type mapper interface {
 	NewNilValue() *pb.Value
 }
 
-type Replier struct {
-	mapper  mapper
-	uses123 bool
+type generativeReplier interface {
+	Extract(_additional map[string]any, params any, metadata *pb.MetadataResult) (*pb.GenerativeResult, string, error)
 }
 
-func NewReplier(uses123, uses125 bool) *Replier {
+type Replier struct {
+	generative generativeReplier
+	mapper     mapper
+	uses123    bool
+	logger     logrus.FieldLogger
+}
+
+type generativeQueryParamsGetter interface {
+	ProviderName() string
+	ReturnMetadata() bool
+}
+
+func NewReplier(uses123 bool,
+	uses125 bool,
+	uses127 bool,
+	generativeParams generativeQueryParamsGetter,
+	logger logrus.FieldLogger,
+) *Replier {
 	return &Replier{
-		mapper:  &Mapper{uses125: uses125},
-		uses123: uses123,
+		generative: generative.NewReplier(logger, generativeParams.ProviderName, generativeParams.ReturnMetadata, uses127),
+		mapper:     &Mapper{uses125: uses125},
+		uses123:    uses123,
+		logger:     logger,
 	}
 }
 
@@ -103,7 +123,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 			return nil, "", err
 		}
 
-		additionalProps, generativeGroupResults, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
+		additionalProps, generativeGroupResults, generativeResult, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
 		if err != nil {
 			return nil, "", err
 		}
@@ -115,6 +135,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		result := &pb.SearchResult{
 			Properties: props,
 			Metadata:   additionalProps,
+			Generative: generativeResult,
 		}
 
 		results[i] = result
@@ -135,7 +156,7 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 	return hexInteger.Bytes(), idStrfmtStr, nil
 }
 
-func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
+func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, *pb.GenerativeResult, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
@@ -143,19 +164,19 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
-			return nil, "", errors.New("could not extract get id in additional prop")
+			return nil, "", nil, errors.New("could not extract get id in additional prop")
 		}
 
 		idToBytes, idAsString, err := idToByte(idRaw)
 		if err != nil {
-			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
+			return nil, "", nil, errors.Wrap(err, "could not extract format id in additional prop")
 		}
 		metadata.Id = idAsString
 		metadata.IdAsBytes = idToBytes
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
-		return metadata, "", nil
+		return metadata, "", nil, nil
 	}
 
 	var additionalPropertiesMap map[string]interface{}
@@ -173,61 +194,37 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
-			return nil, "", errors.New("could not extract get id generative in additional prop")
+			return nil, "", nil, errors.New("could not extract get id generative in additional prop")
 		}
 
 		idToBytes, idAsString, err := idToByte(idRaw)
 		if err != nil {
-			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
+			return nil, "", nil, errors.Wrap(err, "could not extract format id in additional prop")
 		}
 		metadata.Id = idAsString
 		metadata.IdAsBytes = idToBytes
 	}
 
+	var generativeResult *pb.GenerativeResult
 	if generativeSearchEnabled {
-		generateFmt, err := extractGenerateResult(additionalPropertiesMap)
+		var grouped string
+		var err error
+		generativeResult, grouped, err = r.generative.Extract(additionalPropertiesMap, generativeSearchRaw, metadata)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
-
-		if generateFmt.Error != nil {
-			return nil, "", generateFmt.Error
-		}
-
-		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
-		if !ok {
-			return nil, "", errors.New("could not cast generative search params")
-		}
-		if generativeSearch.Prompt != nil && generateFmt.SingleResult == nil {
-			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
-		}
-
-		if generateFmt.Error != nil {
-			return nil, "", generateFmt.Error
-		}
-
-		if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-			metadata.Generative = *generateFmt.SingleResult
-			metadata.GenerativePresent = true
-		}
-
-		// grouped results are only added to the first object for GQL reasons
-		// however, reranking can result in a different order, so we need to check every object
-		// recording the result if it's present assuming that it is at least somewhere and will be caught
-		if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
-			generativeGroupResults = *generateFmt.GroupedResult
-		}
+		generativeGroupResults = grouped
 	}
 
 	if rerankEnabled {
 		rerank, ok := additionalPropertiesMap["rerank"]
 		if !ok {
-			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
+			return nil, "", nil, errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
 		}
 
 		rerankFmt, ok := rerank.([]*additionalModels.RankResult)
 		if !ok {
-			return nil, "", errors.New("could not cast rerank result additional prop")
+			return nil, "", nil, errors.New("could not cast rerank result additional prop")
 		}
 		metadata.RerankScore = *rerankFmt[0].Score
 		metadata.RerankScorePresent = true
@@ -345,7 +342,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		}
 	}
 
-	return metadata, generativeGroupResults, nil
+	return metadata, generativeGroupResults, generativeResult, nil
 }
 
 func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
@@ -389,7 +386,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 			return nil, "", err
 		}
 
-		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
+		generativeSearch, ok := generativeSearchRaw.(*generate.Params)
 		if !ok {
 			return nil, "", errors.New("could not cast generative search params")
 		}
@@ -526,7 +523,7 @@ func (r *Replier) extractPropertiesAnswerDeprecated(scheme schema.Schema, result
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, _, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}
@@ -629,7 +626,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, _, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}

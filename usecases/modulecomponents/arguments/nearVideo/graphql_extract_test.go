@@ -88,7 +88,7 @@ func Test_extractNearVideoFn(t *testing.T) {
 					"targets": map[string]interface{}{
 						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
 						"combinationMethod": dto.ManualWeights,
-						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+						"weights":           map[string]interface{}{"targetVector1": 0.5, "targetVector2": 0.5},
 					},
 				},
 			},
@@ -96,7 +96,7 @@ func Test_extractNearVideoFn(t *testing.T) {
 				Video:         "base64;encoded",
 				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
-			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.5, 0.5}},
 		},
 	}
 	for _, tt := range tests {

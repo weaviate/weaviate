@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -142,7 +143,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, merge bool, newProps ...*models.Property,
+	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
@@ -185,6 +186,10 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 type fakeLocks struct {
 	Err error
 }
@@ -195,14 +200,6 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 
 func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
-}
-
-type fakeAuthorizer struct {
-	Err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.Err
 }
 
 type fakeVectorRepo struct {
@@ -250,7 +247,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	vectors models.Vectors, repl *additional.ReplicationProperties, schemaVersion uint64,
+	vectors models.Vectors, multiVectors models.MultiVectors, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
@@ -271,7 +268,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
@@ -283,9 +280,9 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
+	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
-	args := f.Called(className, id)
+	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
 
@@ -313,7 +310,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -332,7 +329,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -351,7 +348,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 

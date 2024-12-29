@@ -12,9 +12,14 @@
 package generate
 
 type Params struct {
-	Prompt     *string
-	Task       *string
-	Properties []string
-	Debug      bool
-	Options    map[string]interface{}
+	Prompt              *string
+	Task                *string
+	Properties          []string
+	PropertiesToExtract []string
+	Debug               bool
+	Options             map[string]interface{}
+}
+
+func (n Params) GetPropertiesToExtract() []string {
+	return n.PropertiesToExtract
 }

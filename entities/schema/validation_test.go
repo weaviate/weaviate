@@ -44,6 +44,13 @@ func TestFailValidateBadClassName(t *testing.T) {
 		"fooBar",
 		"_foo",
 		"ThisClassNameHasMoreThan255Characters_MaximumAllowed____________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890",
+		"_String", "string",
+		"_DateTime", "dateTime", "datetime",
+		"_Int", "int",
+		"_Float", "float",
+		"_Boolean", "boolean",
+		"_ID", "id",
+		"_FieldSet", "fieldSet", "fieldset",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := ValidateClassName(name)

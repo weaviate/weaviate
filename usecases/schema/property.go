@@ -19,16 +19,26 @@ import (
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, merge bool, newProps ...*models.Property,
+	class *models.Class, className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
-	if err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
+	}
+
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
+		return nil, 0, err
+	}
+	classGetterWithAuth := func(name string) (*models.Class, error) {
+		if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+			return nil, err
+		}
+		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
 	if class == nil {
@@ -61,7 +71,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		}
 	}
 
-	if err := h.validateProperty(class, existingNames, false, newProps...); err != nil {
+	if err := h.validateProperty(class, existingNames, false, classGetterWithAuth, newProps...); err != nil {
 		return nil, 0, err
 	}
 
@@ -75,7 +85,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	migratePropertySettings(props...)
 
 	class.Properties = clusterSchema.MergeProps(class.Properties, props)
-	version, err := h.schemaManager.AddProperty(class.Class, props...)
+	version, err := h.schemaManager.AddProperty(ctx, class.Class, props...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -86,7 +96,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property string,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return err
 	}

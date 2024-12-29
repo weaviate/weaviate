@@ -140,7 +140,7 @@ func TestImplicitActivation(t *testing.T) {
 		client *wvt.Client,
 		cleanupFn func(t *testing.T, ctx context.Context),
 	) {
-		compose, err := docker.New().WithWeaviateCluster(2).Start(ctx)
+		compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
 		require.Nil(t, err)
 
 		client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})

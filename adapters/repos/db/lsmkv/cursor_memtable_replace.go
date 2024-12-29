@@ -67,6 +67,11 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 	sortedSecondaryKeys := make([]string, 0, len(secondaryToPrimary))
 
 	for skey := range secondaryToPrimary {
+		if skey == "" {
+			// this special case is to handle the edge case when a secondary
+			// key was not removed together with primary key
+			continue
+		}
 		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
 	}
 
@@ -76,17 +81,16 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 
 	data := make([]*binarySearchNode, len(sortedSecondaryKeys))
 
-	var err error
-
 	for i, skey := range sortedSecondaryKeys {
-		key := secondaryToPrimary[skey]
-		data[i], err = m.key.getNode(key)
+		var err error
+
+		data[i], err = m.key.getNode(secondaryToPrimary[skey])
 		if err != nil {
 			if errors.Is(err, lsmkv.Deleted) {
 				// this special case is currently needed because secondary keys
 				// are not being labeled as deleted
 				data[i] = &binarySearchNode{
-					key:       key,
+					key:       []byte(skey),
 					tombstone: true,
 				}
 				continue
@@ -98,6 +102,9 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 	return &memtableCursor{
 		data: data,
 		keyFn: func(n *binarySearchNode) []byte {
+			if pos >= len(n.secondaryKeys) {
+				return nil
+			}
 			return n.secondaryKeys[pos]
 		},
 		lock:   m.RLock,

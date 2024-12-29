@@ -15,7 +15,8 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"strings"
+
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -27,17 +28,15 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -66,10 +65,14 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
-		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, error)
+	MultiVectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+		findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, error)
 	TargetsFromSearchParam(className string, params interface{}) ([]string, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[]float32]) ([]float32, string, error)
+	MultiCrossClassVectorFromSearchParam(ctx context.Context, param string,
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn[[][]float32]) ([][]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
@@ -77,6 +80,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
+	MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error)
 }
 
 type objectsSearcher interface {
@@ -130,10 +134,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 			Offset: 0,
 			Limit:  100,
 		}
-	}
-
-	if err := e.validateFilters(params.Filters); err != nil {
-		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
@@ -234,7 +234,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -246,13 +246,14 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			if params.NearVector != nil {
 				searchVectorParam = params.NearVector
 			} else if searchVectorParams != nil {
-				searchVectorParam = searchVectorParams[i]
+				searchVectorParam = searchVectorParams
 			}
 
-			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
 			}
+			searchVectors[i] = vec
 			return nil
 		})
 	}
@@ -462,9 +463,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 
 			if params.AdditionalProperties.Certainty {
-				if err := e.checkCertaintyCompatibility(params); err != nil {
-					return nil, errors.Errorf("additional: %s", err)
+				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+					return nil, errors.Errorf("additional: %s for class: %v", err, params.ClassName)
 				}
+
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
@@ -511,7 +515,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 		if len(additionalProperties) > 0 {
 			if additionalProperties["group"] != nil {
-				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.Properties)
+				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.GroupBy.Properties)
 			}
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
@@ -526,23 +530,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 
 func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
 	additionalGroup interface{},
-	params search.SelectProperties,
+	props search.SelectProperties,
 ) {
 	if group, ok := additionalGroup.(*additional.Group); ok {
 		if len(group.Hits) > 0 {
-			var groupSelectProperties search.SelectProperties
-			for _, selectProp := range params {
-				if strings.HasPrefix(selectProp.Name, "_additional:group:hits:") {
-					groupSelectProperties = append(groupSelectProperties, search.SelectProperty{
-						Name:            strings.Replace(selectProp.Name, "_additional:group:hits:", "", 1),
-						IsPrimitive:     selectProp.IsPrimitive,
-						IncludeTypeName: selectProp.IncludeTypeName,
-						Refs:            selectProp.Refs,
-					})
-				}
-			}
 			for _, hit := range group.Hits {
-				e.extractAdditionalPropertiesFromRefs(hit, groupSelectProperties)
+				e.extractAdditionalPropertiesFromRefs(hit, props)
 			}
 		}
 	}
@@ -680,9 +673,9 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
-	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
+	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string, index int,
 ) ([]float32, error) {
-	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
+	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target, index)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
@@ -704,7 +697,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		if len(params.NearVector.TargetVectors) == 1 {
 			targetVector = params.NearVector.TargetVectors[0]
 		}
-		return params.NearVector.VectorPerTarget[targetVector], targetVector, nil
+		return params.NearVector.Vectors[0], targetVector, nil
 	}
 
 	if params.NearObject != nil {
@@ -728,7 +721,7 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
 		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
-			paramName, paramValue, e.nearParamsVector.findVector,
+			paramName, paramValue, generictypes.FindVectorFn(e.nearParamsVector.findVector),
 		)
 		if err != nil {
 			return nil, "", errors.Errorf("vectorize params: %v", err)
@@ -740,28 +733,6 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 
 func (e *Explorer) GetSchema() schema.Schema {
 	return e.schemaGetter.GetSchemaSkipAuth()
-}
-
-func (e *Explorer) GetClassByName(className string) *models.Class {
-	s := e.GetSchema()
-	return s.GetClass(string(schema.ClassName(className)))
-}
-
-func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
-	if class == nil {
-		return errors.Errorf("failed to get class: %s", params.ClassName)
-	}
-	targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
-	vectorConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return err
-	}
-	if dn := vectorConfigs[0].DistanceName(); dn != common.DistanceCosine {
-		return certaintyUnsupportedError(dn)
-	}
-
-	return nil
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {

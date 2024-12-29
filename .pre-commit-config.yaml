@@ -16,12 +16,18 @@ repos:
         entry: ./tools/linter_go_routines.sh
         language: system
         types: [ go ]
-      - id: swagger
-        name: swagger
-        entry: ./tools/gen-code-from-swagger.sh
-        language: system
-        types: [ go ]
-  -   repo: https://github.com/psf/black
-      rev: 24.2.0
-      hooks:
-        -   id: black
+      - id: golangci-lint
+        name: golangci-lint
+        description: Fast linters runner for Go. Note that only modified files are linted, so linters like 'unused' that need to scan all files won't work as expected.
+        entry: golangci-lint run --new-from-rev HEAD
+        types: [go]
+        language: golang
+        # Please make sure to update the version in the .github/workflows/linter.yml file when updating this version.
+        additional_dependencies:
+          - github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
+        require_serial: true
+        pass_filenames: false
+  - repo: https://github.com/psf/black
+    rev: 24.2.0
+    hooks:
+      - id: black

@@ -12,9 +12,7 @@
 package compressionhelpers
 
 import (
-	"errors"
 	"math"
-	"math/bits"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -45,12 +43,5 @@ func (bq BinaryQuantizer) Encode(vec []float32) []uint64 {
 }
 
 func (bq BinaryQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {
-	if len(x) != len(y) {
-		return 0, errors.New("BinaryQuantizer.DistanceBetweenCompressedVectors: Both vectors should have the same len")
-	}
-	total := float32(0)
-	for segment := range x {
-		total += float32(bits.OnesCount64(x[segment] ^ y[segment]))
-	}
-	return total, nil
+	return distancer.HammingBitwise(x, y)
 }

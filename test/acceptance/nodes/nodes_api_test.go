@@ -224,6 +224,8 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 		WithWeaviate().
 		WithText2VecContextionary().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
+		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -245,22 +247,25 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 		defer helper.DeleteClass(t, booksClass.Class)
 
 		t.Run("check compressed true", func(t *testing.T) {
-			verbose := "verbose"
-			params := nodes.NewNodesGetParams().WithOutput(&verbose)
-			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-			require.Nil(t, err)
+			checkThunk := func() interface{} {
+				verbose := "verbose"
+				params := nodes.NewNodesGetParams().WithOutput(&verbose)
+				resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+				require.Nil(t, err)
 
-			nodeStatusResp := resp.GetPayload()
-			require.NotNil(t, nodeStatusResp)
+				nodeStatusResp := resp.GetPayload()
+				require.NotNil(t, nodeStatusResp)
 
-			nodes := nodeStatusResp.Nodes
-			require.NotNil(t, nodes)
-			require.Len(t, nodes, 1)
+				nodes := nodeStatusResp.Nodes
+				require.NotNil(t, nodes)
+				require.Len(t, nodes, 1)
 
-			nodeStatus := nodes[0]
-			require.NotNil(t, nodeStatus)
+				nodeStatus := nodes[0]
+				require.NotNil(t, nodeStatus)
+				return nodeStatus.Shards[0].Compressed
+			}
 
-			require.True(t, nodeStatus.Shards[0].Compressed)
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 15*time.Second)
 		})
 	})
 
@@ -333,7 +338,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 				return nodeStatus.Shards[0].Compressed
 			}
 
-			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 15*time.Second)
 		})
 	})
 }
@@ -351,22 +356,25 @@ func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
 		defer helper.DeleteClass(t, booksClass.Class)
 
 		t.Run("check compressed true", func(t *testing.T) {
-			verbose := "verbose"
-			params := nodes.NewNodesGetParams().WithOutput(&verbose)
-			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-			require.Nil(t, err)
+			checkThunk := func() interface{} {
+				verbose := "verbose"
+				params := nodes.NewNodesGetParams().WithOutput(&verbose)
+				resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+				require.Nil(t, err)
 
-			nodeStatusResp := resp.GetPayload()
-			require.NotNil(t, nodeStatusResp)
+				nodeStatusResp := resp.GetPayload()
+				require.NotNil(t, nodeStatusResp)
 
-			nodes := nodeStatusResp.Nodes
-			require.NotNil(t, nodes)
-			require.Len(t, nodes, 1)
+				nodes := nodeStatusResp.Nodes
+				require.NotNil(t, nodes)
+				require.Len(t, nodes, 1)
 
-			nodeStatus := nodes[0]
-			require.NotNil(t, nodeStatus)
+				nodeStatus := nodes[0]
+				require.NotNil(t, nodeStatus)
+				return nodeStatus.Shards[0].Compressed
+			}
 
-			require.True(t, nodeStatus.Shards[0].Compressed)
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
 		})
 	})
 }

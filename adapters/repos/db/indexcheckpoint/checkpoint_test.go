@@ -35,7 +35,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("set and get", func(t *testing.T) {
-		err := c.Update("shard1", "a", 123)
+		err := c.UpdateIfNewer("shard1", "a", 123)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "a")
@@ -45,7 +45,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("set and get: no target", func(t *testing.T) {
-		err := c.Update("shard1", "", 123)
+		err := c.UpdateIfNewer("shard1", "", 123)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "")
@@ -55,7 +55,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("overwrite", func(t *testing.T) {
-		err := c.Update("shard1", "a", 456)
+		err := c.UpdateIfNewer("shard1", "a", 456)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "a")
@@ -74,6 +74,56 @@ func TestCheckpoint(t *testing.T) {
 		require.Zero(t, v)
 	})
 
+	t.Run("deleteShard: single vector", func(t *testing.T) {
+		err = c.Update("shard1", "", 123)
+		require.NoError(t, err)
+
+		err := c.DeleteShard("shard1")
+		require.NoError(t, err)
+
+		v, ok, err := c.Get("shard1", "")
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Zero(t, v)
+	})
+
+	t.Run("deleteShard: named vectors", func(t *testing.T) {
+		err = c.Update("vector_wKFB6FDP7hdS", "a", 1)
+		require.NoError(t, err)
+
+		err = c.Update("vector_wKFB6FDP7hdS", "b", 2)
+		require.NoError(t, err)
+
+		// ensure it doesn't delete other shards
+		err = c.Update("vector_wKFB6FDP7hdS2", "", 3)
+		require.NoError(t, err)
+		err = c.Update("vector_wKFB6FDP7hd_", "a", 4)
+		require.NoError(t, err)
+
+		err := c.DeleteShard("vector_wKFB6FDP7hdS")
+		require.NoError(t, err)
+
+		v, ok, err := c.Get("vector_wKFB6FDP7hdS", "a")
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Zero(t, v)
+
+		v, ok, err = c.Get("vector_wKFB6FDP7hdS", "b")
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Zero(t, v)
+
+		v, ok, err = c.Get("vector_wKFB6FDP7hdS2", "")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.EqualValues(t, 3, v)
+
+		v, ok, err = c.Get("vector_wKFB6FDP7hd_", "a")
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.EqualValues(t, 4, v)
+	})
+
 	t.Run("drop", func(t *testing.T) {
 		c, err := New(t.TempDir(), l)
 		require.NoError(t, err)
@@ -85,7 +135,7 @@ func TestCheckpoint(t *testing.T) {
 		_, _, err = c.Get("shard1", "a")
 		require.Error(t, err)
 
-		err = c.Update("shard1", "a", 123)
+		err = c.UpdateIfNewer("shard1", "a", 123)
 		require.Error(t, err)
 
 		err = c.Delete("shard1", "a")

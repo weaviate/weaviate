@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -41,9 +42,12 @@ import (
 )
 
 type indices struct {
-	shards                          shards
-	db                              db
-	auth                            auth
+	shards shards
+	db     db
+	auth   auth
+	// maintenanceModeEnabled is an experimental feature to allow the system to be
+	// put into a maintenance mode where all indices requests just return a 418
+	maintenanceModeEnabled          func() bool
 	regexpObjects                   *regexp.Regexp
 	regexpObjectsOverwrite          *regexp.Regexp
 	regexObjectsDigest              *regexp.Regexp
@@ -115,7 +119,7 @@ type shards interface {
 	Exists(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID, schemaVersion uint64) error
+		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
@@ -124,14 +128,14 @@ type shards interface {
 		vectors [][]float32, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-		additional additional.Properties, targetCombination *dto.TargetCombination,
+		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
@@ -158,7 +162,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *indices {
+func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() bool, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:                   regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite:          regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -179,6 +183,7 @@ func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *ind
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
+		maintenanceModeEnabled:    maintenanceModeEnabled,
 		logger:                    logger,
 	}
 }
@@ -190,6 +195,12 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if i.maintenanceModeEnabled() {
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
+		// NOTE if you update any of these handler methods/paths, also update the indices_test.go
+		// TestMaintenanceModeIndices test to include the new methods/paths.
 		switch {
 		case i.regexpObjectsSearch.MatchString(path):
 			if r.Method != http.MethodPost {
@@ -218,12 +229,14 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpObjectsOverwrite.MatchString(path):
 			if r.Method != http.MethodPut {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.putOverwriteObjects().ServeHTTP(w, r)
 		case i.regexObjectsDigest.MatchString(path):
 			if r.Method != http.MethodGet {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.getObjectsDigest().ServeHTTP(w, r)
@@ -497,6 +510,7 @@ func (i *indices) getObject() http.Handler {
 			selectProperties, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		if obj == nil {
@@ -509,6 +523,7 @@ func (i *indices) getObject() http.Handler {
 		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.SingleObject.SetContentTypeHeader(w)
@@ -526,6 +541,7 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if ok {
@@ -538,12 +554,22 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 func (i *indices) deleteObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpObject.FindStringSubmatch(r.URL.Path)
-		if len(args) != 4 {
+		if len(args) < 4 || len(args) > 5 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
 		}
 
 		index, shard, id := args[1], args[2], args[3]
+
+		var deletionTime time.Time
+
+		if len(args) == 5 {
+			deletionTimeUnixMilli, err := strconv.ParseInt(args[4], 10, 64)
+			if err != nil {
+				http.Error(w, "invalid URI", http.StatusBadRequest)
+			}
+			deletionTime = time.UnixMilli(deletionTimeUnixMilli)
+		}
 
 		defer r.Body.Close()
 
@@ -553,9 +579,10 @@ func (i *indices) deleteObject() http.Handler {
 			return
 		}
 
-		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
+		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -649,11 +676,13 @@ func (i *indices) getObjectsMulti() http.Handler {
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.ObjectList.SetContentTypeHeader(w)
@@ -685,7 +714,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, err := IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -699,7 +728,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}).Debug("searching ...")
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -1102,7 +1131,7 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.
+		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -1116,7 +1145,7 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun, schemaVersion)
+		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, deletionTimeUnix, dryRun, schemaVersion)
 
 		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
@@ -1154,11 +1183,13 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		sizeBytes, err := IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
@@ -1190,11 +1221,13 @@ func (i *indices) getGetShardStatus() http.Handler {
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		statusBytes, err := IndicesPayloads.GetShardStatusResults.Marshal(status)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)

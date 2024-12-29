@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
@@ -48,13 +50,13 @@ type graphQL struct {
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, traverser Traverser,
-	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider,
+	logger logrus.FieldLogger, config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (GraphQL, error) {
 	logger.WithField("action", "graphql_rebuild").
 		WithField("schema", schema).
 		Debug("rebuilding the graphql schema")
 
-	graphqlSchema, err := buildGraphqlSchema(schema, logger, config, modulesProvider)
+	graphqlSchema, err := buildGraphqlSchema(schema, logger, config, modulesProvider, authorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -82,9 +84,9 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 }
 
 func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
-	config config.Config, modulesProvider *modules.Provider,
+	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema, logger, config, modulesProvider)
+	localSchema, err := local.Build(dbSchema, logger, config, modulesProvider, authorizer)
 	if err != nil {
 		return graphql.Schema{}, err
 	}
@@ -102,6 +104,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
+				entsentry.Recover(r)
 				err = fmt.Errorf("%v at %s", r, debug.Stack())
 			}
 		}()

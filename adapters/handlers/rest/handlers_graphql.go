@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -57,7 +58,7 @@ func setupGraphQLHandlers(
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 
-		err := m.Authorizer.Authorize(principal, "list", "schema/*")
+		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
 			switch err.(type) {
@@ -150,9 +151,14 @@ func setupGraphQLHandlers(
 	})
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
-		amountOfBatchedRequests := len(params.Body)
-		errorResponse := &models.ErrorResponse{}
+		// this is barely used (if at all) - so require read access to all collections for data and metadata
+		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+		if err != nil {
+			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(err))
+		}
 
+		errorResponse := &models.ErrorResponse{}
+		amountOfBatchedRequests := len(params.Body)
 		if amountOfBatchedRequests == 0 {
 			metricRequestsTotal.logUserError()
 			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)

@@ -48,13 +48,13 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						{
 							Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
 							ModuleConfig: map[string]interface{}{
-								"text2vec-palm": nil,
+								"text2vec-google": nil,
 							},
 						},
 						{
 							Class: "LegacyConfigration",
 							ModuleConfig: map[string]interface{}{
-								"text2vec-palm": map[string]interface{}{
+								"text2vec-google": map[string]interface{}{
 									"modelId":     "text-embedding-004",
 									"apiEndpoint": "generativelanguage.googleapis.com",
 								},
@@ -87,14 +87,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						{
 							Class: "BothNamedVectorAndLegacyConfiguration",
 							ModuleConfig: map[string]interface{}{
-								"generative-palm": map[string]interface{}{
+								"generative-google": map[string]interface{}{
 									"apiEndpoint": "generativelanguage.googleapis.com",
 								},
 							},
 							VectorConfig: map[string]models.VectorConfig{
 								"description_google": {
 									Vectorizer: map[string]interface{}{
-										"text2vec-palm": map[string]interface{}{
+										"text2vec-google": map[string]interface{}{
 											"properties":         []interface{}{"description"},
 											"vectorizeClassName": false,
 										},

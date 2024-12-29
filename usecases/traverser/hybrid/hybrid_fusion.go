@@ -66,8 +66,14 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 	}
 
 	sort.Slice(sortList, func(i, j int) bool {
-		if sortList[j].Score == sortList[i].Score {
-			return sortList[i].SecondarySortValue > sortList[j].SecondarySortValue
+		a_b := float64(sortList[j].Score - sortList[i].Score)
+		if a_b*a_b < 1e-14 {
+			a_b2 := float64(sortList[j].SecondarySortValue - sortList[i].SecondarySortValue)
+			if a_b2*a_b2 < 1e-14 {
+				return sortList[i].ID > sortList[j].ID
+			} else {
+				return sortList[i].SecondarySortValue > sortList[j].SecondarySortValue
+			}
 		}
 		return float64(sortList[i].Score) > float64(sortList[j].Score)
 	})
@@ -149,7 +155,12 @@ func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names
 		sort.Slice(concat, func(i, j int) bool {
 			a_b := float64(concat[j].Score - concat[i].Score)
 			if a_b*a_b < 1e-14 {
-				return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+				a_b2 := float64(concat[j].SecondarySortValue - concat[i].SecondarySortValue)
+				if a_b2*a_b2 < 1e-14 {
+					return concat[i].ID > concat[j].ID
+				} else {
+					return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+				}
 			}
 			return float64(concat[i].Score) > float64(concat[j].Score)
 		})
@@ -157,7 +168,12 @@ func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names
 		sort.Slice(concat, func(i, j int) bool {
 			a_b := float64(concat[j].Score - concat[i].Score)
 			if a_b*a_b < 1e-14 {
-				return concat[i].SecondarySortValue < concat[j].SecondarySortValue
+				a_b2 := float64(concat[j].SecondarySortValue - concat[i].SecondarySortValue)
+				if a_b2*a_b2 < 1e-14 {
+					return concat[i].ID > concat[j].ID
+				} else {
+					return concat[i].SecondarySortValue < concat[j].SecondarySortValue
+				}
 			}
 			return float64(concat[i].Score) < float64(concat[j].Score)
 		})

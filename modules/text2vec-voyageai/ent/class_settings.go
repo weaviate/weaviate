@@ -13,23 +13,27 @@ package ent
 
 import (
 	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
+	// Default values for URL, model and truncate cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultBaseURL               = "https://api.voyageai.com/v1"
-	DefaultVoyageAIModel         = "voyage-large-2"
+	DefaultVoyageAIModel         = "voyage-3"
 	DefaultTruncate              = true
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	LowerCaseInput               = false
 )
 
 var (
 	availableVoyageAIModels = []string{
+		"voyage-3",
+		"voyage-3-lite",
 		"voyage-large-2",
 		"voyage-code-2",
 		"voyage-2",
@@ -46,23 +50,23 @@ type classSettings struct {
 	cfg moduletools.ClassConfig
 }
 
-func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+func NewClassSettings(cfg moduletools.ClassConfig) classSettings {
+	return classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
-func (cs *classSettings) Model() string {
+func (cs classSettings) Model() string {
 	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultVoyageAIModel)
 }
 
-func (cs *classSettings) Truncate() bool {
+func (cs classSettings) Truncate() bool {
 	return cs.BaseClassSettings.GetPropertyAsBool("truncate", DefaultTruncate)
 }
 
-func (cs *classSettings) BaseURL() string {
+func (cs classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
 }
 
-func (cs *classSettings) Validate(class *models.Class) error {
+func (cs classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}

@@ -25,6 +25,9 @@ import (
 func (m *VoyageAIModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
+		"baseURL":            ent.DefaultBaseURL,
+		"model":              ent.DefaultVoyageAIModel,
+		"truncate":           ent.DefaultTruncate,
 	}
 }
 

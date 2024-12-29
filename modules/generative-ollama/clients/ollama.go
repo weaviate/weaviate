@@ -65,11 +65,10 @@ func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	ollamaUrl := v.getOllamaUrl(ctx, settings.ApiEndpoint())
+	ollamaUrl := v.getOllamaUrl(ctx, params.ApiEndpoint)
 	input := generateInput{
 		Model:  params.Model,
 		Prompt: prompt,
@@ -104,7 +103,7 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
 	}
 
 	if resBody.Error != "" {
@@ -130,7 +129,9 @@ func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{})
 	if p, ok := options.(ollamaparams.Params); ok {
 		params = p
 	}
-
+	if params.ApiEndpoint == "" {
+		params.ApiEndpoint = settings.ApiEndpoint()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}

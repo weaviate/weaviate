@@ -17,11 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
+
+var logOnceWhenRecoveringFromWAL sync.Once
 
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	beforeAll := time.Now()
@@ -65,14 +68,31 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		cl.pause()
 		defer cl.unpause()
 
+		stat, err := cl.file.Stat()
+		if err != nil {
+			return errors.Wrap(err, "stat commit log")
+		}
+
+		if stat.Size() == 0 {
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				WithField("path", path).
+				Warning("empty write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Nothing to recover from this file.")
+			continue
+		}
+
 		mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
 		if err != nil {
 			return err
 		}
 
+		logOnceWhenRecoveringFromWAL.Do(func() {
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+		})
+
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
 			WithField("path", path).
-			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
+			Debug("active write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Trying to recover...")
 
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 
@@ -83,6 +103,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
+		if strings.Contains(mt.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+			b.desiredStrategy = StrategyInverted
+			mt.flushStrategy = StrategyInverted
+		}
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}

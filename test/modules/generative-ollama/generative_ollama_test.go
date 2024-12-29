@@ -17,13 +17,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
+func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		p := planets.Planets
 		// Define class
@@ -81,6 +84,21 @@ func testGenerativeOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "ollama:{temperature:0.1}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Ollama{
+						Ollama: &pb.GenerativeOllama{
+							Model:       grpchelper.ToPtr(tt.generativeModel),
+							Temperature: grpchelper.ToPtr(0.9),
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{
+						ReturnMetadata: false, // no metadata for ollama
+						Kind:           params,
+					})
 				})
 			})
 		}

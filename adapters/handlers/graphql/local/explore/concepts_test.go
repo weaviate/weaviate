@@ -406,7 +406,7 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearVector: &searchparams.NearVector{
-					VectorPerTarget: map[string][]float32{"": {0, 1, 0.8}},
+					Vectors: [][]float32{{0, 1, 0.8}},
 				},
 				WithCertaintyProp: true,
 			},
@@ -441,7 +441,7 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearVector: &searchparams.NearVector{
-					VectorPerTarget: map[string][]float32{"": {0, 1, 0.8}},
+					Vectors: [][]float32{{0, 1, 0.8}},
 				},
 				Limit:             17,
 				WithCertaintyProp: true,

@@ -24,6 +24,8 @@ type Metrics struct {
 	monitoring            bool
 	batchTime             prometheus.ObserverVec
 	batchDeleteTime       prometheus.ObserverVec
+	batchCount            prometheus.Counter
+	batchCountBytes       prometheus.Counter
 	objectTime            prometheus.ObserverVec
 	startupDurations      prometheus.ObserverVec
 	filteredVectorFilter  prometheus.Observer
@@ -60,6 +62,14 @@ func NewMetrics(
 		"shard_name": shardName,
 	})
 	m.batchDeleteTime = prom.BatchDeleteTime.MustCurryWith(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+	m.batchCount = prom.BatchCount.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+	m.batchCountBytes = prom.BatchCountBytes.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 	})
@@ -267,6 +277,22 @@ func (m *Metrics) BatchDelete(start time.Time, op string) {
 	m.batchDeleteTime.With(prometheus.Labels{
 		"operation": op,
 	}).Observe(float64(took) / float64(time.Millisecond))
+}
+
+func (m *Metrics) BatchCount(size int) {
+	if !m.monitoring {
+		return
+	}
+
+	m.batchCount.Add(float64(size))
+}
+
+func (m *Metrics) BatchCountBytes(size int64) {
+	if !m.monitoring {
+		return
+	}
+
+	m.batchCountBytes.Add(float64(size))
 }
 
 func (m *Metrics) FilteredVectorFilter(dur time.Duration) {

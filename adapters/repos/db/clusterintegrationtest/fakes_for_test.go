@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -56,11 +59,17 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
+	var names []string
+	for _, node := range *allNodes {
+		names = append(names, node.name)
+	}
 	nodeResolver := &nodeResolver{
-		nodes: allNodes,
-		local: n.name,
+		NodeSelector: mocks.NewMockNodeSelector(names...),
+		nodes:        allNodes,
+		local:        n.name,
 	}
 
+	os.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
 	if err != nil {
 		panic(err)
@@ -101,7 +110,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger)),
-		n.repo, clusterapi.NewNoopAuthHandler(), logger)
+		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -117,18 +126,6 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 	n.hostname = u.Host
-}
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
 }
 
 type fakeSchemaManager struct {
@@ -179,7 +176,7 @@ func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error)
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
@@ -187,7 +184,7 @@ func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[
 	return res, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -219,7 +216,12 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 	return nil, nil
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 type nodeResolver struct {
+	cluster.NodeSelector
 	nodes *[]*node
 	local string
 }
@@ -236,18 +238,16 @@ func (r nodeResolver) AllNames() []string {
 	return xs
 }
 
-func (r nodeResolver) Candidates() []string {
-	return nil
-}
-
-func (r nodeResolver) LocalName() string {
-	return r.local
-}
-
 func (r nodeResolver) NodeCount() int {
 	return len(*r.nodes)
 }
 
+// LocalName keep it to override the common mock of cluster.NodeSelector
+func (r nodeResolver) LocalName() string {
+	return r.local
+}
+
+// NodeHostname keep it to override the common mock of cluster.NodeSelector
 func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	for _, node := range *r.nodes {
 		if node.name == nodeName {
@@ -280,6 +280,10 @@ func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabiliti
 	return backend, nil
 }
 
+func (f *fakeBackupBackendProvider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
+	return nil
+}
+
 type fakeBackupBackend struct {
 	sync.Mutex
 	backupsPath string
@@ -289,13 +293,29 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(backupID string) string {
+func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath string) string {
 	f.Lock()
 	defer f.Unlock()
-	return f.backupsPath
+	if overridePath != "" {
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, overridePath, backupID)
+		} else {
+			return path.Join(overridePath, backupID)
+		}
+	} else {
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, f.backupsPath, backupID)
+		} else {
+			return path.Join(f.backupsPath, backupID)
+		}
+	}
 }
 
-func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (f *fakeBackupBackend) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, overrideBucket, overridePath string) ([]byte, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -317,20 +337,20 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string)
 	return b, nil
 }
 
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, overrideBucket, overridePath string, r io.ReadCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()
 	return 0, nil
 }
 
-func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer w.Close()
@@ -359,19 +379,19 @@ func (f *fakeBackupBackend) Name() string {
 	return "fakeBackupBackend"
 }
 
-func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketPath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
+func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID, overrideBucket, overridePath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
@@ -429,6 +449,6 @@ func (f *fakeBackupBackend) reset() {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _, _ string) error {
+func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
 	return nil
 }

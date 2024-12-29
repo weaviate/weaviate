@@ -56,11 +56,12 @@ func TestGRPC_NamedVectors(t *testing.T) {
 				TargetVectors: []string{"all"},
 			},
 			Uses_123Api: true,
+			Uses_125Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Results)
-		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
+		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
 	})
 
 	t.Run("Search with hybrid and group by", func(t *testing.T) {
@@ -94,11 +95,12 @@ func TestGRPC_NamedVectors(t *testing.T) {
 			HybridSearch: &pb.Hybrid{
 				Alpha: 0.5,
 				NearText: &pb.NearTextSearch{
-					Query:         []string{"Dune"},
-					TargetVectors: []string{"all"},
+					Query: []string{"Dune"},
 				},
+				TargetVectors: []string{"all"},
 			},
 			Uses_123Api: true,
+			Uses_125Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -114,11 +116,12 @@ func TestGRPC_NamedVectors(t *testing.T) {
 				TargetVectors: []string{"all"},
 			},
 			Uses_123Api: true,
+			Uses_125Api: true,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Results)
-		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
+		require.Equal(t, "Dune", resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue())
 	})
 
 	t.Run("Search with near text and group by", func(t *testing.T) {

@@ -52,7 +52,7 @@ func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []api.Update
 	return nil
 }
 
-func (m *MockSchemaExecutor) DeleteClass(name string) error {
+func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {
 	args := m.Called(name)
 	return args.Error(0)
 }

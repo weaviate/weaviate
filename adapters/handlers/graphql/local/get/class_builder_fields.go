@@ -17,6 +17,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	moduleadditional "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
@@ -202,7 +205,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 }
 
 func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
+	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum, authorizer authorization.Authorizer,
 ) graphql.Field {
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -232,7 +235,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
 		},
-		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
+		Resolve: newResolver(authorizer, modulesProvider).makeResolveGetClass(class.Class),
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
@@ -308,11 +311,12 @@ func whereArgument(className string) *graphql.ArgumentConfig {
 }
 
 type resolver struct {
+	authorizer      authorization.Authorizer
 	modulesProvider ModulesProvider
 }
 
-func newResolver(modulesProvider ModulesProvider) *resolver {
-	return &resolver{modulesProvider}
+func newResolver(authorizer authorization.Authorizer, modulesProvider ModulesProvider) *resolver {
+	return &resolver{authorizer, modulesProvider}
 }
 
 func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn {
@@ -326,6 +330,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 }
 
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
+	principal := principalFromContext(p.Context)
+
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
@@ -334,6 +340,15 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
 		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
+	var tenant string
+	if tk, ok := p.Args["tenant"]; ok {
+		tenant = tk.(string)
+	}
+
+	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
+		return nil, err
 	}
 
 	pagination, err := filters.ExtractPaginationFromArgs(p.Args)
@@ -353,10 +368,16 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 
 	selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-	properties, addlProps, err := extractProperties(
+	properties, addlProps, groupByProperties, err := extractProperties(
 		className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 	if err != nil {
 		return nil, err
+	}
+	allPropsToAuthorize := append(properties, groupByProperties...)
+	for _, property := range allPropsToAuthorize {
+		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
+			return nil, err
+		}
 	}
 
 	var sort []filters.Sort
@@ -368,11 +389,16 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	if err != nil {
 		return nil, fmt.Errorf("could not extract filters: %s", err)
 	}
+	if filters != nil {
+		if err = common_filters.AuthorizeFilters(r.authorizer, filters.Root, principal); err != nil {
+			return nil, err
+		}
+	}
 
 	var targetVectorCombination *dto.TargetCombination
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
 		}
@@ -441,12 +467,8 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	var groupByParams *searchparams.GroupBy
 	if groupBy, ok := p.Args["groupBy"]; ok {
 		p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
+		p.Properties = groupByProperties
 		groupByParams = &p
-	}
-
-	var tenant string
-	if tk, ok := p.Args["tenant"]; ok {
-		tenant = tk.(string)
 	}
 
 	params := dto.GetParams{
@@ -474,7 +496,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	setLimitBasedOnVectorSearchParams(&params)
 
 	return func() (interface{}, error) {
-		result, err := resolver.GetClass(p.Context, principalFromContext(p.Context), params)
+		result, err := resolver.GetClass(p.Context, principal, params)
 		if err != nil {
 			return result, enterrors.NewErrGraphQLUser(err, "Get", params.ClassName)
 		}
@@ -616,8 +638,9 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 func extractProperties(className string, selections *ast.SelectionSet,
 	fragments map[string]ast.Definition,
 	modulesProvider ModulesProvider,
-) ([]search.SelectProperty, additional.Properties, error) {
+) ([]search.SelectProperty, additional.Properties, []search.SelectProperty, error) {
 	var properties []search.SelectProperty
+	var additionalGroupHitProperties []search.SelectProperty
 	var additionalProps additional.Properties
 	additionalCheck := &additionalCheck{modulesProvider}
 
@@ -692,17 +715,24 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "group" {
 							additionalProps.Group = true
-							additionalGroupHitProperties, err := extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
+							var err error
+							additionalGroupHitProperties, err = extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
 							if err != nil {
-								return nil, additionalProps, err
+								return nil, additionalProps, nil, err
 							}
-							properties = append(properties, additionalGroupHitProperties...)
 							continue
 						}
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								extracted := modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								if extractor, ok := extracted.(moduleadditional.PropertyExtractor); ok {
+									extractedProperties := extractor.GetPropertiesToExtract()
+									for _, extractedProperty := range extractedProperties {
+										properties = append(properties, search.SelectProperty{Name: extractedProperty})
+									}
+								}
+								additionalProps.ModuleParams[additionalProperty] = extracted
 								continue
 							}
 						}
@@ -714,7 +744,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 				case *ast.FragmentSpread:
 					ref, err := extractFragmentSpread(className, s, fragments, modulesProvider)
 					if err != nil {
-						return nil, additionalProps, err
+						return nil, additionalProps, nil, err
 					}
 
 					property.Refs = append(property.Refs, ref)
@@ -722,13 +752,13 @@ func extractProperties(className string, selections *ast.SelectionSet,
 				case *ast.InlineFragment:
 					ref, err := extractInlineFragment(className, s, fragments, modulesProvider)
 					if err != nil {
-						return nil, additionalProps, err
+						return nil, additionalProps, nil, err
 					}
 
 					property.Refs = append(property.Refs, ref)
 
 				default:
-					return nil, additionalProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
+					return nil, additionalProps, nil, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
 		}
@@ -740,7 +770,7 @@ func extractProperties(className string, selections *ast.SelectionSet,
 		properties = append(properties, property)
 	}
 
-	return properties, additionalProps, nil
+	return properties, additionalProps, additionalGroupHitProperties, nil
 }
 
 func extractGroupHitProperties(
@@ -767,11 +797,13 @@ func extractGroupHitProperties(
 													return nil, err
 												}
 
-												additionalGroupHitProp := search.SelectProperty{Name: fmt.Sprintf("_additional:group:hits:%v", hf.Name.Value)}
+												additionalGroupHitProp := search.SelectProperty{Name: hf.Name.Value}
 												additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, ref)
 												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
 											}
 										}
+									} else {
+										additionalGroupProperties = append(additionalGroupProperties, search.SelectProperty{Name: hf.Name.Value})
 									}
 								}
 							}
@@ -814,7 +846,7 @@ func extractInlineFragment(class string, fragment *ast.InlineFragment,
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, additionalProperties, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
+	subProperties, additionalProperties, _, err := extractProperties(class, fragment.SelectionSet, fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}
@@ -842,7 +874,7 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 		return result, err
 	}
 
-	subProperties, additionalProperties, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
+	subProperties, additionalProperties, _, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}

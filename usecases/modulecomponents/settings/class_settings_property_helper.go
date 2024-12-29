@@ -35,10 +35,15 @@ type PropertyValuesHelper interface {
 
 type classPropertyValuesHelper struct {
 	moduleName string
+	altNames   []string
 }
 
 func NewPropertyValuesHelper(moduleName string) PropertyValuesHelper {
-	return &classPropertyValuesHelper{moduleName}
+	return &classPropertyValuesHelper{moduleName: moduleName}
+}
+
+func NewPropertyValuesHelperWithAltNames(moduleName string, altNames []string) PropertyValuesHelper {
+	return &classPropertyValuesHelper{moduleName, altNames}
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsInt(cfg moduletools.ClassConfig,
@@ -54,7 +59,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsIntWithNotExists(cfg moduletool
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return notExistsValue
 	}
-	return getNumberValue(h.getSettings(cfg), name, defaultValue, notExistsValue)
+	return getNumberValue(h.GetSettings(cfg), name, defaultValue, notExistsValue)
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsInt64(cfg moduletools.ClassConfig,
@@ -70,7 +75,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsInt64WithNotExists(cfg moduleto
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return notExistsValue
 	}
-	return getNumberValue(h.getSettings(cfg), name, defaultValue, notExistsValue)
+	return getNumberValue(h.GetSettings(cfg), name, defaultValue, notExistsValue)
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsFloat64(cfg moduletools.ClassConfig,
@@ -86,7 +91,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsFloat64WithNotExists(cfg module
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return notExistsValue
 	}
-	return getNumberValue(h.getSettings(cfg), name, defaultValue, notExistsValue)
+	return getNumberValue(h.GetSettings(cfg), name, defaultValue, notExistsValue)
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsString(cfg moduletools.ClassConfig,
@@ -103,7 +108,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsStringWithNotExists(cfg modulet
 		return notExistsValue
 	}
 
-	value := h.getSettings(cfg)[name]
+	value := h.GetSettings(cfg)[name]
 	switch v := value.(type) {
 	case nil:
 		return notExistsValue
@@ -128,7 +133,7 @@ func (h *classPropertyValuesHelper) GetPropertyAsBoolWithNotExists(cfg moduletoo
 		return notExistsValue
 	}
 
-	value := h.getSettings(cfg)[name]
+	value := h.GetSettings(cfg)[name]
 	switch v := value.(type) {
 	case nil:
 		return notExistsValue
@@ -170,9 +175,16 @@ func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
 	}
 }
 
-func (h *classPropertyValuesHelper) getSettings(cfg moduletools.ClassConfig) map[string]interface{} {
+func (h *classPropertyValuesHelper) GetSettings(cfg moduletools.ClassConfig) map[string]interface{} {
 	if h.moduleName != "" {
-		return cfg.ClassByModuleName(h.moduleName)
+		if settings := cfg.ClassByModuleName(h.moduleName); len(settings) > 0 {
+			return settings
+		}
+		for _, altName := range h.altNames {
+			if settings := cfg.ClassByModuleName(altName); len(settings) > 0 {
+				return settings
+			}
+		}
 	}
 	return cfg.Class()
 }

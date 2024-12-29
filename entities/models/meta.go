@@ -28,13 +28,16 @@ import (
 // swagger:model Meta
 type Meta struct {
 
+	// Max message size for GRPC connection in bytes.
+	GrpcMaxMessageSize int64 `json:"grpcMaxMessageSize,omitempty"`
+
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
-	// Module-specific meta information
+	// Module-specific meta information.
 	Modules interface{} `json:"modules,omitempty"`
 
-	// Version of weaviate you are currently running
+	// The Weaviate server version.
 	Version string `json:"version,omitempty"`
 }
 

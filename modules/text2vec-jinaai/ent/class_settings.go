@@ -18,13 +18,17 @@ import (
 )
 
 const (
-	DefaultJinaAIDocumentType    = "text"
+	// Default values for URL (model is ok) cannot be changed before we solve how old classes that have the defaults
+	// NOT set will handle the change
 	DefaultJinaAIModel           = "jina-embeddings-v2-base-en"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.jina.ai"
+	LowerCaseInput               = false
 )
+
+var DefaultDimensions int64 = 1024
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -32,7 +36,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (cs *classSettings) Model() string {
@@ -41,6 +45,10 @@ func (cs *classSettings) Model() string {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
+}
+
+func (cs *classSettings) Dimensions() *int64 {
+	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", &DefaultDimensions)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {

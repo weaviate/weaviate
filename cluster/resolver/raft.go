@@ -66,7 +66,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer a.nodesLock.Unlock()
 	if addr == "" {
 		a.notResolvedNodes[id] = struct{}{}
-		return "", fmt.Errorf("could not resolve server id %s", id)
+		return raftImpl.ServerAddress(invalidAddr), nil
 	}
 	delete(a.notResolvedNodes, id)
 
@@ -98,5 +98,12 @@ func (a *raft) NewTCPTransport(
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
-	return a.notResolvedNodes
+	a.nodesLock.Lock()
+	defer a.nodesLock.Unlock()
+
+	newMap := make(map[raftImpl.ServerID]struct{})
+	for k, v := range a.notResolvedNodes {
+		newMap[k] = v
+	}
+	return newMap
 }

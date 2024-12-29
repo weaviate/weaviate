@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	testhelper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -107,7 +108,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 
 	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
 
 		params := models.Classification{
@@ -224,7 +225,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	t.Run("classification journey", func(t *testing.T) {
 		repo := newFakeClassificationRepo()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		classifier := classification.New(sg, repo, vrepo, authorizer, logger, nil)
 
 		params := models.Classification{

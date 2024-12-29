@@ -115,6 +115,10 @@ func (b *backups) Abort() http.Handler {
 			return
 		}
 
+		params := r.URL.Query()
+		req.Bucket = params.Get("bucket")
+		req.Path = params.Get("path")
+
 		if err := b.manager.OnAbort(r.Context(), &req); err != nil {
 			status := http.StatusInternalServerError
 			http.Error(w, fmt.Errorf("abort: %w", err).Error(), status)
@@ -140,6 +144,14 @@ func (b *backups) Status() http.Handler {
 			status := http.StatusInternalServerError
 			http.Error(w, fmt.Errorf("unmarshal request: %w", err).Error(), status)
 			return
+		}
+
+		params := r.URL.Query()
+		if params.Get("bucket") != "" {
+			req.Bucket = params.Get("bucket")
+		}
+		if params.Get("path") != "" {
+			req.Path = params.Get("path")
 		}
 
 		resp := b.manager.OnStatus(r.Context(), &req)

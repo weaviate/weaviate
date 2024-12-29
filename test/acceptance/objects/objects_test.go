@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/weaviate/weaviate/client/objects"
@@ -72,7 +72,8 @@ func creatingObjects(t *testing.T) {
 		// Ensure that the response is OK
 		helper.AssertRequestOk(t, resp, err, func() {
 			object := resp.Payload
-			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
+			_, err := uuid.Parse(object.ID.String())
+			assert.NoError(t, err)
 
 			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
@@ -158,7 +159,8 @@ func creatingObjects(t *testing.T) {
 		// Ensure that the response is OK
 		helper.AssertRequestOk(t, resp, err, func() {
 			object := resp.Payload
-			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
+			_, err := uuid.Parse(object.ID.String())
+			assert.NoError(t, err)
 
 			schema, ok := object.Properties.(map[string]interface{})
 			if !ok {
@@ -272,11 +274,11 @@ func creatingObjects(t *testing.T) {
 				return &models.Object{
 					Class: "TestObject",
 					Properties: map[string]interface{}{
-						"testReference": map[string]interface{}{
+						"testReference": []interface{}{map[string]interface{}{
 							"beacon": fakeObjectId,
 							"x":      nil,
 							"type":   "Object",
-						},
+						}},
 					},
 				}
 			},

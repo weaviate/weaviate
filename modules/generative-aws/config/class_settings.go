@@ -36,12 +36,17 @@ const (
 	topKProperty              = "topK"
 )
 
+const (
+	Bedrock   = "bedrock"
+	Sagemaker = "sagemaker"
+)
+
 var (
 	DefaultTitanMaxTokens     = 8192
 	DefaultTitanStopSequences = []string{}
 	DefaultTitanTemperature   = 0.0
 	DefaultTitanTopP          = 1.0
-	DefaultService            = "bedrock"
+	DefaultService            = Bedrock
 )
 
 var (
@@ -73,7 +78,7 @@ var (
 
 var availableAWSServices = []string{
 	DefaultService,
-	"sagemaker",
+	Sagemaker,
 }
 
 var availableBedrockModels = []string{
@@ -121,26 +126,22 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
 		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
 	}
-	region := ic.Region()
-	if region == "" {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", regionProperty))
-	}
 
 	if isBedrock(service) {
 		model := ic.Model()
-		if model == "" && !ic.validateAWSSetting(model, availableBedrockModels) {
+		if model != "" && !ic.validateAWSSetting(model, availableBedrockModels) {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s: %s, available model names are: %v", modelProperty, model, availableBedrockModels))
 		}
 
-		maxTokenCount := ic.MaxTokenCount()
-		if *maxTokenCount < 1 || *maxTokenCount > 8192 {
+		maxTokenCount := ic.MaxTokenCount(Bedrock, model)
+		if maxTokenCount != nil && (*maxTokenCount < 1 || *maxTokenCount > 8192) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
 		}
-		temperature := ic.Temperature()
-		if *temperature < 0 || *temperature > 1 {
+		temperature := ic.Temperature(Bedrock, model)
+		if temperature != nil && (*temperature < 0 || *temperature > 1) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 		}
-		topP := ic.TopP()
+		topP := ic.TopP(Bedrock, model)
 		if topP != nil && (*topP < 0 || *topP > 1) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 0 and 1", topPProperty))
 		}
@@ -231,84 +232,84 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
 }
 
-func (ic *classSettings) MaxTokenCount() *int {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) MaxTokenCount(service, model string) *int {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultTitanMaxTokens)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getIntProperty(maxTokensToSampleProperty, &DefaultAnthropicMaxTokensToSample)
 		}
-		if isAI21Model(ic.Model()) {
+		if isAI21Model(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultAI21MaxTokens)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
 		}
-		if isMistralAIModel(ic.Model()) {
+		if isMistralAIModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultMistralAIMaxTokens)
 		}
-		if isMetaModel(ic.Model()) {
+		if isMetaModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultMetaMaxTokens)
 		}
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
 
-func (ic *classSettings) StopSequences() []string {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) StopSequences(service, model string) []string {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultTitanStopSequences)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultAnthropicStopSequences)
 		}
 	}
 	return *ic.getListOfStringsProperty(stopSequencesProperty, nil)
 }
 
-func (ic *classSettings) Temperature() *float64 {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) Temperature(service, model string) *float64 {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultTitanTemperature)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultCohereTemperature)
 		}
-		if isAI21Model(ic.Model()) {
+		if isAI21Model(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAI21Temperature)
 		}
-		if isMistralAIModel(ic.Model()) {
+		if isMistralAIModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultMistralAITemperature)
 		}
-		if isMetaModel(ic.Model()) {
+		if isMetaModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultMetaTemperature)
 		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)
 }
 
-func (ic *classSettings) TopP() *float64 {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) TopP(service, model string) *float64 {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultTitanTopP)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultCohereTopP)
 		}
 	}
 	return ic.getFloatProperty(topPProperty, nil)
 }
 
-func (ic *classSettings) TopK() *int {
-	if isBedrock(ic.Service()) {
-		if isAnthropicModel(ic.Model()) {
+func (ic *classSettings) TopK(service, model string) *int {
+	if isBedrock(service) {
+		if isAnthropicModel(model) {
 			return ic.getIntProperty(topKProperty, &DefaultAnthropicTopK)
 		}
 	}
@@ -328,11 +329,11 @@ func (ic *classSettings) TargetVariant() string {
 }
 
 func isSagemaker(service string) bool {
-	return service == "sagemaker"
+	return service == Sagemaker
 }
 
 func isBedrock(service string) bool {
-	return service == "bedrock"
+	return service == Bedrock
 }
 
 func isAmazonModel(model string) bool {

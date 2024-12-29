@@ -26,11 +26,10 @@ func TestHammingDistancer(t *testing.T) {
 		vec2 := []float32{3, 4, 5}
 		expectedDistance := float32(0)
 
-		dist, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		dist, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewHammingProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewHammingProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -41,11 +40,11 @@ func TestHammingDistancer(t *testing.T) {
 		vec2 := []float32{1.5, 2, 2.5}
 		expectedDistance := float32(3) // all three positions are different
 
-		dist, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		dist, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewHammingProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewHammingProvider().SingleDist(vec1, vec2)
+
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -56,11 +55,10 @@ func TestHammingDistancer(t *testing.T) {
 		vec2 := []float32{10, 15}
 		expectedDistance := float32(1)
 
-		dist, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		dist, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewHammingProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewHammingProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -71,11 +69,10 @@ func TestHammingDistancer(t *testing.T) {
 		vec2 := []float32{10, 15, 16, 25, 30}
 		expectedDistance := float32(3)
 
-		dist, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		dist, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewHammingProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewHammingProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -87,9 +84,8 @@ func TestHammingDistancerStepbyStep(t *testing.T) {
 		vec1 := []float32{10, 11, 15, 25, 31}
 		vec2 := []float32{10, 15, 16, 25, 30}
 
-		expectedDistance, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		expectedDistance, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
 
 		distanceProvider := NewHammingProvider()
 		sum := float32(0.0)
@@ -163,17 +159,15 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 			}
 
 			for i := 0; i < count; i++ {
-				res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
+				res, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
 
 				require.NoError(t, err)
-				require.True(t, ok)
 
 				resControl := HammingDistanceGo(vec1s[i], vec2s[i])
 
 				if resControl != res {
 					countFailed++
 					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
-					t.Fail()
 				}
 
 			}

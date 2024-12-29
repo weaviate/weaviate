@@ -18,62 +18,126 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
+type ShardStatus struct {
+	Status storagestate.Status
+	Reason string
+}
+
+func NewShardStatus() ShardStatus {
+	return ShardStatus{Status: storagestate.StatusLoading}
+}
+
+func (s *ShardStatus) Init() {
+	s.Status = storagestate.StatusReady
+	s.Reason = ""
+}
+
 func (s *Shard) initStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	s.status = storagestate.StatusReady
+	s.status.Init()
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	return s.status
+	if s.status.Status != storagestate.StatusReady && s.status.Status != storagestate.StatusIndexing {
+		return s.status.Status
+	}
+
+	if s.hasTargetVectors() {
+		if len(s.queues) == 0 {
+			return s.status.Status
+		}
+
+		for _, q := range s.queues {
+			if q.Size() > 0 {
+				s.status.Status = storagestate.StatusIndexing
+				return storagestate.StatusIndexing
+			}
+		}
+
+		s.status.Status = storagestate.StatusReady
+		return storagestate.StatusReady
+	}
+
+	if s.queue == nil {
+		return s.status.Status
+	}
+
+	if s.queue.Size() > 0 {
+		s.status.Status = storagestate.StatusIndexing
+		return storagestate.StatusIndexing
+	}
+
+	s.status.Status = storagestate.StatusReady
+
+	return storagestate.StatusReady
 }
 
-func (s *Shard) isReadOnly() bool {
-	return s.GetStatus() == storagestate.StatusReadOnly
+// Same implem for for a regular shard, this only differ in lazy loaded shards
+func (s *Shard) GetStatusNoLoad() storagestate.Status {
+	return s.GetStatus()
 }
 
-func (s *Shard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
+// isReadOnly returns an error if shard is readOnly and nil otherwise
+func (s *Shard) isReadOnly() error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	if s.status.String() != old {
-		return s.status, nil
+	if s.status.Status == storagestate.StatusReadOnly {
+		return storagestate.ErrStatusReadOnlyWithReason(s.status.Reason)
 	}
+	return nil
+}
 
-	return s.status, s.updateStatusUnlocked(new)
+func (s *Shard) SetStatusReadonly(reason string) error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	return s.updateStatusUnlocked(storagestate.StatusReadOnly.String(), reason)
 }
 
 func (s *Shard) UpdateStatus(in string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
-	return s.updateStatusUnlocked(in)
+	reason := ""
+	if in == storagestate.StatusReadOnly.String() {
+		reason = "manually set by user"
+	}
+
+	return s.updateStatusUnlocked(in, reason)
 }
 
 // updateStatusUnlocked updates the status without locking the statusLock.
 // Warning: Use UpdateStatus instead.
-func (s *Shard) updateStatusUnlocked(in string) error {
+func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
 
-	s.status = targetStatus
-	s.updateStoreStatus(targetStatus)
+	s.status.Status = targetStatus
+	s.status.Reason = reason
+
+	err = s.updateStoreStatus(targetStatus)
+	if err != nil {
+		return err
+	}
 
 	s.index.logger.
 		WithField("action", "update shard status").
 		WithField("class", s.index.Config.ClassName).
 		WithField("shard", s.name).
-		WithField("status", in)
+		WithField("status", in).
+		WithField("readOnlyReason", reason)
 
 	return nil
 }
 
-func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) {
-	s.store.UpdateBucketsStatus(targetStatus)
+func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) error {
+	return s.store.UpdateBucketsStatus(targetStatus)
 }

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
@@ -27,8 +28,8 @@ func Serve(appState *state.State) {
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Logger)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth)
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost, appState.Logger)
+	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth, appState.Cluster.MaintenanceModeEnabledForLocalhost)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
@@ -48,7 +49,18 @@ func Serve(appState *state.State) {
 	mux.Handle("/backups/status", backups.Status())
 
 	mux.Handle("/", index())
-	http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+
+	var handler http.Handler
+	handler = mux
+	if appState.ServerConfig.Config.Sentry.Enabled {
+		// Wrap the default mux with Sentry to capture panics, report errors and
+		// measure performance.
+		//
+		// Alternatively, you can also wrap individual handlers if you need to
+		// use different options for different parts of your app.
+		handler = sentryhttp.New(sentryhttp.Options{}).Handle(mux)
+	}
+	http.ListenAndServe(fmt.Sprintf(":%d", port), handler)
 }
 
 func index() http.Handler {
