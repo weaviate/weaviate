@@ -19,7 +19,6 @@ package models
 import (
 	"context"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -30,46 +29,10 @@ type Vectors map[string]Vector
 
 // Validate validates this vectors
 func (m Vectors) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	for k := range m {
-
-		if err := m[k].Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName(k)
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName(k)
-			}
-			return err
-		}
-
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 
-// ContextValidate validate this vectors based on the context it is used
+// ContextValidate validates this vectors based on context it is used
 func (m Vectors) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
-	var res []error
-
-	for k := range m {
-
-		if err := m[k].ContextValidate(ctx, formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName(k)
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName(k)
-			}
-			return err
-		}
-
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }

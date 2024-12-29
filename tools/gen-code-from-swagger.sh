@@ -37,6 +37,8 @@ echo Generate Deprecation code...
 
 echo Now add the header to the generated code too.
 (cd "$DIR"/..; GO111MODULE=on go run ./tools/license_headers/main.go)
+echo Now add custom code to models.Object swagger generated file.
+(cd "$DIR"/..; GO111MODULE=on go run ./tools/swagger_custom_code/main.go)
 # goimports and exlucde hidden files and proto auto generate files
 (cd "$DIR"/..; goimports -w $(find . -type f -name '*.go' -not -name '*pb.go' -not -path './vendor/*'  -not -path "./.*/*"))
 

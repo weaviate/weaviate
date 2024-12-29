@@ -251,12 +251,12 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
 				for name, vector := range vectorfmt {
 					switch vec := vector.(type) {
-					case models.Vector:
+					case []float32:
 						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
 							VectorBytes: byteops.Float32ToByteVector(vec),
 							Name:        name,
 						})
-					case models.MultiVector:
+					case [][]float32:
 						for i := range vec {
 							metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
 								VectorBytes: byteops.Float32ToByteVector(vec[i]),

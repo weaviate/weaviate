@@ -66,8 +66,8 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
 							require.NotNil(t, obj)
-							require.Len(t, obj.MultiVectors, 1)
-							assert.True(t, len(obj.MultiVectors["description"]) > 0)
+							require.IsType(t, [][]float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([][]float32)) > 0)
 						})
 					}
 				})

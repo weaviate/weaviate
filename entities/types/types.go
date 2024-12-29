@@ -12,7 +12,10 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Just a temporary interface, there should be defined one Embedding interface
@@ -34,4 +37,106 @@ func IsVectorEmpty(vector Vector) (bool, error) {
 	default:
 		return false, fmt.Errorf("unrecognized vector type: %T", vector)
 	}
+}
+
+func IsEmptyVector(vector models.Vector) bool {
+	switch v := vector.(type) {
+	case nil:
+		return true
+	case []float32:
+		return len(v) == 0
+	case [][]float32:
+		return len(v) == 0
+	default:
+		return false
+	}
+}
+
+func GetVectors(in models.Vectors) (map[string][]float32, map[string][][]float32, error) {
+	var vectors map[string][]float32
+	var multiVectors map[string][][]float32
+	if len(in) > 0 {
+		for targetVector, vector := range in {
+			switch vec := vector.(type) {
+			case []interface{}:
+				if vectors == nil {
+					vectors = make(map[string][]float32)
+				}
+				asVectorArray := make([]float32, len(vec))
+				for i := range vec {
+					switch v := vec[i].(type) {
+					case json.Number:
+						asFloat, err := v.Float64()
+						if err != nil {
+							return nil, nil, fmt.Errorf("parse []interface{} as vector for target vector: %s: %w", targetVector, err)
+						}
+						asVectorArray[i] = float32(asFloat)
+					case float64:
+						asVectorArray[i] = float32(v)
+					case float32:
+						asVectorArray[i] = v
+					default:
+						return nil, nil, fmt.Errorf("parse []interface{} as vector for target vector: %s, unrecognized type: %T", targetVector, vec[i])
+					}
+				}
+				vectors[targetVector] = asVectorArray
+			case [][]interface{}:
+				if multiVectors == nil {
+					multiVectors = make(map[string][][]float32)
+				}
+				asMultiVectorArray := make([][]float32, len(vec))
+				for i := range vec {
+					asMultiVectorArray[i] = make([]float32, len(vec[i]))
+					for j := range vec[i] {
+						switch v := vec[i][j].(type) {
+						case json.Number:
+							asFloat, err := v.Float64()
+							if err != nil {
+								return nil, nil, fmt.Errorf("parse []interface{} as multi vector for target vector: %s: %w", targetVector, err)
+							}
+							asMultiVectorArray[i][j] = float32(asFloat)
+						case float64:
+							asMultiVectorArray[i][j] = float32(v)
+						case float32:
+							asMultiVectorArray[i][j] = v
+						default:
+							return nil, nil, fmt.Errorf("parse []interface{} as multi vector for target vector: %s, unrecognized type: %T", targetVector, vec[i])
+						}
+					}
+				}
+				multiVectors[targetVector] = asMultiVectorArray
+			case []float32:
+				if vectors == nil {
+					vectors = make(map[string][]float32)
+				}
+				vectors[targetVector] = vec
+			case [][]float32:
+				if multiVectors == nil {
+					multiVectors = make(map[string][][]float32)
+				}
+				multiVectors[targetVector] = vec
+			default:
+				return nil, nil, fmt.Errorf("unrecognized vector type: %T for target vector: %s", vector, targetVector)
+			}
+		}
+	}
+	return vectors, multiVectors, nil
+}
+
+func ParseVectors(in models.Vectors) (models.Vectors, error) {
+	var out models.Vectors
+	if len(in) > 0 {
+		vectors, multiVectors, err := GetVectors(in)
+		if err != nil {
+			return out, err
+		}
+		out = make(models.Vectors)
+		for targetVector, vector := range vectors {
+			out[targetVector] = vector
+		}
+		for targetVector, multiVector := range multiVectors {
+			out[targetVector] = multiVector
+		}
+	}
+	return out, nil
 }

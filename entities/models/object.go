@@ -18,6 +18,8 @@ package models
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -46,9 +48,6 @@ type Object struct {
 	// (Response only) Timestamp of the last object update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
-	// This field returns vectors associated with the Object.
-	MultiVectors MultiVectors `json:"multiVectors,omitempty"`
-
 	// properties
 	Properties PropertySchema `json:"properties,omitempty"`
 
@@ -74,10 +73,6 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMultiVectors(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -121,25 +116,6 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *Object) validateMultiVectors(formats strfmt.Registry) error {
-	if swag.IsZero(m.MultiVectors) { // not required
-		return nil
-	}
-
-	if m.MultiVectors != nil {
-		if err := m.MultiVectors.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("multiVectors")
-			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("multiVectors")
-			}
-			return err
-		}
 	}
 
 	return nil
@@ -189,10 +165,6 @@ func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 		res = append(res, err)
 	}
 
-	if err := m.contextValidateMultiVectors(ctx, formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.contextValidateVector(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -214,20 +186,6 @@ func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.R
 			return ve.ValidateName("additional")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
 			return ce.ValidateName("additional")
-		}
-		return err
-	}
-
-	return nil
-}
-
-func (m *Object) contextValidateMultiVectors(ctx context.Context, formats strfmt.Registry) error {
-
-	if err := m.MultiVectors.ContextValidate(ctx, formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("multiVectors")
-		} else if ce, ok := err.(*errors.CompositeError); ok {
-			return ce.ValidateName("multiVectors")
 		}
 		return err
 	}
@@ -278,5 +236,50 @@ func (m *Object) UnmarshalBinary(b []byte) error {
 		return err
 	}
 	*m = res
+	return nil
+}
+
+// UnmarshalJSON custom unmarshal code
+func (m *Object) UnmarshalJSON(data []byte) error {
+	type alias Object
+	aux := &struct {
+		Vectors map[string]json.RawMessage `json:"vectors,omitempty"`
+		*alias
+	}{
+		alias: (*alias)(m),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	// Vectors are nil
+	if len(aux.Vectors) == 0 {
+		return nil
+	}
+
+	m.Vectors = make(Vectors)
+	for targetVector, rawMessage := range aux.Vectors {
+		// Try unmarshaling as []float32
+		var vector []float32
+		if err := json.Unmarshal(rawMessage, &vector); err == nil {
+			if len(vector) > 0 {
+				m.Vectors[targetVector] = vector
+			}
+			continue
+		}
+
+		// Try unmarshaling as [][]float32
+		var multiVector [][]float32
+		if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
+			if len(multiVector) > 0 {
+				m.Vectors[targetVector] = multiVector
+			}
+			continue
+		}
+
+		return fmt.Errorf("vectors: cannot unmarshal vector into either []float32 or [][]float32 for target vector %s", targetVector)
+	}
+
 	return nil
 }

@@ -529,7 +529,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 					id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 					obj := &models.Object{Class: tc.className, ID: id}
-					namedVectors := models.Vectors{
+					namedVectors := map[string][]float32{
 						"vec": vec,
 					}
 					err := repo.PutObject(context.Background(), obj, vec, namedVectors, nil, nil, 0)

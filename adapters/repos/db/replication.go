@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -446,7 +447,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		// the stored object is not the most recent version. in
 		// this case, we overwrite it with the more recent one.
-		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		vectors, multiVectors, err := types.GetVectors(u.Vectors)
+		if err != nil {
+			return nil, fmt.Errorf("overwrite stale object: cannot get vectors: %w", err)
+		}
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, vectors, multiVectors))
 		if err != nil {
 			r := replica.RepairResponse{
 				ID:  id.String(),

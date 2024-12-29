@@ -40,7 +40,7 @@ func reVectorize(ctx context.Context,
 	if targetVector == "" {
 		return false, oldObject.AdditionalProperties, oldObject.Vector
 	} else {
-		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
+		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector].([]float32)
 	}
 }
 
@@ -59,9 +59,9 @@ func reVectorizeMulti(ctx context.Context,
 	}
 
 	if targetVector == "" {
-		return false, oldObject.AdditionalProperties, oldObject.MultiVectors[""]
+		return false, oldObject.AdditionalProperties, nil
 	} else {
-		return false, oldObject.AdditionalProperties, oldObject.MultiVectors[targetVector]
+		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector].([][]float32)
 	}
 }
 

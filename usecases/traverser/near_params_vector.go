@@ -268,11 +268,20 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
-		return res.Vectors[targetVector], targetVector, nil
+		vec, ok := res.Vectors[targetVector].([]float32)
+		if !ok {
+			return nil, "", fmt.Errorf("unregonized type: %T for target: %v", res.Vectors[targetVector], targetVector)
+		}
+		return vec, targetVector, nil
 	} else {
 		if len(res.Vectors) == 1 {
 			for key, vec := range res.Vectors {
-				return vec, key, nil
+				switch v := vec.(type) {
+				case []float32:
+					return v, key, nil
+				default:
+					return nil, "", fmt.Errorf("unregonized type: %T target: %v", vec, key)
+				}
 			}
 		} else if len(res.Vectors) > 1 {
 			return nil, "", errors.New("multiple vectors found, specify target vector")
@@ -296,14 +305,23 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 		return nil, "", errors.New("vector not found")
 	}
 	if targetVector != "" {
-		if len(res.MultiVectors) == 0 || res.MultiVectors[targetVector] == nil {
+		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
-		return res.MultiVectors[targetVector], targetVector, nil
+		multiVector, ok := res.Vectors[targetVector].([][]float32)
+		if !ok {
+			return nil, "", fmt.Errorf("unregonized type: %T target: %v", res.Vectors[targetVector], targetVector)
+		}
+		return multiVector, targetVector, nil
 	} else {
-		if len(res.MultiVectors) == 1 {
-			for key, vec := range res.MultiVectors {
-				return vec, key, nil
+		if len(res.Vectors) == 1 {
+			for key, vec := range res.Vectors {
+				switch v := vec.(type) {
+				case [][]float32:
+					return v, key, nil
+				default:
+					return nil, "", fmt.Errorf("unregonized type: %T target: %v", vec, key)
+				}
 			}
 		} else if len(res.Vectors) > 1 {
 			return nil, "", errors.New("multiple vectors found, specify target vector")
@@ -328,7 +346,11 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 		} else {
 			if len(res[0].Vectors) == 1 {
 				for key, vec := range res[0].Vectors {
-					return vec, key, nil
+					v, ok := vec.([]float32)
+					if !ok {
+						return nil, "", fmt.Errorf("unrecognized vector type: %T", vec)
+					}
+					return v, key, nil
 				}
 			} else if len(res[0].Vectors) > 1 {
 				return nil, "", errors.New("multiple vectors found, specify target vector")
@@ -348,9 +370,14 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 		for i := range res {
 			if len(res[i].Vectors) > 0 {
 				if vec, ok := res[i].Vectors[targetVector]; ok {
-					vectors = append(vectors, vec)
-					if _, exists := vectorDims[len(vec)]; !exists {
-						vectorDims[len(vec)] = true
+					switch v := vec.(type) {
+					case []float32:
+						vectors = append(vectors, v)
+						if _, exists := vectorDims[len(v)]; !exists {
+							vectorDims[len(v)] = true
+						}
+					default:
+						return nil, "", fmt.Errorf("unrecognized vector type: %T for target vector: %s", vec, targetVector)
 					}
 				}
 			}
@@ -372,15 +399,19 @@ func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id str
 		return nil, "", errors.New("multi vector not found")
 	case 1:
 		if targetVector != "" {
-			if len(res[0].MultiVectors) == 0 || res[0].MultiVectors[targetVector] == nil {
+			if len(res[0].Vectors) == 0 || res[0].Vectors[targetVector] == nil {
 				return nil, "", fmt.Errorf("multi vector not found for target: %v", targetVector)
 			}
 		} else {
-			if len(res[0].MultiVectors) == 1 {
-				for key, vec := range res[0].MultiVectors {
-					return vec, key, nil
+			if len(res[0].Vectors) == 1 {
+				for key, vec := range res[0].Vectors {
+					v, ok := vec.([][]float32)
+					if !ok {
+						return nil, "", fmt.Errorf("unrecognized multi vector type: %T", vec)
+					}
+					return v, key, nil
 				}
-			} else if len(res[0].MultiVectors) > 1 {
+			} else if len(res[0].Vectors) > 1 {
 				return nil, "", errors.New("multiple multi vectors found, specify target vector")
 			}
 		}

@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 // VObject is a versioned object for detecting replication inconsistencies
@@ -34,9 +35,8 @@ type VObject struct {
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
-	Vector       []float32           `json:"vector"`
-	Vectors      models.Vectors      `json:"vectors"`
-	MultiVectors models.MultiVectors `json:"multiVectors"`
+	Vector  []float32      `json:"vector"`
+	Vectors models.Vectors `json:"vectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`
@@ -104,6 +104,11 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("unmarshal object: %w", err)
 		}
+		vectors, err := types.ParseVectors(obj.Vectors)
+		if err != nil {
+			return fmt.Errorf("parse object's vectors: %w", err)
+		}
+		obj.Vectors = vectors
 		vo.LatestObject = &obj
 	}
 

@@ -38,9 +38,19 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 			if vectorIndex == nil {
 				return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
 			}
-			err := vectorIndex.ValidateBeforeInsert(vector)
-			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+			switch v := vector.(type) {
+			case []float32:
+				err := vectorIndex.ValidateBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			case [][]float32:
+				err := vectorIndex.ValidateMultiBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "Validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			default:
+				return errors.Errorf("Validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
 			}
 		}
 	} else {
@@ -296,6 +306,7 @@ func mergeProps(previous *storobj.Object,
 		next.Vectors = previous.Vectors
 	} else {
 		next.Vectors = vectorsAsMap(merge.Vectors)
+		next.MultiVectors = multiVectorsAsMap(merge.Vectors)
 	}
 
 	next.Object.LastUpdateTimeUnix = merge.UpdateTime
@@ -308,7 +319,22 @@ func vectorsAsMap(in models.Vectors) map[string][]float32 {
 	if len(in) > 0 {
 		out := make(map[string][]float32)
 		for targetVector, vector := range in {
-			out[targetVector] = vector
+			if v, ok := vector.([]float32); ok {
+				out[targetVector] = v
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func multiVectorsAsMap(in models.Vectors) map[string][][]float32 {
+	if len(in) > 0 {
+		out := make(map[string][][]float32)
+		for targetVector, vector := range in {
+			if v, ok := vector.([][]float32); ok {
+				out[targetVector] = v
+			}
 		}
 		return out
 	}

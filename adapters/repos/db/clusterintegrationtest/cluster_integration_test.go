@@ -739,7 +739,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := types.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, []types.Vector{vectors[1], vectors[2], vectors[3]})
@@ -766,7 +768,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := types.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, []types.Vector{vectors[1], vectors[2]})
@@ -791,7 +795,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
 				}
-				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+				objVectors, _, err := types.GetVectors(obj.Vectors)
+				require.NoError(t, err)
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 					res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, []float32{1, 1}), []string{"custom1", "custom3"}, []types.Vector{vectors[1], vectors[2]})
@@ -815,7 +821,9 @@ func TestDistributedVectorDistance(t *testing.T) {
 						Vectors: map[string]models.Vector{"custom1": vectors[i%len(vectors)], "custom2": vectors[(i+1)%len(vectors)], "custom3": vectors[(i+2)%len(vectors)]},
 					}
 					ids[i] = obj.ID
-					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, nil, 0))
+					vectors, _, err := types.GetVectors(obj.Vectors)
+					require.NoError(t, err)
+					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, vectors, nil, nil, 0))
 				}
 
 				assert.EventuallyWithT(t, func(collect *assert.CollectT) {

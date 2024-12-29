@@ -18,7 +18,6 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 
 	"github.com/tailor-inc/graphql"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 var Vector func(prefix string) *graphql.Scalar = func(prefix string) *graphql.Scalar {
@@ -27,7 +26,7 @@ var Vector func(prefix string) *graphql.Scalar = func(prefix string) *graphql.Sc
 		Description: "A type that can be either a regular or colbert embedding",
 		Serialize: func(value interface{}) interface{} {
 			switch v := value.(type) {
-			case models.Vector, models.MultiVector, []float32, [][]float32:
+			case []float32, [][]float32:
 				return v
 			default:
 				return nil

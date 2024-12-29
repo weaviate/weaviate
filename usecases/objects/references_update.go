@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -132,7 +133,11 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			Err:  err,
 		}
 	}
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, res.MultiVectors, repl, schemaVersion)
+	vectors, multiVectors, err := types.GetVectors(res.Vectors)
+	if err != nil {
+		return &Error{"repo.putobject", StatusInternalServerError, fmt.Errorf("cannot get vectors: %w", err)}
+	}
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, vectors, multiVectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

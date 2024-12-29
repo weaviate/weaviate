@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/types"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -128,7 +129,11 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, res.MultiVectors, repl, schemaVersion)
+	vectors, multiVectors, err := types.GetVectors(res.Vectors)
+	if err != nil {
+		return &Error{"repo.putobject", StatusInternalServerError, fmt.Errorf("cannot get vectors: %w", err)}
+	}
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, vectors, multiVectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

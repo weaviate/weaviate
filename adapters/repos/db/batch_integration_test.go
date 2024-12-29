@@ -178,9 +178,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 					ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
 					Vectors: models.Vectors{
 						"bringYourOwnVector": []float32{1, 2, 3},
-					},
-					MultiVectors: models.MultiVectors{
-						"colbert": {{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}},
+						"colbert":            [][]float32{{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}},
 					},
 				},
 				UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
@@ -196,9 +194,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 					ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
 					Vectors: models.Vectors{
 						"bringYourOwnVector": []float32{1, 2, 3},
-					},
-					MultiVectors: models.MultiVectors{
-						"colbert": {{0.001, 0.002, 0.003}, {0.0011, 0.0022, 0.0033}, {0.00111, 0.00222, 0.00333}},
+						"colbert":            [][]float32{{0.001, 0.002, 0.003}, {0.0011, 0.0022, 0.0033}, {0.00111, 0.00222, 0.00333}},
 					},
 				},
 				UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
@@ -214,9 +210,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 					ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
 					Vectors: models.Vectors{
 						"bringYourOwnVector": []float32{1, 2, 3},
-					},
-					MultiVectors: models.MultiVectors{
-						"colbert": {{0.00000001, 0.00000002, 0.00000003}, {0.000000011, 0.000000022, 0.000000033}, {0.111, 0.222, 0.333}},
+						"colbert":            [][]float32{{0.00000001, 0.00000002, 0.00000003}, {0.000000011, 0.000000022, 0.000000033}, {0.111, 0.222, 0.333}},
 					},
 				},
 				UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
@@ -250,8 +244,8 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 				assert.Equal(t, batch[0].Object.Vectors["bringYourOwnVector"], item.Vectors["bringYourOwnVector"])
 			})
 			t.Run("contains named multi vector", func(t *testing.T) {
-				require.Len(t, item.MultiVectors, 1)
-				assert.Equal(t, batch[0].Object.MultiVectors["colbert"], item.MultiVectors["colbert"])
+				require.Len(t, item.Vectors, 1)
+				assert.Equal(t, batch[0].Object.Vectors["colbert"], item.Vectors["colbert"])
 			})
 		})
 

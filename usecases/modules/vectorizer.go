@@ -18,6 +18,7 @@ import (
 	"runtime"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -355,10 +356,10 @@ func (p *Provider) addVectorToObject(object *models.Object,
 		return
 	}
 	if multiVector != nil {
-		if object.MultiVectors == nil {
-			object.MultiVectors = models.MultiVectors{}
+		if object.Vectors == nil {
+			object.Vectors = models.Vectors{}
 		}
-		object.MultiVectors[cfg.TargetVector()] = multiVector
+		object.Vectors[cfg.TargetVector()] = multiVector
 	} else {
 		if object.Vectors == nil {
 			object.Vectors = models.Vectors{}
@@ -467,7 +468,7 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	targetVectorExists := false
 	p.lockGuard(func() {
 		vec, ok := object.Vectors[cfg.TargetVector()]
-		targetVectorExists = ok && len(vec) > 0
+		targetVectorExists = ok && !types.IsEmptyVector(vec)
 	})
 	return !targetVectorExists
 }
@@ -519,7 +520,8 @@ func (p *Provider) getVector(object *models.Object, targetVector string) []float
 		if len(object.Vectors) == 0 {
 			return nil
 		}
-		return object.Vectors[targetVector]
+		// TODO:colbert check type
+		return object.Vectors[targetVector].([]float32)
 	}
 	return object.Vector
 }

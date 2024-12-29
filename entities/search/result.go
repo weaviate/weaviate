@@ -29,7 +29,6 @@ type Result struct {
 	Dist                 float32
 	Vector               []float32
 	Vectors              models.Vectors
-	MultiVectors         models.MultiVectors
 	Beacon               string
 	Certainty            float32
 	Schema               models.PropertySchema
@@ -73,9 +72,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 
 	if includeVector {
 		t.Vector = r.Vector
-		// TODO:colbert replace vectors with map[string]any
 		t.Vectors = r.Vectors
-		t.MultiVectors = r.MultiVectors
 	}
 
 	return t

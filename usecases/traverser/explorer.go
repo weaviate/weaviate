@@ -498,14 +498,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		if len(params.AdditionalProperties.Vectors) > 0 {
 			vectors := make(map[string]types.Vector)
 			for _, targetVector := range params.AdditionalProperties.Vectors {
-				if vector, ok := res.Vectors[targetVector]; ok {
-					vectors[targetVector] = vector
-				}
-			}
-			for _, targetVector := range params.AdditionalProperties.Vectors {
-				if vector, ok := res.MultiVectors[targetVector]; ok {
-					vectors[targetVector] = vector
-				}
+				vectors[targetVector] = res.Vectors[targetVector]
 			}
 			additionalProperties["vectors"] = vectors
 		}

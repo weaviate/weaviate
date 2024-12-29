@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -47,7 +48,11 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors, item.Object.MultiVectors))
+		vectors, multiVectors, err := types.GetVectors(item.Object.Vectors)
+		if err != nil {
+			return nil, fmt.Errorf("cannot process batch: cannot get vectors: %w", err)
+		}
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}
