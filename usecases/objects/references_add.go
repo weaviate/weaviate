@@ -49,6 +49,9 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
+		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
 		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID,
 			additional.Properties{}, nil, tenant)
 		if err != nil {

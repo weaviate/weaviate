@@ -674,6 +674,11 @@ func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vec
 	return l.shard.updateVectorIndexesIgnoreDelete(ctx, vectors, status)
 }
 
+func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error {
+	l.mustLoad()
+	return l.shard.updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
+}
+
 func (l *LazyLoadShard) hasGeoIndex() bool {
 	l.mustLoad()
 	return l.shard.hasGeoIndex()

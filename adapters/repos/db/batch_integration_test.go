@@ -102,6 +102,175 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 }
 
+func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
+	migrator := NewMigrator(repo, logger)
+
+	className := "NamedVectors"
+
+	t.Run("create class", func(t *testing.T) {
+		class := &models.Class{
+			Class:               className,
+			InvertedIndexConfig: invertedConfig(),
+			Properties: []*models.Property{
+				{
+					Name:         "stringProp",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+				{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
+				},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"bringYourOwnVector": {
+					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+					VectorIndexType:   "hnsw",
+				},
+				"colbert": {
+					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+					VectorIndexConfig: enthnsw.NewDefaultMultiVectorUserConfig(),
+					VectorIndexType:   "hnsw",
+				},
+			},
+		}
+
+		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema.Objects = &models.Schema{
+			Classes: []*models.Class{class},
+		}
+	})
+
+	t.Run("batch import", func(t *testing.T) {
+		batch := objects.BatchObjects{
+			objects.BatchObject{
+				OriginalIndex: 0,
+				Err:           nil,
+				Object: &models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"stringProp": "first element",
+					},
+					ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+					Vectors: models.Vectors{
+						"bringYourOwnVector": []float32{1, 2, 3},
+					},
+					MultiVectors: models.MultiVectors{
+						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+					},
+				},
+				UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+			},
+			objects.BatchObject{
+				OriginalIndex: 1,
+				Err:           nil,
+				Object: &models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"stringProp": "second element",
+					},
+					ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+					Vectors: models.Vectors{
+						"bringYourOwnVector": []float32{1, 2, 3},
+					},
+					MultiVectors: models.MultiVectors{
+						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+					},
+				},
+				UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+			},
+			objects.BatchObject{
+				OriginalIndex: 2,
+				Err:           nil,
+				Object: &models.Object{
+					Class: className,
+					Properties: map[string]interface{}{
+						"stringProp": "third element",
+					},
+					ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+					Vectors: models.Vectors{
+						"bringYourOwnVector": []float32{1, 2, 3},
+					},
+					MultiVectors: models.MultiVectors{
+						"colbert": {{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}, {0.111, 0.222, 0.333}},
+					},
+				},
+				UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+			},
+		}
+
+		t.Run("batch import", func(t *testing.T) {
+			batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
+			require.Nil(t, err)
+
+			assert.Nil(t, batchRes[0].Err)
+			assert.Nil(t, batchRes[1].Err)
+			assert.Nil(t, batchRes[2].Err)
+		})
+
+		params := dto.GetParams{
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
+		}
+		res, err := repo.Search(context.Background(), params)
+		require.Nil(t, err)
+
+		t.Run("contains first element", func(t *testing.T) {
+			item, ok := findID(res, batch[0].Object.ID)
+			require.Equal(t, true, ok, "results should contain our desired id")
+			assert.Equal(t, "first element", item.Schema.(map[string]interface{})["stringProp"])
+
+			t.Run("contains named vector", func(t *testing.T) {
+				require.Len(t, item.Vectors, 1)
+				assert.Equal(t, batch[0].Object.Vectors["bringYourOwnVector"], item.Vectors["bringYourOwnVector"])
+			})
+			t.Run("contains named multi vector", func(t *testing.T) {
+				require.Len(t, item.MultiVectors, 1)
+				assert.Equal(t, batch[0].Object.MultiVectors["colbert"], item.MultiVectors["colbert"])
+			})
+		})
+
+		t.Run("can be queried through the inverted index", func(t *testing.T) {
+			filter := buildFilter("stringProp", "third", eq, schema.DataTypeText)
+			params := dto.GetParams{
+				ClassName:  className,
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    filter,
+			}
+			res, err := repo.Search(context.Background(), params)
+			require.Nil(t, err)
+
+			require.Len(t, res, 1)
+			assert.Equal(t, strfmt.UUID("90ade18e-2b99-4903-aa34-1d5d648c932d"),
+				res[0].ID)
+		})
+	})
+}
+
 func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 

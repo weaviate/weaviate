@@ -29,6 +29,8 @@ func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabili
 	switch t {
 	case modulecapabilities.Text2Vec:
 		return newDummyText2VecModule(name, nil)
+	case modulecapabilities.Text2ColBERT:
+		return newDummyText2ColBERTModule(name, nil)
 	case modulecapabilities.Ref2Vec:
 		return newDummyRef2VecModule(name)
 	default:
@@ -79,6 +81,53 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeBatch(ctx context.Context, o
 	vecs := make([][]float32, len(objs))
 	for i := range vecs {
 		vecs[i] = []float32{1, 2, 3}
+	}
+	return vecs, nil, errs
+}
+
+func newDummyText2ColBERTModule(name string, mediaProperties []string) dummyText2ColBERTModuleNoCapabilities {
+	return dummyText2ColBERTModuleNoCapabilities{name: name, mediaProperties: mediaProperties}
+}
+
+type dummyText2ColBERTModuleNoCapabilities struct {
+	name            string
+	mediaProperties []string
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) Name() string {
+	return m.name
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
+	return nil
+}
+
+// TODO remove as this is a capability
+func (m dummyText2ColBERTModuleNoCapabilities) RootHandler() http.Handler {
+	return nil
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2ColBERT
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) VectorizeObject(ctx context.Context,
+	in *models.Object, cfg moduletools.ClassConfig,
+) ([][]float32, models.AdditionalProperties, error) {
+	return [][]float32{{0.11, 0.22, 0.33}, {0.11, 0.22, 0.33}}, nil, nil
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, m.mediaProperties, nil
+}
+
+func (m dummyText2ColBERTModuleNoCapabilities) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][][]float32, []models.AdditionalProperties, map[int]error) {
+	errs := make(map[int]error, 0)
+	vecs := make([][][]float32, len(objs))
+	for i := range vecs {
+		vecs[i] = [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2, 0.3}}
 	}
 	return vecs, nil, errs
 }
