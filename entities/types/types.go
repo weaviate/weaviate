@@ -122,21 +122,3 @@ func GetVectors(in models.Vectors) (map[string][]float32, map[string][][]float32
 	}
 	return vectors, multiVectors, nil
 }
-
-func ParseVectors(in models.Vectors) (models.Vectors, error) {
-	var out models.Vectors
-	if len(in) > 0 {
-		vectors, multiVectors, err := GetVectors(in)
-		if err != nil {
-			return out, err
-		}
-		out = make(models.Vectors)
-		for targetVector, vector := range vectors {
-			out[targetVector] = vector
-		}
-		for targetVector, multiVector := range multiVectors {
-			out[targetVector] = multiVector
-		}
-	}
-	return out, nil
-}

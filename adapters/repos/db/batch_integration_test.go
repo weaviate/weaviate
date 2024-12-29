@@ -240,11 +240,13 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 			assert.Equal(t, "first element", item.Schema.(map[string]interface{})["stringProp"])
 
 			t.Run("contains named vector", func(t *testing.T) {
-				require.Len(t, item.Vectors, 1)
+				require.Len(t, item.Vectors, 2)
+				assert.IsType(t, []float32{}, item.Vectors["bringYourOwnVector"])
 				assert.Equal(t, batch[0].Object.Vectors["bringYourOwnVector"], item.Vectors["bringYourOwnVector"])
 			})
 			t.Run("contains named multi vector", func(t *testing.T) {
-				require.Len(t, item.Vectors, 1)
+				require.Len(t, item.Vectors, 2)
+				assert.IsType(t, [][]float32{}, item.Vectors["colbert"])
 				assert.Equal(t, batch[0].Object.Vectors["colbert"], item.Vectors["colbert"])
 			})
 		})

@@ -18,8 +18,6 @@ package models
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -236,50 +234,5 @@ func (m *Object) UnmarshalBinary(b []byte) error {
 		return err
 	}
 	*m = res
-	return nil
-}
-
-// UnmarshalJSON custom unmarshal code
-func (m *Object) UnmarshalJSON(data []byte) error {
-	type alias Object
-	aux := &struct {
-		Vectors map[string]json.RawMessage `json:"vectors,omitempty"`
-		*alias
-	}{
-		alias: (*alias)(m),
-	}
-
-	if err := json.Unmarshal(data, aux); err != nil {
-		return err
-	}
-
-	// Vectors are nil
-	if len(aux.Vectors) == 0 {
-		return nil
-	}
-
-	m.Vectors = make(Vectors)
-	for targetVector, rawMessage := range aux.Vectors {
-		// Try unmarshaling as []float32
-		var vector []float32
-		if err := json.Unmarshal(rawMessage, &vector); err == nil {
-			if len(vector) > 0 {
-				m.Vectors[targetVector] = vector
-			}
-			continue
-		}
-
-		// Try unmarshaling as [][]float32
-		var multiVector [][]float32
-		if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
-			if len(multiVector) > 0 {
-				m.Vectors[targetVector] = multiVector
-			}
-			continue
-		}
-
-		return fmt.Errorf("vectors: cannot unmarshal vector into either []float32 or [][]float32 for target vector %s", targetVector)
-	}
-
 	return nil
 }

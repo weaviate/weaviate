@@ -18,6 +18,8 @@ package models
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 )
@@ -34,5 +36,37 @@ func (m Vectors) Validate(formats strfmt.Registry) error {
 
 // ContextValidate validates this vectors based on context it is used
 func (m Vectors) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// UnmarshalJSON custom unmarshalling method
+func (v *Vectors) UnmarshalJSON(data []byte) error {
+	var rawVectors map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawVectors); err != nil {
+		return err
+	}
+
+	if len(rawVectors) > 0 {
+		*v = make(Vectors)
+		for targetVector, rawMessage := range rawVectors {
+			// Try unmarshaling as []float32
+			var vector []float32
+			if err := json.Unmarshal(rawMessage, &vector); err == nil {
+				if len(vector) > 0 {
+					(*v)[targetVector] = vector
+				}
+				continue
+			}
+			// Try unmarshaling as [][]float32
+			var multiVector [][]float32
+			if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
+				if len(multiVector) > 0 {
+					(*v)[targetVector] = multiVector
+				}
+				continue
+			}
+			return fmt.Errorf("vectors: cannot unmarshal vector into either []float32 or [][]float32 for target vector %s", targetVector)
+		}
+	}
 	return nil
 }

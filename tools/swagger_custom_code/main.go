@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	overrideObject("entities/models/object.go")
+	overrideObject("entities/models/vectors.go")
 }
 
 func overrideObject(name string) error {
@@ -36,48 +36,35 @@ func overrideObject(name string) error {
 	objectStr = strings.Replace(objectStr, "import (", importStr, 1)
 
 	unmarshalStr := `
-// UnmarshalJSON custom unmarshal code
-func (m *Object) UnmarshalJSON(data []byte) error {
-	type alias Object
-	aux := &struct {
-		Vectors map[string]json.RawMessage ` + "`" + `json:"vectors,omitempty"` + "`" + `
-		*alias
-	}{
-		alias: (*alias)(m),
-	}
-
-	if err := json.Unmarshal(data, aux); err != nil {
+// UnmarshalJSON custom unmarshalling method
+func (v *Vectors) UnmarshalJSON(data []byte) error {
+	var rawVectors map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawVectors); err != nil {
 		return err
 	}
 
-	// Vectors are nil
-	if len(aux.Vectors) == 0 {
-		return nil
-	}
-
-	m.Vectors = make(Vectors)
-	for targetVector, rawMessage := range aux.Vectors {
-		// Try unmarshaling as []float32
-		var vector []float32
-		if err := json.Unmarshal(rawMessage, &vector); err == nil {
-			if len(vector) > 0 {
-				m.Vectors[targetVector] = vector
+	if len(rawVectors) > 0 {
+		*v = make(Vectors)
+		for targetVector, rawMessage := range rawVectors {
+			// Try unmarshaling as []float32
+			var vector []float32
+			if err := json.Unmarshal(rawMessage, &vector); err == nil {
+				if len(vector) > 0 {
+					(*v)[targetVector] = vector
+				}
+				continue
 			}
-			continue
-		}
-
-		// Try unmarshaling as [][]float32
-		var multiVector [][]float32
-		if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
-			if len(multiVector) > 0 {
-				m.Vectors[targetVector] = multiVector
+			// Try unmarshaling as [][]float32
+			var multiVector [][]float32
+			if err := json.Unmarshal(rawMessage, &multiVector); err == nil {
+				if len(multiVector) > 0 {
+					(*v)[targetVector] = multiVector
+				}
+				continue
 			}
-			continue
+			return fmt.Errorf("vectors: cannot unmarshal vector into either []float32 or [][]float32 for target vector %s", targetVector)
 		}
-
-		return fmt.Errorf("vectors: cannot unmarshal vector into either []float32 or [][]float32 for target vector %s", targetVector)
 	}
-
 	return nil
 }
 `

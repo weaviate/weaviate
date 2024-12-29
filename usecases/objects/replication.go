@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 // VObject is a versioned object for detecting replication inconsistencies
@@ -104,11 +103,6 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("unmarshal object: %w", err)
 		}
-		vectors, err := types.ParseVectors(obj.Vectors)
-		if err != nil {
-			return fmt.Errorf("parse object's vectors: %w", err)
-		}
-		obj.Vectors = vectors
 		vo.LatestObject = &obj
 	}
 

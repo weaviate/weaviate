@@ -23,7 +23,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/types"
 	generate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
@@ -246,7 +245,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if len(additionalPropsParams.Vectors) > 0 {
 		vectors, ok := additionalPropertiesMap["vectors"]
 		if ok {
-			vectorfmt, ok2 := vectors.(map[string]types.Vector)
+			vectorfmt, ok2 := vectors.(map[string]models.Vector)
 			if ok2 {
 				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
 				for name, vector := range vectorfmt {

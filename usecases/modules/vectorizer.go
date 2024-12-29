@@ -355,15 +355,12 @@ func (p *Provider) addVectorToObject(object *models.Object,
 		object.Vector = vector
 		return
 	}
+	if object.Vectors == nil {
+		object.Vectors = models.Vectors{}
+	}
 	if multiVector != nil {
-		if object.Vectors == nil {
-			object.Vectors = models.Vectors{}
-		}
 		object.Vectors[cfg.TargetVector()] = multiVector
 	} else {
-		if object.Vectors == nil {
-			object.Vectors = models.Vectors{}
-		}
 		object.Vectors[cfg.TargetVector()] = vector
 	}
 }
@@ -484,7 +481,11 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 	vectorizer := p.getVectorizer(class, targetVector)
 	if vectorizer == config.VectorizerModuleNone {
 		vector := p.getVector(object, targetVector)
-		if hnswConfig.Skip && len(vector) > 0 {
+		isEmpty, err := types.IsVectorEmpty(vector)
+		if err != nil {
+			return false, fmt.Errorf("should vectorize: is vector empty: %w", err)
+		}
+		if hnswConfig.Skip && !isEmpty {
 			logger.WithField("className", class.Class).
 				Warningf(warningSkipVectorProvided)
 		}
@@ -513,7 +514,7 @@ func (p *Provider) getVectorizer(class *models.Class, targetVector string) strin
 	return class.Vectorizer
 }
 
-func (p *Provider) getVector(object *models.Object, targetVector string) []float32 {
+func (p *Provider) getVector(object *models.Object, targetVector string) models.Vector {
 	p.vectorsLock.Lock()
 	defer p.vectorsLock.Unlock()
 	if targetVector != "" {
@@ -521,7 +522,7 @@ func (p *Provider) getVector(object *models.Object, targetVector string) []float
 			return nil
 		}
 		// TODO:colbert check type
-		return object.Vectors[targetVector].([]float32)
+		return object.Vectors[targetVector]
 	}
 	return object.Vector
 }
