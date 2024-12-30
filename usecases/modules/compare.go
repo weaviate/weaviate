@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,16 +32,31 @@ func reVectorize(ctx context.Context,
 	sourceProperties []string,
 	targetVector string,
 	findObjectFn modulecapabilities.FindObjectFn,
-) (bool, models.AdditionalProperties, []float32) {
+) (bool, models.AdditionalProperties, []float32, error) {
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
-		return shouldReVectorize, nil, nil
+		return shouldReVectorize, nil, nil, nil
 	}
 
 	if targetVector == "" {
-		return false, oldObject.AdditionalProperties, oldObject.Vector
+		return false, oldObject.AdditionalProperties, oldObject.Vector, nil
 	} else {
-		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector].([]float32)
+		vector, err := getVector(oldObject.Vectors[targetVector])
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("get vector: %w", err)
+		}
+		return false, oldObject.AdditionalProperties, vector, nil
+	}
+}
+
+func getVector(v models.Vector) ([]float32, error) {
+	switch vector := v.(type) {
+	case nil:
+		return nil, nil
+	case []float32:
+		return vector, nil
+	default:
+		return nil, fmt.Errorf("unrecognized vector type: %T", v)
 	}
 }
 
@@ -52,16 +68,31 @@ func reVectorizeMulti(ctx context.Context,
 	sourceProperties []string,
 	targetVector string,
 	findObjectFn modulecapabilities.FindObjectFn,
-) (bool, models.AdditionalProperties, [][]float32) {
+) (bool, models.AdditionalProperties, [][]float32, error) {
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
-		return shouldReVectorize, nil, nil
+		return shouldReVectorize, nil, nil, nil
 	}
 
 	if targetVector == "" {
-		return false, oldObject.AdditionalProperties, nil
+		return false, oldObject.AdditionalProperties, nil, nil
 	} else {
-		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector].([][]float32)
+		multiVector, err := getMultiVector(oldObject.Vectors[targetVector])
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("get multi vector: %w", err)
+		}
+		return false, oldObject.AdditionalProperties, multiVector, nil
+	}
+}
+
+func getMultiVector(v models.Vector) ([][]float32, error) {
+	switch vector := v.(type) {
+	case nil:
+		return nil, nil
+	case [][]float32:
+		return vector, nil
+	default:
+		return nil, fmt.Errorf("unrecognized multi vector type: %T", v)
 	}
 }
 

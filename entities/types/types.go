@@ -30,6 +30,8 @@ func IsVectorEmpty(vector Vector) (bool, error) {
 	switch v := vector.(type) {
 	case nil:
 		return true, nil
+	case models.C11yVector:
+		return len(v) == 0, nil
 	case []float32:
 		return len(v) == 0, nil
 	case [][]float32:
@@ -43,6 +45,8 @@ func IsEmptyVector(vector models.Vector) bool {
 	switch v := vector.(type) {
 	case nil:
 		return true
+	case models.C11yVector:
+		return len(v) == 0
 	case []float32:
 		return len(v) == 0
 	case [][]float32:
