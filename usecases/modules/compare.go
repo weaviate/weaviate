@@ -16,12 +16,12 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 func reVectorize(ctx context.Context,
@@ -96,7 +96,7 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
-func reVectorizeEmbeddings[T types.Embedding](ctx context.Context,
+func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	cfg moduletools.ClassConfig,
 	mod modulecapabilities.Vectorizer[T],
 	object *models.Object,

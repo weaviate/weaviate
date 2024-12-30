@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
@@ -109,7 +109,7 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 		return nil, err
 	}
 
-	isVectorEmpty, err := types.IsVectorEmpty(fa.params.SearchVector)
+	isVectorEmpty, err := dto.IsVectorEmpty(fa.params.SearchVector)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate filtered: %w", err)
 	}

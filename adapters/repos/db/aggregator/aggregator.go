@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -92,7 +92,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		return newGroupedAggregator(a).Do(ctx)
 	}
 
-	isVectorEmpty, err := types.IsVectorEmpty(a.params.SearchVector)
+	isVectorEmpty, err := dto.IsVectorEmpty(a.params.SearchVector)
 	if err != nil {
 		return nil, fmt.Errorf("aggregator: %w", err)
 	}

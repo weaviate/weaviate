@@ -19,9 +19,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -48,7 +48,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		vectors, multiVectors, err := types.GetVectors(item.Object.Vectors)
+		vectors, multiVectors, err := dto.GetVectors(item.Object.Vectors)
 		if err != nil {
 			return nil, fmt.Errorf("cannot process batch: cannot get vectors: %w", err)
 		}

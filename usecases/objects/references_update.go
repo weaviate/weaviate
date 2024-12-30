@@ -21,10 +21,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -133,7 +133,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			Err:  err,
 		}
 	}
-	vectors, multiVectors, err := types.GetVectors(res.Vectors)
+	vectors, multiVectors, err := dto.GetVectors(res.Vectors)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, fmt.Errorf("cannot get vectors: %w", err)}
 	}

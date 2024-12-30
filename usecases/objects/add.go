@@ -22,9 +22,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -112,7 +112,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
-	vectors, multiVectors, err := types.GetVectors(object.Vectors)
+	vectors, multiVectors, err := dto.GetVectors(object.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
 	}

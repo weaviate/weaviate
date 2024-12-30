@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -477,7 +477,7 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	targetVectorExists := false
 	p.lockGuard(func() {
 		vec, ok := object.Vectors[cfg.TargetVector()]
-		isVectorEmpty, _ := types.IsVectorEmpty(vec)
+		isVectorEmpty, _ := dto.IsVectorEmpty(vec)
 		targetVectorExists = ok && !isVectorEmpty
 	})
 	return !targetVectorExists
@@ -494,7 +494,7 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 	vectorizer := p.getVectorizer(class, targetVector)
 	if vectorizer == config.VectorizerModuleNone {
 		vector := p.getVector(object, targetVector)
-		isEmpty, err := types.IsVectorEmpty(vector)
+		isEmpty, err := dto.IsVectorEmpty(vector)
 		if err != nil {
 			return false, fmt.Errorf("should vectorize: is vector empty: %w", err)
 		}

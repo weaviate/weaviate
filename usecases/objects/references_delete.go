@@ -21,9 +21,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -129,7 +129,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	vectors, multiVectors, err := types.GetVectors(res.Vectors)
+	vectors, multiVectors, err := dto.GetVectors(res.Vectors)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, fmt.Errorf("cannot get vectors: %w", err)}
 	}

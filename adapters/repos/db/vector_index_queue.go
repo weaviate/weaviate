@@ -24,7 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 const (
@@ -312,7 +312,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task[T types.Embedding] struct {
+type Task[T dto.Embedding] struct {
 	op     uint8
 	id     uint64
 	vector T
@@ -362,7 +362,7 @@ func (t *Task[T]) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	}
 }
 
-type TaskGroup[T types.Embedding] struct {
+type TaskGroup[T dto.Embedding] struct {
 	op      uint8
 	ids     []uint64
 	vectors []T

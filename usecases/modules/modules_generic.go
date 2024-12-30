@@ -15,12 +15,12 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
-func vectorFromSearchParam[T types.Embedding](
+func vectorFromSearchParam[T dto.Embedding](
 	ctx context.Context,
 	class *models.Class,
 	mod modulecapabilities.Module,
@@ -57,7 +57,7 @@ func vectorFromSearchParam[T types.Embedding](
 	return false, nil, nil
 }
 
-func crossClassVectorFromSearchParam[T types.Embedding](
+func crossClassVectorFromSearchParam[T dto.Embedding](
 	ctx context.Context,
 	mod modulecapabilities.Module,
 	param string,
@@ -88,7 +88,7 @@ func crossClassVectorFromSearchParam[T types.Embedding](
 	return false, nil, "", nil
 }
 
-func vectorFromInput[T types.Embedding](
+func vectorFromInput[T dto.Embedding](
 	ctx context.Context,
 	mod modulecapabilities.Module,
 	class *models.Class,

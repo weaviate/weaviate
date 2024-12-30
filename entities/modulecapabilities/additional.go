@@ -14,8 +14,8 @@ package modulecapabilities
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -31,7 +31,7 @@ type ExtractAdditionalFn = func(param []*ast.Argument, class *models.Class) inte
 
 // AdditionalPropertyWithSearchVector defines additional property params
 // with the ability to pass search vector
-type AdditionalPropertyWithSearchVector[T types.Embedding] interface {
+type AdditionalPropertyWithSearchVector[T dto.Embedding] interface {
 	SetSearchVector(vector T)
 }
 

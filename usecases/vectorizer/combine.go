@@ -11,12 +11,10 @@
 
 package vectorizer
 
-import (
-	"github.com/weaviate/weaviate/entities/types"
-)
+import "github.com/weaviate/weaviate/entities/dto"
 
 // CombineVectors combines all of the vector into sum of their parts
-func CombineVectors[T types.Embedding](vectors []T) T {
+func CombineVectors[T dto.Embedding](vectors []T) T {
 	switch any(vectors).(type) {
 	case [][]float32:
 		return any(CombineVectorsWithWeights(any(vectors).([][]float32), nil)).(T)

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package types
+package dto
 
 import (
 	"fmt"

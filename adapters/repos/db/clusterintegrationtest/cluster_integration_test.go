@@ -40,7 +40,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -739,7 +738,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				objVectors, _, err := types.GetVectors(obj.Vectors)
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
 				require.NoError(t, err)
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
@@ -768,7 +767,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 				}
-				objVectors, _, err := types.GetVectors(obj.Vectors)
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
 				require.NoError(t, err)
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
@@ -795,7 +794,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 					Class:   collection.Class,
 					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
 				}
-				objVectors, _, err := types.GetVectors(obj.Vectors)
+				objVectors, _, err := dto.GetVectors(obj.Vectors)
 				require.NoError(t, err)
 				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, objVectors, nil, nil, 0))
 
@@ -821,7 +820,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 						Vectors: map[string]models.Vector{"custom1": vectors[i%len(vectors)], "custom2": vectors[(i+1)%len(vectors)], "custom3": vectors[(i+2)%len(vectors)]},
 					}
 					ids[i] = obj.ID
-					vectors, _, err := types.GetVectors(obj.Vectors)
+					vectors, _, err := dto.GetVectors(obj.Vectors)
 					require.NoError(t, err)
 					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, vectors, nil, nil, 0))
 				}

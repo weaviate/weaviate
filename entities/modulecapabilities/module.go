@@ -15,8 +15,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 type ModuleType string
@@ -55,7 +55,7 @@ type ModuleDependency interface {
 	InitDependency(modules []Module) error
 }
 
-type Dependency[T types.Embedding] interface {
+type Dependency[T dto.Embedding] interface {
 	ModuleName() string
 	Argument() string
 	GraphQLArgument() GraphQLArgument

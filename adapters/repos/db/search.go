@@ -20,7 +20,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
@@ -142,7 +141,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 }
 
 func isEmptyVector(searchVector models.Vector) bool {
-	if isVectorEmpty, err := types.IsVectorEmpty(searchVector); err == nil {
+	if isVectorEmpty, err := dto.IsVectorEmpty(searchVector); err == nil {
 		return isVectorEmpty
 	}
 	return false

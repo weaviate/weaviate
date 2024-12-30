@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
@@ -66,14 +66,14 @@ type jinaErrorDetail struct {
 	Detail string `json:"detail,omitempty"` // in case of error detail holds the error message
 }
 
-type embedding[T types.Embedding] struct {
+type embedding[T dto.Embedding] struct {
 	jinaErrorDetail
 	Object string                  `json:"object"`
 	Data   []embeddingData[T]      `json:"data,omitempty"`
 	Usage  *modulecomponents.Usage `json:"usage,omitempty"`
 }
 
-type embeddingData[T types.Embedding] struct {
+type embeddingData[T dto.Embedding] struct {
 	Object     string `json:"object"`
 	Index      int    `json:"index"`
 	Embedding  T      `json:"embedding"`
@@ -88,7 +88,7 @@ type Settings struct {
 	Normalized bool
 }
 
-type Client[T types.Embedding] struct {
+type Client[T dto.Embedding] struct {
 	jinaAIApiKey string
 	httpClient   *http.Client
 	buildUrlFn   func(settings Settings) (string, error)
@@ -109,7 +109,7 @@ func MultiVectorBuildUrlFn(settings Settings) (string, error) {
 	return url.JoinPath(host, path)
 }
 
-func New[T types.Embedding](jinaAIApiKey string,
+func New[T dto.Embedding](jinaAIApiKey string,
 	timeout time.Duration,
 	defaultRPM, defaultTPM int,
 	buildUrlFn func(settings Settings) (string, error),
