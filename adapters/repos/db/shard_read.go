@@ -20,7 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -360,7 +360,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, searchVectors []types.Vector, targetVectors []string) ([]float32, error) {
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, searchVectors []models.Vector, targetVectors []string) ([]float32, error) {
 	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
 		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
 	}
@@ -422,7 +422,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []types.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {

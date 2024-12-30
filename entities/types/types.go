@@ -24,9 +24,7 @@ type Embedding interface {
 	[]float32 | [][]float32
 }
 
-type Vector any
-
-func IsVectorEmpty(vector Vector) (bool, error) {
+func IsVectorEmpty(vector models.Vector) (bool, error) {
 	switch v := vector.(type) {
 	case nil:
 		return true, nil
@@ -38,21 +36,6 @@ func IsVectorEmpty(vector Vector) (bool, error) {
 		return len(v) == 0, nil
 	default:
 		return false, fmt.Errorf("unrecognized vector type: %T", vector)
-	}
-}
-
-func IsEmptyVector(vector models.Vector) bool {
-	switch v := vector.(type) {
-	case nil:
-		return true
-	case models.C11yVector:
-		return len(v) == 0
-	case []float32:
-		return len(v) == 0
-	case [][]float32:
-		return len(v) == 0
-	default:
-		return false
 	}
 }
 

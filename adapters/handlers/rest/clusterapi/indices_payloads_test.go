@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -150,17 +149,17 @@ func (p searchParamsPayloadOld) Unmarshal(in []byte) ([]float32, string, float32
 func TestBackwardCompatibilitySearch(t *testing.T) {
 	payload := searchParamsPayload{}
 	tests := []struct {
-		SearchVectors []types.Vector
+		SearchVectors []models.Vector
 		Targets       []string
 		compatible    bool
 	}{
 		{
-			SearchVectors: []types.Vector{[]float32{1, 2, 3}, []float32{4, 5, 6}},
+			SearchVectors: []models.Vector{[]float32{1, 2, 3}, []float32{4, 5, 6}},
 			Targets:       []string{"target1", "target2"},
 			compatible:    false,
 		},
 		{
-			SearchVectors: []types.Vector{[]float32{1, 2, 3}},
+			SearchVectors: []models.Vector{[]float32{1, 2, 3}},
 			Targets:       []string{"target1"},
 			compatible:    true,
 		},

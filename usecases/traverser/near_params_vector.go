@@ -19,11 +19,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
@@ -84,7 +84,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className, tenant, targetVector string, index int,
-) (types.Vector, error) {
+) (models.Vector, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (v *nearParamsVector) targetFromModules(className string, paramValue interf
 
 func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	className, paramName string, paramValue interface{}, tenant string, targetVector string,
-) (types.Vector, error) {
+) (models.Vector, error) {
 	if v.modulesProvider != nil {
 		isMultiVector, err := v.modulesProvider.IsTargetVectorMultiVector(className, targetVector)
 		if err != nil {
@@ -227,7 +227,7 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 // TODO:colbert unify findVector and findMultiVector
 func (v *nearParamsVector) findVectorForNearObject(ctx context.Context,
 	className string, id strfmt.UUID, tenant, targetVector string,
-) (types.Vector, string, error) {
+) (models.Vector, string, error) {
 	if multiVector, targetVector, err := v.findMultiVector(ctx, className, id, tenant, targetVector); err == nil && len(multiVector) > 0 {
 		return multiVector, targetVector, nil
 	}
@@ -423,13 +423,13 @@ func (v *nearParamsVector) crossClassFindMultiVector(ctx context.Context, id str
 
 func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
-) (types.Vector, string, error) {
+) (models.Vector, string, error) {
 	return v.vectorFromNearObjectParams(ctx, "", params, "", "")
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	className string, params *searchparams.NearObject, tenant, targetVector string,
-) (types.Vector, string, error) {
+) (models.Vector, string, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, "", errors.New("empty id and beacon")
 	}

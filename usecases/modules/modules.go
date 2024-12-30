@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -662,7 +661,7 @@ func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector types.Vector,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
@@ -673,7 +672,7 @@ func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector types.Vector, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := p.getClassFromSearchResult(toBeExtended)

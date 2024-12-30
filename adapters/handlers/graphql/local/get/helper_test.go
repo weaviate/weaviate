@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -689,7 +688,7 @@ func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal
 
 type targetsAndVectors struct {
 	targets []string
-	vectors []types.Vector
+	vectors []models.Vector
 }
 
 func (t targetsAndVectors) Len() int {

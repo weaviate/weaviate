@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -444,7 +444,7 @@ type searchParametersPayload struct {
 	Cursor            *filters.Cursor              `json:"cursor"`
 	GroupBy           *searchparams.GroupBy        `json:"groupBy"`
 	Additional        additional.Properties        `json:"additional"`
-	SearchVectors     []types.Vector               `json:"searchVectors"`
+	SearchVectors     []models.Vector              `json:"searchVectors"`
 	TargetVectors     []string                     `json:"TargetVectors"`
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
@@ -472,7 +472,7 @@ func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
 	var vectors [][]float32
 	if err := json.Unmarshal(aux.SearchVectors, &vectors); err == nil {
 		if len(vectors) > 0 {
-			asVectors := make([]types.Vector, len(vectors))
+			asVectors := make([]models.Vector, len(vectors))
 			for i := range vectors {
 				asVectors[i] = vectors[i]
 			}
@@ -485,7 +485,7 @@ func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
 	var multiVectors [][][]float32
 	if err := json.Unmarshal(aux.SearchVectors, &multiVectors); err == nil {
 		if len(multiVectors) > 0 {
-			asVectors := make([]types.Vector, len(multiVectors))
+			asVectors := make([]models.Vector, len(multiVectors))
 			for i := range multiVectors {
 				asVectors[i] = multiVectors[i]
 			}
@@ -499,7 +499,7 @@ func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
 
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vectors []types.Vector, targetVectors []string, limit int,
+func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
@@ -514,7 +514,7 @@ func (p searchParamsPayload) Marshal(vectors []types.Vector, targetVectors []str
 		Cursor            *filters.Cursor              `json:"cursor"`
 		GroupBy           *searchparams.GroupBy        `json:"groupBy"`
 		Additional        additional.Properties        `json:"additional"`
-		SearchVectors     []types.Vector               `json:"searchVectors"`
+		SearchVectors     []models.Vector              `json:"searchVectors"`
 		TargetVectors     []string                     `json:"targetVectors"`
 		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 		Properties        []string                     `json:"properties"`
@@ -535,7 +535,7 @@ func (p searchParamsPayload) Marshal(vectors []types.Vector, targetVectors []str
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]types.Vector, []string, float32, int,
+func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
@@ -543,7 +543,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]types.Vector, []string, flo
 	err := json.Unmarshal(in, &par)
 
 	if len(par.SearchVector) > 0 {
-		par.SearchVectors = []types.Vector{par.SearchVector}
+		par.SearchVectors = []models.Vector{par.SearchVector}
 		par.TargetVectors = []string{par.TargetVector}
 	}
 

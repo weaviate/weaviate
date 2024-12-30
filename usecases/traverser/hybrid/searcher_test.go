@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 func TestSearcher(t *testing.T) {
@@ -329,7 +328,7 @@ func TestSearcher(t *testing.T) {
 						Type:          "hybrid",
 						Alpha:         1.0,
 						NearVectorParams: &searchparams.NearVector{
-							Vectors:   []types.Vector{[]float32{1, 2, 3}},
+							Vectors:   []models.Vector{[]float32{1, 2, 3}},
 							Certainty: 0.8,
 						},
 					},

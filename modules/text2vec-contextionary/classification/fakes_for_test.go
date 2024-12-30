@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -208,7 +207,7 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 }
 
 func (f *fakeVectorRepoKNN) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
@@ -292,7 +291,7 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	if searchVectors == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)

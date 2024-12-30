@@ -18,7 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -84,7 +84,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	if err != nil {
 		return nil, "", err
 	}
-	var vector types.Vector
+	var vector models.Vector
 	if len(searchVectors) > 0 {
 		vector = searchVectors[0]
 	}
@@ -158,7 +158,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 		return nil, "", err
 	}
 
-	var vector types.Vector
+	var vector models.Vector
 	if len(vectors) > 0 {
 		vector = vectors[0]
 	}
@@ -262,7 +262,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				}
 
 				searchVectors := &searchparams.NearVector{}
-				searchVectors.Vectors = make([]types.Vector, len(targetVectors))
+				searchVectors.Vectors = make([]models.Vector, len(targetVectors))
 				searchVectors.TargetVectors = make([]string, len(targetVectors))
 				if len(params.HybridSearch.Vector) > 0 {
 					for i, targetVector := range targetVectors {

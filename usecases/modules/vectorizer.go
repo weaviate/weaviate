@@ -477,7 +477,8 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	targetVectorExists := false
 	p.lockGuard(func() {
 		vec, ok := object.Vectors[cfg.TargetVector()]
-		targetVectorExists = ok && !types.IsEmptyVector(vec)
+		isVectorEmpty, _ := types.IsVectorEmpty(vec)
+		targetVectorExists = ok && !isVectorEmpty
 	})
 	return !targetVectorExists
 }

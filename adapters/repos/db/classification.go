@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/vectorizer"
 )
@@ -82,7 +81,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 			Vector: true,
 		},
 		Properties: props,
-	}, []string{""}, []types.Vector{vector})
+	}, []string{""}, []models.Vector{vector})
 
 	return res, err
 }
@@ -109,7 +108,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 			Vector: true,
 		},
 		Properties: props,
-	}, []string{""}, []types.Vector{vector})
+	}, []string{""}, []models.Vector{vector})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")
 	}

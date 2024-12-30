@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -425,7 +424,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[]types.Vector{PeanutsVector()},
+			[]models.Vector{PeanutsVector()},
 		)
 
 		require.Nil(t, err)
@@ -440,7 +439,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[]types.Vector{JourneyVector()},
+			[]models.Vector{JourneyVector()},
 		)
 		require.Nil(t, err)
 
@@ -928,11 +927,11 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, []types.Vector) ([]search.Result, error) {
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, []models.Vector) ([]search.Result, error) {
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, types.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, models.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 

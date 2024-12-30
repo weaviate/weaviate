@@ -17,10 +17,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestVectors(t *testing.T) {
-	var vectors []Vector
+	var vectors []models.Vector
 
 	t.Run("insert", func(t *testing.T) {
 		regularVector := []float32{0.1, 0.2, 0.3}
@@ -35,7 +36,7 @@ func TestVectors(t *testing.T) {
 	})
 
 	t.Run("type check", func(t *testing.T) {
-		isMultiVectorFn := func(in Vector) (bool, error) {
+		isMultiVectorFn := func(in models.Vector) (bool, error) {
 			switch in.(type) {
 			case []float32:
 				return false, nil
@@ -56,7 +57,7 @@ func TestVectors(t *testing.T) {
 	t.Run("as vector slice", func(t *testing.T) {
 		searchVectors := [][]float32{{0.1, 0.2}, {0.11, 0.22}, {0.111, 0.222}}
 
-		var asVectorSlice []Vector
+		var asVectorSlice []models.Vector
 		for _, vector := range searchVectors {
 			asVectorSlice = append(asVectorSlice, vector)
 		}
@@ -66,7 +67,7 @@ func TestVectors(t *testing.T) {
 	})
 
 	t.Run("case to vector types", func(t *testing.T) {
-		searchVectors := []Vector{[]float32{0.1, 0.2}, [][]float32{{0.11, 0.22}, {0.111, 0.222, 0.333}}, []float32{0.111, 0.222}}
+		searchVectors := []models.Vector{[]float32{0.1, 0.2}, [][]float32{{0.11, 0.22}, {0.111, 0.222, 0.333}}, []float32{0.111, 0.222}}
 
 		regularVector, ok := searchVectors[0].([]float32)
 		require.True(t, ok)

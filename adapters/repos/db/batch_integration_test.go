@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -274,7 +273,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 					Offset: 0,
 					Limit:  10,
 				},
-			}, []string{"bringYourOwnVector"}, []types.Vector{[]float32{1, 2, 3}})
+			}, []string{"bringYourOwnVector"}, []models.Vector{[]float32{1, 2, 3}})
 			require.Nil(t, err)
 			assert.Len(t, res, 3)
 		})
@@ -286,7 +285,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 					Offset: 0,
 					Limit:  10,
 				},
-			}, []string{"colbert"}, []types.Vector{[][]float32{{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}}})
+			}, []string{"colbert"}, []models.Vector{[][]float32{{0.5, 0.52, 0.53}, {0.511, 0.522, 0.533}, {0.5111, 0.5222, 0.5333}}})
 			require.NoError(t, err)
 			assert.Len(t, res, 3)
 			assert.Equal(t, "8d5a3aa2-3c8d-4589-9ae1-3f638f506970", res[0].ID.String())
@@ -853,7 +852,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Offset: 0,
 							Limit:  10,
 						},
-					}, []string{""}, []types.Vector{[]float32{1, 2, 3}})
+					}, []string{""}, []models.Vector{[]float32{1, 2, 3}})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})

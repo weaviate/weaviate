@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -155,7 +154,7 @@ func TestRestartJourney(t *testing.T) {
 						Limit: 1,
 					},
 					Properties: search.SelectProperties{{Name: "description"}},
-				}, []string{""}, []types.Vector{[]float32{0.05, 0.1, 0.15}})
+				}, []string{""}, []models.Vector{[]float32{0.05, 0.1, 0.15}})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -238,7 +237,7 @@ func TestRestartJourney(t *testing.T) {
 						Limit: 1,
 					},
 					Properties: search.SelectProperties{{Name: "description"}},
-				}, []string{""}, []types.Vector{[]float32{0.05, 0.1, 0.15}})
+				}, []string{""}, []models.Vector{[]float32{0.05, 0.1, 0.15}})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",

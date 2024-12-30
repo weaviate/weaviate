@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -562,7 +561,7 @@ func Test_GetClass_WithFilters(t *testing.T) {
 				params := dto.GetParams{
 					ClassName: "ClassOne",
 					NearVector: &searchparams.NearVector{
-						Vectors: []types.Vector{[]float32{0.8, 0.2, 0.7}},
+						Vectors: []models.Vector{[]float32{0.8, 0.2, 0.7}},
 					},
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filters,

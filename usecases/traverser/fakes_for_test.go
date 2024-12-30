@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -84,14 +83,14 @@ func (f *fakeTxt2VecVectorizer) MoveAwayFrom(source []float32, target []float32,
 
 type fakeVectorSearcher struct {
 	mock.Mock
-	calledWithVector types.Vector
+	calledWithVector models.Vector
 	calledWithLimit  int
 	calledWithOffset int
 	results          []search.Result
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector types.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -107,7 +106,7 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)

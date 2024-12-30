@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 type Params struct {
@@ -29,7 +29,7 @@ type Params struct {
 	IncludeMetaCount bool                       `json:"includeMetaCount"`
 	Limit            *int                       `json:"limit"`
 	ObjectLimit      *int                       `json:"objectLimit"`
-	SearchVector     types.Vector               `json:"searchVector"`
+	SearchVector     models.Vector              `json:"searchVector"`
 	TargetVector     string                     `json:"targetVector"`
 	Certainty        float64                    `json:"certainty"`
 	Tenant           string                     `json:"tenant"`

@@ -18,11 +18,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
-func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, vec types.Vector) ([]uint64, []float32, error) {
+func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, vec models.Vector) ([]uint64, []float32, error) {
 	if a.params.ObjectLimit != nil {
 		return a.searchByVector(ctx, vec, a.params.ObjectLimit, allow)
 	}
@@ -30,7 +30,7 @@ func (a *Aggregator) vectorSearch(ctx context.Context, allow helpers.AllowList, 
 	return a.searchByVectorDistance(ctx, vec, allow)
 }
 
-func (a *Aggregator) searchByVector(ctx context.Context, searchVector types.Vector, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
+func (a *Aggregator) searchByVector(ctx context.Context, searchVector models.Vector, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
 	idsFound, dists, err := a.performVectorSearch(ctx, searchVector, *limit, ids)
 	if err != nil {
 		return idsFound, nil, err
@@ -53,7 +53,7 @@ func (a *Aggregator) searchByVector(ctx context.Context, searchVector types.Vect
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector types.Vector, ids helpers.AllowList) ([]uint64, []float32, error) {
+func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector models.Vector, ids helpers.AllowList) ([]uint64, []float32, error) {
 	if a.params.Certainty <= 0 {
 		return nil, nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 	}
@@ -104,7 +104,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 }
 
 func (a *Aggregator) performVectorSearch(ctx context.Context,
-	searchVector types.Vector, limit int, ids helpers.AllowList,
+	searchVector models.Vector, limit int, ids helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:
@@ -125,7 +125,7 @@ func (a *Aggregator) performVectorSearch(ctx context.Context,
 }
 
 func (a *Aggregator) performVectorDistanceSearch(ctx context.Context,
-	searchVector types.Vector, targetDist float32, maxLimit int64, ids helpers.AllowList,
+	searchVector models.Vector, targetDist float32, maxLimit int64, ids helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	switch vec := searchVector.(type) {
 	case []float32:

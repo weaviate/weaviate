@@ -23,13 +23,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 type DistanceForVector interface {
-	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []types.Vector, targets []string) ([]float32, error)
+	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 }
 
 type idAndDistance struct {
@@ -78,7 +78,7 @@ func (r *ResultContainerStandard) RemoveIdFromResult(id uint64) {
 
 type targetVectorData struct {
 	target       []string
-	searchVector []types.Vector
+	searchVector []models.Vector
 	weights      []float32
 }
 
@@ -86,7 +86,7 @@ func uuidFromUint64(id uint64) strfmt.UUID {
 	return strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("%d", id))).String())
 }
 
-func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, results [][]uint64, dists [][]float32, targetVectors []string, searchVectors []types.Vector, targetCombination *dto.TargetCombination, limit int, targetDist float32) ([]uint64, []float32, error) {
+func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, results [][]uint64, dists [][]float32, targetVectors []string, searchVectors []models.Vector, targetCombination *dto.TargetCombination, limit int, targetDist float32) ([]uint64, []float32, error) {
 	if len(results) == 0 {
 		return []uint64{}, []float32{}, nil
 	}
@@ -261,11 +261,11 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 	return returnResults[:limit], returnDists[:limit], nil
 }
 
-func collectMissingIds(localIDs map[uint64]struct{}, missingIDs map[uint64]targetVectorData, targetVectors []string, searchVectors []types.Vector, i int, weights []float32) {
+func collectMissingIds(localIDs map[uint64]struct{}, missingIDs map[uint64]targetVectorData, targetVectors []string, searchVectors []models.Vector, i int, weights []float32) {
 	for id := range localIDs {
 		val, ok := missingIDs[id]
 		if !ok {
-			val = targetVectorData{target: []string{targetVectors[i]}, searchVector: []types.Vector{searchVectors[i]}, weights: []float32{weights[i]}}
+			val = targetVectorData{target: []string{targetVectors[i]}, searchVector: []models.Vector{searchVectors[i]}, weights: []float32{weights[i]}}
 		} else {
 			val.target = append(val.target, targetVectors[i])
 			val.searchVector = append(val.searchVector, searchVectors[i])

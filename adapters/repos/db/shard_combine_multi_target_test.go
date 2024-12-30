@@ -22,8 +22,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 func uid(id uint64) strfmt.UUID {
@@ -36,7 +36,7 @@ func res(id uint64, distance float32) search.Result {
 
 func TestCombiner(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	searchesVectors := []types.Vector{[]float32{1, 0, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}} // not relevant for this test
+	searchesVectors := []models.Vector{[]float32{1, 0, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}, []float32{0, 1, 0}} // not relevant for this test
 
 	cases := []struct {
 		name                   string
@@ -264,7 +264,7 @@ type fakeS struct {
 	missingDistancesResult map[uint64]map[string]float32
 }
 
-func (f fakeS) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []types.Vector, targetVectors []string) ([]float32, error) {
+func (f fakeS) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targetVectors []string) ([]float32, error) {
 	returns := make([]float32, 0, len(targetVectors))
 	for range targetVectors {
 		returns = append(returns, 2)

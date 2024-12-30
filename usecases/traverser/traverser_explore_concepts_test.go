@@ -19,9 +19,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -141,7 +141,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			vectorSearcher, explorer, schemaGetter, nil, nil, -1)
 		params := ExploreParams{
 			NearVector: &searchparams.NearVector{
-				Vectors: []types.Vector{[]float32{7.8, 9}},
+				Vectors: []models.Vector{[]float32{7.8, 9}},
 			},
 		}
 		vectorSearcher.results = []search.Result{
@@ -334,7 +334,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				Vectors:      []types.Vector{[]float32{7.8, 9}},
+				Vectors:      []models.Vector{[]float32{7.8, 9}},
 				Distance:     0.2,
 				WithDistance: true,
 			},
@@ -378,7 +378,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Limit: 100,
 			NearVector: &searchparams.NearVector{
-				Vectors:   []types.Vector{[]float32{7.8, 9}},
+				Vectors:   []models.Vector{[]float32{7.8, 9}},
 				Certainty: 0.8,
 			},
 		}

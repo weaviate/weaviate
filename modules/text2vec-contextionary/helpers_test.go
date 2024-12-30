@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/types"
 	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
@@ -224,7 +223,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 }
 
 func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector types.Vector,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return fmp.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
@@ -232,7 +231,7 @@ func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, 
 
 func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector types.Vector, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
+	searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()

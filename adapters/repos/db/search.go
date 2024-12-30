@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/types"
 
 	"github.com/pkg/errors"
@@ -105,7 +106,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors []types.Vector,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
@@ -140,7 +141,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
-func isEmptyVector(searchVector types.Vector) bool {
+func isEmptyVector(searchVector models.Vector) bool {
 	if isVectorEmpty, err := types.IsVectorEmpty(searchVector); err == nil {
 		return isVectorEmpty
 	}
@@ -157,7 +158,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 	return float32(dist)
 }
 
-func (db *DB) CrossClassVectorSearch(ctx context.Context, vector types.Vector, targetVector string, offset, limit int,
+func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	var found search.Results
@@ -174,7 +175,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector types.Vector, t
 		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, []types.Vector{vector}, []string{targetVector},
+			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "", nil, nil)
 			if err != nil {
