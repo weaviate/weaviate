@@ -37,7 +37,7 @@ require (
 	golang.org/x/oauth2 v0.23.0
 	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.28.0
-	gonum.org/v1/gonum v0.12.0
+	gonum.org/v1/gonum v0.15.1
 	google.golang.org/api v0.198.0
 	google.golang.org/grpc v1.66.2
 	gopkg.in/yaml.v2 v2.4.0
@@ -78,7 +78,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.8
 	github.com/weaviate/tiktoken-go v0.0.2
-	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 	golang.org/x/text v0.21.0
 	golang.org/x/time v0.6.0
 	google.golang.org/protobuf v1.34.2
