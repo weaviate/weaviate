@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 
@@ -145,42 +146,65 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint64(w *bufWriter, in uint64) error {
-	toWrite := make([]byte, 8)
-	binary.LittleEndian.PutUint64(toWrite[0:8], in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint64Size = 8
 
-	return nil
+func writeUint64(w io.Writer, in uint64) error {
+	var b [writeUint64Size]byte
+	binary.LittleEndian.PutUint64(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeUint16(w *bufWriter, in uint16) error {
-	toWrite := make([]byte, 2)
-	binary.LittleEndian.PutUint16(toWrite[0:2], in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint32Size = 4
 
-	return nil
+func writeUint32(w io.Writer, in uint32) error {
+	var b [writeUint32Size]byte
+	binary.LittleEndian.PutUint32(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeCommitType(w *bufWriter, in HnswCommitType) error {
-	toWrite := make([]byte, 1)
-	toWrite[0] = byte(in)
-	_, err := w.Write(toWrite)
-	if err != nil {
-		return err
-	}
+const writeUint16Size = 2
 
-	return nil
+func writeUint16(w io.Writer, in uint16) error {
+	var b [writeUint16Size]byte
+	binary.LittleEndian.PutUint16(b[:], in)
+	_, err := w.Write(b[:])
+	return err
 }
 
-func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
+const writeByteSize = 1
+
+func writeByte(w io.Writer, in byte) error {
+	var b [writeByteSize]byte
+	b[0] = in
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeBoolSize = 1
+
+func writeBool(w io.Writer, in bool) error {
+	var b [writeBoolSize]byte
+	if in {
+		b[0] = 1
+	}
+	_, err := w.Write(b[:])
+	return err
+}
+
+const writeCommitTypeSize = 1
+
+func writeCommitType(w io.Writer, in HnswCommitType) error {
+	var b [writeCommitTypeSize]byte
+	b[0] = byte(in)
+	_, err := w.Write(b[:])
+	return err
+}
+
+func writeUint64Slice(w io.Writer, in []uint64) error {
 	for _, v := range in {
-		err := c.writeUint64(w, v)
+		err := writeUint64(w, v)
 		if err != nil {
 			return err
 		}
@@ -192,26 +216,24 @@ func (c *MemoryCondensor) writeUint64Slice(w *bufWriter, in []uint64) error {
 // AddNode adds an empty node
 func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddNode))
-	ec.Add(c.writeUint64(c.newLog, node.id))
-	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
-
+	ec.Add(writeCommitType(c.newLog, AddNode))
+	ec.Add(writeUint64(c.newLog, node.id))
+	ec.Add(writeUint16(c.newLog, uint16(node.level)))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) DeleteNode(id uint64) error {
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.Add(c.writeCommitType(c.newLog, DeleteNode))
-	ec.Add(c.writeUint64(c.newLog, id))
-
+	ec := errorcompounder.New()
+	ec.Add(writeCommitType(c.newLog, DeleteNode))
+	ec.Add(writeUint64(c.newLog, id))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
+	ec.Add(writeCommitType(c.newLog, ReplaceLinksAtLevel))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
 
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
@@ -222,8 +244,8 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []ui
 			WithField("maximum_length", targetLength).
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
-	ec.Add(c.writeUint16(c.newLog, uint16(targetLength)))
-	ec.Add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
+	ec.Add(writeUint16(c.newLog, uint16(targetLength)))
+	ec.Add(writeUint64Slice(c.newLog, targets[:targetLength]))
 
 	return ec.ToError()
 }
@@ -245,36 +267,32 @@ func (c *MemoryCondensor) AddLinksAtLevel(nodeid uint64, level uint16, targets [
 
 func (c *MemoryCondensor) AddLinkAtLevel(nodeid uint64, level uint16, target uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddLinkAtLevel))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
-	ec.Add(c.writeUint64(c.newLog, target))
-
+	ec.Add(writeCommitType(c.newLog, AddLinkAtLevel))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
+	ec.Add(writeUint64(c.newLog, target))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
-	ec.Add(c.writeUint64(c.newLog, id))
-	ec.Add(c.writeUint16(c.newLog, uint16(level)))
-
+	ec.Add(writeCommitType(c.newLog, SetEntryPointMaxLevel))
+	ec.Add(writeUint64(c.newLog, id))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, AddTombstone))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-
+	ec.Add(writeCommitType(c.newLog, AddTombstone))
+	ec.Add(writeUint64(c.newLog, nodeid))
 	return ec.ToError()
 }
 
 func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	ec := errorcompounder.New()
-	ec.Add(c.writeCommitType(c.newLog, RemoveTombstone))
-	ec.Add(c.writeUint64(c.newLog, nodeid))
-
+	ec.Add(writeCommitType(c.newLog, RemoveTombstone))
+	ec.Add(writeUint64(c.newLog, nodeid))
 	return ec.ToError()
 }
 
