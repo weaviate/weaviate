@@ -87,9 +87,17 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 
 		var vectors models.Vectors = nil
 		if len(obj.Vectors) > 0 {
-			vectors = make(models.Vectors, len(obj.Vectors))
+			parsedVectors := make(map[string][][]float32)
 			for _, vec := range obj.Vectors {
-				vectors[vec.Name] = byteops.Float32FromByteVector(vec.VectorBytes)
+				parsedVectors[vec.Name] = append(parsedVectors[vec.Name], byteops.Float32FromByteVector(vec.VectorBytes))
+			}
+			vectors = make(models.Vectors)
+			for targetVector, vector := range parsedVectors {
+				if len(vector) == 1 {
+					vectors[targetVector] = vector[0]
+				} else {
+					vectors[targetVector] = vector
+				}
 			}
 		}
 
