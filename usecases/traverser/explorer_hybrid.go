@@ -264,7 +264,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				searchVectors := &searchparams.NearVector{}
 				searchVectors.Vectors = make([]models.Vector, len(targetVectors))
 				searchVectors.TargetVectors = make([]string, len(targetVectors))
-				if len(params.HybridSearch.Vector) > 0 {
+				isVectorEmpty, isVectorEmptyErr := dto.IsVectorEmpty(params.HybridSearch.Vector)
+				if isVectorEmptyErr != nil {
+					return fmt.Errorf("is hybrid vector empty: %w", isVectorEmptyErr)
+				}
+				if !isVectorEmpty {
 					for i, targetVector := range targetVectors {
 						searchVectors.TargetVectors[i] = targetVector
 						searchVectors.Vectors[i] = params.HybridSearch.Vector

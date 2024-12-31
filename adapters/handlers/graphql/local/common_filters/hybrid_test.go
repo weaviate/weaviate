@@ -30,12 +30,12 @@ func TestHybrid(t *testing.T) {
 		error             bool
 	}{
 		{
-			input:             map[string]interface{}{"vector": []interface{}{1.0, 2.0, 3.0}},
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}},
 			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: nil,
 		},
 		{
-			input:             map[string]interface{}{"vector": []interface{}{1.0, 2.0, 3.0}, "targetVectors": []interface{}{"target1", "target2"}},
+			input:             map[string]interface{}{"vector": []float32{1.0, 2.0, 3.0}, "targetVectors": []interface{}{"target1", "target2"}},
 			output:            &searchparams.HybridSearch{Vector: []float32{1.0, 2.0, 3.0}, TargetVectors: []string{"target1", "target2"}, SubSearches: ss, Type: "hybrid", Alpha: 0.75, FusionAlgorithm: 1},
 			outputCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: nilweights},
 		},

@@ -71,7 +71,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		return sparse, scores, nil
 	}
 
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
 		allowList, err := fa.buildAllowList(ctx)
 		if err != nil {
 			return nil, nil, err

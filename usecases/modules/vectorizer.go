@@ -534,7 +534,6 @@ func (p *Provider) getVector(object *models.Object, targetVector string) models.
 		if len(object.Vectors) == 0 {
 			return nil
 		}
-		// TODO:colbert check type
 		return object.Vectors[targetVector]
 	}
 	return object.Vector

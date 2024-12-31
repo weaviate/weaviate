@@ -98,16 +98,16 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches      interface{} `json:"subSearches"`
-	Type             string      `json:"type"`
-	Alpha            float64     `json:"alpha"`
-	Query            string      `json:"query"`
-	Vector           []float32   `json:"vector"`
-	Properties       []string    `json:"properties"`
-	TargetVectors    []string    `json:"targetVectors"`
-	FusionAlgorithm  int         `json:"fusionalgorithm"`
-	Distance         float32     `json:"distance"`
-	WithDistance     bool        `json:"withDistance"`
+	SubSearches      interface{}   `json:"subSearches"`
+	Type             string        `json:"type"`
+	Alpha            float64       `json:"alpha"`
+	Query            string        `json:"query"`
+	Vector           models.Vector `json:"vector"`
+	Properties       []string      `json:"properties"`
+	TargetVectors    []string      `json:"targetVectors"`
+	FusionAlgorithm  int           `json:"fusionalgorithm"`
+	Distance         float32       `json:"distance"`
+	WithDistance     bool          `json:"withDistance"`
 	NearTextParams   *NearTextParams
 	NearVectorParams *NearVector
 }

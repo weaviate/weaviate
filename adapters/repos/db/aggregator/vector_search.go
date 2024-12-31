@@ -67,7 +67,7 @@ func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector mo
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector []float32,
+func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models.Vector,
 	allowList helpers.AllowList,
 ) ([]*storobj.Object, []float32, error) {
 	ids, dists, err := a.vectorSearch(ctx, allowList, searchVector)

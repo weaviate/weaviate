@@ -2,8 +2,6 @@ module acceptance_tests_with_client
 
 go 1.22.7
 
-toolchain go1.23.4
-
 replace github.com/weaviate/weaviate => ../..
 
 require (
