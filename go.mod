@@ -15,7 +15,7 @@ require (
 	github.com/go-openapi/spec v0.21.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.0
-	github.com/go-openapi/validate v0.21.0
+	github.com/go-openapi/validate v0.24.0
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/memberlist v0.5.1
@@ -57,7 +57,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/felixge/httpsnoop v1.0.4
-	github.com/getsentry/sentry-go v0.29.0
+	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.14.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
@@ -72,7 +72,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/prometheus/common v0.60.0
 	github.com/tailor-inc/graphql v0.5.7
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.27.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/s5cmd/v2 v2.0.1
@@ -81,7 +81,7 @@ require (
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/text v0.21.0
 	golang.org/x/time v0.8.0
-	google.golang.org/protobuf v1.35.2
+	google.golang.org/protobuf v1.36.1
 )
 
 require (
@@ -121,7 +121,7 @@ require (
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/docker/docker v27.4.0+incompatible // indirect
@@ -201,7 +201,7 @@ require (
 	github.com/vcaesar/cedar v0.20.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
-	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
+	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
