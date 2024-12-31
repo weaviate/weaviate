@@ -51,6 +51,7 @@ type VectorCompressor interface {
 	Preload(id uint64, vector []float32)
 	PreloadMulti(docID uint64, ids []uint64, vecs [][]float32)
 	GetKeys(id uint64) (uint64, uint64)
+	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
 	PrefillCache()
@@ -135,6 +136,10 @@ func (compressor *quantizedVectorsCompressor[T]) PreloadMulti(docID uint64, ids 
 
 func (compressor *quantizedVectorsCompressor[T]) GetKeys(id uint64) (uint64, uint64) {
 	return compressor.cache.GetKeys(id)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) SetKeys(id, docID, relativeID uint64) {
+	compressor.cache.SetKeys(id, docID, relativeID)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Prefetch(id uint64) {
