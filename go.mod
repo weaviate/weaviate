@@ -58,7 +58,7 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/felixge/httpsnoop v1.0.4
 	github.com/getsentry/sentry-go v0.29.0
-	github.com/go-ego/gse v0.80.2
+	github.com/go-ego/gse v0.80.3
 	github.com/googleapis/gax-go/v2 v2.14.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/go-hclog v1.6.3
@@ -198,7 +198,7 @@ require (
 	github.com/termie/go-shutil v0.0.0-20140729215957-bcacb06fecae // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.9.0 // indirect
-	github.com/vcaesar/cedar v0.20.1 // indirect
+	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
