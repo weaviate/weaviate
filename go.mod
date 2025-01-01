@@ -52,7 +52,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.36
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.34
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.1
-	github.com/casbin/casbin/v2 v2.102.0
+	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/coreos/go-oidc/v3 v3.11.0
 	github.com/edsrzf/mmap-go v1.1.0
@@ -112,7 +112,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
-	github.com/casbin/govaluate v1.2.0 // indirect
+	github.com/casbin/govaluate v1.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cheggaaa/pb/v3 v3.1.4 // indirect
 	github.com/cilium/ebpf v0.11.0 // indirect
