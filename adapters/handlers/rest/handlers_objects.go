@@ -196,9 +196,8 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		case uco.ErrForbidden:
 			return objects.NewObjectsClassGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrInvalidUserInput:
-			return objects.NewObjectsClassGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+		case uco.ErrNotFound:
+			return objects.NewObjectsClassGetNotFound()
 		case uco.ErrMultiTenancy:
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
