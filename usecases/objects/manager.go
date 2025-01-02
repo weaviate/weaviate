@@ -122,7 +122,7 @@ type locks interface {
 
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
-		vectors models.Vectors, multiVectors models.MultiVectors,
+		vectors map[string][]float32, multiVectors map[string][][]float32,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error

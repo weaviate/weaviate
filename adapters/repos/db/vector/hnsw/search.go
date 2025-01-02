@@ -27,9 +27,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -1060,7 +1060,7 @@ func (params *searchByDistParams) maxLimitReached() bool {
 	return int64(params.totalLimit) > params.maximumSearchLimit
 }
 
-func searchByVectorDistance[T types.Embedding](ctx context.Context, vector T,
+func searchByVectorDistance[T dto.Embedding](ctx context.Context, vector T,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 	searchByVector func(context.Context, T, int, helpers.AllowList) ([]uint64, []float32, error),

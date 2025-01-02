@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
@@ -406,7 +407,7 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearVector: &searchparams.NearVector{
-					Vectors: [][]float32{{0, 1, 0.8}},
+					Vectors: []models.Vector{[]float32{0, 1, 0.8}},
 				},
 				WithCertaintyProp: true,
 			},
@@ -441,7 +442,7 @@ func Test_ResolveExplore(t *testing.T) {
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
 				NearVector: &searchparams.NearVector{
-					Vectors: [][]float32{{0, 1, 0.8}},
+					Vectors: []models.Vector{[]float32{0, 1, 0.8}},
 				},
 				Limit:             17,
 				WithCertaintyProp: true,

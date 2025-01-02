@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type VectorIndex interface {
@@ -61,7 +61,7 @@ func AddVectorsToIndex(ctx context.Context, vectors []VectorRecord, vectorIndex 
 	}
 }
 
-type Vector[T types.Embedding] struct {
+type Vector[T dto.Embedding] struct {
 	ID     uint64
 	Vector T
 }

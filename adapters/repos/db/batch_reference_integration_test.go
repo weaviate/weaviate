@@ -381,7 +381,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 1,
 				},
-			}, []string{""}, [][]float32{{0.49}})
+			}, []string{""}, []models.Vector{[]float32{0.49}})
 
 			require.Nil(t, err)
 			require.Len(t, res, 1)

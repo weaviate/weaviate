@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -809,7 +810,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				Vectors:      [][]float32{{1, 2, 3}},
+				Vectors:      []models.Vector{[]float32{1, 2, 3}},
 				Distance:     0.3,
 				WithDistance: true,
 			},
@@ -864,7 +865,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				Vectors:   [][]float32{{1, 2, 3}},
+				Vectors:   []models.Vector{[]float32{1, 2, 3}},
 				Certainty: 0.7,
 			},
 			resolverReturn: []aggregation.Group{

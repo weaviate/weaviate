@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -50,8 +51,12 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 	if len(g.params.GroupBy.Slice()) > 1 {
 		return nil, fmt.Errorf("grouping by cross-refs not supported")
 	}
+	isVectorEmpty, err := dto.IsVectorEmpty(g.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("grouper: %w", err)
+	}
 
-	if g.params.Filters == nil && len(g.params.SearchVector) == 0 && g.params.Hybrid == nil {
+	if g.params.Filters == nil && isVectorEmpty && g.params.Hybrid == nil {
 		return g.groupAll(ctx)
 	} else {
 		return g.groupFiltered(ctx)
@@ -90,8 +95,12 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	if err != nil {
 		return nil, err
 	}
+	isVectorEmpty, err := dto.IsVectorEmpty(g.params.SearchVector)
+	if err != nil {
+		return nil, fmt.Errorf("grouper: fetch doc ids: %w", err)
+	}
 
-	if len(g.params.SearchVector) > 0 {
+	if !isVectorEmpty {
 		ids, _, err = g.vectorSearch(ctx, allowList, g.params.SearchVector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to perform vector search: %w", err)
@@ -128,7 +137,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 		return sparse, dists, nil
 	}
 
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
+	denseSearch := func(vec models.Vector) ([]*storobj.Object, []float32, error) {
 		res, dists, err := g.objectVectorSearch(ctx, vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)

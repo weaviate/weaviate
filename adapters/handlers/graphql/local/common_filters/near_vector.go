@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
@@ -22,7 +23,7 @@ import (
 func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLevel []string) (searchparams.NearVector, *dto.TargetCombination, error) {
 	var args searchparams.NearVector
 
-	vectorGQL, okVec := source["vector"].([]interface{})
+	vectorGQL, okVec := source["vector"]
 	vectorPerTarget, okVecPerTarget := source["vectorPerTarget"].(map[string]interface{})
 	if (!okVec && !okVecPerTarget) || (okVec && okVecPerTarget) {
 		return searchparams.NearVector{}, nil,
@@ -59,26 +60,22 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 	}
 
 	if okVec {
-		vector := make([]float32, len(vectorGQL))
-		for i, value := range vectorGQL {
-			vector[i] = float32(value.(float64))
-		}
 		if len(targetVectors) == 0 {
-			args.Vectors = [][]float32{vector}
+			args.Vectors = []models.Vector{vectorGQL}
 		} else {
-			args.Vectors = make([][]float32, len(targetVectors))
+			args.Vectors = make([]models.Vector, len(targetVectors))
 			for i := range targetVectors {
-				args.Vectors[i] = vector
+				args.Vectors[i] = vectorGQL
 			}
 		}
 	}
 
 	if okVecPerTarget {
-		var vectors [][]float32
+		var vectors []models.Vector
 		// needs to handle the case of targetVectors being empty (if you only provide a near vector with targets)
 		if len(targetVectors) == 0 {
 			targets := make([]string, 0, len(vectorPerTarget))
-			vectors = make([][]float32, 0, len(vectorPerTarget))
+			vectors = make([]models.Vector, 0, len(vectorPerTarget))
 
 			for target := range vectorPerTarget {
 				single, ok := vectorPerTarget[target].([]float32)
@@ -100,7 +97,7 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 			args.TargetVectors = targets
 		} else {
 			// map provided targetVectors to the provided searchvectors
-			vectors = make([][]float32, len(targetVectors))
+			vectors = make([]models.Vector, len(targetVectors))
 			handled := make(map[string]struct{})
 			for i, target := range targetVectors {
 				if _, ok := handled[target]; ok {

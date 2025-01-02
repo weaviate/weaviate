@@ -30,7 +30,7 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, vectors models.Vectors, multivectors models.MultiVectors,
+	vector []float32, vectors map[string][]float32, multivectors map[string][][]float32,
 	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {

@@ -58,7 +58,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
@@ -126,11 +126,11 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
-		map[string]models.MultiVector{
+		map[string][][]float32{
 			"vector3": {{7, 8, 9}, {10, 11, 12}},
 			"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 			"vector5": {{19, 20, 21}, {22, 23, 24}},
@@ -199,11 +199,11 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				},
 			},
 			[]float32{1, 2, 0.7},
-			models.Vectors{
+			map[string][]float32{
 				"vector1": {1, 2, 3},
 				"vector2": {4, 5, 6},
 			},
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -268,11 +268,11 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				},
 			},
 			nil,
-			models.Vectors{
+			map[string][]float32{
 				"vector1": {1, 2, 3},
 				"vector2": {4, 5, 6},
 			},
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -333,7 +333,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			},
 			nil,
 			nil,
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -416,7 +416,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -587,7 +587,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -749,7 +749,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -996,7 +996,7 @@ func TestVectorFromBinary(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": vector1,
 			"vector2": vector2,
 			"vector3": vector3,
@@ -1074,10 +1074,10 @@ func TestMultiVectorFromBinary(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector4": vector4,
 		},
-		map[string]models.MultiVector{
+		map[string][][]float32{
 			"vector1": vector1,
 			"vector2": vector2,
 			"vector3": vector3,
@@ -1152,8 +1152,8 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			},
 			nil,
-			models.Vectors{
-				"vector1": make(models.Vector, maxVectorLength+1),
+			map[string][]float32{
+				"vector1": make([]float32, maxVectorLength+1),
 			},
 			nil,
 		)

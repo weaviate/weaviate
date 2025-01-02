@@ -36,8 +36,15 @@ func object(id strfmt.UUID, lastTime int64) *storobj.Object {
 
 func objectWithVectors(id strfmt.UUID, lastTime int64, vectors models.Vectors) *storobj.Object {
 	vectors2 := make(map[string][]float32, len(vectors))
-	for k, v := range vectors {
-		vectors2[k] = v
+	for k, vec := range vectors {
+		switch v := vec.(type) {
+		case []float32:
+			vectors2[k] = v
+		case [][]float32:
+			// do nothing
+		default:
+			// do nothing
+		}
 	}
 	return &storobj.Object{
 		Object: models.Object{

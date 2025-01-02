@@ -275,35 +275,13 @@
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
-    },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
+      "type": "object"
     },
     "Vectors": {
       "description": "A map of named vectors for multi-vector representations.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/definitions/Vector"
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
       }
     },
     "C11yVectorBasedQuestion": {
@@ -1851,10 +1829,6 @@
         "vectors": {
           "description": "This field returns vectors associated with the Object.",
           "$ref": "#/definitions/Vectors"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "tenant": {
           "description": "Name of the Objects tenant.",

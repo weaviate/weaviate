@@ -15,19 +15,19 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-func New[T types.Embedding](client BatchClient[T], batchVectorizer *batch.Batch[T], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[T] {
+func New[T dto.Embedding](client BatchClient[T], batchVectorizer *batch.Batch[T], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[T] {
 	return newBatchVectorizer(client, batchVectorizer, tokenizerFunc)
 }
 
-func newBatchVectorizer[T types.Embedding](client BatchClient[T], batchVectorizer *batch.Batch[T], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[T] {
+func newBatchVectorizer[T dto.Embedding](client BatchClient[T], batchVectorizer *batch.Batch[T], tokenizerFunc batch.TokenizerFuncType) *BatchVectorizer[T] {
 	vec := &BatchVectorizer[T]{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),

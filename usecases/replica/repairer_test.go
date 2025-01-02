@@ -68,7 +68,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 	})
 
 	t.Run("ChangedObject", func(t *testing.T) {
-		vectors := map[string]models.Vector{"test": {1, 2, 3}}
+		vectors := map[string]models.Vector{"test": []float32{1, 2, 3}}
 		var (
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
