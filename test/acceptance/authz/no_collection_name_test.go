@@ -87,7 +87,7 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.CreateRole(t, adminKey, deleteRole)
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		res, err := getObject(t, obj.Class, UUID2, nil, customKey)
+		res, err := getObjectDeprecated(t, UUID2, customKey)
 		require.Error(t, err)
 		var unauthorized *objects.ObjectsGetForbidden
 		require.True(t, errors.As(err, &unauthorized))
@@ -111,7 +111,7 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.CreateRole(t, adminKey, deleteRole)
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		res, err := getObject(t, obj.Class, UUID2, nil, customKey)
+		res, err := getObjectDeprecated(t, UUID2, customKey)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 	})
@@ -132,7 +132,7 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.CreateRole(t, adminKey, deleteRole)
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		res, err := deleteObject(t, obj.Class, UUID2, &obj.Tenant, customKey)
+		res, err := deleteObjectDeprecated(t, UUID2, customKey)
 		require.Error(t, err)
 		var unauthorized *objects.ObjectsDeleteForbidden
 		require.True(t, errors.As(err, &unauthorized))
@@ -156,7 +156,7 @@ func TestWithoutCollectionName(t *testing.T) {
 		helper.CreateRole(t, adminKey, deleteRole)
 		helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
 
-		res, err := deleteObject(t, obj.Class, UUID2, &obj.Tenant, customKey)
+		res, err := deleteObjectDeprecated(t, UUID2, customKey)
 		require.NoError(t, err)
 		require.NotNil(t, res)
 	})

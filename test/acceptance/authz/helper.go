@@ -73,9 +73,19 @@ func getObject(t *testing.T, class string, id strfmt.UUID, tenant *string, key s
 	return helper.Client(t).Objects.ObjectsClassGet(params, helper.CreateAuth(key))
 }
 
+func getObjectDeprecated(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsGetOK, error) {
+	params := objects.NewObjectsGetParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsGet(params, helper.CreateAuth(key))
+}
+
 func deleteObject(t *testing.T, class string, id strfmt.UUID, tenant *string, key string) (*objects.ObjectsClassDeleteNoContent, error) {
 	params := objects.NewObjectsClassDeleteParams().WithClassName(class).WithID(id).WithTenant(tenant)
 	return helper.Client(t).Objects.ObjectsClassDelete(params, helper.CreateAuth(key))
+}
+
+func deleteObjectDeprecated(t *testing.T, id strfmt.UUID, key string) (*objects.ObjectsDeleteNoContent, error) {
+	params := objects.NewObjectsDeleteParams().WithID(id)
+	return helper.Client(t).Objects.ObjectsDelete(params, helper.CreateAuth(key))
 }
 
 func updateObject(t *testing.T, object *models.Object, key string) (*objects.ObjectsClassPatchNoContent, error) {
