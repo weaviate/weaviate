@@ -270,7 +270,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		}
 		vec, ok := res.Vectors[targetVector].([]float32)
 		if !ok {
-			return nil, "", fmt.Errorf("unregonized type: %T for target: %v", res.Vectors[targetVector], targetVector)
+			return nil, "", fmt.Errorf("unrecognized type: %T for target: %v", res.Vectors[targetVector], targetVector)
 		}
 		return vec, targetVector, nil
 	} else {
@@ -280,7 +280,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 				case []float32:
 					return v, key, nil
 				default:
-					return nil, "", fmt.Errorf("unregonized type: %T target: %v", vec, key)
+					return nil, "", fmt.Errorf("unrecognized type: %T target: %v", vec, key)
 				}
 			}
 		} else if len(res.Vectors) > 1 {
@@ -310,7 +310,7 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 		}
 		multiVector, ok := res.Vectors[targetVector].([][]float32)
 		if !ok {
-			return nil, "", fmt.Errorf("unregonized type: %T target: %v", res.Vectors[targetVector], targetVector)
+			return nil, "", fmt.Errorf("unrecognized type: %T target: %v", res.Vectors[targetVector], targetVector)
 		}
 		return multiVector, targetVector, nil
 	} else {
@@ -320,7 +320,7 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 				case [][]float32:
 					return v, key, nil
 				default:
-					return nil, "", fmt.Errorf("unregonized type: %T target: %v", vec, key)
+					return nil, "", fmt.Errorf("unrecognized type: %T target: %v", vec, key)
 				}
 			}
 		} else if len(res.Vectors) > 1 {
