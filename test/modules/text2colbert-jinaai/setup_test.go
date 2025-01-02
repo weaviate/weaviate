@@ -13,25 +13,30 @@ package tests
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestText2VecJinaAI(t *testing.T) {
-	jinaApiKey := os.Getenv("JINAAI_APIKEY")
-	if jinaApiKey == "" {
-		t.Skip("skipping, JINAAI_APIKEY environment variable not present")
-	}
-	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx, jinaApiKey)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	endpoint := compose.GetWeaviate().URI()
+// func TestText2VecJinaAI(t *testing.T) {
+// 	jinaApiKey := os.Getenv("JINAAI_APIKEY")
+// 	if jinaApiKey == "" {
+// 		t.Skip("skipping, JINAAI_APIKEY environment variable not present")
+// 	}
+// 	ctx := context.Background()
+// 	compose, err := createSingleNodeEnvironment(ctx, jinaApiKey)
+// 	require.NoError(t, err)
+// 	defer func() {
+// 		require.NoError(t, compose.Terminate(ctx))
+// 	}()
+// 	endpoint := compose.GetWeaviate().URI()
+
+// 	t.Run("tests", testText2ColBERTJinaAI(endpoint))
+// }
+
+func TestText2VecJinaAILocalCluster(t *testing.T) {
+
+	endpoint := "localhost:8080"
 
 	t.Run("tests", testText2ColBERTJinaAI(endpoint))
 }
