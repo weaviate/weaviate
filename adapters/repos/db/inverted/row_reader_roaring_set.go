@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -115,7 +116,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	}
 
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(v)
+	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }
