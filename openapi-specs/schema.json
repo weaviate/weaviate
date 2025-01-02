@@ -114,11 +114,6 @@
               "type": "string",
               "default": "*",
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
-            },
-            "tenant": {
-              "type": "string",
-              "default": "*",
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
             }
           }
         },
@@ -130,7 +125,6 @@
 
             "read_cluster",
 
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -141,7 +135,6 @@
             "manage_roles",
             "read_roles",
 
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",

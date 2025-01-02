@@ -49,9 +49,9 @@ func (h *Handler) AddTenants(ctx context.Context,
 	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.Tenants(class, tenantNames...)...); err != nil {
 		return 0, err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return 0, err
-	}
+	// if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	// 	return 0, err
+	// }
 
 	validated, err := validateTenants(tenants, true)
 	if err != nil {
@@ -165,9 +165,9 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.Tenants(class, shardNames...)...); err != nil {
 		return nil, err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return nil, err
-	}
+	// if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	// 	return nil, err
+	// }
 
 	h.logger.WithFields(logrus.Fields{
 		"class":   class,
@@ -212,9 +212,9 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.Tenants(class, tenants...)...); err != nil {
 		return err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return err
-	}
+	// if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	// 	return err
+	// }
 
 	for i, name := range tenants {
 		if name == "" {
@@ -234,9 +234,9 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Tenants(class, tenants...)...); err != nil {
 		return nil, err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return nil, err
-	}
+	// if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	// 	return nil, err
+	// }
 
 	if consistency {
 		tenants, _, err := h.schemaManager.QueryTenants(class, tenants)
@@ -265,9 +265,9 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.Tenants(class, tenant)...); err != nil {
 		return err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return err
-	}
+	// if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
+	// 	return err
+	// }
 
 	var tenantResponses []*models.TenantResponse
 	var err error

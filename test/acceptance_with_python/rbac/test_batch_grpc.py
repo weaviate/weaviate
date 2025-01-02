@@ -31,9 +31,9 @@ def test_batch_grpc(
 
     required_permissions = [
         Permissions.data(collection=col1.name, create=True, update=True),
-        Permissions.collections(collection=col1.name, read_config=True),
+        Permissions.tenants(collection=col1.name, read=True),
         Permissions.data(collection=col2.name, create=True, update=True),
-        Permissions.collections(collection=col2.name, read_config=True),
+        Permissions.tenants(collection=col2.name, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
         with custom_client.batch.fixed_size() as batch:

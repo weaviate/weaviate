@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster manage_data create_data read_data update_data delete_data read_nodes manage_roles read_roles manage_collections create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes manage_roles read_roles create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants]
 	Action *string `json:"action"`
 
 	// backups
@@ -97,7 +97,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","manage_data","create_data","read_data","update_data","delete_data","read_nodes","manage_roles","read_roles","manage_collections","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","manage_roles","read_roles","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -112,9 +112,6 @@ const (
 
 	// PermissionActionReadCluster captures enum value "read_cluster"
 	PermissionActionReadCluster string = "read_cluster"
-
-	// PermissionActionManageData captures enum value "manage_data"
-	PermissionActionManageData string = "manage_data"
 
 	// PermissionActionCreateData captures enum value "create_data"
 	PermissionActionCreateData string = "create_data"
@@ -136,9 +133,6 @@ const (
 
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
-
-	// PermissionActionManageCollections captures enum value "manage_collections"
-	PermissionActionManageCollections string = "manage_collections"
 
 	// PermissionActionCreateCollections captures enum value "create_collections"
 	PermissionActionCreateCollections string = "create_collections"
@@ -493,9 +487,6 @@ type PermissionCollections struct {
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
-
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
-	Tenant *string `json:"tenant,omitempty"`
 }
 
 // Validate validates this permission collections

@@ -133,14 +133,6 @@ func (p *CollectionsPermission) WithCollection(collection string) *CollectionsPe
 	return p
 }
 
-func (p *CollectionsPermission) WithTenant(tenant string) *CollectionsPermission {
-	if p.Collections == nil {
-		p.Collections = &models.PermissionCollections{}
-	}
-	p.Collections.Tenant = authorization.String(tenant)
-	return p
-}
-
 func (p *CollectionsPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm

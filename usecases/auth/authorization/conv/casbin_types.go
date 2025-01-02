@@ -70,8 +70,6 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
-	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.TenantDomain),
-	fmt.Sprintf(`^%s/collections/[^/]+/tenants/.*$`, authorization.TenantDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -157,19 +155,6 @@ func CasbinData(collection, shard, object string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
-func CasbinTenant(collection, tenant string) string {
-	collection = schema.UppercaseClassesNames(collection)[0]
-	if collection == "" {
-		collection = "*"
-	}
-	if tenant == "" {
-		tenant = "*"
-	}
-	collection = strings.ReplaceAll(collection, "*", ".*")
-	tenant = strings.ReplaceAll(tenant, "*", ".*")
-	return fmt.Sprintf("%s/collections/%s/tenants/%s", authorization.TenantDomain, collection, tenant)
-}
-
 func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
@@ -181,11 +166,6 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
 		verb = CRUD
-	}
-
-	if domain == "collections" {
-		// TODO-RBAC find better way to handle the internal vs external mapping
-		domain = authorization.SchemaDomain
 	}
 
 	if !validVerb(verb) {
@@ -206,14 +186,27 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case authorization.SchemaDomain:
+	case "collections":
+		domain = authorization.SchemaDomain
 		collection := "*"
-		tenant := "*"
+		tenant := "#"
 		if permission.Collections != nil && permission.Collections.Collection != nil {
 			collection = schema.UppercaseClassName(*permission.Collections.Collection)
 		}
-		if permission.Collections != nil && permission.Collections.Tenant != nil {
-			tenant = *permission.Collections.Tenant
+		resource = CasbinSchema(collection, tenant)
+
+	case "tenants":
+		domain = authorization.SchemaDomain
+		collection := "*"
+		tenant := "*"
+		if permission.Tenants != nil {
+			if permission.Tenants.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Tenants.Collection)
+			}
+
+			if permission.Tenants.Tenant != nil {
+				tenant = *permission.Tenants.Tenant
+			}
 		}
 		resource = CasbinSchema(collection, tenant)
 	case authorization.DataDomain:
@@ -230,16 +223,6 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Data.Object
 		}
 		resource = CasbinData(collection, tenant, object)
-	case authorization.TenantDomain:
-		collection := "*"
-		tenant := "*"
-		if permission.Tenants != nil && permission.Tenants.Collection != nil {
-			collection = schema.UppercaseClassName(*permission.Tenants.Collection)
-		}
-		if permission.Tenants != nil && permission.Tenants.Tenant != nil {
-			tenant = *permission.Tenants.Tenant
-		}
-		resource = CasbinTenant(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -286,11 +269,6 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
 	}
 
-	// TODO find better way to handle the internal vs external mapping
-	if mapped.Domain == authorization.SchemaDomain {
-		mapped.Domain = "collections"
-	}
-
 	action := fmt.Sprintf("%s_%s", actions[mapped.Verb], mapped.Domain)
 	action = strings.ReplaceAll(action, "_*", "")
 	permission := &models.Permission{
@@ -303,21 +281,27 @@ func permission(policy []string) (*models.Permission, error) {
 	}
 
 	switch mapped.Domain {
-	case authorization.SchemaDomain, "collections":
-		permission.Collections = &models.PermissionCollections{
-			Collection: &splits[2],
-			Tenant:     &splits[4],
+	case authorization.SchemaDomain:
+		if splits[4] == "#" {
+			permission.Collections = &models.PermissionCollections{
+				Collection: &splits[2],
+			}
+			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], "collections")
+			permission.Action = &domain
+		} else {
+			permission.Tenants = &models.PermissionTenants{
+				Collection: &splits[2],
+				Tenant:     &splits[4],
+			}
+			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], "tenants")
+			permission.Action = &domain
 		}
+
 	case authorization.DataDomain:
 		permission.Data = &models.PermissionData{
 			Collection: &splits[2],
 			Tenant:     &splits[4],
 			Object:     &splits[6],
-		}
-	case authorization.TenantDomain:
-		permission.Tenants = &models.PermissionTenants{
-			Collection: &splits[2],
-			Tenant:     &splits[4],
 		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
