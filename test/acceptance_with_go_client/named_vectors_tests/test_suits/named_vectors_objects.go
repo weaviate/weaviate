@@ -109,7 +109,8 @@ func testCreateObject(host string) func(t *testing.T) {
 						WithTargetVectors(c11y)
 					resultVectors := getVectorsWithNearTextWithCertainty(t, client, className, id1, nearText, c11y)
 					require.NotEmpty(t, resultVectors[c11y])
-					vectorC11y = resultVectors[c11y]
+					require.IsType(t, []float32{}, resultVectors[c11y])
+					vectorC11y = resultVectors[c11y].([]float32)
 				})
 
 				t.Run("nearVector", func(t *testing.T) {
@@ -244,8 +245,9 @@ func testCreateObject(host string) func(t *testing.T) {
 				targetVecUpdate := targetVectors[0]
 				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
 				checkTargetVectors(t, beforeUpdateVectors)
-				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate]))
-				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate])
+				require.IsType(t, []float32{}, beforeUpdateVectors[targetVecUpdate])
+				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate].([]float32)))
+				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate].([]float32))
 				vecForNewObject[0] = vecForNewObject[0] + 0.1
 
 				require.NoError(t, client.Data().Updater().
