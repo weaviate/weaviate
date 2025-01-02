@@ -60,6 +60,7 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 				t.Run("create objects", func(t *testing.T) {
 					companies.InsertObjects(t, host, class.Class)
 				})
+
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range data {
 						t.Run(company.ID.String(), func(t *testing.T) {
