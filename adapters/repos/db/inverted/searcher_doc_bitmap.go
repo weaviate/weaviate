@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -80,7 +81,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(docIDs)
+			out.docIDs.OrConc(docIDs, concurrency.NUMCPU_2)
 			release()
 		}
 
@@ -138,7 +139,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.NUMCPU_2)
 			release()
 		}
 
@@ -175,7 +176,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.docIDs.OrConc(ids, concurrency.NUMCPU_2)
 			release()
 		}
 

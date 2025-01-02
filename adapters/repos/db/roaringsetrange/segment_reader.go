@@ -150,7 +150,7 @@ func (r *SegmentReader) readNotEqual(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	neq.AndNotToSuperset(eq, r.sroarBufs...)
+	neq.AndNotConcBuf(eq, r.sroarBufs...)
 	return roaringset.BitmapLayer{
 		Additions: neq,
 		Deletions: firstLayer.Deletions,
@@ -178,7 +178,7 @@ func (r *SegmentReader) readLessThan(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lt.AndNotToSuperset(gte, r.sroarBufs...)
+	lt.AndNotConcBuf(gte, r.sroarBufs...)
 	return roaringset.BitmapLayer{
 		Additions: lt,
 		Deletions: firstLayer.Deletions,
@@ -203,7 +203,7 @@ func (r *SegmentReader) readLessThanEqual(ctx context.Context, value uint64,
 		return roaringset.BitmapLayer{}, err
 	}
 
-	lte.AndNotToSuperset(gte1, r.sroarBufs...)
+	lte.AndNotConcBuf(gte1, r.sroarBufs...)
 	return roaringset.BitmapLayer{
 		Additions: lte,
 		Deletions: firstLayer.Deletions,
@@ -277,9 +277,9 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 
 		if value&(1<<(bit-1)) != 0 {
 			ANDed = true
-			result.AndToSuperset(layer.Additions, r.sroarBufs...)
+			result.AndConcBuf(layer.Additions, r.sroarBufs...)
 		} else if ANDed {
-			result.OrToSuperset(layer.Additions, r.sroarBufs...)
+			result.OrConcBuf(layer.Additions, r.sroarBufs...)
 		}
 	}
 
@@ -317,20 +317,20 @@ func (r *SegmentReader) mergeBetween(ctx context.Context, valueMinInc, valueMaxE
 
 		if valueMinInc&b != 0 {
 			ANDedMin = true
-			resultMin.AndToSuperset(layer.Additions, r.sroarBufs...)
+			resultMin.AndConcBuf(layer.Additions, r.sroarBufs...)
 		} else if ANDedMin {
-			resultMin.OrToSuperset(layer.Additions, r.sroarBufs...)
+			resultMin.OrConcBuf(layer.Additions, r.sroarBufs...)
 		}
 
 		if valueMaxExc&b != 0 {
 			ANDedMax = true
-			resultMax.AndToSuperset(layer.Additions, r.sroarBufs...)
+			resultMax.AndConcBuf(layer.Additions, r.sroarBufs...)
 		} else if ANDedMax {
-			resultMax.OrToSuperset(layer.Additions, r.sroarBufs...)
+			resultMax.OrConcBuf(layer.Additions, r.sroarBufs...)
 		}
 	}
 
-	resultMin.AndNotToSuperset(resultMax, r.sroarBufs...)
+	resultMin.AndNotConcBuf(resultMax, r.sroarBufs...)
 
 	return resultMin, nil
 }
