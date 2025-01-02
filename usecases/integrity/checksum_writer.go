@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rwhasher
+package integrity
 
 import (
 	"hash"
@@ -17,14 +17,15 @@ import (
 	"io"
 )
 
-type WriterHasher interface {
+type ChecksumWriter interface {
 	io.Writer
 	N() int
 	Hash() []byte
+	HashWrite([]byte) (int, error)
 	Reset()
 }
 
-var _ WriterHasher = (*CRC32Writer)(nil)
+var _ ChecksumWriter = (*CRC32Writer)(nil)
 
 type CRC32Writer struct {
 	w    io.Writer
@@ -44,6 +45,10 @@ func (wc *CRC32Writer) Write(p []byte) (n int, err error) {
 	wc.n += n
 	wc.hash.Write(p[:n])
 	return n, err
+}
+
+func (wc *CRC32Writer) HashWrite(p []byte) (int, error) {
+	return wc.hash.Write(p)
 }
 
 func (wc *CRC32Writer) N() int {

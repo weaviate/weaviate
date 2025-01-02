@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func testCtx() context.Context {
@@ -421,7 +422,7 @@ func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }
 
 func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
@@ -439,5 +440,5 @@ func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, ex
 	fi, err := os.Stat(dbFiles[1])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
+	assert.GreaterOrEqual(t, expectedMaxSize+segmentindex.ChecksumSize, fi.Size())
 }

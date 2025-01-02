@@ -75,9 +75,23 @@ type diskIndex interface {
 	QuantileKeys(q int) [][]byte
 }
 
+type segmentConfig struct {
+	mmapContents              bool
+	useBloomFilter            bool
+	calcCountNetAdditions     bool
+	overwriteDerived          bool
+	disableChecksumValidation bool
+}
+
+// newSegment creates a new segment structure, representing an LSM disk segment.
+//
+// This function is partially copied by a function called preComputeSegmentMeta.
+// Any changes made here should likely be made in preComputeSegmentMeta as well,
+// and vice versa. This is absolutely not ideal, but in the short time I was able
+// to consider this, I wasn't able to find a way to unify the two -- there are
+// subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
-	existsLower existsOnLowerSegmentsFn, mmapContents bool,
-	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
+	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (_ *segment, err error) {
 	defer func() {
 		p := recover()
@@ -97,6 +111,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
+	size := fileInfo.Size()
 
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
@@ -110,6 +125,13 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
+	}
+
+	if header.Version >= segmentindex.SegmentV1 && !cfg.disableChecksumValidation {
+		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
+		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+			return nil, fmt.Errorf("validate segment %q: %w", path, err)
+		}
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
@@ -126,17 +148,17 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
-		segmentEndPos:         uint64(fileInfo.Size()),
+		segmentEndPos:         uint64(size),
 		strategy:              header.Strategy,
 		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:            header.IndexStart,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		metrics:               metrics,
-		size:                  fileInfo.Size(),
-		mmapContents:          mmapContents,
-		useBloomFilter:        useBloomFilter,
-		calcCountNetAdditions: calcCountNetAdditions,
+		size:                  size,
+		mmapContents:          cfg.mmapContents,
+		useBloomFilter:        cfg.useBloomFilter,
+		calcCountNetAdditions: cfg.calcCountNetAdditions,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -158,12 +180,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, overwriteDerived); err != nil {
+		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, overwriteDerived); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
 			return nil, err
 		}
 	}
