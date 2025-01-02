@@ -98,7 +98,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		} else if errors.As(err, &uco.ErrForbidden{}) {
+		} else if errors.As(err, &autherrs.Forbidden{}) || errors.As(err, &uco.ErrForbidden{}) {
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else {
@@ -125,7 +125,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		switch err.(type) {
-		case autherrs.Forbidden:
+		case autherrs.Forbidden, uco.ErrForbidden:
 			return objects.NewObjectsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
@@ -193,7 +193,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(object), err)
 		switch err.(type) {
-		case uco.ErrForbidden:
+		case autherrs.Forbidden, uco.ErrForbidden:
 			return objects.NewObjectsClassGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
@@ -342,7 +342,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case uco.ErrForbidden:
+		case autherrs.Forbidden, uco.ErrForbidden:
 			return objects.NewObjectsClassDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
