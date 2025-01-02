@@ -39,7 +39,6 @@ const (
 	NodesDomain   = "nodes"
 	BackupsDomain = "backups"
 	SchemaDomain  = "schema"
-	TenantDomain  = "tenants"
 	DataDomain    = "data"
 )
 
@@ -67,7 +66,6 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
-		Tenant:     All,
 	}
 
 	ComponentName = "RBAC"
@@ -256,15 +254,15 @@ func CollectionsMetadata(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
+		return []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+			resources[idx] = fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/#", SchemaDomain, classes[idx])
 		}
 	}
 
@@ -297,7 +295,7 @@ func Collections(classes ...string) []string {
 //
 // Parameters:
 //   - class: The class name for the resource. If empty, defaults to "*".
-//   - shards: A variadic list of shard names. If empty, a wildcard is used.
+//   - shards: A variadic list of shard names. If empty, it will replace it with '#' to mark it as collection only check
 //
 // Returns:
 //
@@ -333,7 +331,7 @@ func ShardsData(class string, shards ...string) []string {
 	return paths
 }
 
-// Tenants generates a list of shard resource strings for a given class and tenants.
+// Tenants generates a list of tenant resource strings for a given class and tenants.
 // If the class is an empty string, it defaults to "*". If no tenants are provided,
 // it returns a single resource string with a wildcard for tenants. If tenants are
 // provided, it returns a list of resource strings for each tenants.
@@ -346,25 +344,7 @@ func ShardsData(class string, shards ...string) []string {
 //
 //	A slice of strings representing the resource paths for the given class and tenants.
 func Tenants(class string, tenants ...string) []string {
-	class = schema.UppercaseClassesNames(class)[0]
-	if class == "" {
-		class = "*"
-	}
-
-	if len(tenants) == 0 || (len(tenants) == 1 && (tenants[0] == "" || tenants[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/%s/tenants/*", TenantDomain, class)}
-	}
-
-	resources := make([]string, len(tenants))
-	for idx := range tenants {
-		if tenants[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/tenants/*", TenantDomain, class)
-		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/tenants/%s", TenantDomain, class, tenants[idx])
-		}
-	}
-
-	return resources
+	return ShardsMetadata(class, tenants...)
 }
 
 // Objects generates a string representing a path to objects within a collection and shard.

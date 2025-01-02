@@ -5470,7 +5470,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -5478,7 +5477,6 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
@@ -5506,11 +5504,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12220,7 +12213,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -12228,7 +12220,6 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
@@ -12256,11 +12247,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12353,11 +12339,6 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

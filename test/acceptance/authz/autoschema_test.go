@@ -35,10 +35,8 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	adminUser := "admin-user"
 	adminAuth := helper.CreateAuth(adminKey)
 
-	readSchemaAction := authorization.ReadCollections
 	createDataAction := authorization.CreateData
 	updateSchemaAction := authorization.UpdateCollections
-	createSchemaAction := authorization.CreateCollections
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -82,7 +80,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	readSchemaRole := &models.Role{
 		Name: &readSchemaAndCreateDataRoleName,
 		Permissions: []*models.Permission{
-			{Action: &readSchemaAction, Collections: &models.PermissionCollections{Collection: &all}},
+			{Action: &authorization.ReadTenant, Tenants: &models.PermissionTenants{Collection: &all}},
 			{Action: &createDataAction, Data: &models.PermissionData{Collection: &all}},
 		},
 	}
@@ -95,8 +93,10 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	}
 	createSchemaRoleName := "createSchema"
 	createSchemaRole := &models.Role{
-		Name:        &createSchemaRoleName,
-		Permissions: []*models.Permission{{Action: &createSchemaAction, Collections: &models.PermissionCollections{Collection: &classNameNew}}},
+		Name: &createSchemaRoleName,
+		Permissions: []*models.Permission{
+			{Action: &authorization.CreateTenant, Tenants: &models.PermissionTenants{Collection: &classNameNew}},
+		},
 	}
 
 	helper.DeleteRole(t, adminKey, *readSchemaRole.Name)

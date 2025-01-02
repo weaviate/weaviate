@@ -108,10 +108,10 @@ func TestCollections(t *testing.T) {
 		classes  []string
 		expected []string
 	}{
-		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
-		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
-		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/*", SchemaDomain)}},
+		{"No classes", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}},
+		{"Single empty class", []string{""}, []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}},
+		{"Single class", []string{"class1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/#", SchemaDomain)}},
+		{"Multiple classes", []string{"class1", "class2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/#", SchemaDomain), fmt.Sprintf("%s/collections/Class2/shards/#", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
@@ -178,12 +178,12 @@ func TestTenants(t *testing.T) {
 		shards   []string
 		expected []string
 	}{
-		{"No class, no tenant", "", []string{}, []string{fmt.Sprintf("%s/collections/*/tenants/*", TenantDomain)}},
-		{"Class, no tenant", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/tenants/*", TenantDomain)}},
-		{"No class, single tenant", "", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/*/tenants/tenant1", TenantDomain)}},
-		{"Class, single tenants", "class1", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain)}},
-		{"Class, multiple tenants", "class1", []string{"tenant1", "tenant2"}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain), fmt.Sprintf("%s/collections/Class1/tenants/tenant2", TenantDomain)}},
-		{"Class, empty tenant", "class1", []string{"tenant1", ""}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain), fmt.Sprintf("%s/collections/Class1/tenants/*", TenantDomain)}},
+		{"No class, no tenant", "", []string{}, []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}},
+		{"Class, no tenant", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
+		{"No class, single tenant", "", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/*/shards/tenant1", SchemaDomain)}},
+		{"Class, single tenants", "class1", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain)}},
+		{"Class, multiple tenants", "class1", []string{"tenant1", "tenant2"}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/tenant2", SchemaDomain)}},
+		{"Class, empty tenant", "class1", []string{"tenant1", ""}, []string{fmt.Sprintf("%s/collections/Class1/shards/tenant1", SchemaDomain), fmt.Sprintf("%s/collections/Class1/shards/*", SchemaDomain)}},
 	}
 
 	for _, tt := range tests {
