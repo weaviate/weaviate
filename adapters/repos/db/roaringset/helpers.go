@@ -178,10 +178,9 @@ func (p *BitmapBufPool) updateInitialMinCap(minCap int) {
 // sroar.maxContainerSize
 const ContainerBufSize = 4100
 
-type ContainerBuf []uint16
-
 type ContainerBufPool interface {
-	Get() (buf ContainerBuf, put func())
+	Get() (buf []uint16, put func())
+	GetMany(n int) (bufs [][]uint16, put func())
 }
 
 type containerBufPool struct {
@@ -192,24 +191,54 @@ func NewContainerBufPool() *containerBufPool {
 	return &containerBufPool{
 		pool: &sync.Pool{
 			New: func() any {
-				buf := make(ContainerBuf, ContainerBufSize)
+				buf := make([]uint16, ContainerBufSize)
 				return &buf
 			},
 		},
 	}
 }
 
-func (p *containerBufPool) Get() (buf ContainerBuf, put func()) {
-	ptr := p.pool.Get().(*ContainerBuf)
+func (p *containerBufPool) Get() (buf []uint16, put func()) {
+	ptr := p.pool.Get().(*[]uint16)
 	return *ptr, func() { p.pool.Put(ptr) }
 }
+
+func (p *containerBufPool) GetMany(n int) (bufs [][]uint16, put func()) {
+	if n <= 0 {
+		return [][]uint16{}, func() {}
+	}
+
+	ptrs := make([]*[]uint16, n)
+	bufs = make([][]uint16, n)
+	for i := range ptrs {
+		ptrs[i] = p.pool.Get().(*[]uint16)
+		bufs[i] = *ptrs[i]
+	}
+	return bufs, func() {
+		for _, ptr := range ptrs {
+			p.pool.Put(ptr)
+		}
+	}
+}
+
+type containerBufPoolNoop struct{}
 
 func NewContainerBufPoolNoop() *containerBufPoolNoop {
 	return &containerBufPoolNoop{}
 }
 
-type containerBufPoolNoop struct{}
+func (p *containerBufPoolNoop) Get() (buf []uint16, put func()) {
+	return make([]uint16, ContainerBufSize), func() {}
+}
 
-func (p *containerBufPoolNoop) Get() (buf ContainerBuf, put func()) {
-	return make(ContainerBuf, ContainerBufSize), func() {}
+func (p *containerBufPoolNoop) GetMany(n int) (bufs [][]uint16, put func()) {
+	if n < 0 {
+		n = 0
+	}
+
+	bufs = make([][]uint16, n)
+	for i := range bufs {
+		bufs[i] = make([]uint16, ContainerBufSize)
+	}
+	return bufs, func() {}
 }

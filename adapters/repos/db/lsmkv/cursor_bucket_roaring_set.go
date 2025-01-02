@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 type CursorRoaringSet interface {
@@ -67,12 +68,12 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	}
 	innerCursors = append(innerCursors, b.active.newRoaringSetCursor())
 
-	buf, put := b.bitmapContainerBufPool.Get()
+	bufs, put := b.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
 
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSet{
-		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly, buf),
+		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly, bufs),
 		unlock: func() {
 			put()
 			unlockSegmentGroup()

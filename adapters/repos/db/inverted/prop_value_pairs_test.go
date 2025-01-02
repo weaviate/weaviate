@@ -83,7 +83,10 @@ func TestPropValuePairs_Merging(t *testing.T) {
 			},
 		}
 
-		buf := make(roaringset.ContainerBuf, 4100)
+		bufs2 := make([][]uint16, 2)
+		for i := range bufs2 {
+			bufs2[i] = make([]uint16, roaringset.ContainerBufSize)
+		}
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				pv := &propValuePair{
@@ -100,7 +103,7 @@ func TestPropValuePairs_Merging(t *testing.T) {
 					}
 				}
 
-				dbm, err := pv.mergeDocIDs(buf)
+				dbm, err := pv.mergeDocIDs(bufs2)
 
 				require.Nil(t, err)
 				assert.ElementsMatch(t, tc.expectedIds, dbm.IDs())

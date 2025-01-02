@@ -398,7 +398,11 @@ func createCursor(t *testing.T, bsts ...*BinarySearchTree) *CombinedCursor {
 	for _, bst := range bsts {
 		innerCursors = append(innerCursors, NewBinarySearchTreeCursor(bst))
 	}
-	return NewCombinedCursor(innerCursors, false, make(ContainerBuf, ContainerBufSize))
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, ContainerBufSize)
+	}
+	return NewCombinedCursor(innerCursors, false, bufs2)
 }
 
 func createCursorKeyOnly(t *testing.T, bsts ...*BinarySearchTree) *CombinedCursor {

@@ -53,8 +53,11 @@ func TestReader(t *testing.T) {
 	seg2Reader := NewSegmentReader(NewGaplessSegmentCursor(newFakeSegmentCursor(memSeg2)))
 	memReader := NewMemtableReader(mem)
 
-	buf := make(roaringset.ContainerBuf, roaringset.ContainerBufSize)
-	reader := NewCombinedReader([]InnerReader{seg1Reader, seg2Reader, memReader}, buf, func() {}, 4, logger)
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, roaringset.ContainerBufSize)
+	}
+	reader := NewCombinedReader([]InnerReader{seg1Reader, seg2Reader, memReader}, bufs2, func() {}, 4, logger)
 
 	type testCase struct {
 		value    uint64

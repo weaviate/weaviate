@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/google/uuid"
@@ -212,10 +213,10 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
-	buf, put := s.bitmapContainerBufPool.Get()
+	bufs, put := s.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
 	beforeMerge := time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
-	dbm, err := pv.mergeDocIDs(buf)
+	dbm, err := pv.mergeDocIDs(bufs)
 	put()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
