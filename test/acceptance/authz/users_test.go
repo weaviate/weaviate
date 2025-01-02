@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package authz
 
 import (
 	"testing"
@@ -33,7 +33,7 @@ func TestAuthzRolesForUsers(t *testing.T) {
 
 	t.Run("all roles", func(t *testing.T) {
 		roles := helper.GetRoles(t, adminKey)
-		require.Equal(t, 3, len(roles))
+		require.Equal(t, NumBuildInRoles, len(roles))
 	})
 
 	t.Run("role exists for admin", func(t *testing.T) {

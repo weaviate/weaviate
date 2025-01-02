@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package authz
 
 import (
 	"testing"
@@ -35,6 +35,8 @@ const (
 	UUID5 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168245")
 	UUID6 = strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168246")
 )
+
+const NumBuildInRoles = 2
 
 func deleteObjectClass(t *testing.T, class string, auth runtime.ClientAuthInfoWriter) {
 	delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
