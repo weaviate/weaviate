@@ -34,6 +34,7 @@ func AllTests(endpoint string) func(t *testing.T) {
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
 		t.Run("aggregate", testAggregate(endpoint))
 		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
+		t.Run("colbert", testColBERT(endpoint))
 	}
 }
 

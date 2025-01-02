@@ -552,7 +552,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 }
 
 func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {
-	if len(vectors) > 0 {
+	if (len(vectors) + len(multiVectors)) > 0 {
 		out := make(models.Vectors)
 		for targetVector, vector := range vectors {
 			out[targetVector] = vector
