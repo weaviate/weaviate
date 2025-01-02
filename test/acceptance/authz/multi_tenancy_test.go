@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package authz
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 )
 
 func TestAuthzAutoTenantActivation(t *testing.T) {
-	// existingUser := "admin-user"
+	existingUser := "admin-user"
 	existingKey := "admin-key"
 
 	customUser := "custom-user"
@@ -40,9 +40,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	adminAuth := helper.CreateAuth(existingKey)
 
-	// _, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
-	helper.SetupClient("localhost:8080")
-	helper.SetupGRPCClient(t, "localhost:50051")
+	_, teardown := composeUp(t, map[string]string{existingUser: existingKey}, map[string]string{customUser: customKey}, nil)
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
@@ -52,7 +50,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	defer func() {
 		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
 		helper.DeleteRole(t, existingKey, testRoleName)
-		// teardown()
+		teardown()
 	}()
 
 	deactivateTenant := func(t *testing.T) {
@@ -90,31 +88,39 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		_, err := createObject(t, obj, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
-		require.True(t, forbidden)
+		if !forbidden {
+			helper.AssertRequestOk(t, nil, err, nil)
+		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail with 403 when trying to read an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
-		_, err := getObject(t, obj2.ID, customKey)
+		_, err := getObject(t, obj2.Class, obj2.ID, &obj2.Tenant, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsGetForbidden)
-		require.True(t, forbidden)
+		parsed, forbidden := err.(*objects.ObjectsClassGetForbidden)
+		if !forbidden {
+			helper.AssertRequestOk(t, nil, err, nil)
+		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail with 403 when trying to update an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
 		_, err := updateObject(t, obj, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsUpdateForbidden)
-		require.True(t, forbidden)
+		parsed, forbidden := err.(*objects.ObjectsClassPatchForbidden)
+		if !forbidden {
+			helper.AssertRequestOk(t, nil, err, nil)
+		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail with 403 when trying to delete an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
-		_, err := deleteObject(t, obj.ID, customKey)
+		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, customKey)
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*objects.ObjectsDeleteForbidden)
-		require.True(t, forbidden)
+		parsed, forbidden := err.(*objects.ObjectsClassDeleteForbidden)
+		if !forbidden {
+			helper.AssertRequestOk(t, nil, err, nil)
+		}
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
@@ -145,7 +151,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	t.Run("successfully get object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
-		_, err := getObject(t, obj.ID, customKey)
+		_, err := getObject(t, obj.Class, obj.ID, &obj.Tenant, customKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 
@@ -169,7 +175,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	t.Run("successfully delete object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
-		_, err := deleteObject(t, obj.ID, customKey)
+		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, customKey)
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 }

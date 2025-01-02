@@ -20,7 +20,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	restContext "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -87,7 +87,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	}
 	className := getClassName(params.Body)
 
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	object, err := h.manager.AddObject(ctx,
 		principal, params.Body, repl)
 	if err != nil {
@@ -120,7 +120,7 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	className := getClassName(params.Body)
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	err := h.manager.ValidateObject(ctx, principal, params.Body, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
@@ -149,7 +149,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	var additional additional.Properties
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
 	// The process to extract additional params depends on knowing the schema
 	// which in turn requires a preflight load of the object. We can save this
@@ -193,11 +193,12 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(object), err)
 		switch err.(type) {
-		case autherrs.Forbidden:
+		case uco.ErrForbidden:
 			return objects.NewObjectsClassGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrNotFound:
-			return objects.NewObjectsClassGetNotFound()
+		case uco.ErrInvalidUserInput:
+			return objects.NewObjectsClassGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrMultiTenancy:
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -219,7 +220,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	if params.Class != nil && *params.Class != "" {
 		return h.query(params, principal)
 	}
@@ -269,7 +270,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 func (h *objectHandlers) query(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(*params.Class, err)
@@ -327,7 +328,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -342,7 +343,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrs.Forbidden:
+		case uco.ErrForbidden:
 			return objects.NewObjectsClassDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
@@ -363,7 +364,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	className := getClassName(params.Body)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
@@ -403,7 +404,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -438,7 +439,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 }
 
 func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updates := params.Body
 	if updates == nil {
 		return objects.NewObjectsClassPatchBadRequest()
@@ -482,7 +483,7 @@ func (h *objectHandlers) addObjectReference(
 	params objects.ObjectsClassReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.AddReferenceInput{
 		Class:    params.ClassName,
 		ID:       params.ID,
@@ -526,7 +527,7 @@ func (h *objectHandlers) addObjectReference(
 func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferencesPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.PutReferenceInput{
 		Class:    params.ClassName,
 		ID:       params.ID,
@@ -571,7 +572,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassReferencesDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.DeleteReferenceInput{
 		Class:     params.ClassName,
 		ID:        params.ID,

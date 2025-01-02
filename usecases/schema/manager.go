@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	restContext "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -416,7 +416,7 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	principal := restContext.GetPrincipalFromContext(ctx)
+	principal := restCtx.GetPrincipalFromContext(ctx)
 	resources := authorization.ShardsMetadata(class, inactiveTenants...)
 	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
 	if err != nil {

@@ -17,7 +17,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
-	restContext "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,7 +35,7 @@ type batchObjectHandlers struct {
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -94,7 +94,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -156,7 +156,7 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ctx := restContext.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
