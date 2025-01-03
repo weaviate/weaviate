@@ -80,7 +80,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	readSchemaRole := &models.Role{
 		Name: &readSchemaAndCreateDataRoleName,
 		Permissions: []*models.Permission{
-			{Action: &authorization.ReadTenant, Tenants: &models.PermissionTenants{Collection: &all}},
+			{Action: &authorization.ReadTenants, Tenants: &models.PermissionTenants{Collection: &all}},
 			{Action: &createDataAction, Data: &models.PermissionData{Collection: &all}},
 		},
 	}
@@ -95,7 +95,7 @@ func TestAutoschemaAuthZ(t *testing.T) {
 	createSchemaRole := &models.Role{
 		Name: &createSchemaRoleName,
 		Permissions: []*models.Permission{
-			{Action: &authorization.CreateTenant, Tenants: &models.PermissionTenants{Collection: &classNameNew}},
+			{Action: &authorization.CreateTenants, Tenants: &models.PermissionTenants{Collection: &classNameNew}},
 		},
 	}
 

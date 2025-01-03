@@ -39,7 +39,7 @@ func TestWithoutCollectionName(t *testing.T) {
 
 	readDataAction := authorization.ReadData
 	deleteDataAction := authorization.DeleteData
-	readTenantAction := authorization.ReadTenant
+	readTenantAction := authorization.ReadTenants
 	testRoleName := t.Name() + "role"
 	all := "*"
 
@@ -174,7 +174,7 @@ func TestRefsWithoutCollectionNames(t *testing.T) {
 
 	readDataAction := authorization.ReadData
 	updateDataAction := authorization.UpdateData
-	readTenantsAction := authorization.ReadTenant
+	readTenantsAction := authorization.ReadTenants
 	all := "*"
 
 	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)

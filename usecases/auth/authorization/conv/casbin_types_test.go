@@ -68,10 +68,10 @@ var (
 		{permissionAction: authorization.DeleteData, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	tenantsActionTests = []innerTest{
-		{permissionAction: authorization.CreateTenant, testDescription: createDesc, policyVerb: createVerb},
-		{permissionAction: authorization.ReadTenant, testDescription: readDesc, policyVerb: readVerb},
-		{permissionAction: authorization.UpdateTenant, testDescription: updateDesc, policyVerb: updateVerb},
-		{permissionAction: authorization.DeleteTenant, testDescription: deleteDesc, policyVerb: deleteVerb},
+		{permissionAction: authorization.CreateTenants, testDescription: createDesc, policyVerb: createVerb},
+		{permissionAction: authorization.ReadTenants, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.UpdateTenants, testDescription: updateDesc, policyVerb: updateVerb},
+		{permissionAction: authorization.DeleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 )
 

@@ -79,7 +79,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:  &authorization.ReadTenant,
+			Action:  &authorization.ReadTenants,
 			Tenants: &models.PermissionTenants{Collection: &className1},
 		},
 		{
@@ -91,7 +91,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action:  &authorization.ReadTenant,
+			Action:  &authorization.ReadTenants,
 			Tenants: &models.PermissionTenants{Collection: &className2},
 		},
 	}
