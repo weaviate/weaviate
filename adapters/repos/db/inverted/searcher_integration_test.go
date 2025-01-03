@@ -145,6 +145,26 @@ func TestObjects(t *testing.T) {
 				assert.Len(t, objs, multiplier)
 			}
 		})
+		t.Run("NotLike", func(t *testing.T) {
+			t.Parallel()
+			for _, test := range tests {
+				filter := &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorNotLike,
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: string(test.targetChar) + "*",
+						Type:  schema.DataTypeText,
+					},
+				}}
+				objs, err := searcher.Objects(context.Background(), numObjects,
+					filter, nil, additional.Properties{}, className, []string{propName})
+				assert.Nil(t, err)
+				assert.Len(t, objs, numObjects-multiplier)
+			}
+		})
 	})
 }
 
