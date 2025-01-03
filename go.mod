@@ -2,7 +2,7 @@ module github.com/weaviate/weaviate
 
 require (
 	cloud.google.com/go/storage v1.43.0
-	github.com/bmatcuk/doublestar v1.1.3
+	github.com/bmatcuk/doublestar v1.3.4
 	github.com/buger/jsonparser v1.1.1
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
