@@ -83,6 +83,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	if err != nil {
 		return nil, err
 	}
+	defer allowList.Close()
 
 	var it docIDsIterator
 	if len(sort) > 0 {
@@ -192,16 +193,7 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	allow, err := s.docIDs(ctx, filter, additional, className, 0)
-	if err != nil {
-		return nil, err
-	}
-	// Some filters, such as NotEqual, return a theoretical range of docIDs
-	// which also includes a buffer in the underlying bitmap, to reduce the
-	// overhead of repopulating the base bitmap. Here we can truncate that
-	// buffer to ensure that the caller is receiving only the possible range
-	// of docIDs
-	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
+	return s.docIDs(ctx, filter, additional, className, 0)
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -225,7 +217,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_took", time.Since(beforeMerge))
 
-	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
+	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
@@ -895,17 +887,18 @@ func (it *sliceDocIDsIterator) Len() int {
 }
 
 type docBitmap struct {
-	docIDs *sroar.Bitmap
+	docIDs  *sroar.Bitmap
+	release func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
 // user of the docBitmap will set or replace the bitmap, such as a row reader
 func newUninitializedDocBitmap() docBitmap {
-	return docBitmap{docIDs: nil}
+	return docBitmap{}
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap()}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
 }
 
 func (dbm *docBitmap) count() int {

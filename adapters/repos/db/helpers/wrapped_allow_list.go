@@ -22,6 +22,10 @@ func newWrappedAllowList(al AllowList) AllowList {
 	}
 }
 
+func (al *wrappedAllowList) Close() {
+	al.wAllowList.Close()
+}
+
 func (al *wrappedAllowList) Insert(ids ...uint64) {
 	fids := make([]uint64, 0, len(ids))
 
