@@ -211,7 +211,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if entcfg.Enabled("PERSISTENCE_LSM_DISABLE_SEGMENTS_CHECKSUM_VALIDATION") {
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_DISABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
 		config.Persistence.LSMDisableSegmentsChecksumValidation = true
 	}
 
