@@ -31,7 +31,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel: "rerank-multilingual-v3.0",
+			wantModel: "rerank-v3.5",
 		},
 		{
 			name: "custom settings",
@@ -49,7 +49,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model": "rerank-french-v2.0",
 				},
 			},
-			wantErr: fmt.Errorf("wrong Cohere model name, available model names are: [rerank-english-v3.0 rerank-multilingual-v3.0 rerank-english-v2.0 rerank-multilingual-v2.0]"),
+			wantErr: fmt.Errorf("wrong Cohere model name, available model names are: [rerank-v3.5 rerank-english-v3.0 rerank-multilingual-v3.0 rerank-english-v2.0 rerank-multilingual-v2.0]"),
 		},
 	}
 	for _, tt := range tests {
