@@ -96,7 +96,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		layer.Additions.Or(response.layer.Additions)
 	}
 
-	return roaringset.Condense(layer.Additions), nil
+	return layer.Additions, nil
 }
 
 func (r *CombinedReader) Close() {

@@ -75,6 +75,9 @@ func (r *SegmentReader) Read(ctx context.Context, value uint64, operator filters
 }
 
 func (r *SegmentReader) firstLayer() (roaringset.BitmapLayer, bool) {
+	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
+	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
+	// are later overwritten with nodes being read later)
 	_, layer, ok := r.cursor.First()
 	if !ok {
 		return roaringset.BitmapLayer{

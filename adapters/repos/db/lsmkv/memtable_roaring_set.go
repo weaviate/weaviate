@@ -118,6 +118,7 @@ func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, del
 	return nil
 }
 
+// returned bitmaps are cloned and safe to mutate
 func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return roaringset.BitmapLayer{}, err

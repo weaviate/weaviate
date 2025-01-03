@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+// returned bitmaps are cloned and safe to mutate
 func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	out := roaringset.BitmapLayer{}
 
@@ -35,34 +36,41 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return out, err
 	}
 
-	sn, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
+	sn, copied, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
 	if err != nil {
 		return out, err
 	}
 
-	// make sure that any data is copied before exiting this method, otherwise we
-	// risk a SEGFAULT as described in
-	// https://github.com/weaviate/weaviate/issues/1837
-	out.Additions = sn.AdditionsWithCopy()
-	out.Deletions = sn.DeletionsWithCopy()
+	if copied {
+		out.Additions = sn.Additions()
+		out.Deletions = sn.Deletions()
+	} else {
+		// make sure that any data is copied before exiting this method, otherwise we
+		// risk a SEGFAULT as described in
+		// https://github.com/weaviate/weaviate/issues/1837
+		out.Additions = sn.AdditionsWithCopy()
+		out.Deletions = sn.DeletionsWithCopy()
+	}
 	return out, nil
 }
 
-func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, error) {
+func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
 	var contents []byte
+	copied := false
 	if s.mmapContents {
 		contents = s.contents[offset.start:offset.end]
 	} else {
 		contents = make([]byte, offset.end-offset.start)
 		r, err := s.bufferedReaderAt(offset.start)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		_, err = r.Read(contents)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
+		copied = true
 	}
 
-	return roaringset.NewSegmentNodeFromBuffer(contents), nil
+	return roaringset.NewSegmentNodeFromBuffer(contents), copied, nil
 }
