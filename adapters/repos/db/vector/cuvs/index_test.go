@@ -372,3 +372,101 @@ func TestDeleteWithPersistence(t *testing.T) {
 	}
 	t.Log("Verified deleted vectors remain excluded after persistence")
 }
+
+func TestCombinedAddAndDelete(t *testing.T) {
+	index, _, cleanup, _ := setupTestIndex(t)
+	defer cleanup()
+
+	// First batch: Create initial vectors
+	initialIds := make([]uint64, numVectors)
+	initialVectors := make([][]float32, numVectors)
+	for i := range initialIds {
+		initialIds[i] = uint64(i + 1)
+		initialVectors[i] = generateRandomVector(dims)
+	}
+
+	// Add initial vectors
+	err := index.AddBatch(context.Background(), initialIds, initialVectors)
+	require.NoError(t, err)
+
+	// Delete some vectors from the initial batch
+	for i := 0; i < numDeleted; i++ {
+		err = index.Delete(initialIds[i])
+		require.NoError(t, err)
+	}
+
+	// Second batch: Add new vectors
+	newVectorsCount := numDeleted // Replace the deleted ones
+	newIds := make([]uint64, newVectorsCount)
+	newVectors := make([][]float32, newVectorsCount)
+	for i := range newIds {
+		newIds[i] = uint64(numVectors + i + 1) // Ensure unique IDs
+		newVectors[i] = generateRandomVector(dims)
+	}
+
+	// Add new vectors
+	err = index.AddBatch(context.Background(), newIds, newVectors)
+	require.NoError(t, err)
+
+	// Test recall for remaining original vectors
+	t.Log("Testing recall for remaining original vectors...")
+	totalRecallOriginal := 0.0
+	for i := numDeleted; i < numVectors; i++ {
+		results, _, err := index.SearchByVector(context.TODO(), initialVectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{initialIds[i]}, results)
+		totalRecallOriginal += recall
+	}
+
+	recallRateOriginal := totalRecallOriginal / float64(numVectors-numDeleted)
+	t.Logf("Recall rate for remaining original vectors: %.4f", recallRateOriginal)
+	assert.GreaterOrEqual(t, recallRateOriginal, minRecallRate, "Recall rate for original vectors below threshold")
+
+	// Test recall for newly added vectors
+	t.Log("Testing recall for newly added vectors...")
+	totalRecallNew := 0.0
+	for i := 0; i < newVectorsCount; i++ {
+		results, _, err := index.SearchByVector(context.TODO(), newVectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+		recall := calculateRecall([]uint64{newIds[i]}, results)
+		totalRecallNew += recall
+	}
+
+	recallRateNew := totalRecallNew / float64(newVectorsCount)
+	t.Logf("Recall rate for new vectors: %.4f", recallRateNew)
+	assert.GreaterOrEqual(t, recallRateNew, minRecallRate, "Recall rate for new vectors below threshold")
+
+	// Verify deleted vectors don't appear in results
+	t.Log("Verifying deleted vectors are not in search results...")
+	for i := 0; i < numDeleted; i++ {
+		results, _, err := index.SearchByVector(context.TODO(), initialVectors[i], k, nil)
+		require.NoError(t, err)
+		require.Len(t, results, k)
+
+		// Check no deleted IDs appear in results
+		for _, resultId := range results {
+			assert.NotEqual(t, initialIds[i], resultId,
+				"Found deleted vector %d in search results", initialIds[i])
+		}
+	}
+
+	// Test batch queries for all vectors (remaining original + new)
+	t.Log("Testing batch queries for all vectors...")
+	allVectors := append(initialVectors[numDeleted:], newVectors...)
+	batchResults, _, err := index.SearchByVectorBatch(allVectors, k, nil)
+	require.NoError(t, err)
+
+	totalBatchRecall := 0.0
+	expectedIds := append(initialIds[numDeleted:], newIds...)
+
+	for i := range batchResults {
+		recall := calculateRecall([]uint64{expectedIds[i]}, batchResults[i])
+		totalBatchRecall += recall
+	}
+
+	batchRecallRate := totalBatchRecall / float64(len(allVectors))
+	t.Logf("Batch queries recall rate: %.4f", batchRecallRate)
+	assert.GreaterOrEqual(t, batchRecallRate, minRecallRate, "Batch queries recall rate below threshold")
+}

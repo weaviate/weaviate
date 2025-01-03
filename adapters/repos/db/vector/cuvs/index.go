@@ -466,8 +466,6 @@ func (index *cuvs_index) deleteWithRebuild(ids []uint64) error {
 			return errors.Errorf("idCuvsIdMap does not contain id %d", ids[i])
 		}
 	}
-	fmt.Printf("ids: %v\n", ids)
-	fmt.Printf("ids_cuvsIds: %v\n", ids_cuvsIds)
 
 	for i := range slice {
 		if !slices.Contains(index.cuvsFilter, uint32(i)) && !slices.Contains(ids_cuvsIds, uint32(i)) {
@@ -489,8 +487,6 @@ func (index *cuvs_index) deleteWithRebuild(ids []uint64) error {
 	index.cuvsFilter = []uint32{}
 
 	index.dlpackTensor.Close()
-
-	println(len(newSlice))
 
 	index.count = uint64(len(newSlice))
 	index.nextCuvsId = uint32(len(newSlice))
