@@ -13,25 +13,24 @@ package lsmkv
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.roaringSet.FlattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
-	header := segmentindex.Header{
+	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.SegmentV1,
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSet,
 	}
 
-	n, err := header.WriteTo(f)
+	n, err := f.WriteHeader(header)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +45,7 @@ func (m *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) 
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		ki, err := sn.KeyIndexAndWriteTo(f, totalWritten)
+		ki, err := sn.KeyIndexAndWriteTo(f.BodyWriter(), totalWritten)
 		if err != nil {
 			return nil, fmt.Errorf("write node %d: %w", i, err)
 		}

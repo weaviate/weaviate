@@ -74,7 +74,6 @@ func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 
 func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	s.nextOffset = s.segment.dataStartPos
-
 	parsed, err := s.parseCollectionNode(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'entities.Deleted' which would require that the offset is still advanced
