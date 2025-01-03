@@ -773,7 +773,7 @@ func (i *Index) parseDateFieldsInProps(props interface{}) error {
 
 			parsed, err := parseAsStringToTime(raw)
 			if err != nil {
-				return errors.Wrapf(err, "time prop %q", prop.Name)
+				return err
 			}
 
 			propMap[prop.Name] = parsed
@@ -1880,62 +1880,6 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
-func (i *Index) GetShard(ctx context.Context, shardName string) (
-	shard ShardLike, release func(), err error,
-) {
-	return i.getOptInitLocalShard(ctx, shardName, false)
-}
-
-func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
-	shard ShardLike, release func(), err error,
-) {
-	return i.getOptInitLocalShard(ctx, shardName, true)
-}
-
-// getOptInitLocalShard returns the local shard with the given name.
-// It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
-// The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.
-// The returned shard cannot be closed until release is called.
-func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
-	shard ShardLike, release func(), err error,
-) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return nil, func() {}, errAlreadyShutdown
-	}
-
-	// make sure same shard is not inited in parallel
-	i.shardCreateLocks.Lock(shardName)
-	defer i.shardCreateLocks.Unlock(shardName)
-
-	// check if created in the meantime by concurrent call
-	shard = i.shards.Load(shardName)
-	if shard == nil {
-		if !ensureInit {
-			return nil, func() {}, nil
-		}
-
-		className := i.Config.ClassName.String()
-		class := i.getSchema.ReadOnlyClass(className)
-
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
-		if err != nil {
-			return nil, func() {}, err
-		}
-
-		i.shards.Store(shardName, shard)
-	}
-
-	release, err = shard.preventShutdown()
-	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
-	}
-
-	return shard, release, nil
-}
-
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
@@ -2663,4 +2607,43 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	}, i.logger)
 
 	return nil
+}
+
+// GetShard returns a shard by name along with a release function and potential error
+func (i *Index) GetShard(ctx context.Context, name string) (ShardLike, func(), error) {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, nil, errAlreadyShutdown
+	}
+
+	shard := i.shards.Load(name)
+	if shard == nil {
+		return nil, nil, nil
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get shard %q, no shutdown: %w", name, err)
+	}
+
+	return shard, release, nil
+}
+
+// Add getOrInitShard helper method
+func (i *Index) getOrInitShard(ctx context.Context, shardName string) (ShardLike, func(), error) {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if shard != nil {
+		return shard, release, nil
+	}
+
+	if err := i.initLocalShard(ctx, shardName); err != nil {
+		return nil, nil, fmt.Errorf("init local shard: %w", err)
+	}
+
+	return i.GetShard(ctx, shardName)
 }
