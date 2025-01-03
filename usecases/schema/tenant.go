@@ -42,7 +42,11 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(class)...); err != nil {
+	tenantNames := make([]string, len(tenants))
+	for i, tenant := range tenants {
+		tenantNames[i] = tenant.Name
+	}
+	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(class, tenantNames...)...); err != nil {
 		return 0, err
 	}
 
@@ -158,9 +162,6 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
 		return nil, err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
-		return nil, err
-	}
 
 	h.logger.WithFields(logrus.Fields{
 		"class":   class,
@@ -205,9 +206,6 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenants...)...); err != nil {
-		return err
-	}
 
 	for i, name := range tenants {
 		if name == "" {
@@ -223,18 +221,8 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	return err
 }
 
-// GetTenants is used to get tenants of a class.
-//
-// Class must exist and has partitioning enabled
-func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
-		return nil, err
-	}
-	return h.getTenants(class)
-}
-
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return nil, err
 	}
 
@@ -245,32 +233,6 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 
 	// If non consistent, fallback to the default implementation
 	return h.getTenantsByNames(class, tenants)
-}
-
-func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
-	info, err := h.multiTenancy(class)
-	if err != nil || info.Tenants == 0 {
-		return nil, err
-	}
-
-	ts := make([]*models.Tenant, info.Tenants)
-	f := func(_ *models.Class, ss *sharding.State) error {
-		if n := len(ss.Physical); n > len(ts) {
-			ts = make([]*models.Tenant, n)
-		} else if n < len(ts) {
-			ts = ts[:n]
-		}
-		i := 0
-		for tenant := range ss.Physical {
-			ts[i] = &models.Tenant{
-				Name:           tenant,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
-			}
-			i++
-		}
-		return nil
-	}
-	return ts, h.schemaReader.Read(class, f)
 }
 
 func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
@@ -288,7 +250,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class)...); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return err
 	}
 

@@ -53,6 +53,10 @@ var (
 		Tenant:     All,
 		Object:     All,
 	}
+	AllTenants = &models.PermissionTenants{
+		Collection: All,
+		Tenant:     All,
+	}
 	AllNodes = &models.PermissionNodes{
 		Verbosity:  String(verbosity.OutputVerbose),
 		Collection: All,
@@ -62,7 +66,6 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
-		Tenant:     All,
 	}
 
 	ComponentName = "RBAC"
@@ -87,6 +90,11 @@ var (
 	ReadData   = "read_data"
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
+
+	CreateTenants = "create_tenants"
+	ReadTenants   = "read_tenants"
+	UpdateTenants = "update_tenants"
+	DeleteTenants = "delete_tenants"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -116,6 +124,12 @@ var (
 		ReadData,
 		UpdateData,
 		DeleteData,
+
+		// Tenant domain
+		CreateTenants,
+		ReadTenants,
+		UpdateTenants,
+		DeleteTenants,
 	}
 )
 
@@ -240,15 +254,15 @@ func CollectionsMetadata(classes ...string) []string {
 	classes = schema.UppercaseClassesNames(classes...)
 
 	if len(classes) == 0 || (len(classes) == 1 && (classes[0] == "" || classes[0] == "*")) {
-		return []string{fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)}
+		return []string{fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)}
 	}
 
 	resources := make([]string, len(classes))
 	for idx := range classes {
 		if classes[idx] == "" {
-			resources[idx] = fmt.Sprintf("%s/collections/*/shards/*", SchemaDomain)
+			resources[idx] = fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)
 		} else {
-			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/*", SchemaDomain, classes[idx])
+			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/#", SchemaDomain, classes[idx])
 		}
 	}
 
@@ -281,7 +295,7 @@ func Collections(classes ...string) []string {
 //
 // Parameters:
 //   - class: The class name for the resource. If empty, defaults to "*".
-//   - shards: A variadic list of shard names. If empty, a wildcard is used.
+//   - shards: A variadic list of shard names. If empty, it will replace it with '#' to mark it as collection only check
 //
 // Returns:
 //
@@ -395,6 +409,7 @@ func viewerPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 
@@ -413,6 +428,7 @@ func adminPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 

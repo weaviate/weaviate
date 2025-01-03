@@ -112,3 +112,39 @@ func assertGQL(t *testing.T, query, key string) *models.GraphQLResponse {
 	require.Equal(t, len(resp.Payload.Errors), 0)
 	return resp.Payload
 }
+
+func readTenant(t *testing.T, class string, tenant string, key string) error {
+	params := clschema.NewTenantsGetOneParams().WithClassName(class).WithTenantName(tenant)
+	_, err := helper.Client(t).Schema.TenantsGetOne(params, helper.CreateAuth(key))
+	return err
+}
+
+func readTenants(t *testing.T, class string, key string) error {
+	params := clschema.NewTenantsGetParams().WithClassName(class)
+	_, err := helper.Client(t).Schema.TenantsGet(params, helper.CreateAuth(key))
+	return err
+}
+
+func existsTenant(t *testing.T, class string, tenant string, key string) error {
+	params := clschema.NewTenantExistsParams().WithClassName(class).WithTenantName(tenant)
+	_, err := helper.Client(t).Schema.TenantExists(params, helper.CreateAuth(key))
+	return err
+}
+
+func createTenant(t *testing.T, class string, tenants []*models.Tenant, key string) error {
+	params := clschema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
+	_, err := helper.Client(t).Schema.TenantsCreate(params, helper.CreateAuth(key))
+	return err
+}
+
+func deleteTenant(t *testing.T, class string, tenants []string, key string) error {
+	params := clschema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
+	_, err := helper.Client(t).Schema.TenantsDelete(params, helper.CreateAuth(key))
+	return err
+}
+
+func updateTenantStatus(t *testing.T, class string, tenants []*models.Tenant, key string) error {
+	params := clschema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := helper.Client(t).Schema.TenantsUpdate(params, helper.CreateAuth(key))
+	return err
+}
