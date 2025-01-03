@@ -43,17 +43,19 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	cfg := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
+		GetClassMethod:              GetClassAlwaysLeader,
 	}
 	handler, err := NewHandler(
 		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
 
 func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
-	cfg := config.Config{}
+	cfg := config.Config{GetClassMethod: GetClassAlwaysLeader}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{

@@ -67,6 +67,9 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, err
 }
 
+// GetCachedClass will return the class from the cache if it exists. Note that the context cache
+// will likely be at the "request" or "operation" level and not be shared between requests.
+// Uses the Handler's getClassMethod to determine how to get the class data.
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
@@ -75,29 +78,115 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
+		return h.classGetter(h, names)
+	}, names...)
+}
+
+type classGetter func(h *Handler, names []string) (map[string]versioned.Class, error)
+
+func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versioned.Class, error) {
+	vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(vclasses) == 0 {
+		return nil, nil
+	}
+
+	for _, vclass := range vclasses {
+		if err := h.parser.ParseClass(vclass.Class); err != nil {
+			// remove invalid classes
+			h.logger.WithFields(logrus.Fields{
+				"Class": vclass.Class.Class,
+				"Error": err,
+			}).Warn("parsing class error")
+			delete(vclasses, vclass.Class.Class)
+			continue
+		}
+	}
+
+	return vclasses, nil
+}
+
+func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) (map[string]versioned.Class, error) {
+	classVersions, err := h.schemaManager.QueryClassVersions(names...)
+	if err != nil {
+		return nil, err
+	}
+	versionedClassesToReturn := map[string]versioned.Class{}
+	versionedClassesToQueryFromLeader := []string{}
+	for _, name := range names {
+		localVclass, err := h.schemaReader.ReadOnlyVersionedClass(name)
+		leaderClassVersion, ok := classVersions[name]
+		// < leaderClassVersion instead of != because there is some chance that the local version
+		// could be ahead of the version returned by the leader if the response from the leader was
+		// delayed and i don't think it would be helpful to query the leader again in that case as
+		// it would likely return a version that is at least as large as the local version.
+		if err != nil || !ok || localVclass.Version < leaderClassVersion {
+			versionedClassesToQueryFromLeader = append(versionedClassesToQueryFromLeader, name)
+			continue
+		}
+		versionedClassesToReturn[name] = localVclass
+	}
+	if len(versionedClassesToQueryFromLeader) == 0 {
+		return versionedClassesToReturn, nil
+	}
+
+	versionedClassesFromLeader, err := h.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
+	if err != nil || len(versionedClassesFromLeader) == 0 {
+		h.logger.WithFields(logrus.Fields{
+			"classes":    versionedClassesToQueryFromLeader,
+			"error":      err,
+			"suggestion": "look for network issues between this node and the leader",
+		}).Warn("unable to query classes from leader")
+		// return as many classes as we could get (to match previous behavior of the caller)
+		return versionedClassesToReturn, err
+	}
+
+	for _, vclass := range versionedClassesFromLeader {
+		if err := h.parser.ParseClass(vclass.Class); err != nil {
+			// silently remove invalid classes to match previous behavior
+			h.logger.WithFields(logrus.Fields{
+				"Class": vclass.Class.Class,
+				"Error": err,
+			}).Warn("parsing class error")
+			delete(versionedClassesFromLeader, vclass.Class.Class)
+			continue
+		}
+		versionedClassesToReturn[vclass.Class.Class] = vclass
+	}
+
+	return versionedClassesToReturn, nil
+}
+
+func getVersionedClassesFromLocal(h *Handler, names []string) (map[string]versioned.Class, error) {
+	vclasses := map[string]versioned.Class{}
+	for _, name := range names {
+		vc, err := h.schemaReader.ReadOnlyVersionedClass(name)
 		if err != nil {
-			return nil, err
+			h.logger.WithFields(logrus.Fields{
+				"Class": vc.Class.Class,
+				"Error": err,
+			}).Warn("parsing local class error")
+			continue
 		}
-
-		if len(vclasses) == 0 {
-			return nil, nil
-		}
-
-		for _, vclass := range vclasses {
-			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// remove invalid classes
-				h.logger.WithFields(logrus.Fields{
-					"Class": vclass.Class.Class,
-					"Error": err,
-				}).Warn("parsing class error")
-				delete(vclasses, vclass.Class.Class)
-				continue
+		vclasses[name] = vc
+	}
+	if len(vclasses) < len(names) {
+		missingClasses := []string{}
+		for _, name := range names {
+			if _, ok := vclasses[name]; !ok {
+				missingClasses = append(missingClasses, name)
 			}
 		}
-
-		return vclasses, nil
-	}, names...)
+		h.logger.WithFields(logrus.Fields{
+			"missing": missingClasses,
+			"suggestion": "if this node is too slow to pick up new classes from the leader, " +
+				"consider changing the GET_CLASS_METHOD config to `always_leader`",
+		}).Warn("not all classes found locally")
+	}
+	return vclasses, nil
 }
 
 // AddClass to the schema

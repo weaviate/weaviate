@@ -479,6 +479,11 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	config.GetClassMethod = "always_leader" // NOTE didn't import usecases/schema to avoid cyclical import
+	if v := os.Getenv("GET_CLASS_METHOD"); v != "" {
+		config.GetClassMethod = v
+	}
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()

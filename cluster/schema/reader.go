@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -78,6 +79,19 @@ func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
 
 	res, _ := rs.ReadOnlyClassWithVersion(context.TODO(), class, 0)
 	return res
+}
+
+// ReadOnlyVersionedClass returns a shallow copy of a class along with its version.
+// The copy is read-only and should not be modified.
+func (rs SchemaReader) ReadOnlyVersionedClass(class string) (versioned.Class, error) {
+	mc := rs.metaClass(class)
+	if mc == nil {
+		return versioned.Class{}, ErrClassNotFound
+	}
+	return versioned.Class{
+		Class:   &mc.Class,
+		Version: mc.ClassVersion,
+	}, nil
 }
 
 func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
