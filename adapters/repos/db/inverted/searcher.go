@@ -49,8 +49,9 @@ type Searcher struct {
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
-	nestedCrossRefLimit int64
-	bitmapFactory       *roaringset.BitmapFactory
+	nestedCrossRefLimit    int64
+	bitmapFactory          *roaringset.BitmapFactory
+	bitmapContainerBufPool roaringset.ContainerBufPool
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
@@ -58,6 +59,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
+	bitmapContainerBufPool roaringset.ContainerBufPool,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -71,6 +73,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		bitmapContainerBufPool: bitmapContainerBufPool,
 	}
 }
 
@@ -209,9 +212,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
+	buf, put := s.bitmapContainerBufPool.Get()
 	beforeMerge := time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_merge_len", len(pv.children))
-	dbm, err := pv.mergeDocIDs()
+	dbm, err := pv.mergeDocIDs(buf)
+	put()
 	if err != nil {
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}

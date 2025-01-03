@@ -70,8 +70,9 @@ type SegmentGroup struct {
 	compactLeftOverSegments   bool // see bucket for more details
 	disableChecksumValidation bool
 
-	allocChecker   memwatch.AllocChecker
-	maxSegmentSize int64
+	allocChecker           memwatch.AllocChecker
+	maxSegmentSize         int64
+	bitmapContainerBufPool roaringset.ContainerBufPool
 
 	segmentCleaner     segmentCleaner
 	cleanupInterval    time.Duration
@@ -96,7 +97,7 @@ type sgConfig struct {
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.AllocChecker, bitmapContainerBufPool roaringset.ContainerBufPool,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
@@ -123,6 +124,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		allocChecker:              allocChecker,
 		lastCompactionCall:        now,
 		lastCleanupCall:           now,
+		bitmapContainerBufPool:    bitmapContainerBufPool,
 	}
 
 	segmentIndex := 0

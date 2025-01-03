@@ -61,8 +61,10 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 		readers = append(readers, b.flushing.newRoaringSetRangeReader())
 	}
 	readers = append(readers, b.active.newRoaringSetRangeReader())
+	buf, put := b.bitmapContainerBufPool.Get()
 
-	return roaringsetrange.NewCombinedReader(readers, func() {
+	return roaringsetrange.NewCombinedReader(readers, buf, func() {
+		put()
 		releaseSegmentGroup()
 		b.flushLock.RUnlock()
 	}, concurrency.NUMCPU_2, b.logger)

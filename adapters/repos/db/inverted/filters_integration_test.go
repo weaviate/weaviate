@@ -84,10 +84,11 @@ func Test_Filters_String(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, containerBufPool)
 
 	type test struct {
 		name                     string
@@ -342,9 +343,11 @@ func Test_Filters_Int(t *testing.T) {
 	}
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
+
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, containerBufPool)
 
 	type test struct {
 		name                     string
@@ -583,8 +586,9 @@ func Test_Filters_Int(t *testing.T) {
 	t.Run("strategy roaringset", func(t *testing.T) {
 		propName := "inverted-without-frequency-roaringset"
 		bucketName := helpers.BucketFromPropNameLSM(propName)
-		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+		require.NoError(t, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+			lsmkv.WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop())))
 		bucket := store.Bucket(bucketName)
 
 		t.Run("import data", func(t *testing.T) {
@@ -807,8 +811,9 @@ func Test_Filters_Int(t *testing.T) {
 	t.Run("strategy roaringsetrange", func(t *testing.T) {
 		propName := "inverted-without-frequency-roaringsetrange"
 		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
-		require.NoError(t, store.CreateOrLoadBucket(context.Background(),
-			bucketName, lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange)))
+		require.NoError(t, store.CreateOrLoadBucket(context.Background(), bucketName,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop())))
 		bucket := store.Bucket(bucketName)
 
 		t.Run("import data", func(t *testing.T) {
@@ -1064,10 +1069,11 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	containerBufPool := roaringset.NewContainerBufPoolNoop()
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory, containerBufPool)
 
 	type test struct {
 		name                     string

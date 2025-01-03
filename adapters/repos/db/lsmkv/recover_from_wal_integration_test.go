@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -483,7 +484,8 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSet))
+			WithStrategy(StrategyRoaringSet),
+			WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()))
 		require.Nil(t, err)
 
 		key1 := []byte("test1-key-1")
@@ -583,7 +585,8 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyRoaringSet))
+				WithStrategy(StrategyRoaringSet),
+				WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()))
 			require.Nil(t, err)
 
 			bRec = b
@@ -623,7 +626,8 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSetRange))
+			WithStrategy(StrategyRoaringSetRange),
+			WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()))
 		require.Nil(t, err)
 
 		key1 := uint64(1)
@@ -729,7 +733,8 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 		t.Run("create new bucket from existing state", func(t *testing.T) {
 			b, err := NewBucketCreator().NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyRoaringSetRange))
+				WithStrategy(StrategyRoaringSetRange),
+				WithBitmapContainerBufPool(roaringset.NewContainerBufPoolNoop()))
 			require.Nil(t, err)
 
 			bRec = b

@@ -281,8 +281,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		leftCursor := leftSegment.newRoaringSetCursor()
 		rightCursor := rightSegment.newRoaringSetCursor()
 
+		buf, put := sg.bitmapContainerBufPool.Get()
+		defer put()
+
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath, cleanupTombstones)
+			level, scratchSpacePath, cleanupTombstones, buf)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -297,8 +300,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		leftCursor := leftSegment.newRoaringSetRangeCursor()
 		rightCursor := rightSegment.newRoaringSetRangeCursor()
 
+		buf, put := sg.bitmapContainerBufPool.Get()
+		defer put()
+
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
-			level, cleanupTombstones)
+			level, cleanupTombstones, buf)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)

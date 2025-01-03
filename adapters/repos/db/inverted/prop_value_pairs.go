@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -120,7 +121,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
+func (pv *propValuePair) mergeDocIDs(buf roaringset.ContainerBuf) (*docBitmap, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
@@ -143,31 +144,31 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	var err error
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbms[i], err = child.mergeDocIDs()
+		dbms[i], err = child.mergeDocIDs(buf)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
 	}
 
-	var mergeFn func(*sroar.Bitmap) *sroar.Bitmap
+	var mergeFn func(*sroar.Bitmap, []uint16) *sroar.Bitmap
 	if pv.operator == filters.OperatorOr {
 		// biggest to smallest, so smaller bitmaps are merged into biggest one,
 		// minimising chance of expanding destination bitmap (memory allocations)
 		sort.Slice(dbms, func(i, j int) bool {
 			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) > 0
 		})
-		mergeFn = dbms[0].docIDs.Or
+		mergeFn = dbms[0].docIDs.OrBuf
 	} else {
 		// smallest to biggest, so data is removed from smallest bitmap
 		// allowing bigger bitmaps to be garbage collected asap
 		sort.Slice(dbms, func(i, j int) bool {
 			return dbms[i].docIDs.CompareNumKeys(dbms[j].docIDs) < 0
 		})
-		mergeFn = dbms[0].docIDs.And
+		mergeFn = dbms[0].docIDs.AndBuf
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs)
+		mergeFn(dbms[i].docIDs, buf)
 		dbms[i].release()
 	}
 	return dbms[0], nil
