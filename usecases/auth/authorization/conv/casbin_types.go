@@ -37,6 +37,15 @@ const (
 	CRU = "(C)|(R)|(U)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
+
+	// external domains: needed to map any external domain from action to internal one
+	// e.g.
+	// [create_collections, create_tenants] -> schema domain
+	// create_collections -> external domain is collections, but internal that does belong to schema domain
+	// create_tenant -> external domain is tenants, but internal that does belong to schema domain
+	// the difference between the above actions is the path
+	externalSchemaCollectionsDomain = "collections"
+	externalSchemaTenantsDomain     = "tenants"
 )
 
 var (
@@ -155,13 +164,10 @@ func CasbinData(collection, shard, object string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
-func policy(permission *models.Permission) (*authorization.Policy, error) {
-	if permission.Action == nil {
-		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
-	}
-	action, domain, found := strings.Cut(*permission.Action, "_")
+func extractFromExtAction(inputAction string) (string, string, error) {
+	action, domain, found := strings.Cut(inputAction, "_")
 	if !found {
-		return nil, fmt.Errorf("invalid action: %s", *permission.Action)
+		return "", "", fmt.Errorf("invalid action: %s", inputAction)
 	}
 	verb := strings.ToUpper(action[:1])
 	if verb == "M" {
@@ -169,7 +175,20 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	}
 
 	if !validVerb(verb) {
-		return nil, fmt.Errorf("invalid verb: %s", verb)
+		return "", "", fmt.Errorf("invalid verb: %s", verb)
+	}
+
+	return verb, domain, nil
+}
+
+func policy(permission *models.Permission) (*authorization.Policy, error) {
+	if permission.Action == nil {
+		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
+	}
+
+	verb, domain, err := extractFromExtAction(*permission.Action)
+	if err != nil {
+		return nil, err
 	}
 
 	var resource string
@@ -186,7 +205,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case "collections":
+	case externalSchemaCollectionsDomain:
 		domain = authorization.SchemaDomain
 		collection := "*"
 		tenant := "#"
@@ -195,7 +214,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinSchema(collection, tenant)
 
-	case "tenants":
+	case externalSchemaTenantsDomain:
 		domain = authorization.SchemaDomain
 		collection := "*"
 		tenant := "*"
@@ -286,14 +305,14 @@ func permission(policy []string) (*models.Permission, error) {
 			permission.Collections = &models.PermissionCollections{
 				Collection: &splits[2],
 			}
-			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], "collections")
+			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], externalSchemaCollectionsDomain)
 			permission.Action = &domain
 		} else {
 			permission.Tenants = &models.PermissionTenants{
 				Collection: &splits[2],
 				Tenant:     &splits[4],
 			}
-			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], "tenants")
+			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], externalSchemaTenantsDomain)
 			permission.Action = &domain
 		}
 

@@ -32,10 +32,10 @@ func TestAuthZTenants(t *testing.T) {
 	customKey := "custom-key"
 
 	readSchemaAction := authorization.ReadCollections
-	readTenantAction := authorization.ReadTenant
-	createTenantAction := authorization.CreateTenant
-	deleteTenantAction := authorization.DeleteTenant
-	updateTenantAction := authorization.UpdateTenant
+	readTenantAction := authorization.ReadTenants
+	createTenantAction := authorization.CreateTenants
+	deleteTenantAction := authorization.DeleteTenants
+	updateTenantAction := authorization.UpdateTenants
 
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviate().

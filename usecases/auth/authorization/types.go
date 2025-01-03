@@ -91,10 +91,10 @@ var (
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
 
-	CreateTenant = "create_tenants"
-	ReadTenant   = "read_tenants"
-	UpdateTenant = "update_tenants"
-	DeleteTenant = "delete_tenants"
+	CreateTenants = "create_tenants"
+	ReadTenants   = "read_tenants"
+	UpdateTenants = "update_tenants"
+	DeleteTenants = "delete_tenants"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -126,10 +126,10 @@ var (
 		DeleteData,
 
 		// Tenant domain
-		CreateTenant,
-		ReadTenant,
-		UpdateTenant,
-		DeleteTenant,
+		CreateTenants,
+		ReadTenants,
+		UpdateTenants,
+		DeleteTenants,
 	}
 )
 
