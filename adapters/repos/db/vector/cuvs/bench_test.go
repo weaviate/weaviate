@@ -505,6 +505,8 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, b *testing.B) (float6
 			}
 		}
 
+		println(minValC, maxValC)
+
 		err := index.AddBatch(context.TODO(), ids, chunkData)
 		require.NoError(b, err)
 

@@ -245,14 +245,6 @@ func shouldExtend(index *cuvs_index, num_new uint64) bool {
 	return true
 }
 
-func Normalize_Temp(vector []float32) []float32 {
-	newVector := make([]float32, len(vector))
-	for i := range vector {
-		newVector[i] = vector[i] * 0.146
-	}
-	return newVector
-}
-
 func (index *cuvs_index) Add(ctx context.Context, id uint64, vector []float32) error {
 	return index.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
@@ -284,10 +276,6 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vectors [][]
 
 	if index == nil {
 		return errors.New("cuvs index is nil")
-	}
-
-	for v := range vectors {
-		vectors[v] = Normalize_Temp(vectors[v])
 	}
 
 	// store in bucket
@@ -543,7 +531,6 @@ func (index *cuvs_index) createAllowList() []uint32 {
 func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
-	vector = Normalize_Temp(vector)
 	queries, err := cuvs.NewTensor([][]float32{vector})
 	if err != nil {
 		return nil, nil, err
@@ -618,9 +605,6 @@ func (index *cuvs_index) SearchByVector(ctx context.Context, vector []float32, k
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
 	index.Lock()
 	defer index.Unlock()
-	for v := range vector {
-		vector[v] = Normalize_Temp(vector[v])
-	}
 
 	queries, err := cuvs.NewTensor(vector)
 	if err != nil {
