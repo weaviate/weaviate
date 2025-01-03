@@ -22,14 +22,22 @@ func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerRead
 	sg.maintenanceLock.RLock()
 
 	readers := make([]roaringsetrange.InnerReader, len(sg.segments))
+	puts := make([]func(), len(sg.segments))
 	for i, segment := range sg.segments {
-		readers[i] = segment.newRoaringSetRangeReader()
+		bufs, put := sg.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
+		readers[i] = segment.newRoaringSetRangeReader(bufs)
+		puts[i] = put
 	}
 
-	return readers, sg.maintenanceLock.RUnlock
+	return readers, func() {
+		for _, put := range puts {
+			put()
+		}
+		sg.maintenanceLock.RUnlock()
+	}
 }
 
-func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
+func (s *segment) newRoaringSetRangeReader(bufs [][]uint16) *roaringsetrange.SegmentReader {
 	var segmentCursor roaringsetrange.SegmentCursor
 	if s.mmapContents {
 		segmentCursor = roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])
@@ -41,8 +49,7 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 	}
 
 	return roaringsetrange.NewSegmentReaderConcurrent(
-		roaringsetrange.NewGaplessSegmentCursor(segmentCursor),
-		concurrency.NUMCPU_2)
+		roaringsetrange.NewGaplessSegmentCursor(segmentCursor), bufs)
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {

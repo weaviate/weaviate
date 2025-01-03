@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -95,8 +96,8 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		layers = append(layers, active)
 	}
 
-	buf, put := b.bitmapContainerBufPool.Get()
+	bufs, put := b.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
 	defer put()
 
-	return layers.Flatten(false, buf), nil
+	return layers.Flatten(false, bufs), nil
 }

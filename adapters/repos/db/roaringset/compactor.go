@@ -70,7 +70,7 @@ type Compactor struct {
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
-	buf  ContainerBuf
+	bufs [][]uint16
 
 	scratchSpacePath string
 }
@@ -81,14 +81,14 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	buf ContainerBuf,
+	bufs [][]uint16,
 ) *Compactor {
 	return &Compactor{
 		left:             left,
 		right:            right,
 		w:                w,
 		bufw:             bufio.NewWriterSize(w, 256*1024),
-		buf:              buf,
+		bufs:             bufs,
 		currentLevel:     level,
 		cleanupDeletions: cleanupDeletions,
 		scratchSpacePath: scratchSpacePath,
@@ -157,7 +157,7 @@ type nodeCompactor struct {
 	output                []segmentindex.Key
 	offset                int
 	bufw                  io.Writer
-	buf                   ContainerBuf
+	bufs                  [][]uint16
 
 	cleanupDeletions bool
 	emptyBitmap      *sroar.Bitmap
@@ -170,7 +170,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key,
 		bufw:             f.BodyWriter(),
 		cleanupDeletions: c.cleanupDeletions,
 		emptyBitmap:      sroar.NewBitmap(),
-		buf:              c.buf,
+		bufs:             c.bufs,
 	}
 
 	nc.init()
@@ -225,7 +225,7 @@ func (c *nodeCompactor) mergeIdenticalKeys() error {
 		{Additions: c.valueLeft.Additions, Deletions: c.valueLeft.Deletions},
 		{Additions: c.valueRight.Additions, Deletions: c.valueRight.Deletions},
 	}
-	merged, err := layers.Merge(c.buf)
+	merged, err := layers.Merge(c.bufs)
 	if err != nil {
 		return fmt.Errorf("merge bitmap layers for identical keys: %w", err)
 	}

@@ -30,14 +30,14 @@ type RowReader struct {
 	operator      filters.Operator
 	keyOnly       bool
 	bitmapFactory *roaringset.BitmapFactory
-	buf           roaringset.ContainerBuf
+	bufs          [][]uint16
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory, buf roaringset.ContainerBuf,
+	keyOnly bool, bitmapFactory *roaringset.BitmapFactory, bufs [][]uint16,
 ) *RowReader {
 	return &RowReader{
 		bucket:        bucket,
@@ -45,7 +45,7 @@ func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
 		operator:      operator,
 		keyOnly:       keyOnly,
 		bitmapFactory: bitmapFactory,
-		buf:           buf,
+		bufs:          bufs,
 	}
 }
 
@@ -95,7 +95,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 
 	// Invert the Equal results for an efficient NotEqual
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotBuf(rr.transformToBitmap(v), rr.buf)
+	inverted.AndNotConcBuf(rr.transformToBitmap(v), rr.bufs...)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }

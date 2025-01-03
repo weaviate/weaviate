@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -281,11 +282,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		leftCursor := leftSegment.newRoaringSetCursor()
 		rightCursor := rightSegment.newRoaringSetCursor()
 
-		buf, put := sg.bitmapContainerBufPool.Get()
+		bufs, put := sg.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
 		defer put()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath, cleanupTombstones, buf)
+			level, scratchSpacePath, cleanupTombstones, bufs)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -300,11 +301,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		leftCursor := leftSegment.newRoaringSetRangeCursor()
 		rightCursor := rightSegment.newRoaringSetRangeCursor()
 
-		buf, put := sg.bitmapContainerBufPool.Get()
+		bufs, put := sg.bitmapContainerBufPool.GetMany(concurrency.NUMCPU_2)
 		defer put()
 
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
-			level, cleanupTombstones, buf)
+			level, cleanupTombstones, bufs)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)

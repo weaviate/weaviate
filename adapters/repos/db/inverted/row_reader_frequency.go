@@ -31,12 +31,12 @@ type RowReaderFrequency struct {
 	keyOnly       bool
 	shardVersion  uint16
 	bitmapFactory *roaringset.BitmapFactory
-	buf           roaringset.ContainerBuf
+	bufs          [][]uint16
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.BitmapFactory, buf roaringset.ContainerBuf,
+	bitmapFactory *roaringset.BitmapFactory, bufs [][]uint16,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:        bucket,
@@ -45,7 +45,7 @@ func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 		keyOnly:       keyOnly,
 		shardVersion:  shardVersion,
 		bitmapFactory: bitmapFactory,
-		buf:           buf,
+		bufs:          bufs,
 	}
 }
 
@@ -90,7 +90,7 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 
 	// Invert the Equal results for an efficient NotEqual
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotBuf(rr.transformToBitmap(v), rr.buf)
+	inverted.AndNotConcBuf(rr.transformToBitmap(v), rr.bufs...)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }

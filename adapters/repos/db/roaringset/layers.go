@@ -82,7 +82,7 @@ type BitmapLayers []BitmapLayer
 //     should be represented in the final bitmap. If the order is reversed and
 //     layer 2 adds X, whereas layer 3 removes X, it is should not be contained
 //     in the final map.
-func (bml BitmapLayers) Flatten(clone bool, buf ContainerBuf) *sroar.Bitmap {
+func (bml BitmapLayers) Flatten(clone bool, bufs [][]uint16) *sroar.Bitmap {
 	if len(bml) == 0 {
 		return sroar.NewBitmap()
 	}
@@ -93,8 +93,8 @@ func (bml BitmapLayers) Flatten(clone bool, buf ContainerBuf) *sroar.Bitmap {
 	}
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNotBuf(bml[i].Deletions, buf)
-		merged.OrBuf(bml[i].Additions, buf)
+		merged.AndNotConcBuf(bml[i].Deletions, bufs...)
+		merged.OrConcBuf(bml[i].Additions, bufs...)
 	}
 
 	return merged
@@ -107,7 +107,7 @@ func (bml BitmapLayers) Flatten(clone bool, buf ContainerBuf) *sroar.Bitmap {
 // segments 1 or 2.
 //
 // Merge is intended to be used as part of compactions.
-func (bml BitmapLayers) Merge(buf ContainerBuf) (BitmapLayer, error) {
+func (bml BitmapLayers) Merge(bufs [][]uint16) (BitmapLayer, error) {
 	out := BitmapLayer{}
 	if len(bml) != 2 {
 		return out, fmt.Errorf("merge requires exactly two input segments")
@@ -116,12 +116,12 @@ func (bml BitmapLayers) Merge(buf ContainerBuf) (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.AndNotBuf(right.Deletions, buf)
-	additions.OrBuf(right.Additions, buf)
+	additions.AndNotConcBuf(right.Deletions, bufs...)
+	additions.OrConcBuf(right.Additions, bufs...)
 
 	deletions := left.Deletions.Clone()
-	deletions.AndNotBuf(right.Additions, buf)
-	deletions.OrBuf(right.Deletions, buf)
+	deletions.AndNotConcBuf(right.Additions, bufs...)
+	deletions.OrConcBuf(right.Deletions, bufs...)
 
 	out.Additions = additions
 	out.Deletions = deletions

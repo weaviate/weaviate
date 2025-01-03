@@ -33,7 +33,10 @@ func Test_Compactor(t *testing.T) {
 		expectedErr     string
 	}
 
-	buf := make(roaringset.ContainerBuf, roaringset.ContainerBufSize)
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, roaringset.ContainerBufSize)
+	}
 	tests := []test{
 		{
 			name: "segments with nothing deleted",
@@ -448,7 +451,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, false, buf)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, false, bufs2)
 			err = c.Do()
 			require.NoError(t, f.Close())
 
@@ -494,7 +497,7 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, true, buf)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, true, bufs2)
 			err = c.Do()
 			require.NoError(t, f.Close())
 

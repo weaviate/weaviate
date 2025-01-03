@@ -98,7 +98,10 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 		},
 	}
 
-	buf := make(ContainerBuf, ContainerBufSize)
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, ContainerBufSize)
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
@@ -107,7 +110,7 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res := input.Flatten(false, buf)
+			res := input.Flatten(false, bufs2)
 			for _, x := range test.expectedContained {
 				assert.True(t, res.Contains(x))
 			}
@@ -229,7 +232,10 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 		},
 	}
 
-	buf := make(ContainerBuf, ContainerBufSize)
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, ContainerBufSize)
+	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
@@ -238,7 +244,7 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
-			res, err := input.Merge(buf)
+			res, err := input.Merge(bufs2)
 			if test.expectErr {
 				require.NotNil(t, err)
 				return
@@ -320,10 +326,15 @@ func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
 		return slice
 	}
 
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, ContainerBufSize)
+	}
+
 	leftLayer := BitmapLayer{Deletions: NewBitmap(genSlice(289_800, 290_100)...)}
 	rightLayer := BitmapLayer{Additions: NewBitmap(genSlice(290_000, 293_000)...)}
 
-	failingDeletionsLayer, err := BitmapLayers{leftLayer, rightLayer}.Merge(make(ContainerBuf, ContainerBufSize))
+	failingDeletionsLayer, err := BitmapLayers{leftLayer, rightLayer}.Merge(bufs2)
 	assert.Nil(t, err)
 
 	assert.ElementsMatch(t, genSlice(289_800, 290_000), failingDeletionsLayer.Deletions.ToArray())

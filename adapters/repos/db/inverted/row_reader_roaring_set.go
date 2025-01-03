@@ -30,14 +30,14 @@ type RowReaderRoaringSet struct {
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, error)
 	bitmapFactory *roaringset.BitmapFactory
-	buf           roaringset.ContainerBuf
+	bufs          [][]uint16
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // ReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory, buf roaringset.ContainerBuf,
+	keyOnly bool, bitmapFactory *roaringset.BitmapFactory, bufs [][]uint16,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -51,7 +51,7 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 		newCursor:     newCursor,
 		getter:        getter,
 		bitmapFactory: bitmapFactory,
-		buf:           buf,
+		bufs:          bufs,
 	}
 }
 
@@ -117,7 +117,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	}
 
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotBuf(v, rr.buf)
+	inverted.AndNotConcBuf(v, rr.bufs...)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }

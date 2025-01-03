@@ -69,21 +69,21 @@ type Compactor struct {
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
-	buf  roaringset.ContainerBuf
+	bufs [][]uint16
 }
 
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
-	level uint16, cleanupDeletions bool, buf roaringset.ContainerBuf,
+	level uint16, cleanupDeletions bool, bufs [][]uint16,
 ) *Compactor {
 	return &Compactor{
 		left:             left,
 		right:            right,
 		w:                w,
 		bufw:             bufio.NewWriterSize(w, 256*1024),
-		buf:              buf,
+		bufs:             bufs,
 		currentLevel:     level,
 		cleanupDeletions: cleanupDeletions,
 	}
@@ -136,7 +136,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) (int, error) {
 		bufw:             f.BodyWriter(),
 		cleanupDeletions: c.cleanupDeletions,
 		emptyBitmap:      sroar.NewBitmap(),
-		buf:              c.buf,
+		bufs:             c.bufs,
 	}
 
 	if err := nc.loopThroughKeys(); err != nil {
@@ -193,7 +193,7 @@ type nodeCompactor struct {
 
 	cleanupDeletions              bool
 	emptyBitmap                   *sroar.Bitmap
-	buf                           roaringset.ContainerBuf
+	bufs                          [][]uint16
 	deletionsLeft, deletionsRight *sroar.Bitmap
 }
 
@@ -281,13 +281,13 @@ func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *s
 	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
 	// are later overwritten with nodes being read later)
 	additions := additionsLeft.Clone()
-	additions.AndNotBuf(nc.deletionsRight, nc.buf)
-	additions.OrBuf(additionsRight, nc.buf)
+	additions.AndNotConcBuf(nc.deletionsRight, nc.bufs...)
+	additions.OrConcBuf(additionsRight, nc.bufs...)
 
 	var deletions *sroar.Bitmap
 	if key == 0 {
 		deletions = nc.deletionsLeft.Clone()
-		deletions.OrBuf(nc.deletionsRight, nc.buf)
+		deletions.OrConcBuf(nc.deletionsRight, nc.bufs...)
 	}
 
 	return roaringset.BitmapLayer{Additions: additions, Deletions: deletions}

@@ -284,6 +284,10 @@ func (c *dummyCursorRoaringSet) Close() {
 }
 
 func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []kvData) *RowReaderRoaringSet {
+	bufs2 := make([][]uint16, 2)
+	for i := range bufs2 {
+		bufs2[i] = make([]uint16, roaringset.ContainerBufSize)
+	}
 	return &RowReaderRoaringSet{
 		value:     value,
 		operator:  operator,
@@ -297,6 +301,6 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			return nil, entlsmkv.NotFound
 		},
 		bitmapFactory: roaringset.NewBitmapFactory(func() uint64 { return maxDocID }),
-		buf:           make(roaringset.ContainerBuf, roaringset.ContainerBufSize),
+		bufs:          bufs2,
 	}
 }
