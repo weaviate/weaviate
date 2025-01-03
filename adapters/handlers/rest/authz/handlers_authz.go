@@ -14,6 +14,7 @@ package authz
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -81,7 +82,6 @@ func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *mod
 		return authz.NewCreateRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	roles, err := h.controller.GetRoles(*params.Body.Name)
 	if err != nil {
 		return authz.NewCreateRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -127,7 +127,6 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	roles, err := h.controller.GetRoles(params.ID)
 	if err != nil {
 		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -173,7 +172,6 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 		return authz.NewRemovePermissionsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	role, err := h.controller.GetRoles(params.ID)
 	if err != nil {
 		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -245,6 +243,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			Permissions: perms,
 		})
 	}
+	sortByName(response)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":    "read_all_roles",
@@ -328,7 +327,6 @@ func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *mod
 		return authz.NewAssignRoleNotFound()
 	}
 
-	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewAssignRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -391,6 +389,8 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(authErr))
 	}
 
+	sortByName(response)
+
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_roles_for_user",
 		"component":             authorization.ComponentName,
@@ -425,6 +425,8 @@ func (h *authZHandlers) getRolesForOwnUser(params authz.GetRolesForOwnUserParams
 		})
 	}
 
+	sortByName(response)
+
 	h.logger.WithFields(logrus.Fields{
 		"action":    "get_roles_for_own_user",
 		"component": authorization.ComponentName,
@@ -443,6 +445,8 @@ func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, prin
 	if err != nil {
 		return authz.NewGetUsersForRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
+
+	slices.Sort(users)
 
 	h.logger.WithFields(logrus.Fields{
 		"action":                "get_users_for_role",
@@ -479,7 +483,6 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 		return authz.NewRevokeRoleNotFound()
 	}
 
-	// todo-rbac: make sure it's consistent when we have getConsistentRole()
 	existedRoles, err := h.controller.GetRoles(params.Body.Roles...)
 	if err != nil {
 		return authz.NewRevokeRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -514,6 +517,12 @@ func (h *authZHandlers) userExists(user string) bool {
 		return false
 	}
 	return true // dont block OICD for now
+}
+
+func sortByName(roles []*models.Role) {
+	sort.Slice(roles, func(i, j int) bool {
+		return *roles[i].Name < *roles[j].Name
+	})
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run
