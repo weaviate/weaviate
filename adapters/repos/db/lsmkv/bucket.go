@@ -1147,6 +1147,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 				WithField("path", b.dir).
 				WithError(err).
 				Errorf("flush and switch failed")
+			return false
 		}
 
 		if b.memtableResizer != nil {
