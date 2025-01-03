@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 // Compactor takes in a left and a right segment and merges them into a single
@@ -277,13 +278,13 @@ func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *s
 	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
 	// are later overwritten with nodes being read later)
 	additions := additionsLeft.Clone()
-	additions.AndNot(nc.deletionsRight)
-	additions.Or(additionsRight)
+	additions.AndNotConc(nc.deletionsRight, concurrency.NUMCPU_2)
+	additions.OrConc(additionsRight, concurrency.NUMCPU_2)
 
 	var deletions *sroar.Bitmap
 	if key == 0 {
 		deletions = nc.deletionsLeft.Clone()
-		deletions.Or(nc.deletionsRight)
+		deletions.OrConc(nc.deletionsRight, concurrency.NUMCPU_2)
 	}
 
 	return roaringset.BitmapLayer{Additions: additions, Deletions: deletions}

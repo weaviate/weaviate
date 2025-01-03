@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -92,8 +93,8 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			return nil, response.err
 		}
 
-		layer.Additions.AndNot(response.layer.Deletions)
-		layer.Additions.Or(response.layer.Additions)
+		layer.Additions.AndNotConc(response.layer.Deletions, concurrency.NUMCPU_2)
+		layer.Additions.OrConc(response.layer.Additions, concurrency.NUMCPU_2)
 	}
 
 	return layer.Additions, nil
