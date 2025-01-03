@@ -143,6 +143,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		lsmkv.WithSegmentsChecksumValidationDisabled(s.index.Config.LSMDisableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	}
 
@@ -153,6 +154,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		// details.
 		opts = append(opts, lsmkv.WithMonitorCount())
 	}
+
 	err := s.store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...)
 	if err != nil {
 		return fmt.Errorf("create objects bucket: %w", err)

@@ -93,7 +93,11 @@ func (c *Compactor) Do() error {
 		return fmt.Errorf("init: %w", err)
 	}
 
-	written, err := c.writeNodes()
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+	)
+
+	written, err := c.writeNodes(segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -104,7 +108,7 @@ func (c *Compactor) Do() error {
 	}
 
 	dataEnd := segmentindex.HeaderSize + uint64(written)
-	if err := c.writeHeader(dataEnd); err != nil {
+	if err := c.writeHeader(segmentFile, dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
 
@@ -123,11 +127,11 @@ func (c *Compactor) init() error {
 	return nil
 }
 
-func (c *Compactor) writeNodes() (int, error) {
+func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) (int, error) {
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
-		bufw:             c.bufw,
+		bufw:             f.BodyWriter(),
 		cleanupDeletions: c.cleanupDeletions,
 		emptyBitmap:      sroar.NewBitmap(),
 	}
@@ -142,7 +146,9 @@ func (c *Compactor) writeNodes() (int, error) {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *Compactor) writeHeader(startOfIndex uint64) error {
+func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
+	startOfIndex uint64,
+) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
@@ -154,10 +160,23 @@ func (c *Compactor) writeHeader(startOfIndex uint64) error {
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 		IndexStart:       startOfIndex,
 	}
-
+	// We have to write directly to compactor writer,
+	// since it has seeked back to start. The following
+	// call to f.WriteHeader will not write again.
 	if _, err := h.WriteTo(c.w); err != nil {
 		return err
 	}
+
+	if _, err := f.WriteHeader(h); err != nil {
+		return err
+	}
+
+	// We need to seek back to the end so we can write a checksum
+	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end after writing header: %w", err)
+	}
+
+	c.bufw.Reset(c.w)
 
 	return nil
 }
@@ -166,7 +185,7 @@ func (c *Compactor) writeHeader(startOfIndex uint64) error {
 // nodes in a compaction
 type nodeCompactor struct {
 	left, right SegmentCursor
-	bufw        *bufio.Writer
+	bufw        io.Writer
 	written     int
 
 	cleanupDeletions              bool
