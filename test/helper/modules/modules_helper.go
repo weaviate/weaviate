@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
@@ -105,16 +104,30 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
-		err = client.Bucket(bucketName).Create(ctx, projectID, nil)
-		gcsErr, ok := err.(*googleapi.Error)
-		if ok {
-			// the bucket persists from the previous test.
-			// if the bucket already exists, we can proceed
-			if gcsErr.Code == http.StatusConflict {
-				return
-			}
-		}
+		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
+	}, 5*time.Second, 500*time.Millisecond)
+}
+
+func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+
+		bucket := client.Bucket(bucketName)
+		// we do iterate over objects because GCP doesn't allow deleting non-empty buckets
+		it := bucket.Objects(ctx, nil)
+		for {
+			objAttrs, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			assert.Nil(t, err)
+
+			obj := bucket.Object(objAttrs.Name)
+			err = obj.Delete(ctx)
+			assert.Nil(t, err)
+		}
+		assert.Nil(t, bucket.Delete(ctx))
 	}, 5*time.Second, 500*time.Millisecond)
 }
 
