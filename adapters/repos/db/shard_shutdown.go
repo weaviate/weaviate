@@ -63,12 +63,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	ec.Add(err)
 
 	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayCloseHashTree()
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?

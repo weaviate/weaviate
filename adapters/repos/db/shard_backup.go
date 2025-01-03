@@ -34,12 +34,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	}()
 
 	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayCloseHashTree()
 
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -100,6 +95,9 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
+	g.Go(func() error {
+		return s.UpdateAsyncReplication(ctx)
+	})
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
 	})
