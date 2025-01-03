@@ -564,7 +564,7 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 	i.Config.AsyncReplicationEnabled = enabled
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
+		if err := shard.UpdateAsyncReplication(ctx); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil

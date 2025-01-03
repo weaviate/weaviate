@@ -490,6 +490,14 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	return localObjects, remoteObjects, propagations, nil
 }
 
+func (s *Shard) mayCloseHashTree() {
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.closeHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+}
+
 func (s *Shard) mayStopHashBeater() {
 	s.hashtreeRWMux.RLock()
 	if s.hashtree != nil {
