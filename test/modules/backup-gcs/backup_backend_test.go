@@ -80,6 +80,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 	t.Setenv(envGCSBucket, bucketName)
 	t.Setenv(envGCSUseAuth, gcsUseAuth)
 	moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
+	defer moduleshelper.DeleteGCSBucket(testCtx, t, bucketName)
 
 	t.Run("store backup meta in gcs", func(t *testing.T) {
 		t.Setenv("BACKUP_GCS_BUCKET", bucketName)
@@ -170,6 +171,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 	t.Setenv(envGCSBucket, bucketName)
 	t.Setenv(envGCSUseAuth, gcsUseAuth)
 	moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
+	defer moduleshelper.DeleteGCSBucket(testCtx, t, bucketName)
 
 	t.Run("copy objects", func(t *testing.T) {
 		t.Setenv("BACKUP_GCS_BUCKET", bucketName)
@@ -212,6 +214,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 	t.Setenv(envGCSBucket, bucketName)
 	t.Setenv(envGCSUseAuth, gcsUseAuth)
 	moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
+	defer moduleshelper.DeleteGCSBucket(testCtx, t, bucketName)
 
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)

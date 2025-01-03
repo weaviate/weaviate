@@ -32,6 +32,9 @@ func (s *segment) newCursor() *segmentCursorReplace {
 		segment: s,
 		index:   s.index,
 		firstOffsetFn: func() (uint64, error) {
+			if s.dataStartPos == s.dataEndPos {
+				return 0, lsmkv.NotFound
+			}
 			return s.dataStartPos, nil
 		},
 		currOffset: s.dataStartPos,

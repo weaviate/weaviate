@@ -159,6 +159,13 @@ func WithSegmentsCleanupInterval(interval time.Duration) BucketOption {
 	}
 }
 
+func WithSegmentsChecksumValidationDisabled(disable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.disableChecksumValidation = disable
+		return nil
+	}
+}
+
 /*
 Background for this option:
 

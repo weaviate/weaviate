@@ -13,17 +13,16 @@ package lsmkv
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
-func (m *Memtable) flushDataRoaringSetRange(w io.Writer) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	nodes := m.roaringSetRange.Nodes()
 
 	totalDataLength := totalPayloadSizeRoaringSetRange(nodes)
-	header := segmentindex.Header{
+	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
@@ -31,7 +30,7 @@ func (m *Memtable) flushDataRoaringSetRange(w io.Writer) ([]segmentindex.Key, er
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 	}
 
-	_, err := header.WriteTo(w)
+	_, err := f.WriteHeader(header)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (m *Memtable) flushDataRoaringSetRange(w io.Writer) ([]segmentindex.Key, er
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		_, err = w.Write(sn.ToBuffer())
+		_, err = f.BodyWriter().Write(sn.ToBuffer())
 		if err != nil {
 			return nil, fmt.Errorf("write segment node %d: %w", i, err)
 		}
