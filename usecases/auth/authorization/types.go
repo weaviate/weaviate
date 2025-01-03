@@ -39,6 +39,7 @@ const (
 	NodesDomain   = "nodes"
 	BackupsDomain = "backups"
 	SchemaDomain  = "schema"
+	TenantDomain  = "tenants"
 	DataDomain    = "data"
 )
 
@@ -52,6 +53,10 @@ var (
 		Collection: All,
 		Tenant:     All,
 		Object:     All,
+	}
+	AllTenants = &models.PermissionTenants{
+		Collection: All,
+		Tenant:     All,
 	}
 	AllNodes = &models.PermissionNodes{
 		Verbosity:  String(verbosity.OutputVerbose),
@@ -88,6 +93,11 @@ var (
 	UpdateData = "update_data"
 	DeleteData = "delete_data"
 
+	CreateTenant = "create_tenants"
+	ReadTenant   = "read_tenants"
+	UpdateTenant = "update_tenants"
+	DeleteTenant = "delete_tenants"
+
 	availableWeaviateActions = []string{
 		// Roles domain
 		ManageRoles,
@@ -116,6 +126,12 @@ var (
 		ReadData,
 		UpdateData,
 		DeleteData,
+
+		// Tenant domain
+		CreateTenant,
+		ReadTenant,
+		UpdateTenant,
+		DeleteTenant,
 	}
 )
 
@@ -317,6 +333,40 @@ func ShardsData(class string, shards ...string) []string {
 	return paths
 }
 
+// Tenants generates a list of shard resource strings for a given class and tenants.
+// If the class is an empty string, it defaults to "*". If no tenants are provided,
+// it returns a single resource string with a wildcard for tenants. If tenants are
+// provided, it returns a list of resource strings for each tenants.
+//
+// Parameters:
+//   - class: The class name for the resource. If empty, defaults to "*".
+//   - tenants: A variadic list of shard names. If empty, a wildcard is used.
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths for the given class and tenants.
+func Tenants(class string, tenants ...string) []string {
+	class = schema.UppercaseClassesNames(class)[0]
+	if class == "" {
+		class = "*"
+	}
+
+	if len(tenants) == 0 || (len(tenants) == 1 && (tenants[0] == "" || tenants[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/%s/tenants/*", TenantDomain, class)}
+	}
+
+	resources := make([]string, len(tenants))
+	for idx := range tenants {
+		if tenants[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/tenants/*", TenantDomain, class)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/tenants/%s", TenantDomain, class, tenants[idx])
+		}
+	}
+
+	return resources
+}
+
 // Objects generates a string representing a path to objects within a collection and shard.
 // The path format varies based on the provided class, shard, and id parameters.
 //
@@ -395,6 +445,7 @@ func viewerPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 
@@ -413,6 +464,7 @@ func adminPermissions() []*models.Permission {
 			Nodes:       AllNodes,
 			Roles:       AllRoles,
 			Collections: AllCollections,
+			Tenants:     AllTenants,
 		})
 	}
 

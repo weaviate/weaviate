@@ -70,6 +70,8 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.TenantDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/tenants/.*$`, authorization.TenantDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -155,6 +157,19 @@ func CasbinData(collection, shard, object string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s/objects/%s", authorization.DataDomain, collection, shard, object)
 }
 
+func CasbinTenant(collection, tenant string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
+	if collection == "" {
+		collection = "*"
+	}
+	if tenant == "" {
+		tenant = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	tenant = strings.ReplaceAll(tenant, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/tenants/%s", authorization.TenantDomain, collection, tenant)
+}
+
 func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
@@ -215,6 +230,16 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			object = *permission.Data.Object
 		}
 		resource = CasbinData(collection, tenant, object)
+	case authorization.TenantDomain:
+		collection := "*"
+		tenant := "*"
+		if permission.Tenants != nil && permission.Tenants.Collection != nil {
+			collection = schema.UppercaseClassName(*permission.Tenants.Collection)
+		}
+		if permission.Tenants != nil && permission.Tenants.Tenant != nil {
+			tenant = *permission.Tenants.Tenant
+		}
+		resource = CasbinTenant(collection, tenant)
 	case authorization.BackupsDomain:
 		collection := "*"
 		if permission.Backups != nil {
@@ -289,6 +314,11 @@ func permission(policy []string) (*models.Permission, error) {
 			Tenant:     &splits[4],
 			Object:     &splits[6],
 		}
+	case authorization.TenantDomain:
+		permission.Tenants = &models.PermissionTenants{
+			Collection: &splits[2],
+			Tenant:     &splits[4],
+		}
 	case authorization.RolesDomain:
 		permission.Roles = &models.PermissionRoles{
 			Role: &splits[1],
@@ -315,6 +345,7 @@ func permission(policy []string) (*models.Permission, error) {
 		permission.Nodes = authorization.AllNodes
 		permission.Roles = authorization.AllRoles
 		permission.Collections = authorization.AllCollections
+		permission.Tenants = authorization.AllTenants
 	case authorization.ClusterDomain, authorization.UsersDomain:
 		// do nothing
 	default:

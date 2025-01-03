@@ -170,3 +170,26 @@ func TestObjects(t *testing.T) {
 		})
 	}
 }
+
+func TestTenants(t *testing.T) {
+	tests := []struct {
+		name     string
+		class    string
+		shards   []string
+		expected []string
+	}{
+		{"No class, no tenant", "", []string{}, []string{fmt.Sprintf("%s/collections/*/tenants/*", TenantDomain)}},
+		{"Class, no tenant", "class1", []string{}, []string{fmt.Sprintf("%s/collections/Class1/tenants/*", TenantDomain)}},
+		{"No class, single tenant", "", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/*/tenants/tenant1", TenantDomain)}},
+		{"Class, single tenants", "class1", []string{"tenant1"}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain)}},
+		{"Class, multiple tenants", "class1", []string{"tenant1", "tenant2"}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain), fmt.Sprintf("%s/collections/Class1/tenants/tenant2", TenantDomain)}},
+		{"Class, empty tenant", "class1", []string{"tenant1", ""}, []string{fmt.Sprintf("%s/collections/Class1/tenants/tenant1", TenantDomain), fmt.Sprintf("%s/collections/Class1/tenants/*", TenantDomain)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := Tenants(tt.class, tt.shards...)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

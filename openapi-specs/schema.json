@@ -79,6 +79,22 @@
             }
           }
         },
+        "tenants": {
+          "type": "object",
+          "description": "resources applicable for tenant actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            },
+            "tenant": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "roles": {
           "type": "object",
           "description": "resources applicable for role actions",
@@ -129,7 +145,12 @@
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         }
       },

@@ -112,7 +112,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:        "AddTenants",
 			additionalArgs:    []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.Tenants("className", "P1"),
 		},
 		{
 			methodName: "UpdateTenants",
@@ -120,31 +120,25 @@ func Test_Schema_Authorization(t *testing.T) {
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
+			expectedResources: authorization.Tenants("className", "P1"),
 		},
 		{
 			methodName:        "DeleteTenants",
 			additionalArgs:    []interface{}{"className", []string{"P1"}},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.ShardsMetadata("className", "P1"),
-		},
-		{
-			methodName:        "GetTenants",
-			additionalArgs:    []interface{}{"className"},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.Tenants("className", "P1"),
 		},
 		{
 			methodName:        "GetConsistentTenants",
 			additionalArgs:    []interface{}{"className", false, []string{}},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.Tenants("className"),
 		},
 		{
 			methodName:        "ConsistentTenantExists",
 			additionalArgs:    []interface{}{"className", false, "P1"},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("className"),
+			expectedResources: authorization.Tenants("className", "P1"),
 		},
 	}
 
