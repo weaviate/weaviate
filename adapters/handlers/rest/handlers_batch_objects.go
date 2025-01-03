@@ -17,6 +17,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,6 +35,7 @@ type batchObjectHandlers struct {
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -41,7 +43,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
+	objs, err := h.manager.AddObjects(ctx, principal,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -92,6 +94,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -99,7 +102,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
+	references, err := h.manager.AddReferences(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -153,6 +156,7 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
@@ -162,7 +166,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 
 	tenant := getTenant(params.Tenant)
 
-	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
+	res, err := h.manager.DeleteObjects(ctx, principal,
 		params.Body.Match, params.Body.DeletionTimeUnixMilli, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)

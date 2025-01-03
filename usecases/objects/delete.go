@@ -79,6 +79,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		if errors.As(err, &e2) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
 		}
+		var e3 ErrForbidden
+		if errors.As(err, &e3) {
+			return NewErrForbidden(fmt.Errorf("delete object from vector repo: %w", err))
+		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
 

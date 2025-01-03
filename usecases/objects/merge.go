@@ -72,6 +72,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 				m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
 				return &Error{"not found", StatusNotFound, err}
 			}
+			if errors.As(err, &ErrForbidden{}) {
+				return &Error{"forbidden", StatusForbidden, err}
+			}
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}
 	}

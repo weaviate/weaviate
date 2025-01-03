@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -401,10 +402,12 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
+	inactiveTenants := make([]string, 0, len(status))
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+			inactiveTenants = append(inactiveTenants, tenant)
 		}
 	}
 
@@ -413,7 +416,14 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	principal := restCtx.GetPrincipalFromContext(ctx)
+	resources := authorization.ShardsMetadata(class, inactiveTenants...)
+	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {
