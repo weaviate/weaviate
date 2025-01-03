@@ -62,6 +62,8 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
@@ -92,6 +94,8 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {

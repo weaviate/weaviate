@@ -118,6 +118,14 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	}, 5*time.Second, 500*time.Millisecond)
 }
 
+func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		assert.Nil(t, err)
+		assert.Nil(t, client.Bucket(bucketName).Delete(ctx))
+	}, 5*time.Second, 500*time.Millisecond)
+}
+
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
