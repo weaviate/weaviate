@@ -71,7 +71,6 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	gcsBackupJourneyBucketName := containerName
-	gcsBackupJourneyBucketOverrideName := "gcsmbjtestbucketoverride"
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
@@ -99,9 +98,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketOverrideName)
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketOverrideName)
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -134,9 +132,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketOverrideName)
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketOverrideName)
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
