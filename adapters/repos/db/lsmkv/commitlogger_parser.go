@@ -17,14 +17,14 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
+	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
 type commitloggerParser struct {
 	strategy string
 
 	reader         io.Reader
-	checksumReader rwhasher.ReaderHasher
+	checksumReader integrity.ChecksumReader
 
 	bufNode *bytes.Buffer
 
@@ -36,7 +36,7 @@ func newCommitLoggerParser(strategy string, reader io.Reader, memtable *Memtable
 	return &commitloggerParser{
 		strategy:       strategy,
 		reader:         reader,
-		checksumReader: rwhasher.NewCRC32Reader(reader),
+		checksumReader: integrity.NewCRC32Reader(reader),
 		bufNode:        bytes.NewBuffer(nil),
 		memtable:       memtable,
 	}

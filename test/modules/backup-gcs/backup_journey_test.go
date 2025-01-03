@@ -72,6 +72,7 @@ func Test_BackupJourney(t *testing.T) {
 
 func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	gcsBackupJourneyBucketName := containerName
+	gcsBackupJourneyBucketOverrideName := "gcsmbjtestbucketoverride"
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -96,7 +97,9 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketOverrideName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketOverrideName)
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -134,7 +137,10 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketOverrideName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketOverrideName)
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {

@@ -49,7 +49,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.RLock()
-	defer h.mu.RLock()
+	defer h.mu.RUnlock()
 
 	if h.src == nil {
 		w.Header().Add("retry-after", "30")
