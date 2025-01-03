@@ -237,6 +237,10 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 	}
 
 	// both segments, merge
+	//
+	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
+	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
+	// are later overwritten with nodes being read later)
 	nc.deletionsLeft = nc.emptyBitmap
 	if !layerLeft.Deletions.IsEmpty() {
 		nc.deletionsLeft = layerLeft.Deletions.Clone()
@@ -276,6 +280,9 @@ func (nc *nodeCompactor) loopThroughKeys() error {
 
 func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *sroar.Bitmap,
 ) roaringset.BitmapLayer {
+	// bitmaps' cloning is necessary for both types of cursors: mmap and pread
+	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
+	// are later overwritten with nodes being read later)
 	additions := additionsLeft.Clone()
 	additions.AndNot(nc.deletionsRight)
 	additions.Or(additionsRight)
