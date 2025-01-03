@@ -331,22 +331,6 @@ func ShardsData(class string, shards ...string) []string {
 	return paths
 }
 
-// Tenants generates a list of tenant resource strings for a given class and tenants.
-// If the class is an empty string, it defaults to "*". If no tenants are provided,
-// it returns a single resource string with a wildcard for tenants. If tenants are
-// provided, it returns a list of resource strings for each tenants.
-//
-// Parameters:
-//   - class: The class name for the resource. If empty, defaults to "*".
-//   - tenants: A variadic list of shard names. If empty, a wildcard is used.
-//
-// Returns:
-//
-//	A slice of strings representing the resource paths for the given class and tenants.
-func Tenants(class string, tenants ...string) []string {
-	return ShardsMetadata(class, tenants...)
-}
-
 // Objects generates a string representing a path to objects within a collection and shard.
 // The path format varies based on the provided class, shard, and id parameters.
 //
