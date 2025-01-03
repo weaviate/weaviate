@@ -28,7 +28,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 

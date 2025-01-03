@@ -435,9 +435,6 @@ type PermissionCollections struct {
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
-
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
-	Tenant *string `json:"tenant,omitempty"`
 }
 
 // Validate validates this permission collections

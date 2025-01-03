@@ -65,41 +65,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:      "collection and tenant checks",
-			principal: &models.Principal{Username: "user1"},
-			params: authz.AddPermissionsParams{
-				ID: "newRole",
-				Body: authz.AddPermissionsBody{
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
-								Collection: String("ABC"),
-								Tenant:     String("Tenant1"),
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:      "* collections and tenant checks",
-			principal: &models.Principal{Username: "user1"},
-			params: authz.AddPermissionsParams{
-				ID: "newRole",
-				Body: authz.AddPermissionsBody{
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
-								Tenant: String("Tenant1"),
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {

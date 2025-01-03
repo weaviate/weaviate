@@ -92,14 +92,12 @@ case $CONFIG in
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_ENABLE_RBAC=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_ADMIN_USERS='jp-hwang' \
-    AUTHORIZATION_VIEWER_USERS='ian-smith' \
+    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,viewer-key,custom-key' \
+    AUTHENTICATION_APIKEY_USERS='admin-user,viewer-user,custom-user' \
+    AUTHORIZATION_ADMIN_USERS='admin-user' \
+    AUTHORIZATION_VIEWER_USERS='viewer-user' \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-0" \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
     PROMETHEUS_MONITORING_PORT="2112" \
     CLUSTER_IN_LOCALHOST=true \
     CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -119,24 +117,22 @@ case $CONFIG in
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_ENABLE_RBAC=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_ADMIN_USERS='jp-hwang' \
-    AUTHORIZATION_VIEWER_USERS='ian-smith' \
+    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,viewer-key,custom-key' \
+    AUTHENTICATION_APIKEY_USERS='admin-user,viewer-user,custom-user' \
+    AUTHORIZATION_ADMIN_USERS='admin-user' \
+    AUTHORIZATION_VIEWER_USERS='viewer-user' \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-1" \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
     CLUSTER_HOSTNAME="weaviate-1" \
     CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7102" \
-    CLUSTER_DATA_BIND_PORT="7103" \
+    CLUSTER_GOSSIP_BIND_PORT="7103" \
+    CLUSTER_DATA_BIND_PORT="7104" \
     CLUSTER_JOIN="localhost:7100" \
     PROMETHEUS_MONITORING_PORT="2113" \
     RAFT_PORT="8302" \
     RAFT_INTERNAL_RPC_PORT="8303" \
     RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
     RAFT_BOOTSTRAP_EXPECT=3 \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
     go_run ./cmd/weaviate-server \
       --scheme http \
       --host "127.0.0.1" \
@@ -150,24 +146,22 @@ case $CONFIG in
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
     AUTHORIZATION_ENABLE_RBAC=true \
-    AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
-    AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
-    AUTHORIZATION_ADMIN_USERS='jp-hwang' \
-    AUTHORIZATION_VIEWER_USERS='ian-smith' \
+    AUTHENTICATION_APIKEY_ALLOWED_KEYS='admin-key,viewer-key,custom-key' \
+    AUTHENTICATION_APIKEY_USERS='admin-user,viewer-user,custom-user' \
+    AUTHORIZATION_ADMIN_USERS='admin-user' \
+    AUTHORIZATION_VIEWER_USERS='viewer-user' \
     BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
     PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
     CLUSTER_HOSTNAME="weaviate-2" \
     CLUSTER_IN_LOCALHOST=true \
-    CLUSTER_GOSSIP_BIND_PORT="7104" \
-    CLUSTER_DATA_BIND_PORT="7105" \
+    CLUSTER_GOSSIP_BIND_PORT="7106" \
+    CLUSTER_DATA_BIND_PORT="7107" \
     CLUSTER_JOIN="localhost:7100" \
     PROMETHEUS_MONITORING_PORT="2114" \
     RAFT_PORT="8304" \
     RAFT_INTERNAL_RPC_PORT="8305" \
     RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
     RAFT_BOOTSTRAP_EXPECT=3 \
-    DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-    ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
     go_run ./cmd/weaviate-server \
       --scheme http \
       --host "127.0.0.1" \

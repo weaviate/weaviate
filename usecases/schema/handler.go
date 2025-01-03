@@ -216,7 +216,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return 0, err
 	}
@@ -227,7 +227,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
+	err := h.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...)
 	if err != nil {
 		return nil, err
 	}

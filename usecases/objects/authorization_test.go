@@ -48,7 +48,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "AddObject",
 			additionalArgs:    []interface{}{(*models.Object)(nil)},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedResources: authorization.CollectionsMetadata(""),
 		},
 		{
 			methodName:        "ValidateObject",
@@ -125,7 +125,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "Query",
 			additionalArgs:    []interface{}{new(QueryParams)},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.ShardsMetadata("", "")[0]},
+			expectedResources: []string{authorization.CollectionsMetadata("")[0]},
 		},
 
 		{ // list objects is deprecated by query
@@ -221,7 +221,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedResources: authorization.CollectionsMetadata(""),
 		},
 		{
 			methodName: "AddReferences",

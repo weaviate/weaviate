@@ -48,7 +48,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Class)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -73,7 +73,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 			input.Reference.Beacon = toBeacon
 		}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(input.Reference.Class.String(), tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Reference.Class.String())...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

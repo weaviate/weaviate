@@ -162,7 +162,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 			return class, nil
 		}
 
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(classname, shard)...); err != nil {
+		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classname)...); err != nil {
 			return nil, err
 		}
 

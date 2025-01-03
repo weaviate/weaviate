@@ -68,41 +68,6 @@ func TestCreateRoleSuccess(t *testing.T) {
 				},
 			},
 		},
-		{
-			name:      "collection and tenant checks",
-			principal: &models.Principal{Username: "user1"},
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
-								Collection: String("ABC"),
-								Tenant:     String("Tenant1"),
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name:      "* collections and tenant checks",
-			principal: &models.Principal{Username: "user1"},
-			params: authz.CreateRoleParams{
-				Body: &models.Role{
-					Name: String("newRole"),
-					Permissions: []*models.Permission{
-						{
-							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
-								Tenant: String("Tenant1"),
-							},
-						},
-					},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {

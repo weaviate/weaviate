@@ -15,8 +15,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+const (
+	CurrentCreateRolesRequestVersion = 1
+	RemovePermissionsRequestVersion  = 1
+)
+
 type CreateRolesRequest struct {
-	Roles map[string][]authorization.Policy
+	Roles   map[string][]authorization.Policy
+	Version int
 }
 
 type DeleteRolesRequest struct {
@@ -26,6 +32,7 @@ type DeleteRolesRequest struct {
 type RemovePermissionsRequest struct {
 	Role        string
 	Permissions []*authorization.Policy
+	Version     int
 }
 
 type AddRolesForUsersRequest struct {

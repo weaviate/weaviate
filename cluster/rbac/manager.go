@@ -114,6 +114,8 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	req = MigrateCreateRolesRequest(req)
+
 	return m.authZ.UpsertRolesPermissions(req.Roles)
 }
 
@@ -140,6 +142,8 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+
+	req = MigrateRemovePermissionsRequest(req)
 
 	return m.authZ.RemovePermissions(req.Role, req.Permissions)
 }
