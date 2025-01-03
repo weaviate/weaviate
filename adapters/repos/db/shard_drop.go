@@ -43,13 +43,7 @@ func (s *Shard) drop() (err error) {
 	}
 
 	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.hashtree = nil
-		s.hashtreeInitialized.Store(false)
-	}
-	s.hashtreeRWMux.Unlock()
+	s.mayCleanupHashTree()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
