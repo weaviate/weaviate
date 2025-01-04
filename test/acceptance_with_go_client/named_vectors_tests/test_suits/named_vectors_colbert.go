@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func testColBERT(host string) func(t *testing.T) {
@@ -119,6 +120,168 @@ func testColBERT(host string) func(t *testing.T) {
 					require.IsType(t, [][]float32{}, vectors[byoc])
 					assert.Equal(t, o.Vector, vectors[byoc])
 				}
+			})
+		})
+
+		t.Run("multi vector validation", func(t *testing.T) {
+			t.Run("multi vector vectorizer", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "MultiVectorLegacyVectorizer",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorIndexType: "hnsw",
+					Vectorizer:      "text2colbert-jinaai",
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2colbert-jinaai\" is only allowed to be defined using named vector configuration`)
+			})
+			t.Run("multi vector vectorizer with module config", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "MultiVectorLegacyVectorizerWithModuleConfig",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					ModuleConfig: map[string]interface{}{
+						"text2colbert-jinaai": map[string]interface{}{
+							"skip": true,
+						},
+					},
+					VectorIndexType: "hnsw",
+					Vectorizer:      "text2colbert-jinaai",
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `multi vector vectorizer: \"text2colbert-jinaai\" is only allowed to be defined using named vector configuration`)
+			})
+			t.Run("colbert vectorizer with multi vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "LegacyColbertVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorIndexType: "hnsw",
+					VectorIndexConfig: map[string]interface{}{
+						"multivector": map[string]interface{}{
+							"enabled": true,
+						},
+					},
+					Vectorizer: "text2colbert-jinaai",
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `class.VectorIndexConfig multi vector type index type is only configurable using named vectors`)
+			})
+			t.Run("regular vectorizer with multi vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "LegacyOpenAIVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorIndexType: "hnsw",
+					VectorIndexConfig: map[string]interface{}{
+						"multivector": map[string]interface{}{
+							"enabled": true,
+						},
+					},
+					Vectorizer: "text2vec-openai",
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `class.VectorIndexConfig multi vector type index type is only configurable using named vectors`)
+			})
+			t.Run("legacy none vectorizer with multi vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "LegacyNoneVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorIndexType: "hnsw",
+					VectorIndexConfig: map[string]interface{}{
+						"multivector": map[string]interface{}{
+							"enabled": true,
+						},
+					},
+					Vectorizer: "none",
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `class.VectorIndexConfig multi vector type index type is only configurable using named vectors`)
+			})
+			t.Run("named vector regular vectorizer with multi vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						c11y: {
+							Vectorizer: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexConfig: map[string]interface{}{
+								"multivector": map[string]interface{}{
+									"enabled": true,
+								},
+							},
+							VectorIndexType: "hnsw",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				require.Error(t, err)
+				assert.ErrorContains(t, err, `parse vector config for c11y: multi vector index configured but vectorizer: \"text2vec-contextionary\" doesn't support multi vectors`)
+			})
+			t.Run("named vector is colbert vectorizer with regular vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2colbert-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexConfig: map[string]interface{}{
+								"multivector": map[string]interface{}{
+									"enabled": false,
+								},
+							},
+							VectorIndexType: "hnsw",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				// Weaviate overrides the multivector setting if it finds that someone has enabled
+				// multi vector vectorizer
+				require.NoError(t, err)
 			})
 		})
 	}
