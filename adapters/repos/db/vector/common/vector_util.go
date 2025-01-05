@@ -29,6 +29,24 @@ func VectorsEqual(vecA, vecB []float32) bool {
 	return true
 }
 
+func MultiVectorsEqual(vecA, vecB [][]float32) bool {
+	if len(vecA) != len(vecB) {
+		return false
+	}
+	if vecA == nil && vecB != nil {
+		return false
+	}
+	if vecA != nil && vecB == nil {
+		return false
+	}
+	for i := range vecA {
+		if !VectorsEqual(vecA[i], vecB[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func CalculateOptimalSegments(dims int) int {
 	if dims >= 2048 && dims%8 == 0 {
 		return dims / 8

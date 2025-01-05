@@ -45,6 +45,14 @@ func testColBERT(host string) func(t *testing.T) {
 			objects := fixtures.BringYourOwnColBERTObjects
 			byoc := fixtures.BringYourOwnColBERTNamedVectorName
 
+			_additional := graphql.Field{
+				Name: "_additional",
+				Fields: []graphql.Field{
+					{Name: "id"},
+					{Name: fmt.Sprintf("vectors{%s}", byoc)},
+				},
+			}
+
 			t.Run("create schema", func(t *testing.T) {
 				class := fixtures.BringYourOwnColBERTClass(className)
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
@@ -100,13 +108,7 @@ func testColBERT(host string) func(t *testing.T) {
 			})
 
 			t.Run("GraphQL get object with vector", func(t *testing.T) {
-				_additional := graphql.Field{
-					Name: "_additional",
-					Fields: []graphql.Field{
-						{Name: "id"},
-						{Name: fmt.Sprintf("vectors{%s}", byoc)},
-					},
-				}
+
 				for _, o := range objects {
 					resp, err := client.GraphQL().Get().
 						WithClassName(className).
@@ -118,6 +120,69 @@ func testColBERT(host string) func(t *testing.T) {
 					require.Len(t, vectors, 1)
 					require.IsType(t, [][]float32{}, vectors[byoc])
 					assert.Equal(t, o.Vector, vectors[byoc])
+				}
+			})
+
+			t.Run("update vector", func(t *testing.T) {
+				tests := []struct {
+					name string
+					obj  struct {
+						ID     string
+						Name   string
+						Vector [][]float32
+					}
+					withMerge bool
+					vector    [][]float32
+				}{
+					{
+						name:   "update",
+						obj:    objects[0],
+						vector: [][]float32{{-0.11111111, -0.12222222}, {-0.13, -0.14}, {-0.15, -0.16}},
+					},
+					{
+						name:      "merge",
+						obj:       objects[1],
+						withMerge: true,
+						vector:    [][]float32{{-0.000001, -0.000001}, {-0.000001, -0.000001}, {-0.000001, -0.000001}},
+					},
+				}
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						firstObj := tt.obj
+						updateVectors := models.Vectors{
+							byoc: tt.vector,
+						}
+						objs, err := client.Data().ObjectsGetter().
+							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
+						require.NoError(t, err)
+						require.NotEmpty(t, objs)
+						require.Len(t, objs[0].Vectors, 1)
+						assert.Equal(t, firstObj.Vector, objs[0].Vectors[byoc])
+						updater := client.Data().Updater().
+							WithClassName(className).WithID(firstObj.ID).WithVectors(updateVectors)
+						if tt.withMerge {
+							err = updater.WithMerge().Do(ctx)
+						} else {
+							err = updater.Do(ctx)
+						}
+						require.NoError(t, err)
+						objs, err = client.Data().ObjectsGetter().
+							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
+						require.NoError(t, err)
+						require.NotEmpty(t, objs)
+						require.Len(t, objs[0].Vectors, 1)
+						assert.Equal(t, updateVectors[byoc], objs[0].Vectors[byoc])
+						resp, err := client.GraphQL().Get().
+							WithClassName(className).
+							WithWhere(filters.Where().WithPath([]string{"id"}).WithOperator(filters.Equal).WithValueText(firstObj.ID)).
+							WithFields(_additional).
+							Do(ctx)
+						require.NoError(t, err)
+						vectors := acceptance_with_go_client.GetVectors(t, resp, className, false, byoc)
+						require.Len(t, vectors, 1)
+						require.IsType(t, [][]float32{}, vectors[byoc])
+						assert.Equal(t, updateVectors[byoc], vectors[byoc])
+					})
 				}
 			})
 		})

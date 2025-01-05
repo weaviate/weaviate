@@ -247,6 +247,15 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 				}
 			}
 		}
+		if len(obj.MultiVectors) > 0 {
+			for targetVector, vector := range obj.MultiVectors {
+				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+					if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
+						return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
+					}
+				}
+			}
+		}
 	} else {
 		if obj.Vector != nil {
 			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
@@ -528,6 +537,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
 					}
 				}
+				for vecName, vec := range prevObject.MultiVectors {
+					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+					}
+				}
 			} else {
 				if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
 					return fmt.Errorf("track dimensions (delete): %w", err)
@@ -562,6 +576,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
 				}
 			}
+			for vecName, vec := range object.MultiVectors {
+				if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
+				}
+			}
 		} else {
 			if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
 				return fmt.Errorf("track dimensions: %w", err)
@@ -588,6 +607,9 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 		return false, false
 	}
 	if !targetVectorsEqual(prevObj.Vectors, nextObj.Vectors) {
+		return false, false
+	}
+	if !targetMultiVectorsEqual(prevObj.MultiVectors, nextObj.MultiVectors) {
 		return false, false
 	}
 	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
@@ -667,6 +689,29 @@ func targetVectorsEqual(prevTargetVectors, nextTargetVectors map[string][]float3
 	for vecName, vec := range nextTargetVectors {
 		if _, ok := visited[vecName]; !ok {
 			if !common.VectorsEqual(vec, prevTargetVectors[vecName]) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func targetMultiVectorsEqual(prevTargetVectors, nextTargetVectors map[string][][]float32) bool {
+	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
+		return true
+	}
+
+	visited := map[string]struct{}{}
+	for vecName, vec := range prevTargetVectors {
+		if !common.MultiVectorsEqual(vec, nextTargetVectors[vecName]) {
+			return false
+		}
+		visited[vecName] = struct{}{}
+	}
+	for vecName, vec := range nextTargetVectors {
+		if _, ok := visited[vecName]; !ok {
+			if !common.MultiVectorsEqual(vec, prevTargetVectors[vecName]) {
 				return false
 			}
 		}

@@ -141,7 +141,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
 	})
 
 	for i, docID := range docIDs {
