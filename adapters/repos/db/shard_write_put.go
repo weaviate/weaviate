@@ -675,43 +675,30 @@ func uuidToString(u uuid.UUID) string {
 }
 
 func targetVectorsEqual(prevTargetVectors, nextTargetVectors map[string][]float32) bool {
-	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
-		return true
-	}
-
-	visited := map[string]struct{}{}
-	for vecName, vec := range prevTargetVectors {
-		if !common.VectorsEqual(vec, nextTargetVectors[vecName]) {
-			return false
-		}
-		visited[vecName] = struct{}{}
-	}
-	for vecName, vec := range nextTargetVectors {
-		if _, ok := visited[vecName]; !ok {
-			if !common.VectorsEqual(vec, prevTargetVectors[vecName]) {
-				return false
-			}
-		}
-	}
-
-	return true
+	return targetVectorsEqualCheck(prevTargetVectors, nextTargetVectors, common.VectorsEqual)
 }
 
 func targetMultiVectorsEqual(prevTargetVectors, nextTargetVectors map[string][][]float32) bool {
+	return targetVectorsEqualCheck(prevTargetVectors, nextTargetVectors, common.MultiVectorsEqual)
+}
+
+func targetVectorsEqualCheck[T []float32 | [][]float32](prevTargetVectors, nextTargetVectors map[string]T,
+	vectorsEqual func(vecA, vecB T) bool,
+) bool {
 	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
 		return true
 	}
 
 	visited := map[string]struct{}{}
 	for vecName, vec := range prevTargetVectors {
-		if !common.MultiVectorsEqual(vec, nextTargetVectors[vecName]) {
+		if !vectorsEqual(vec, nextTargetVectors[vecName]) {
 			return false
 		}
 		visited[vecName] = struct{}{}
 	}
 	for vecName, vec := range nextTargetVectors {
 		if _, ok := visited[vecName]; !ok {
-			if !common.MultiVectorsEqual(vec, prevTargetVectors[vecName]) {
+			if !vectorsEqual(vec, prevTargetVectors[vecName]) {
 				return false
 			}
 		}
