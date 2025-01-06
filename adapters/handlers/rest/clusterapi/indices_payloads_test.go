@@ -149,17 +149,17 @@ func (p searchParamsPayloadOld) Unmarshal(in []byte) ([]float32, string, float32
 func TestBackwardCompatibilitySearch(t *testing.T) {
 	payload := searchParamsPayload{}
 	tests := []struct {
-		SearchVectors [][]float32
+		SearchVectors []models.Vector
 		Targets       []string
 		compatible    bool
 	}{
 		{
-			SearchVectors: [][]float32{{1, 2, 3}, {4, 5, 6}},
+			SearchVectors: []models.Vector{[]float32{1, 2, 3}, []float32{4, 5, 6}},
 			Targets:       []string{"target1", "target2"},
 			compatible:    false,
 		},
 		{
-			SearchVectors: [][]float32{{1, 2, 3}},
+			SearchVectors: []models.Vector{[]float32{1, 2, 3}},
 			Targets:       []string{"target1"},
 			compatible:    true,
 		},
@@ -177,7 +177,7 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 
 			if tt.compatible {
 				payloadOld := searchParamsPayloadOld{}
-				b125, err := payloadOld.Marshal(tt.SearchVectors[0], tt.Targets[0], 10, nil, nil, nil, nil, nil, additional.Properties{})
+				b125, err := payloadOld.Marshal(tt.SearchVectors[0].([]float32), tt.Targets[0], 10, nil, nil, nil, nil, nil, additional.Properties{})
 				require.Nil(t, err)
 				vecsOld, targetsOld, _, _, _, _, _, _, _, _, err := payloadOld.Unmarshal(b126)
 				require.Nil(t, err)
@@ -189,6 +189,90 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.SearchVectors, vecs)
 				assert.Equal(t, tt.Targets, targets)
 
+			}
+		})
+	}
+}
+
+func Test_searchParametersPayload_Unmarshal(t *testing.T) {
+	tests := []struct {
+		name          string
+		payload       string
+		isMultiVector bool
+	}{
+		{
+			name: "regular vectors",
+			payload: `{
+				"limit": 10,
+				"TargetVectors": ["vector1", "vector2"],
+				"searchVectors": [[1.0, 2.0], [3.0, 4.0]]
+			}`,
+			isMultiVector: false,
+		},
+		{
+			name: "multi vectors",
+			payload: `{
+				"limit": 10,
+				"TargetVectors": ["vector1", "vector2"],
+				"searchVectors": [[[1.0, 2.0], [3.0, 4.0]], [[11.0], [33.0]]]
+			}`,
+			isMultiVector: true,
+		},
+		{
+			name: "empty search vectors",
+			payload: `{
+				"searchVector": [1,2,3],
+				"targetVector": "target1",
+				"limit": 10,
+				"filters": null,
+				"keywordRanking": null,
+				"sort": null,
+				"cursor": null,
+				"groupBy": null,
+				"additional": {
+					"classification": false,
+					"refMeta": false,
+					"vector": false,
+					"vectors": null,
+					"certainty": false,
+					"id": false,
+					"creationTimeUnix": false,
+					"lastUpdateTimeUnix": false,
+					"moduleParams": null,
+					"distance": false,
+					"score": false,
+					"explainScore": false,
+					"isConsistent": false,
+					"group": false,
+					"noProps": true
+				}
+			}`,
+			isMultiVector: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var par searchParametersPayload
+			err := json.Unmarshal([]byte(tt.payload), &par)
+			require.NoError(t, err)
+			if par.SearchVectors != nil {
+				require.Len(t, par.SearchVectors, 2)
+				if tt.isMultiVector {
+					for _, vec := range par.SearchVectors {
+						vector, ok := vec.([][]float32)
+						assert.True(t, ok)
+						assert.True(t, len(vector) > 0)
+					}
+				} else {
+					for _, vec := range par.SearchVectors {
+						vector, ok := vec.([]float32)
+						assert.True(t, ok)
+						assert.True(t, len(vector) > 0)
+					}
+				}
+			} else {
+				require.NotNil(t, par.Additional)
+				assert.True(t, par.Additional.NoProps)
 			}
 		})
 	}

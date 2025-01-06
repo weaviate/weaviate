@@ -217,31 +217,31 @@ func sqVectorIndexConfig() map[string]interface{} {
 
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, false, targetVectors...)
 }
 
 func getVectorsWithNearTextWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearVector(t *testing.T, client *wvt.Client,
 	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, false, targetVectors...)
 }
 
 func getVectorsWithNearVectorWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearObjectWithCertainty(t *testing.T, client *wvt.Client,
 	className, id string, nearObject *graphql.NearObjectArgumentBuilder, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearArgs(t, client, className, id, nil, nil, nearObject, nil, true, targetVectors...)
 }
 
@@ -253,7 +253,7 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	hybrid *graphql.HybridArgumentBuilder,
 	withCertainty bool,
 	targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	where := filters.Where().
 		WithPath([]string{"id"}).
 		WithOperator(filters.Equal).
@@ -307,11 +307,11 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 
 func getVectors(t *testing.T, client *wvt.Client,
 	className, id string, targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	return getVectorsWithNearText(t, client, className, id, nil, targetVectors...)
 }
 
-func checkTargetVectors(t *testing.T, resultVectors map[string][]float32) {
+func checkTargetVectors(t *testing.T, resultVectors map[string]models.Vector) {
 	require.NotEmpty(t, resultVectors[c11y])
 	require.NotEmpty(t, resultVectors[c11y_flat])
 	require.NotEmpty(t, resultVectors[c11y_pq])

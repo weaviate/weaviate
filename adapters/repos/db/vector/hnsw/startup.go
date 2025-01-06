@@ -14,6 +14,8 @@ package hnsw
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -33,6 +35,11 @@ func (h *hnsw) init(cfg Config) error {
 
 	if err := h.restoreFromDisk(); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
+	}
+	if h.multivector.Load() {
+		if err := h.restoreDocMappings(); err != nil {
+			return errors.Wrapf(err, "restore doc mappings %q", cfg.ID)
+		}
 	}
 
 	// init commit logger for future writes
@@ -194,6 +201,44 @@ func (h *hnsw) restoreFromDisk() error {
 	h.pools.visitedLists = nil
 	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
 
+	return nil
+}
+
+func (h *hnsw) restoreDocMappings() error {
+	prevDocID := uint64(0)
+	relativeID := uint64(0)
+	maxNodeID := uint64(0)
+	buf := make([]byte, 8)
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+		binary.BigEndian.PutUint64(buf, node.id)
+		docIDBytes, err := h.store.Bucket(h.id + "_mv_mappings").Get(buf)
+		if err != nil {
+			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
+		}
+		docID := binary.BigEndian.Uint64(docIDBytes)
+		if docID != prevDocID {
+			relativeID = 0
+			prevDocID = docID
+		}
+		if h.compressed.Load() {
+			h.compressor.SetKeys(node.id, docID, relativeID)
+		} else {
+			h.cache.SetKeys(node.id, docID, relativeID)
+		}
+		h.Lock()
+		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
+		h.Unlock()
+		relativeID++
+		if node.id > maxNodeID {
+			maxNodeID = node.id
+		}
+	}
+	h.Lock()
+	h.vecIDcounter = maxNodeID + 1
+	h.Unlock()
 	return nil
 }
 

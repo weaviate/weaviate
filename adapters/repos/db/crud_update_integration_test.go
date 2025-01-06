@@ -97,7 +97,7 @@ func TestUpdateJourney(t *testing.T) {
 					Limit: 100,
 				},
 				Properties: search.SelectProperties{{Name: "name"}},
-			}, []string{""}, [][]float32{searchVector})
+			}, []string{""}, []models.Vector{searchVector})
 
 			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
@@ -177,7 +177,7 @@ func TestUpdateJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -240,7 +240,7 @@ func TestUpdateJourney(t *testing.T) {
 				Limit: 100,
 			},
 			Properties: search.SelectProperties{{Name: "name"}},
-		}, []string{""}, [][]float32{searchVector})
+		}, []string{""}, []models.Vector{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",

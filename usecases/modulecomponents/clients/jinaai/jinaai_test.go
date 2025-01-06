@@ -40,7 +40,7 @@ func TestBuildUrlFn(t *testing.T) {
 			Model:   "",
 			BaseURL: "https://api.jina.ai",
 		}
-		url, err := buildUrl(settings)
+		url, err := EmbeddingsBuildUrlFn(settings)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.jina.ai/v1/embeddings", url)
 	})
@@ -50,7 +50,7 @@ func TestBuildUrlFn(t *testing.T) {
 			Model:   "",
 			BaseURL: "https://foobar.some.proxy",
 		}
-		url, err := buildUrl(settings)
+		url, err := EmbeddingsBuildUrlFn(settings)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
 	})
@@ -61,10 +61,10 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("apiKey", 0, 0, 0, buildUrlFn, nullLogger())
 
 		expected := &modulecomponents.VectorizationResult[[]float32]{
 			Text:       []string{"This is my text"},
@@ -85,10 +85,10 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New[[][]float32]("apiKey", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[][]float32]("apiKey", 0, 0, 0, buildUrlFn, nullLogger())
 
 		expected := &modulecomponents.VectorizationResult[[][]float32]{
 			Text:       []string{"This is my text"},
@@ -108,10 +108,11 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("apiKey", 0, 0, 0, buildUrlFn, nullLogger())
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -128,10 +129,11 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New[[]float32]("apiKey", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("apiKey", 0, 0, 0, buildUrlFn, nullLogger())
 
 		_, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, defaultSettings)
 
@@ -142,10 +144,11 @@ func TestClient(t *testing.T) {
 	t.Run("when JinaAI key is passed using X-Jinaai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New[[]float32]("", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("", 0, 0, 0, buildUrlFn, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{"some-key"})
@@ -167,10 +170,11 @@ func TestClient(t *testing.T) {
 	t.Run("when JinaAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New[[]float32]("", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("", 0, 0, 0, buildUrlFn, nullLogger())
 
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -186,10 +190,11 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Jinaai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New[[]float32]("", 0, 0, 0, nullLogger())
-		c.buildUrlFn = func(settings Settings) (string, error) {
+
+		buildUrlFn := func(settings Settings) (string, error) {
 			return server.URL, nil
 		}
+		c := New[[]float32]("", 0, 0, 0, buildUrlFn, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Jinaai-Api-Key", []string{""})

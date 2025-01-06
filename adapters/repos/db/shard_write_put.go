@@ -27,9 +27,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
@@ -769,7 +769,7 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 	return true
 }
 
-func updateVectorInVectorIndex[T types.Embedding](ctx context.Context, vector T,
+func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, vector T,
 	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need

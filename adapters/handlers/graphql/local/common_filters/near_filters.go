@@ -38,7 +38,7 @@ func NearVectorFields(prefix string, addTarget bool) graphql.InputObjectConfigFi
 	fieldMap := graphql.InputObjectConfigFieldMap{
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Vector,
-			Type:        graphql.NewList(graphql.Float),
+			Type:        Vector(prefix),
 		},
 		"vectorPerTarget": &graphql.InputObjectFieldConfig{
 			Description: "Vector per target",

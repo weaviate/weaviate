@@ -95,6 +95,7 @@ import (
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
@@ -924,6 +925,7 @@ func registerModules(appState *state.State) error {
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
 		modweaviateembed.Name,
+		modtext2colbertjinaai.Name,
 	}
 	defaultGenerative := []string{
 		modgenerativeanthropic.Name,
@@ -1383,6 +1385,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modtext2vecoctoai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2colbertjinaai.Name]; ok {
+		appState.Modules.Register(modtext2colbertjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2colbertjinaai.Name).
 			Debug("enabled module")
 	}
 

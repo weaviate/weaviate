@@ -247,7 +247,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	vectors models.Vectors, multiVectors models.MultiVectors, repl *additional.ReplicationProperties, schemaVersion uint64,
+	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
