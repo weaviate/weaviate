@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -114,6 +115,29 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// remove old permissions
+	for roleName, policies := range req.Roles {
+		pol := []*authorization.Policy{}
+		for _, p := range policies {
+			pol = append(pol, &p)
+		}
+		if err := m.authZ.RemovePermissions(roleName, pol); err != nil {
+			return err
+		}
+	}
+
+	for roleName, policies := range req.Roles {
+		for idx := range policies {
+			if req.Roles[roleName][idx].Domain == authorization.SchemaDomain {
+				parts := strings.Split(req.Roles[roleName][idx].Resource, "/")
+				if len(parts) < 3 {
+					return fmt.Errorf("invalid schema path")
+				}
+				req.Roles[roleName][idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
+			}
+		}
+	}
+
 	return m.authZ.UpsertRolesPermissions(req.Roles)
 }
 
@@ -139,6 +163,22 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 	req := &cmd.RemovePermissionsRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// keep to remove old formats
+	if err := m.authZ.RemovePermissions(req.Role, req.Permissions); err != nil {
+		return err
+	}
+
+	// remove any added with new format after migration
+	for idx := range req.Permissions {
+		if req.Permissions[idx].Domain == authorization.SchemaDomain {
+			parts := strings.Split(req.Permissions[idx].Resource, "/")
+			if len(parts) < 3 {
+				return fmt.Errorf("invalid schema path")
+			}
+			req.Permissions[idx].Resource = authorization.CollectionsMetadata(parts[2])[0]
+		}
 	}
 
 	return m.authZ.RemovePermissions(req.Role, req.Permissions)
