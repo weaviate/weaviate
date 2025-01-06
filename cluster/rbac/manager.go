@@ -143,7 +143,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 			}
 		}
 	default:
-		//no thing
+		// do nothing
 	}
 
 	return m.authZ.UpsertRolesPermissions(req.Roles)
