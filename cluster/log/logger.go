@@ -24,9 +24,8 @@ import (
 
 func NewHCLogrusLogger(name string, logger *logrus.Logger) hclog.Logger {
 	return &hclogLogrus{
-		logger: logger,
-		entry:  logrus.NewEntry(logger),
-		name:   fmt.Sprintf("%s ", name),
+		entry: logrus.NewEntry(logger),
+		name:  fmt.Sprintf("%s ", name),
 	}
 }
 
@@ -34,13 +33,7 @@ func NewHCLogrusLogger(name string, logger *logrus.Logger) hclog.Logger {
 type hclogLogrus struct {
 	// entry is global set of fields shared by single logger
 	entry *logrus.Entry
-
-	// logger is underlying `logrus.Logger` that is used to create `logrus.Entry`
-	// for each log lines logged by `hclog.Logger`.
-	// we need this otherwise using *global* entry can duplicate fields from previous log lines.
-	// https://github.com/weaviate/weaviate/pull/6830
-	logger *logrus.Logger
-	name   string
+	name  string
 }
 
 func (hclogger *hclogLogrus) GetLevel() hclog.Level {
@@ -114,8 +107,7 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
 	// we create new log entry merging per-logger `fields` (hclogger.entry)
-	entry := logrus.NewEntry(hclogger.logger)
-	entry = entry.WithFields(hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)).Data)
+	entry := hclogger.entry.WithFields(hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)).Data)
 	entry.Log(level, msg)
 }
 
@@ -141,9 +133,8 @@ func (hclogger *hclogLogrus) IsError() bool {
 
 func (hclogger *hclogLogrus) With(args ...interface{}) hclog.Logger {
 	return &hclogLogrus{
-		logger: hclogger.logger,
-		name:   hclogger.name,
-		entry:  hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
+		name:  hclogger.name,
+		entry: hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
 	}
 }
 
@@ -173,9 +164,8 @@ func (hclogger *hclogLogrus) Named(name string) hclog.Logger {
 
 func (hclogger *hclogLogrus) ResetNamed(name string) hclog.Logger {
 	return &hclogLogrus{
-		name:   name,
-		entry:  hclogger.entry,
-		logger: hclogger.logger,
+		name:  name,
+		entry: hclogger.entry,
 	}
 }
 
