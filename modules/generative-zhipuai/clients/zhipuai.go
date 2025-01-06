@@ -37,22 +37,22 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildUrlFn(baseURL string) (string, error) {
-	 
+
 	path := "chat/completions"
-	 
+
 	return url.JoinPath(baseURL, path)
 }
 
 type zhipuai struct {
-	zhipuAIApiKey       string 
-	buildUrl           func(baseURL string) (string, error)
-	httpClient         *http.Client
-	logger             logrus.FieldLogger
+	zhipuAIApiKey string
+	buildUrl      func(baseURL string) (string, error)
+	httpClient    *http.Client
+	logger        logrus.FieldLogger
 }
 
 func New(zhipuAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *zhipuai {
 	return &zhipuai{
-		zhipuAIApiKey:       zhipuAIApiKey, 
+		zhipuAIApiKey: zhipuAIApiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -78,7 +78,7 @@ func (v *zhipuai) GenerateAllResults(ctx context.Context, textProperties []map[s
 }
 
 func (v *zhipuai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	params := v.getParameters(cfg, options) 
+	params := v.getParameters(cfg, options)
 	fmt.Println(params)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
@@ -91,8 +91,7 @@ func (v *zhipuai) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	if err != nil {
 		return nil, errors.Wrap(err, "generate input")
 	}
-	// print input
-	fmt.Println(input)
+
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -105,10 +104,10 @@ func (v *zhipuai) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ZhipuAI API Key")
+		return nil, errors.Wrap(err, "ZhipuAI API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
- 
+
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -117,7 +116,6 @@ func (v *zhipuai) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	}
 	defer res.Body.Close()
 
-	requestID := res.Header.Get("x-request-id")
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
@@ -125,9 +123,9 @@ func (v *zhipuai) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, errors.Wrap(err, "failed to unmarshal response body")
 	}
-
+	requestID := resBody.RequestId
 	if res.StatusCode != 200 || resBody.Error != nil {
 		return nil, v.getError(res.StatusCode, requestID, resBody.Error)
 	}
@@ -170,7 +168,7 @@ func (v *zhipuai) getParameters(cfg moduletools.ClassConfig, options interface{}
 
 	if params.BaseURL == "" {
 		params.BaseURL = settings.BaseURL()
-	} 
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}
@@ -181,7 +179,7 @@ func (v *zhipuai) getParameters(cfg moduletools.ClassConfig, options interface{}
 	if params.TopP == nil {
 		topP := settings.TopP()
 		params.TopP = &topP
-	} 
+	}
 	if params.MaxTokens == nil {
 		maxTokens := int(settings.MaxTokens())
 		params.MaxTokens = &maxTokens
@@ -216,7 +214,7 @@ func GetResponseParams(result map[string]interface{}) *responseParams {
 
 func (v *zhipuai) buildZhipuAIUrl(ctx context.Context, params zhipuaiparams.Params) (string, error) {
 	baseURL := params.BaseURL
- 
+
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Zhipuai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
@@ -237,14 +235,14 @@ func (v *zhipuai) generateInput(prompt string, params zhipuaiparams.Params) (gen
 		},
 	}}
 	input = generateInput{
-		Messages:         messages,
-		Stream:           false, 
-		Model:        	  params.Model,  
-		MaxTokens:        params.MaxTokens,  
-		Stop:             params.Stop,
-		Temperature:      params.Temperature,
-		TopP:             params.TopP,
-		Tools:            tools,
+		Messages:    messages,
+		Stream:      false,
+		Model:       params.Model,
+		MaxTokens:   params.MaxTokens,
+		Stop:        params.Stop,
+		Temperature: params.Temperature,
+		TopP:        params.TopP,
+		Tools:       tools,
 	}
 	return input, nil
 }
@@ -260,7 +258,6 @@ func (v *zhipuai) getError(statusCode int, requestID string, resBodyError *zhipu
 	}
 	return errors.New(errorMsg)
 }
- 
 
 func (v *zhipuai) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 
@@ -323,25 +320,24 @@ func (v *zhipuai) getValueFromContext(ctx context.Context, key string) string {
 	}
 
 	return ""
-} 
+}
 
 type generateInput struct {
-	Prompt           string    `json:"prompt,omitempty"`
-	Messages         []message `json:"messages,omitempty"`
-	Stream           bool      `json:"stream,omitempty"`
-	Model            string    `json:"model,omitempty"`   
-	MaxTokens        *int      `json:"max_tokens,omitempty"`  
-	Stop             []string  `json:"stop,omitempty"`
-	Temperature      *float64  `json:"temperature,omitempty"`
-	TopP             *float64  `json:"top_p,omitempty"`
-	Tools            []tool    `json:"tools,omitempty"`
+	Prompt      string    `json:"prompt,omitempty"`
+	Messages    []message `json:"messages,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	Stop        []string  `json:"stop,omitempty"`
+	Temperature *float64  `json:"temperature,omitempty"`
+	TopP        *float64  `json:"top_p,omitempty"`
+	Tools       []tool    `json:"tools,omitempty"`
 }
 
 type tool struct {
-	Type string `json:"type"`
+	Type      string     `json:"type"`
 	WebSearch *webSearch `json:"web_search,omitempty"`
 }
- 
 
 type webSearch struct {
 	Enable bool `json:"enable"`
@@ -354,9 +350,10 @@ type message struct {
 }
 
 type generateResponse struct {
-	Choices []choice
-	Usage   *usage          `json:"usage,omitempty"`
-	Error   *zhipuAIApiError `json:"error,omitempty"`
+	RequestId string `json:"request_id,omitempty"`
+	Choices   []choice
+	Usage     *usage           `json:"usage,omitempty"`
+	Error     *zhipuAIApiError `json:"error,omitempty"`
 }
 
 type choice struct {
@@ -367,9 +364,9 @@ type choice struct {
 }
 
 type zhipuAIApiError struct {
-	Message string     `json:"message"`
-	Type    string     `json:"type"`
-	Param   string     `json:"param"`
+	Message string      `json:"message"`
+	Type    string      `json:"type"`
+	Param   string      `json:"param"`
 	Code    zhipuAICode `json:"code"`
 }
 

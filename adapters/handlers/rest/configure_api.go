@@ -1175,7 +1175,6 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-
 	if _, ok := enabledModules[modgenerativezhipuai.Name]; ok {
 		appState.Modules.Register(modgenerativezhipuai.New())
 		appState.Logger.

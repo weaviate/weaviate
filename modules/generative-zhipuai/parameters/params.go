@@ -17,12 +17,12 @@ import (
 )
 
 type Params struct {
-	BaseURL          string
-	Model            string 
-	MaxTokens        *int  
-	Stop             []string
-	Temperature      *float64
-	TopP             *float64
+	BaseURL     string
+	Model       string
+	MaxTokens   *int
+	Stop        []string
+	Temperature *float64
+	TopP        *float64
 }
 
 func extract(field *ast.ObjectField) interface{} {

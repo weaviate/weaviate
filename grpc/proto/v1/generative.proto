@@ -122,12 +122,12 @@ message GenerativeOpenAI{
 }
 
 message GenerativeZhipuAI{
-  optional int64 max_tokens = 2;
-  string model = 3;
-  optional TextArray stop = 6;
-  optional double temperature = 7;
-  optional double top_p = 8;
-  optional string base_url = 9;
+  optional int64 max_tokens = 1;
+  string model = 2;
+  optional TextArray stop = 3;
+  optional double temperature = 4;
+  optional double top_p = 5;
+  optional string base_url = 6;
 }
 
 message GenerativeGoogle{

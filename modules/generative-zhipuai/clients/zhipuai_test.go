@@ -49,7 +49,7 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "https://open.bigmodel.cn/api/paas/v4/chat/completions", url)
 	})
- 
+
 }
 
 func TestGetAnswer(t *testing.T) {
@@ -95,7 +95,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("zhipuAIApiKey",0, nullLogger())
+		c := New("zhipuAIApiKey", 0, nullLogger())
 		c.buildUrl = func(baseURL string) (string, error) {
 			return fakeBuildUrl(server.URL, baseURL)
 		}
@@ -118,7 +118,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("zhipuAIApiKey",0, nullLogger())
+		c := New("zhipuAIApiKey", 0, nullLogger())
 		c.buildUrl = func(baseURL string) (string, error) {
 			return fakeBuildUrl(server.URL, baseURL)
 		}
@@ -133,13 +133,13 @@ func TestGetAnswer(t *testing.T) {
 		params := zhipuaiparams.Params{
 			BaseURL: "http://default-url.com/api/paas/v4",
 		}
-		c := New("zhipuAIApiKey",0, nullLogger())
-  
-		buildURL, err :=  c.buildZhipuAIUrl(context.TODO(), params)
+		c := New("zhipuAIApiKey", 0, nullLogger())
+
+		buildURL, err := c.buildZhipuAIUrl(context.TODO(), params)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/api/paas/v4/chat/completions", buildURL)
 	})
- 
+
 }
 
 type testAnswerHandler struct {

@@ -268,16 +268,15 @@ func (p *Parser) zhipuai(in *pb.GenerativeZhipuAI) map[string]any {
 	}
 	return map[string]any{
 		zhipuaiParams.Name: zhipuaiParams.Params{
-			BaseURL:          in.GetBaseUrl(),
-			Model:            in.GetModel(),
-			MaxTokens:        p.int64ToInt(in.MaxTokens),
-			Stop:             in.Stop.GetValues(),
-			Temperature:      in.Temperature,
-			TopP:             in.TopP,
+			BaseURL:     in.GetBaseUrl(),
+			Model:       in.GetModel(),
+			MaxTokens:   p.int64ToInt(in.MaxTokens),
+			Stop:        in.Stop.GetValues(),
+			Temperature: in.Temperature,
+			TopP:        in.TopP,
 		},
 	}
 }
-
 
 func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {

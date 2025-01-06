@@ -726,11 +726,11 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Zhipuai{
 								Zhipuai: &pb.GenerativeZhipuAI{
-									BaseUrl:          makeStrPtr("baseURL"),
-									MaxTokens:        makeInt64Ptr(10),
-									Model:            "model",
-									Temperature:      makeFloat64Ptr(0.5),
-									TopP:             makeFloat64Ptr(0.5),
+									BaseUrl:     makeStrPtr("baseURL"),
+									MaxTokens:   makeInt64Ptr(10),
+									Model:       "model",
+									Temperature: makeFloat64Ptr(0.5),
+									TopP:        makeFloat64Ptr(0.5),
 									Stop: &pb.TextArray{
 										Values: []string{"stop"},
 									},
@@ -744,12 +744,12 @@ func Test_RequestParser(t *testing.T) {
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
 					"zhipuai": zhipuai.Params{
-						BaseURL:          "baseURL",
-						MaxTokens:        makeIntPtr(10),
-						Model:            "model",
-						Temperature:      makeFloat64Ptr(0.5),
-						TopP:             makeFloat64Ptr(0.5),
-						Stop:             []string{"stop"},
+						BaseURL:     "baseURL",
+						MaxTokens:   makeIntPtr(10),
+						Model:       "model",
+						Temperature: makeFloat64Ptr(0.5),
+						TopP:        makeFloat64Ptr(0.5),
+						Stop:        []string{"stop"},
 					},
 				},
 			},

@@ -19,58 +19,54 @@ import (
 )
 
 const (
-	modelProperty            = "model"
-	temperatureProperty      = "temperature"
-	maxTokensProperty        = "maxTokens" 
-	topPProperty             = "topP"
-	baseURLProperty          = "baseURL" 
+	modelProperty       = "model"
+	temperatureProperty = "temperature"
+	maxTokensProperty   = "maxTokens"
+	topPProperty        = "topP"
+	baseURLProperty     = "baseURL"
 )
-
 
 var availableZhipuAIModels = []string{
 	"glm-4",
 	"glm-4-plus",
-	"glm-4-air", 
-	"glm-4-airx", 
-	"glm-4-0520", 
+	"glm-4-air",
+	"glm-4-airx",
+	"glm-4-0520",
 	"glm-4-long",
 	"glm-4-flashx",
 	"glm-4-flash",
 }
 
 var (
-	DefaultZhipuAIModel            = "glm-4"
-	DefaultZhipuAITemperature      = 0.0
-	DefaultZhipuAIMaxTokens        = defaultMaxTokens[DefaultZhipuAIModel] 
-	DefaultZhipuAITopP             = 1.0
-	DefaultZhipuAIBaseURL          = "https://open.bigmodel.cn/api/paas/v4" 
+	DefaultZhipuAIModel       = "glm-4"
+	DefaultZhipuAITemperature = 0.0
+	DefaultZhipuAIMaxTokens   = defaultMaxTokens[DefaultZhipuAIModel]
+	DefaultZhipuAITopP        = 1.0
+	DefaultZhipuAIBaseURL     = "https://open.bigmodel.cn/api/paas/v4"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
-var defaultMaxTokens = map[string]float64{ 
+var defaultMaxTokens = map[string]float64{
 
-	"glm-4": 4095,
-	"glm-4-plus": 4095,
-	"glm-4-air": 4095,
-	"glm-4-airx": 4095,
-	"glm-4-0520": 4095,
-	"glm-4-long": 4095,
+	"glm-4":        4095,
+	"glm-4-plus":   4095,
+	"glm-4-air":    4095,
+	"glm-4-airx":   4095,
+	"glm-4-0520":   4095,
+	"glm-4-long":   4095,
 	"glm-4-flashx": 4095,
-	"glm-4-flash": 4095,
+	"glm-4-flash":  4095,
 }
- 
 
 func GetMaxTokensForModel(model string) float64 {
 	return defaultMaxTokens[model]
 }
- 
-  
 
 type ClassSettings interface {
 	Model() string
 	MaxTokens() float64
-	Temperature() float64 
-	TopP() float64  
+	Temperature() float64
+	TopP() float64
 	Validate(class *models.Class) error
 	BaseURL() string
 }
@@ -104,12 +100,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > GetMaxTokensForModel(DefaultZhipuAIModel)) {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
- 
+
 	topP := ic.getFloatProperty(topPProperty, &DefaultZhipuAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
 	}
-
 
 	return nil
 }
@@ -132,7 +127,7 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableZhipuAIModels, model)
 }
- 
+
 func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultZhipuAIModel)
 }
@@ -144,16 +139,15 @@ func (ic *classSettings) MaxTokens() float64 {
 func (ic *classSettings) BaseURL() string {
 	return *ic.getStringProperty(baseURLProperty, DefaultZhipuAIBaseURL)
 }
- 
+
 func (ic *classSettings) Temperature() float64 {
 	return *ic.getFloatProperty(temperatureProperty, &DefaultZhipuAITemperature)
 }
- 
 
 func (ic *classSettings) TopP() float64 {
 	return *ic.getFloatProperty(topPProperty, &DefaultZhipuAITopP)
-} 
- 
+}
+
 func contains[T comparable](s []T, e T) bool {
 	for _, v := range s {
 		if v == e {
