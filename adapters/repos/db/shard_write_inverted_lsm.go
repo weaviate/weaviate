@@ -18,7 +18,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"os"
 	"sync"
 
 	"github.com/pkg/errors"
