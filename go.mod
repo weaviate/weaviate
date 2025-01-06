@@ -34,7 +34,7 @@ require (
 	go.etcd.io/bbolt v1.3.11
 	go.opentelemetry.io/otel v1.32.0 // indirect
 	golang.org/x/net v0.33.0
-	golang.org/x/oauth2 v0.24.0
+	golang.org/x/oauth2 v0.25.0
 	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.28.0
 	gonum.org/v1/gonum v0.12.0
