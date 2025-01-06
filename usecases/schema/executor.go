@@ -238,9 +238,10 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
-	s := e.schemaReader.ReadOnlySchema()
 	for _, cb := range e.callbacks {
+		cb := cb
 		enterrors.GoWrapper(func() {
+			s := e.schemaReader.ReadOnlySchema()
 			cb(schema.Schema{
 				Objects: &s,
 			})
