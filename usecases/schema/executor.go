@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -63,7 +64,10 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
 		}
 	}
-	e.TriggerSchemaUpdateCallbacks()
+	enterrors.GoWrapper(func() {
+		e.TriggerSchemaUpdateCallbacks()
+	}, e.logger)
+
 	return errList
 }
 
