@@ -28,7 +28,6 @@ func Test_hclogger(t *testing.T) {
 	v := NewHCLogrusLogger("test", r)
 
 	v.Warn("Election time out")
-	// fmt.Println(strings.Contains("Election time out", buf.String()))
 	assert.Contains(t, buf.String(), "Election time out")
 	buf.Reset()
 
