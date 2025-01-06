@@ -57,12 +57,16 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 
 	var errList error
 	for i, u := range all {
-		e.logger.WithField("index", u.Class.Class).Info("reload local index")
-		cs[i] = u.Class
-		if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-			e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
-			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
-		}
+		i := i
+		u := u
+		enterrors.GoWrapper(func() {
+			e.logger.WithField("index", u.Class.Class).Info("reload local index")
+			cs[i] = u.Class
+			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
+				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
+			}
+		}, e.logger)
 	}
 	e.TriggerSchemaUpdateCallbacks()
 	return errList
