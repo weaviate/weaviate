@@ -38,6 +38,7 @@ type hclogLogrus struct {
 	// logger is underlying `logrus.Logger` that is used to create `logrus.Entry`
 	// for each log lines logged by `hclog.Logger`.
 	// we need this otherwise using *global* entry can duplicate fields from previous log lines.
+	// https://github.com/weaviate/weaviate/pull/6830
 	logger *logrus.Logger
 	name   string
 }
