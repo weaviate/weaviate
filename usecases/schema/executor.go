@@ -245,7 +245,6 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 				Objects: &s,
 			})
 		}, e.logger)
-
 	}
 }
 
