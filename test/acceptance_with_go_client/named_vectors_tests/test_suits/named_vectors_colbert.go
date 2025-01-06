@@ -349,5 +349,109 @@ func testColBERT(host string) func(t *testing.T) {
 				require.NoError(t, err)
 			})
 		})
+
+		t.Run("validate multi vector dimensions", func(t *testing.T) {
+			className := fixtures.BringYourOwnColBERTClassName
+			objects := fixtures.BringYourOwnColBERTObjects
+			byoc := fixtures.BringYourOwnColBERTNamedVectorName
+
+			t.Run("batch create", func(t *testing.T) {
+				cleanup()
+
+				t.Run("create schema", func(t *testing.T) {
+					class := fixtures.BringYourOwnColBERTClass(className)
+					err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+					require.NoError(t, err)
+				})
+
+				t.Run("batch create objects", func(t *testing.T) {
+					obj1 := &models.Object{
+						Class: className,
+						ID:    strfmt.UUID(objects[0].ID),
+						Properties: map[string]interface{}{
+							"name": objects[0].Name,
+						},
+						Vectors: models.Vectors{
+							byoc: objects[0].Vector,
+						},
+					}
+					objWrongDimensions := &models.Object{
+						Class: className,
+						ID:    strfmt.UUID(objects[1].ID),
+						Properties: map[string]interface{}{
+							"name": objects[1].Name,
+						},
+						Vectors: models.Vectors{
+							byoc: [][]float32{{0.12, 0.12}, {0.11}},
+						},
+					}
+					resp, err := client.Batch().ObjectsBatcher().
+						WithObjects(obj1, objWrongDimensions).
+						Do(ctx)
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					success, failed := false, false
+					for i := range resp {
+						if *resp[i].Result.Status == "SUCCESS" {
+							success = true
+						}
+						if *resp[i].Result.Status == "FAILED" {
+							failed = true
+						}
+					}
+					assert.True(t, success)
+					assert.True(t, failed)
+				})
+			})
+
+			t.Run("insert", func(t *testing.T) {
+				cleanup()
+
+				t.Run("create schema", func(t *testing.T) {
+					class := fixtures.BringYourOwnColBERTClass(className)
+					err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+					require.NoError(t, err)
+				})
+
+				t.Run("batch create objects", func(t *testing.T) {
+					obj1 := &models.Object{
+						Class: className,
+						ID:    strfmt.UUID(objects[0].ID),
+						Properties: map[string]interface{}{
+							"name": objects[0].Name,
+						},
+						Vectors: models.Vectors{
+							byoc: objects[0].Vector,
+						},
+					}
+					resp, err := client.Batch().ObjectsBatcher().
+						WithObjects(obj1).
+						Do(ctx)
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.Equal(t, "SUCCESS", *resp[0].Result.Status)
+				})
+
+				t.Run("insert additional object", func(t *testing.T) {
+					objWrongDimensions := &models.Object{
+						Class: className,
+						ID:    strfmt.UUID(objects[1].ID),
+						Properties: map[string]interface{}{
+							"name": objects[1].Name,
+						},
+						Vectors: models.Vectors{
+							byoc: [][]float32{{0.12, 0.12}, {0.11}},
+						},
+					}
+					_, err := client.Data().Creator().
+						WithClassName(objWrongDimensions.Class).
+						WithID(objWrongDimensions.ID.String()).
+						WithProperties(objWrongDimensions.Properties).
+						WithVectors(objWrongDimensions.Vectors).
+						Do(ctx)
+					require.Error(t, err)
+				})
+			})
+		})
 	}
 }

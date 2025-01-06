@@ -309,6 +309,7 @@ func mergeProps(previous *storobj.Object,
 
 	if len(merge.Vectors) == 0 {
 		next.Vectors = previous.Vectors
+		next.MultiVectors = previous.MultiVectors
 	} else {
 		next.Vectors = vectorsAsMap(merge.Vectors)
 		next.MultiVectors = multiVectorsAsMap(merge.Vectors)
