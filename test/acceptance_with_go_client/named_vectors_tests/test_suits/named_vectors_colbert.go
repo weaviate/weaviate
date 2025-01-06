@@ -185,6 +185,38 @@ func testColBERT(host string) func(t *testing.T) {
 					})
 				}
 			})
+
+			t.Run("wait for indexing", func(t *testing.T) {
+				testAllObjectsIndexed(t, client, className)
+			})
+
+			t.Run("near vector", func(t *testing.T) {
+				nearVector := client.GraphQL().NearVectorArgBuilder().
+					WithVector([][]float32{{-0.000001, -0.000001}, {-0.000001, -0.000001}, {-0.000001, -0.000001}}).
+					WithTargetVectors(byoc)
+				resp, err := client.GraphQL().Get().
+					WithClassName(className).
+					WithNearVector(nearVector).
+					WithFields(_additional).
+					Do(ctx)
+				require.NoError(t, err)
+				ids := acceptance_with_go_client.GetIds(t, resp, className)
+				require.NotEmpty(t, ids)
+			})
+
+			t.Run("near object", func(t *testing.T) {
+				nearVector := client.GraphQL().NearVectorArgBuilder().
+					WithVector([][]float32{{-0.000001, -0.000001}, {-0.000001, -0.000001}, {-0.000001, -0.000001}}).
+					WithTargetVectors(byoc)
+				resp, err := client.GraphQL().Get().
+					WithClassName(className).
+					WithNearVector(nearVector).
+					WithFields(_additional).
+					Do(ctx)
+				require.NoError(t, err)
+				ids := acceptance_with_go_client.GetIds(t, resp, className)
+				require.NotEmpty(t, ids)
+			})
 		})
 
 		t.Run("multi vector validation", func(t *testing.T) {
