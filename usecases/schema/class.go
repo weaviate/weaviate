@@ -762,6 +762,15 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
+		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
+			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer))
+			if err != nil {
+				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
+			}
+			if parsed.IsMultiVector() {
+				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+			}
+		}
 		return nil
 	}
 
