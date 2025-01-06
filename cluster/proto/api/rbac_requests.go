@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	// in case changes happens to the RBAC message, add new version before the LatestCommandVersion
+	// in case changes happens to the RBAC message, add new version before the RBACLatestCommandPolicyVersion
 	// RBACCommandPolicyVersionV0 represents the first version of RBAC commands
 	RBACCommandPolicyVersionV0 = iota
 
