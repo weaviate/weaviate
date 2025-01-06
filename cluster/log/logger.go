@@ -32,7 +32,7 @@ func NewHCLogrusLogger(name string, logger *logrus.Logger) hclog.Logger {
 
 // hclogLogrus is an adapter logger between `logrus.Logger` and `hclog.Logger`.
 type hclogLogrus struct {
-	// entry is single log line entry
+	// entry is global set of fields shared by single logger
 	entry *logrus.Entry
 
 	// logger is underlying `logrus.Logger` that is used to create `logrus.Entry`
@@ -113,6 +113,7 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 }
 
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
+	// we create new log entry merging per-logger `fields` (hclogger.entry)
 	entry := logrus.NewEntry(hclogger.logger)
 	entry = entry.WithFields(hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)).Data)
 	entry.Log(level, msg)
