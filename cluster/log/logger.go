@@ -24,14 +24,22 @@ import (
 
 func NewHCLogrusLogger(name string, logger *logrus.Logger) hclog.Logger {
 	return &hclogLogrus{
-		entry: logrus.NewEntry(logger),
-		name:  fmt.Sprintf("%s ", name),
+		logger: logger,
+		entry:  logrus.NewEntry(logger),
+		name:   fmt.Sprintf("%s ", name),
 	}
 }
 
+// hclogLogrus is an adapter logger between `logrus.Logger` and `hclog.Logger`.
 type hclogLogrus struct {
+	// entry is single log line entry
 	entry *logrus.Entry
-	name  string
+
+	// logger is underlying `logrus.Logger` that is used to create `logrus.Entry`
+	// for each log lines logged by `hclog.Logger`.
+	// we need this otherwise using *global* entry can duplicate fields from previous log lines.
+	logger *logrus.Logger
+	name   string
 }
 
 func (hclogger *hclogLogrus) GetLevel() hclog.Level {
@@ -104,6 +112,7 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 }
 
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
+	hclogger.entry = logrus.NewEntry(hclogger.logger)
 	hclogger.entry = hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name))
 	hclogger.entry.Log(level, msg)
 }
@@ -130,8 +139,9 @@ func (hclogger *hclogLogrus) IsError() bool {
 
 func (hclogger *hclogLogrus) With(args ...interface{}) hclog.Logger {
 	return &hclogLogrus{
-		name:  hclogger.name,
-		entry: hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
+		logger: hclogger.logger,
+		name:   hclogger.name,
+		entry:  hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
 	}
 }
 
