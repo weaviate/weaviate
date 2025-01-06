@@ -24,10 +24,9 @@ import (
 
 func NewHCLogrusLogger(name string, logger *logrus.Logger) hclog.Logger {
 	return &hclogLogrus{
-		logger:     logger,
-		entry:      logrus.NewEntry(logger),
-		name:       fmt.Sprintf("%s ", name),
-		withFields: logrus.NewEntry(logger),
+		logger: logger,
+		entry:  logrus.NewEntry(logger),
+		name:   fmt.Sprintf("%s ", name),
 	}
 }
 
@@ -41,12 +40,7 @@ type hclogLogrus struct {
 	// we need this otherwise using *global* entry can duplicate fields from previous log lines.
 	// https://github.com/weaviate/weaviate/pull/6830
 	logger *logrus.Logger
-
-	// withFields represents any additional fields added via `With` api.
-	// Global per logger and should be isolated from actual log lines.
-	withFields *logrus.Entry
-
-	name string
+	name   string
 }
 
 func (hclogger *hclogLogrus) GetLevel() hclog.Level {
@@ -119,9 +113,9 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 }
 
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
-	hclogger.entry = logrus.NewEntry(hclogger.logger)
-	hclogger.entry = hclogger.entryWith(args).WithField("action", strings.TrimSpace(hclogger.name))
-	hclogger.entry.Log(level, msg)
+	entry := logrus.NewEntry(hclogger.logger)
+	entry = entry.WithFields(hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)).Data)
+	entry.Log(level, msg)
 }
 
 func (hclogger *hclogLogrus) IsTrace() bool {
@@ -146,31 +140,14 @@ func (hclogger *hclogLogrus) IsError() bool {
 
 func (hclogger *hclogLogrus) With(args ...interface{}) hclog.Logger {
 	return &hclogLogrus{
-		logger:     hclogger.logger,
-		name:       hclogger.name,
-		withFields: hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
-		entry:      logrus.NewEntry(hclogger.logger),
+		logger: hclogger.logger,
+		name:   hclogger.name,
+		entry:  hclogger.loggerWith(args).WithField("action", strings.TrimSpace(hclogger.name)),
 	}
 }
 
-// loggerWith mutates the local `entry` that is local per log line.
-func (hclogger *hclogLogrus) entryWith(args []interface{}) *logrus.Entry {
-	// here we combine `withFields` (global to logger) and passed `args` to local `logrus.Entry`
-	entry := hclogger.withFields.Dup()
-
-	// merge per log line args
-	entry = hclogger.appendFields(entry, args)
-	return entry
-}
-
-// loggerWith mutates the `withFields` that is global to single logger.
 func (hclogger *hclogLogrus) loggerWith(args []interface{}) *logrus.Entry {
-	return hclogger.appendFields(hclogger.withFields, args)
-}
-
-// appendFields merge given `logrus.Entry` with additional fields.
-func (hclogger *hclogLogrus) appendFields(entry *logrus.Entry, args []interface{}) *logrus.Entry {
-	l := entry
+	l := hclogger.entry
 	ml := len(args)
 	var key string
 	for i := 0; i < ml-1; i += 2 {
@@ -195,10 +172,9 @@ func (hclogger *hclogLogrus) Named(name string) hclog.Logger {
 
 func (hclogger *hclogLogrus) ResetNamed(name string) hclog.Logger {
 	return &hclogLogrus{
-		name:       name,
-		entry:      hclogger.entry,
-		logger:     hclogger.logger,
-		withFields: hclogger.withFields,
+		name:   name,
+		entry:  hclogger.entry,
+		logger: hclogger.logger,
 	}
 }
 
