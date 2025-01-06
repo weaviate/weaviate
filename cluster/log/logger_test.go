@@ -49,6 +49,7 @@ func Test_hclogger(t *testing.T) {
 	v = v.With("oh-new", "oh-new-value")
 	v.Warn("Election time out")
 	assert.Contains(t, buf.String(), "Election time out")
+	assert.Contains(t, buf.String(), "oh-new=oh-new-value")
 	assert.NotContains(t, buf.String(), "heartbeat timeout reached")
 	assert.NotContains(t, buf.String(), "last-leader-addr=fake")
 	assert.NotContains(t, buf.String(), "last-leader-id=fake")
