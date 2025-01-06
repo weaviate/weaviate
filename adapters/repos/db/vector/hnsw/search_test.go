@@ -137,6 +137,45 @@ func TestQueryVectorDistancer(t *testing.T) {
 	require.NotNil(t, err)
 }
 
+func TestQueryMultiVectorDistancer(t *testing.T) {
+	vectors := [][][]float32{
+		{{0.3, 0.1}, {1, 0}},
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "bug-2155",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[0][int(id)], nil
+		},
+		MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		VectorCacheMaxObjects: 100000,
+		Multivector: ent.MultivectorConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	index.AddMulti(context.TODO(), uint64(0), vectors[0])
+
+	dist := index.QueryMultiVectorDistancer([][]float32{{0.2, 0}, {1, 0}})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, float32(1.2), distance)
+
+	// get distance for non-existing node
+	_, err = dist.DistanceToNode(1032)
+	require.NotNil(t, err)
+}
+
 func TestAcornPercentage(t *testing.T) {
 	vectors, _ := testinghelpers.RandomVecs(10, 1, 3)
 	var vectorIndex *hnsw
