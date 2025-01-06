@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
@@ -563,6 +564,10 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 
 	i.Config.AsyncReplicationEnabled = enabled
 
+	if entcfg.Enabled(os.Getenv("DISABLE_ASYNC_REPLICATION")) {
+		i.Config.AsyncReplicationEnabled = false
+	}
+
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
@@ -733,6 +738,10 @@ func (i *Index) replicationEnabled() bool {
 func (i *Index) asyncReplicationEnabled() bool {
 	i.asyncReplicationLock.RLock()
 	defer i.asyncReplicationLock.RUnlock()
+
+	if entcfg.Enabled(os.Getenv("DISABLE_ASYNC_REPLICATION")) {
+		return false
+	}
 
 	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
 }
