@@ -195,9 +195,10 @@ func (hclogger *hclogLogrus) Named(name string) hclog.Logger {
 
 func (hclogger *hclogLogrus) ResetNamed(name string) hclog.Logger {
 	return &hclogLogrus{
-		name:   name,
-		entry:  hclogger.entry,
-		logger: hclogger.logger,
+		name:       name,
+		entry:      hclogger.entry,
+		logger:     hclogger.logger,
+		withFields: hclogger.withFields,
 	}
 }
 

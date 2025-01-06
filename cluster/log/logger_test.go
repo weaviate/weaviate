@@ -54,4 +54,47 @@ func Test_hclogger(t *testing.T) {
 	assert.NotContains(t, buf.String(), "last-leader-addr=fake")
 	assert.NotContains(t, buf.String(), "last-leader-id=fake")
 	buf.Reset()
+
+	// ResetNamed API
+	{
+		v.Warn("Election time out")
+		assert.Contains(t, buf.String(), "Election time out")
+		assert.Contains(t, buf.String(), "action=test")
+		buf.Reset()
+
+		v = v.ResetNamed("test2") // test -> test2
+		v.Warn("Election time out")
+		assert.Contains(t, buf.String(), "Election time out")
+		assert.Contains(t, buf.String(), "action=test2") // renamed successfully
+		buf.Reset()
+	}
+
+	// After renaming, no duplicate fileds from previous log lines
+	{
+		v.Warn("heartbeat timeout reached", "last-leader-addr", "fake", "last-leader-id", "fake")
+		assert.NotContains(t, buf.String(), "Election time out")
+		assert.Contains(t, buf.String(), "heartbeat timeout reached")
+		assert.Contains(t, buf.String(), "last-leader-addr=fake")
+		assert.Contains(t, buf.String(), "last-leader-id=fake")
+		buf.Reset()
+
+		v.Warn("Election time out")
+		assert.Contains(t, buf.String(), "Election time out")
+		assert.NotContains(t, buf.String(), "heartbeat timeout reached")
+		assert.NotContains(t, buf.String(), "last-leader-addr=fake")
+		assert.NotContains(t, buf.String(), "last-leader-id=fake")
+		buf.Reset()
+	}
+
+	// After renaming, logger should respect fields added via future `With()` api
+	{
+		v = v.With("oh-new", "oh-new-value")
+		v.Warn("Election time out")
+		assert.Contains(t, buf.String(), "Election time out")
+		assert.Contains(t, buf.String(), "oh-new=oh-new-value")
+		assert.NotContains(t, buf.String(), "heartbeat timeout reached")
+		assert.NotContains(t, buf.String(), "last-leader-addr=fake")
+		assert.NotContains(t, buf.String(), "last-leader-id=fake")
+		buf.Reset()
+	}
 }
