@@ -363,15 +363,15 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
 	}
 
+	if op.enableSchemaCallback {
+		s.db.TriggerSchemaUpdateCallbacks()
+	}
+
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
 
-	// Always trigger the schema callback last
-	if op.enableSchemaCallback {
-		s.db.TriggerSchemaUpdateCallbacks()
-	}
 	return nil
 }
