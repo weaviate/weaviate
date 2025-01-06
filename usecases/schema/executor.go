@@ -64,9 +64,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
 		}
 	}
-
 	e.TriggerSchemaUpdateCallbacks()
-
 	return errList
 }
 
