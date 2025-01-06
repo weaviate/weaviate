@@ -64,9 +64,8 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
 		}
 	}
-	enterrors.GoWrapper(func() {
-		e.TriggerSchemaUpdateCallbacks()
-	}, e.logger)
+
+	e.TriggerSchemaUpdateCallbacks()
 
 	return errList
 }
@@ -243,9 +242,12 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 
 	s := e.schemaReader.ReadOnlySchema()
 	for _, cb := range e.callbacks {
-		cb(schema.Schema{
-			Objects: &s,
-		})
+		enterrors.GoWrapper(func() {
+			cb(schema.Schema{
+				Objects: &s,
+			})
+		}, e.logger)
+
 	}
 }
 
