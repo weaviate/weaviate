@@ -145,6 +145,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	return ko, nil
 }
 
+// TODO multivector add multivector to addProp?
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -208,6 +209,7 @@ func FromBinaryOptional(data []byte,
 		if err != nil {
 			return nil, err
 		}
+		// TODO vectors here has ALL the vectors, not just the named ones in the args
 		ko.Vectors = vectors
 
 		if vectors != nil {
@@ -225,21 +227,17 @@ func FromBinaryOptional(data []byte,
 		}
 	}
 
-	if rw.Position < uint64(len(rw.Buffer)) {
-		multiVectorsLength := rw.ReadUint32()
-		// if len(addProp.MultiVectors) > 0 {
-		if len(addProp.Vectors) > 0 {
-			if multiVectorsLength > 0 {
-				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
-				if err != nil {
-					return nil, errors.Wrap(err, "Could not copy multivectors")
-				}
-				// TODO multivector
-				if err := msgpack.Unmarshal(multivectors, &ko.MultiVectors); err != nil {
-					return nil, errors.Wrap(err, "Could not unmarshal multivectors")
-				}
-			}
+	if rw.Position < uint64(len(rw.Buffer)) && len(addProp.Vectors) > 0 {
+		vectorNamesToUnmarshal := map[string]interface{}{}
+		for _, name := range addProp.Vectors {
+			vectorNamesToUnmarshal[name] = nil
 		}
+		// TODO does any calling code depend on having all multivectors included as before?
+		multiVectors, err := unmarshalMultiVectors(&rw, vectorNamesToUnmarshal)
+		if err != nil {
+			return nil, err
+		}
+		ko.MultiVectors = multiVectors
 	}
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
@@ -697,6 +695,7 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // n          | []byte        | packed multivector offsets map { name : offset_in_bytes }
 // 4          | uint32        | length of multivectors segment (in bytes)
 // n          | uint16 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
+// TODO formatting
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -807,7 +806,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 
 	multiVectorsOffsetOrder := make([]string, 0, len(ko.MultiVectors))
 	if len(ko.MultiVectors) > 0 {
-		// TODO dry with target vector stuff (throughout changes)
 		offsetsMap := map[string]uint32{}
 		for name, vecs := range ko.MultiVectors {
 			offsetsMap[name] = uint32(multiVectorsSegmentLength)
@@ -1121,7 +1119,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.Vectors = vectors
 
-	multiVectors, err := unmarshalMultiVectors(&rw)
+	multiVectors, err := unmarshalMultiVectors(&rw, nil)
 	if err != nil {
 		return err
 	}
@@ -1171,7 +1169,8 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 	return nil, nil
 }
 
-func unmarshalMultiVectors(rw *byteops.ReadWriter) (map[string][][]float32, error) {
+// TODO doc for onlyUnmarshalNames
+func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string]interface{}) (map[string][][]float32, error) {
 	// TODO is this comment still right? DRY comment/code?
 	// This check prevents from panic when somebody is upgrading from version that
 	// didn't have multi vector support. This check is needed bc with named vectors
@@ -1187,8 +1186,17 @@ func unmarshalMultiVectors(rw *byteops.ReadWriter) (map[string][][]float32, erro
 				return nil, fmt.Errorf("Could not unmarshal multi vectors offset: %w", err)
 			}
 
+			// NOTE if you sort mvOffsets by offset, you may be able to speed this up via
+			// sequential reads, haven't tried this yet
 			multiVectors := map[string][][]float32{}
 			for name, offset := range mvOffsets {
+				// if onlyUnmarshalNames is set and non-empty, only unmarshal the vectors
+				// for the names in the map
+				if onlyUnmarshalNames != nil && len(onlyUnmarshalNames) > 0 {
+					if _, ok := onlyUnmarshalNames[name]; !ok {
+						continue
+					}
+				}
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
 				numVecs := rw.ReadUint16()
 				vecs := make([][]float32, 0)
@@ -1336,19 +1344,12 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		multivec_len := binary.LittleEndian.Uint32(in[pos : pos+4])
-		multivec_start := pos + 4
-		multivec_end := multivec_start + int(multivec_len)
-		multiven_bin := in[multivec_start:multivec_end]
-
-		if multivec_len > 0 {
-			// TODO multivector
-			if err := msgpack.Unmarshal(multiven_bin, &multiVectors); err != nil {
-				return nil, errors.Wrap(err, "unmarshal multivector")
-			}
-		} else {
-			return nil, errors.New("multivector length is 0")
+		rw := byteops.NewReadWriter(in, byteops.WithPosition(uint64(pos)))
+		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
+		if err != nil {
+			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)
 		}
+		multiVectors = mv
 	}
 
 	mvout, ok := multiVectors[targetVector]
