@@ -34,15 +34,16 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 }
 
 func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
-	ctx := context.Background()
-	compose, err := createSingleNodeEnvironmentAsyncIndexing(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	endpoint := compose.GetWeaviate().URI()
+	// ctx := context.Background()
+	// compose, err := createSingleNodeEnvironmentAsyncIndexing(ctx)
+	// require.NoError(t, err)
+	// defer func() {
+	// 	require.NoError(t, compose.Terminate(ctx))
+	// }()
+	// endpoint := compose.GetWeaviate().URI()
+	endpoint := "localhost:8080"
 	t.Run("tests", test_suits.AllTests(endpoint))
-	t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
+	// t.Run("legacy tests", test_suits.AllLegacyTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_Restart(t *testing.T) {

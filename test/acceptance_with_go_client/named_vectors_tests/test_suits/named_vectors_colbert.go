@@ -86,6 +86,10 @@ func testColBERT(host string) func(t *testing.T) {
 				}
 			})
 
+			t.Run("wait for indexing", func(t *testing.T) {
+				testAllObjectsIndexed(t, client, className)
+			})
+
 			t.Run("check existence", func(t *testing.T) {
 				for _, obj := range objects {
 					exists, err := client.Data().Checker().
@@ -152,12 +156,12 @@ func testColBERT(host string) func(t *testing.T) {
 						updateVectors := models.Vectors{
 							byoc: tt.vector,
 						}
-						objs, err := client.Data().ObjectsGetter().
+						res, err := client.Data().ObjectsGetter().
 							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
 						require.NoError(t, err)
-						require.NotEmpty(t, objs)
-						require.Len(t, objs[0].Vectors, 1)
-						assert.Equal(t, firstObj.Vector, objs[0].Vectors[byoc])
+						require.NotEmpty(t, res)
+						require.Len(t, res[0].Vectors, 1)
+						assert.Equal(t, firstObj.Vector, res[0].Vectors[byoc])
 						updater := client.Data().Updater().
 							WithClassName(className).WithID(firstObj.ID).WithVectors(updateVectors)
 						if tt.withMerge {
@@ -166,12 +170,12 @@ func testColBERT(host string) func(t *testing.T) {
 							err = updater.Do(ctx)
 						}
 						require.NoError(t, err)
-						objs, err = client.Data().ObjectsGetter().
+						res, err = client.Data().ObjectsGetter().
 							WithClassName(className).WithID(firstObj.ID).WithVector().Do(ctx)
 						require.NoError(t, err)
-						require.NotEmpty(t, objs)
-						require.Len(t, objs[0].Vectors, 1)
-						assert.Equal(t, updateVectors[byoc], objs[0].Vectors[byoc])
+						require.NotEmpty(t, res)
+						require.Len(t, res[0].Vectors, 1)
+						assert.Equal(t, updateVectors[byoc], res[0].Vectors[byoc])
 						resp, err := client.GraphQL().Get().
 							WithClassName(className).
 							WithWhere(filters.Where().WithPath([]string{"id"}).WithOperator(filters.Equal).WithValueText(firstObj.ID)).
