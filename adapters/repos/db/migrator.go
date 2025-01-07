@@ -676,7 +676,7 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	{
 		idx.Config.ReplicationFactor.Store(cfg.Factor)
 
-		if err := idx.updateAsyncReplication(ctx, cfg.AsyncEnabled); err != nil {
+		if err := idx.updateAsyncReplicationConfig(ctx, cfg.AsyncEnabled); err != nil {
 			return fmt.Errorf("update async replication for class %q: %w", className, err)
 		}
 	}
