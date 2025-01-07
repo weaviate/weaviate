@@ -24,7 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 const (
@@ -290,8 +290,9 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 		// decode vector
 		multiVec := make([][]float32, alen)
 		for i := 0; i < int(alen); i++ {
-			vec := make([]float32, alen)
 			alenvec := binary.BigEndian.Uint16(data)
+			data = data[2:]
+			vec := make([]float32, int(alenvec))
 			for j := 0; j < int(alenvec); j++ {
 				bits := binary.BigEndian.Uint32(data)
 				vec[j] = math.Float32frombits(bits)
@@ -311,7 +312,7 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 	return nil, errors.Errorf("unknown operation: %d", op)
 }
 
-type Task[T types.Embedding] struct {
+type Task[T dto.Embedding] struct {
 	op     uint8
 	id     uint64
 	vector T
@@ -361,7 +362,7 @@ func (t *Task[T]) NewGroup(op uint8, tasks ...queue.Task) queue.Task {
 	}
 }
 
-type TaskGroup[T types.Embedding] struct {
+type TaskGroup[T dto.Embedding] struct {
 	op      uint8
 	ids     []uint64
 	vectors []T

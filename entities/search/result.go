@@ -29,7 +29,6 @@ type Result struct {
 	Dist                 float32
 	Vector               []float32
 	Vectors              models.Vectors
-	MultiVectors         models.MultiVectors
 	Beacon               string
 	Certainty            float32
 	Schema               models.PropertySchema

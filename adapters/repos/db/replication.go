@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -446,7 +447,11 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		// the stored object is not the most recent version. in
 		// this case, we overwrite it with the more recent one.
-		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		vectors, multiVectors, err := dto.GetVectors(u.Vectors)
+		if err != nil {
+			return nil, fmt.Errorf("overwrite stale object: cannot get vectors: %w", err)
+		}
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, vectors, multiVectors))
 		if err != nil {
 			r := replica.RepairResponse{
 				ID:  id.String(),

@@ -52,7 +52,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 
 		if namedVectors {
 			for name := range booksClass.VectorConfig {
-				vectors[name] = duneBook.Vectors[name]
+				switch vec := duneBook.Vectors[name].(type) {
+				case []float32:
+					vectors[name] = vec
+				case [][]float32:
+					// do nothing
+				default:
+					// do nothing
+				}
 			}
 		} else {
 			vectors["vector"] = duneBook.Vector

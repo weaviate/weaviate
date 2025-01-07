@@ -67,7 +67,7 @@ func New(docID uint64) *Object {
 }
 
 // TODO: temporary solution
-func FromObject(object *models.Object, vector []float32, vectors models.Vectors, multivectors map[string]models.MultiVector) *Object {
+func FromObject(object *models.Object, vector []float32, vectors map[string][]float32, multivectors map[string][][]float32) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -227,7 +227,8 @@ func FromBinaryOptional(data []byte,
 
 	if rw.Position < uint64(len(rw.Buffer)) {
 		multiVectorsLength := rw.ReadUint32()
-		if len(addProp.MultiVectors) > 0 {
+		// if len(addProp.MultiVectors) > 0 {
+		if len(addProp.Vectors) > 0 {
 			if multiVectorsLength > 0 {
 				multivectors, err := rw.CopyBytesFromBuffer(uint64(multiVectorsLength), nil)
 				if err != nil {
@@ -531,14 +532,13 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	}
 
 	return &search.Result{
-		ID:           ko.ID(),
-		DocID:        &ko.DocID,
-		ClassName:    ko.Class().String(),
-		Schema:       ko.Properties(),
-		Vector:       ko.Vector,
-		Vectors:      ko.asVectors(ko.Vectors),
-		MultiVectors: ko.asMultiVectors(ko.MultiVectors),
-		Dims:         ko.VectorLen,
+		ID:        ko.ID(),
+		DocID:     &ko.DocID,
+		ClassName: ko.Class().String(),
+		Schema:    ko.Properties(),
+		Vector:    ko.Vector,
+		Vectors:   ko.asVectors(ko.Vectors, ko.MultiVectors),
+		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
@@ -551,21 +551,13 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	}
 }
 
-func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
-	if len(in) > 0 {
+func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {
+	if (len(vectors) + len(multiVectors)) > 0 {
 		out := make(models.Vectors)
-		for targetVector, vector := range in {
+		for targetVector, vector := range vectors {
 			out[targetVector] = vector
 		}
-		return out
-	}
-	return nil
-}
-
-func (ko *Object) asMultiVectors(in map[string][][]float32) models.MultiVectors {
-	if len(in) > 0 {
-		out := make(models.MultiVectors)
-		for targetVector, vector := range in {
+		for targetVector, vector := range multiVectors {
 			out[targetVector] = vector
 		}
 		return out
@@ -1389,7 +1381,8 @@ func (ko *Object) DeepCopyDangerous() *Object {
 		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
-		Vectors:           deepCopyVectors(ko.Vectors),
+		Vectors:           deepCopyVectorsMap(ko.Vectors),
+		MultiVectors:      deepCopyMultiVectorsMap(ko.MultiVectors),
 	}
 
 	return o
@@ -1408,10 +1401,49 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
-func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]V {
-	out := make(map[string]V, len(orig))
+func deepCopyMultiVector(orig [][]float32) [][]float32 {
+	out := make([][]float32, len(orig))
+	copy(out, orig)
+	return out
+}
+
+func deepCopyVectors(orig models.Vectors) models.Vectors {
+	out := make(models.Vectors, len(orig))
 	for key, vec := range orig {
-		out[key] = deepCopyVector(vec)
+		switch v := any(vec).(type) {
+		case []float32:
+			out[key] = deepCopyVector(v)
+		case [][]float32:
+			out[key] = deepCopyMultiVector(v)
+		default:
+			// do nothing
+		}
+	}
+	return out
+}
+
+func deepCopyVectorsMap(orig map[string][]float32) map[string][]float32 {
+	out := make(map[string][]float32, len(orig))
+	for key, vec := range orig {
+		switch v := any(vec).(type) {
+		case []float32:
+			out[key] = deepCopyVector(v)
+		default:
+			// do nothing
+		}
+	}
+	return out
+}
+
+func deepCopyMultiVectorsMap(orig map[string][][]float32) map[string][][]float32 {
+	out := make(map[string][][]float32, len(orig))
+	for key, vec := range orig {
+		switch v := any(vec).(type) {
+		case [][]float32:
+			out[key] = deepCopyMultiVector(v)
+		default:
+			// do nothing
+		}
 	}
 	return out
 }

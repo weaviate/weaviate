@@ -67,6 +67,7 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("all properties", testGRPCBatchAPI(ctx, client))
+	t.Run("multi vectors", testGRPCBatchImportColBERT(ctx, client))
 }
 
 func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T) {
@@ -108,6 +109,55 @@ func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T
 			objectProperties, ok := objs[0].Properties.(map[string]interface{})
 			require.True(t, ok)
 			require.Equal(t, len(properties), len(objectProperties))
+		})
+	}
+}
+
+func testGRPCBatchImportColBERT(ctx context.Context, client *wvt.Client) func(t *testing.T) {
+	return func(t *testing.T) {
+		className := fixtures.BringYourOwnColBERTClassName
+		class := fixtures.BringYourOwnColBERTClass(className)
+		objects := fixtures.BringYourOwnColBERTObjects
+		byoc := fixtures.BringYourOwnColBERTNamedVectorName
+		t.Run("create schema", func(t *testing.T) {
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.NoError(t, err)
+		})
+		t.Run("batch import", func(t *testing.T) {
+			objs := []*models.Object{}
+			for _, o := range objects {
+				obj := &models.Object{
+					Class: className,
+					ID:    strfmt.UUID(o.ID),
+					Properties: map[string]interface{}{
+						"name": o.Name,
+					},
+					Vectors: models.Vectors{
+						byoc: o.Vector,
+					},
+				}
+				objs = append(objs, obj)
+			}
+			resp, err := client.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.Len(t, resp, len(objs))
+			for i := range objs {
+				require.NotNil(t, resp[i].Result)
+				assert.Nil(t, resp[i].Result.Errors)
+			}
+		})
+		t.Run("check", func(t *testing.T) {
+			for _, o := range objects {
+				objs, err := client.Data().ObjectsGetter().WithClassName(className).WithID(o.ID).WithVector().Do(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, objs)
+				require.Len(t, objs, 1)
+				assert.Equal(t, className, objs[0].Class)
+				require.Len(t, objs[0].Vectors, 1)
+				require.IsType(t, [][]float32{}, objs[0].Vectors[byoc])
+				assert.Equal(t, o.Vector, objs[0].Vectors[byoc])
+			}
 		})
 	}
 }

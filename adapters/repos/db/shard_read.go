@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -359,7 +360,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, searchVectors []models.Vector, targetVectors []string) ([]float32, error) {
 	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
 		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
 	}
@@ -371,7 +372,12 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
-		distancer := index.QueryVectorDistancer(searchVectors[j])
+		var distancer common.QueryVectorDistancer
+		if index.Multivector() {
+			distancer = index.QueryMultiVectorDistancer(searchVectors[j].([][]float32))
+		} else {
+			distancer = index.QueryVectorDistancer(searchVectors[j].([]float32))
+		}
 		dist, err := distancer.DistanceToNode(docId)
 		if err != nil {
 			return nil, err
@@ -416,7 +422,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 
 	defer func() {
@@ -472,27 +478,60 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			}
 
 			if limit < 0 {
-				ids, dists, err = vidx.SearchByVectorDistance(
-					ctx, searchVectors[i], targetDist, s.index.Config.QueryMaximumResults, allowList)
-				if err != nil {
-					// This should normally not fail. A failure here could indicate that more
-					// attention is required, for example because data is corrupted. That's
-					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search by distance: %w", err)
-					entsentry.CaptureException(err)
-					return err
+				switch searchVector := searchVectors[i].(type) {
+				case []float32:
+					ids, dists, err = vidx.SearchByVectorDistance(
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("vector search by distance: %w", err)
+						entsentry.CaptureException(err)
+						return err
+					}
+				case [][]float32:
+					ids, dists, err = vidx.SearchByMultiVectorDistance(
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("multi vector search by distance: %w", err)
+						entsentry.CaptureException(err)
+						return err
+					}
+				default:
+					return fmt.Errorf("vector search by distance: unsupported type: %T", searchVectors[i])
 				}
 			} else {
-				ids, dists, err = vidx.SearchByVector(ctx, searchVectors[i], limit, allowList)
-				if err != nil {
-					// This should normally not fail. A failure here could indicate that more
-					// attention is required, for example because data is corrupted. That's
-					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search: %w", err)
-					// annotate for sentry so we know which collection/shard this happened on
-					entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
-						s.index.Config.ClassName, s.name, err))
-					return err
+				switch searchVector := searchVectors[i].(type) {
+				case []float32:
+					ids, dists, err = vidx.SearchByVector(ctx, searchVector, limit, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("vector search: %w", err)
+						// annotate for sentry so we know which collection/shard this happened on
+						entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+							s.index.Config.ClassName, s.name, err))
+						return err
+					}
+				case [][]float32:
+					ids, dists, err = vidx.SearchByMultiVector(ctx, searchVector, limit, allowList)
+					if err != nil {
+						// This should normally not fail. A failure here could indicate that more
+						// attention is required, for example because data is corrupted. That's
+						// why this error is explicitly pushed to sentry.
+						err = fmt.Errorf("multi vector search: %w", err)
+						// annotate for sentry so we know which collection/shard this happened on
+						entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+							s.index.Config.ClassName, s.name, err))
+						return err
+					}
+				default:
+					return fmt.Errorf("vector search: unsupported type: %T", searchVectors[i])
 				}
 			}
 			if len(ids) == 0 {

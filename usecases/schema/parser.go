@@ -151,6 +151,9 @@ func (p *Parser) parseVectorIndexConfig(class *models.Class,
 		if err != nil {
 			return err
 		}
+		if parsed.IsMultiVector() {
+			return fmt.Errorf("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		}
 		class.VectorIndexConfig = parsed
 		return nil
 	}
@@ -183,14 +186,23 @@ func (p *Parser) parseShardingConfig(class *models.Class) (err error) {
 func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
 	for targetVector, vectorConfig := range class.VectorConfig {
 		isMultiVector := false
+		vectorizerModuleName := ""
 		if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
 			for name := range vectorizer {
 				isMultiVector = p.modules.IsMultiVector(name)
+				vectorizerModuleName = name
 			}
 		}
 		parsed, err := p.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig, isMultiVector)
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		if vectorizerModuleName != "none" && parsed.IsMultiVector() != isMultiVector {
+			if isMultiVector {
+				return fmt.Errorf("parse vector config for %s: configured vectorizer: %q supports multi vectors but multi vector index is not configured", targetVector, vectorizerModuleName)
+			} else {
+				return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
+			}
 		}
 		vectorConfig.VectorIndexConfig = parsed
 		class.VectorConfig[targetVector] = vectorConfig

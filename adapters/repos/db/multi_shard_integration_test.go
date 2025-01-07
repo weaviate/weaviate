@@ -416,7 +416,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						Limit: limit,
 					},
 					ClassName: "TestClass",
-				}, []string{""}, [][]float32{queryVec})
+				}, []string{""}, []models.Vector{queryVec})
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {

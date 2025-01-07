@@ -51,6 +51,8 @@ type MultiVectorIndex interface {
 	AddMultiBatch(ctx context.Context, docIds []uint64, vectors [][][]float32) error
 	DeleteMulti(id ...uint64) error
 	SearchByMultiVector(ctx context.Context, vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32,
+		maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error)
 	GetKeys(id uint64) (uint64, uint64, error)
 	ValidateMultiBeforeInsert(vector [][]float32) error
 }
@@ -79,6 +81,7 @@ type VectorIndex interface {
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	// Iterate over all nodes in the index.
 	// Consistency is not guaranteed, as the
 	// index may be concurrently modified.
@@ -286,6 +289,12 @@ func (dynamic *dynamic) SearchByVectorDistance(ctx context.Context, vector []flo
 	return dynamic.index.SearchByVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
 }
 
+func (dynamic *dynamic) SearchByMultiVectorDistance(ctx context.Context, vector [][]float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByMultiVectorDistance(ctx, vector, targetDistance, maxLimit, allow)
+}
+
 func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
@@ -404,6 +413,12 @@ func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.Query
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.QueryVectorDistancer(queryVector)
+}
+
+func (dynamic *dynamic) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.QueryMultiVectorDistancer(queryVector)
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {

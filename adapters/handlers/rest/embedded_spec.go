@@ -5074,24 +5074,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -5289,10 +5271,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -6150,11 +6128,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",
@@ -11809,24 +11783,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -12024,10 +11980,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -12981,11 +12933,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",
