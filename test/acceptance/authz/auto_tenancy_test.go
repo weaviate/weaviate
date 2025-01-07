@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"google.golang.org/grpc/codes"
@@ -77,7 +78,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 				helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection(cls.Class).Permission(),
 				helper.NewDataPermission().WithAction(authorization.UpdateData).WithCollection(cls.Class).Permission(),
 				helper.NewDataPermission().WithAction(authorization.DeleteData).WithCollection(cls.Class).Permission(),
-				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection(cls.Class).Permission(),
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(), // all needed for gql search
 			},
 		})
 		_, err := helper.Client(t).Authz.AssignRole(authz.NewAssignRoleParams().WithID(customUser).WithBody(authz.AssignRoleBody{Roles: []string{testRoleName}}), adminAuth)
@@ -124,6 +125,20 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
+	t.Run("fail with gql when trying to search (Get) an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+		res, err := graphqlhelper.QueryGraphQL(t, helper.CreateAuth(customKey), "", fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, tenant), nil)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Errors))
+		require.Contains(t, res.Errors[0].Message, "forbidden")
+	})
+
+	t.Run("fail with gql when trying to search (Aggregate) an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+		res, err := graphqlhelper.QueryGraphQL(t, helper.CreateAuth(customKey), "", fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, tenant), nil)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(res.Errors))
+		require.Contains(t, res.Errors[0].Message, "forbidden")
+	})
+
 	t.Run("fail with grpc when trying to search an inactivate tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
 		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
 		_, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
@@ -162,7 +177,25 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		helper.AssertRequestOk(t, nil, err, nil)
 	})
 
-	t.Run("successfully search object in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+	t.Run("successfully search (Get) with gql in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+		defer deactivateTenant(t)
+		res, err := graphqlhelper.QueryGraphQL(t, helper.CreateAuth(customKey), "", fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, tenant), nil)
+		require.Nil(t, err)
+		require.NotNil(t, res)
+		require.NotEmpty(t, res.Data)
+		require.Empty(t, res.Errors)
+	})
+
+	t.Run("successfully search (Aggregate) with gql in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
+		defer deactivateTenant(t)
+		res, err := graphqlhelper.QueryGraphQL(t, helper.CreateAuth(customKey), "", fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, tenant), nil)
+		require.Nil(t, err)
+		require.NotNil(t, res)
+		require.NotEmpty(t, res.Data)
+		require.Empty(t, res.Errors)
+	})
+
+	t.Run("successfully search with grpc in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
 		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
 		resp, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
