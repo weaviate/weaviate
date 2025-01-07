@@ -21,7 +21,9 @@ const (
 	RBACCommandPolicyVersionV0 = iota
 
 	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
-	// It's used to migrate policy changes
+	// It's used to migrate policy changes. if we end up with a cluster having different version
+	// that won't be a problem because the version here is not about the message change but more about
+	// the content of the body which will dumbed anyway in RBAC storage.
 	RBACLatestCommandPolicyVersion
 )
 
