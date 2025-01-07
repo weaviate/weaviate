@@ -56,7 +56,10 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	cs := make([]*models.Class, len(all))
 
 	var errList error
+	wg := sync.WaitGroup{}
+	wg.Add(len(all))
 	for i, u := range all {
+		defer wg.Done()
 		i := i
 		u := u
 		enterrors.GoWrapper(func() {
@@ -69,6 +72,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 		}, e.logger)
 	}
 	e.TriggerSchemaUpdateCallbacks()
+	wg.Wait()
 	return errList
 }
 
