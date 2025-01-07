@@ -241,13 +241,13 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 		})
 
 		t.Run("check multi vectors optional", func(t *testing.T) {
-			t.Run("empty additional, empty multi vectors", func(t *testing.T) {
+			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
 				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
 				require.Nil(t, err)
 				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
 			})
 
-			t.Run("multi vector in additional via named vectors", func(t *testing.T) {
+			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
 				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector4"},
 				}, nil)
@@ -257,7 +257,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
 			})
 
-			t.Run("named vector and multi vector in additional", func(t *testing.T) {
+			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
 				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
 					Vectors: []string{"vector2", "vector4"},
 				}, nil)
@@ -278,7 +278,6 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				// require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.Object.Vectors["vector4"])
 			})
 		})
-
 	})
 
 	t.Run("only vectors and multivectors", func(t *testing.T) {
@@ -401,6 +400,85 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
 			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
 			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
+		})
+	})
+
+	t.Run("same name vectors/multi vectors", func(t *testing.T) {
+		before := FromObject(
+			&models.Object{
+				Class:              "MyFavoriteClass",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+				Additional: models.AdditionalProperties{
+					"classification": &additional.Classification{
+						BasedOn: []string{"some", "fields"},
+					},
+					"interpretation": map[string]interface{}{
+						"Source": []interface{}{
+							map[string]interface{}{
+								"concept":    "foo",
+								"occurrence": float64(7),
+								"weight":     float64(3),
+							},
+						},
+					},
+				},
+				Properties: map[string]interface{}{
+					"name": "MyName",
+					"foo":  float64(17),
+				},
+			},
+			nil,
+			map[string][]float32{
+				"vector1": {1, 2, 3},
+				"vector2": {4, 5, 6},
+			},
+			map[string][][]float32{
+				"vector1": {{10, 20, 30}},
+				"vector3": {{7, 8, 9}, {10, 11, 12}},
+			},
+		)
+		before.DocID = 7
+
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+
+		after := &Object{}
+		after.UnmarshalBinary(asBinary)
+		require.Nil(t, err)
+
+		t.Run("check vector", func(t *testing.T) {
+			require.Empty(t, after.Vector)
+		})
+
+		t.Run("check vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.Vectors)
+			assert.ElementsMatch(t, after.Vectors["vector1"], before.Vectors["vector1"])
+			assert.ElementsMatch(t, after.Vectors["vector2"], before.Vectors["vector2"])
+		})
+
+		t.Run("check multi vectors", func(t *testing.T) {
+			require.NotEmpty(t, after.MultiVectors)
+			assert.ElementsMatch(t, after.MultiVectors["vector1"], before.MultiVectors["vector1"])
+			assert.ElementsMatch(t, after.MultiVectors["vector3"], before.MultiVectors["vector3"])
+		})
+
+		t.Run("from binary optional", func(t *testing.T) {
+			afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+				Vectors: []string{"vector1"},
+			}, nil)
+			require.Nil(t, err)
+			require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
+			require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+			require.Len(t, afterMultiVectorsOptional.Vectors, 2)
+			require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+			require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Vectors["vector1"])
+			require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Vectors["vector2"])
+			// require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Object.Vectors["vector1"])
+			// require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Object.Vectors["vector2"])
+			require.Equal(t, before.MultiVectors["vector1"], afterMultiVectorsOptional.MultiVectors["vector1"])
+			// require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.Object.Vectors["vector4"])
 		})
 	})
 }
