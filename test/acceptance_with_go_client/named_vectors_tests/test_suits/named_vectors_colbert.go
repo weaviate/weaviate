@@ -109,7 +109,6 @@ func testColBERT(host string) func(t *testing.T) {
 			})
 
 			t.Run("GraphQL get object with vector", func(t *testing.T) {
-
 				for _, o := range objects {
 					resp, err := client.GraphQL().Get().
 						WithClassName(className).
@@ -347,6 +346,41 @@ func testColBERT(host string) func(t *testing.T) {
 				// Weaviate overrides the multivector setting if it finds that someone has enabled
 				// multi vector vectorizer
 				require.NoError(t, err)
+			})
+			t.Run("named vector is colbert vectorizer with empty vector index", func(t *testing.T) {
+				cleanup()
+				class := &models.Class{
+					Class: "NamedVectorVectorizerWithMultiVectorIndex",
+					Properties: []*models.Property{
+						{
+							Name: "name", DataType: []string{schema.DataTypeText.String()},
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"colbert": {
+							Vectorizer: map[string]interface{}{
+								"text2colbert-jinaai": map[string]interface{}{
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "hnsw",
+						},
+					},
+				}
+				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+				// Weaviate overrides the multivector setting if it finds that someone has enabled
+				// multi vector vectorizer
+				require.NoError(t, err)
+				cls, err := client.Schema().ClassGetter().WithClassName(class.Class).Do(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, cls.VectorConfig["colbert"])
+				vc := cls.VectorConfig["colbert"].VectorIndexConfig
+				require.NotNil(t, vc)
+				vsAsMap, ok := vc.(map[string]interface{})
+				require.True(t, ok)
+				mv, ok := vsAsMap["multivector"].(map[string]interface{})
+				require.True(t, ok)
+				assert.True(t, mv["enabled"].(bool))
 			})
 		})
 
