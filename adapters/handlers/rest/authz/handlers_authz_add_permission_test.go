@@ -76,7 +76,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 							Action: String(authorization.CreateCollections),
 							Collections: &models.PermissionCollections{
 								Collection: String("ABC"),
-								Tenant:     String("Tenant1"),
 							},
 						},
 					},
@@ -91,10 +90,8 @@ func TestAddPermissionsSuccess(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
-								Tenant: String("Tenant1"),
-							},
+							Action:      String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{},
 						},
 					},
 				},

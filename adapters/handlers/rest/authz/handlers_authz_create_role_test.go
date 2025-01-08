@@ -77,7 +77,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
+							Tenants: &models.PermissionTenants{
 								Collection: String("ABC"),
 								Tenant:     String("Tenant1"),
 							},
@@ -95,7 +95,7 @@ func TestCreateRoleSuccess(t *testing.T) {
 					Permissions: []*models.Permission{
 						{
 							Action: String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{
+							Tenants: &models.PermissionTenants{
 								Tenant: String("Tenant1"),
 							},
 						},

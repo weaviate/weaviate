@@ -299,8 +299,12 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
 			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
 		}
-		if perm.Collections.Tenant != nil && *perm.Collections.Tenant != "" {
-			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Collections.Tenant)
+	}
+
+	if perm.Tenants != nil {
+		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
+			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Tenants.Collection)
+			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Tenants.Tenant)
 		}
 	}
 
