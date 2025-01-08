@@ -37,15 +37,6 @@ const (
 	CRU = "(C)|(R)|(U)"
 	// InternalPlaceHolder is a place holder to mark empty roles
 	InternalPlaceHolder = "wv_internal_empty"
-
-	// external domains: needed to map any external domain from action to internal one
-	// e.g.
-	// [create_collections, create_tenants] -> schema domain
-	// create_collections -> external domain is collections, but internal that does belong to schema domain
-	// create_tenant -> external domain is tenants, but internal that does belong to schema domain
-	// the difference between the above actions is the path
-	externalSchemaCollectionsDomain = "collections"
-	externalSchemaTenantsDomain     = "tenants"
 )
 
 var (
@@ -181,6 +172,19 @@ func extractFromExtAction(inputAction string) (string, string, error) {
 	return verb, domain, nil
 }
 
+// casbinPolicyDomains decouples the endpoints domains
+// from the casbin internal domains.
+// e.g.
+// [create_collections, create_tenants] -> schema domain
+func casbinPolicyDomains(domain string) string {
+	switch domain {
+	case authorization.CollectionsDomain, authorization.TenantsDomain:
+		return authorization.SchemaDomain
+	default:
+		return domain
+	}
+}
+
 func policy(permission *models.Permission) (*authorization.Policy, error) {
 	if permission.Action == nil {
 		return &authorization.Policy{Resource: InternalPlaceHolder}, nil
@@ -205,8 +209,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		resource = CasbinRoles(role)
 	case authorization.ClusterDomain:
 		resource = CasbinClusters()
-	case externalSchemaCollectionsDomain:
-		domain = authorization.SchemaDomain
+	case authorization.CollectionsDomain:
 		collection := "*"
 		tenant := "#"
 		if permission.Collections != nil && permission.Collections.Collection != nil {
@@ -214,8 +217,7 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 		}
 		resource = CasbinSchema(collection, tenant)
 
-	case externalSchemaTenantsDomain:
-		domain = authorization.SchemaDomain
+	case authorization.TenantsDomain:
 		collection := "*"
 		tenant := "*"
 		if permission.Tenants != nil {
@@ -273,8 +275,27 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 	return &authorization.Policy{
 		Resource: resource,
 		Verb:     verb,
-		Domain:   domain,
+		Domain:   casbinPolicyDomains(domain),
 	}, nil
+}
+
+func weaviatePermissionAction(pathLastPart, verb, domain string) string {
+	action := fmt.Sprintf("%s_%s", actions[verb], domain)
+	action = strings.ReplaceAll(action, "_*", "")
+	switch domain {
+	case authorization.SchemaDomain:
+		if pathLastPart == "#" {
+			// e.g
+			// schema/collections/ABC/shards/#    collection permission
+			// schema/collections/ABC/shards/*    tenant permission
+			action = fmt.Sprintf("%s_%s", actions[verb], authorization.CollectionsDomain)
+		} else {
+			action = fmt.Sprintf("%s_%s", actions[verb], authorization.TenantsDomain)
+		}
+		return action
+	default:
+		return action
+	}
 }
 
 func permission(policy []string) (*models.Permission, error) {
@@ -288,11 +309,7 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid verb: %s", mapped.Verb)
 	}
 
-	action := fmt.Sprintf("%s_%s", actions[mapped.Verb], mapped.Domain)
-	action = strings.ReplaceAll(action, "_*", "")
-	permission := &models.Permission{
-		Action: &action,
-	}
+	permission := &models.Permission{}
 
 	splits := strings.Split(mapped.Resource, "/")
 	if !validResource(mapped.Resource) {
@@ -305,17 +322,12 @@ func permission(policy []string) (*models.Permission, error) {
 			permission.Collections = &models.PermissionCollections{
 				Collection: &splits[2],
 			}
-			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], externalSchemaCollectionsDomain)
-			permission.Action = &domain
 		} else {
 			permission.Tenants = &models.PermissionTenants{
 				Collection: &splits[2],
 				Tenant:     &splits[4],
 			}
-			domain := fmt.Sprintf("%s_%s", actions[mapped.Verb], externalSchemaTenantsDomain)
-			permission.Action = &domain
 		}
-
 	case authorization.DataDomain:
 		permission.Data = &models.PermissionData{
 			Collection: &splits[2],
@@ -355,6 +367,7 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
 
+	permission.Action = authorization.String(weaviatePermissionAction(splits[4], mapped.Verb, mapped.Domain))
 	return permission, nil
 }
 

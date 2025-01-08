@@ -33,13 +33,15 @@ const (
 )
 
 const (
-	UsersDomain   = "users"
-	RolesDomain   = "roles"
-	ClusterDomain = "cluster"
-	NodesDomain   = "nodes"
-	BackupsDomain = "backups"
-	SchemaDomain  = "schema"
-	DataDomain    = "data"
+	UsersDomain       = "users"
+	RolesDomain       = "roles"
+	ClusterDomain     = "cluster"
+	NodesDomain       = "nodes"
+	BackupsDomain     = "backups"
+	SchemaDomain      = "schema"
+	CollectionsDomain = "collections"
+	TenantsDomain     = "tenants"
+	DataDomain        = "data"
 )
 
 var (
