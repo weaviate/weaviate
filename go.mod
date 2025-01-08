@@ -70,7 +70,7 @@ require (
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-	github.com/prometheus/common v0.60.0
+	github.com/prometheus/common v0.61.0
 	github.com/tailor-inc/graphql v0.5.7
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
