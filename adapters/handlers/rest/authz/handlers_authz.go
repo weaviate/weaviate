@@ -512,9 +512,10 @@ func (h *authZHandlers) userExists(user string) bool {
 	// We are only able to check if a user is present on the system if APIKeys are the only auth method. For OIDC
 	// users are managed in an external service and there is no general way to check if a user we have not seen yet is
 	// valid.
-	if !h.oidcConfigs.Enabled {
+	if h.oidcConfigs.Enabled {
 		return true
 	}
+
 	if h.apiKeysConfigs.Enabled {
 		for _, apiKey := range h.apiKeysConfigs.Users {
 			if apiKey == user {
