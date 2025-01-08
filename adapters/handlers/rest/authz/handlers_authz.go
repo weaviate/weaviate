@@ -39,13 +39,14 @@ type authZHandlers struct {
 	logger         logrus.FieldLogger
 	metrics        *monitoring.PrometheusMetrics
 	apiKeysConfigs config.APIKey
+	oidcConfigs    config.OIDC
 	rbacconfig     rbacconf.Config
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
-	apiKeysConfigs config.APIKey, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	apiKeysConfigs config.APIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, oidcConfigs: oidcConfigs, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -508,6 +509,12 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 }
 
 func (h *authZHandlers) userExists(user string) bool {
+	// We are only able to check if a user is present on the system if APIKeys are the only auth method. For OIDC
+	// users are managed in an external service and there is no general way to check if a user we have not seen yet is
+	// valid.
+	if !h.oidcConfigs.Enabled {
+		return true
+	}
 	if h.apiKeysConfigs.Enabled {
 		for _, apiKey := range h.apiKeysConfigs.Users {
 			if apiKey == user {
@@ -516,7 +523,7 @@ func (h *authZHandlers) userExists(user string) bool {
 		}
 		return false
 	}
-	return true // dont block OICD for now
+	return true
 }
 
 func sortByName(roles []*models.Role) {
