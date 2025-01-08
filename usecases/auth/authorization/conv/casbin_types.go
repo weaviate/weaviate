@@ -367,7 +367,7 @@ func permission(policy []string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid domain: %s", mapped.Domain)
 	}
 
-	permission.Action = authorization.String(weaviatePermissionAction(splits[4], mapped.Verb, mapped.Domain))
+	permission.Action = authorization.String(weaviatePermissionAction(splits[len(splits)-1], mapped.Verb, mapped.Domain))
 	return permission, nil
 }
 
