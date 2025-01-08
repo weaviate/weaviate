@@ -134,3 +134,59 @@ func TestValidateReservedPropertyName(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTenantName(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedErr string
+	}{
+		{
+			name:        "valid tenant name",
+			input:       "ValidTenantName123",
+			expectedErr: "",
+		},
+		{
+			name:        "valid tenant name with hyphen",
+			input:       "Valid-Tenant-Name",
+			expectedErr: "",
+		},
+		{
+			name:        "valid tenant name with underscore",
+			input:       "Valid_Tenant_Name",
+			expectedErr: "",
+		},
+		{
+			name:        "empty tenant name",
+			input:       "",
+			expectedErr: "empty tenant name",
+		},
+		{
+			name:        "invalid tenant name with space",
+			input:       "Invalid Tenant Name",
+			expectedErr: " 'Invalid Tenant Name' is not a valid tenant name. should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters",
+		},
+		{
+			name:        "invalid tenant name with special character",
+			input:       "InvalidTenantName!",
+			expectedErr: " 'InvalidTenantName!' is not a valid tenant name. should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters",
+		},
+		{
+			name:        "tenant name too long",
+			input:       "ThisTenantNameIsWayTooLongAndShouldNotBeValidBecauseItExceedsTheMaximumAllowedLength",
+			expectedErr: " 'ThisTenantNameIsWayTooLongAndShouldNotBeValidBecauseItExceedsTheMaximumAllowedLength' is not a valid tenant name. should only contain alphanumeric characters (a-z, A-Z, 0-9), underscore (_), and hyphen (-), with a length between 1 and 64 characters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTenantName(tt.input)
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Equal(t, tt.expectedErr, err.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -112,8 +113,8 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role has to have at least 1 permission")))
+	if err := validatePermissions(params.Body.Permissions...); err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
@@ -156,8 +157,8 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	if err := validatePermissions(params.Body.Permissions...); err != nil {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
@@ -200,6 +201,10 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
 	if params.Body == nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("permission is required")))
+	}
+
+	if err := validatePermissions(params.Body); err != nil {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
@@ -531,6 +536,38 @@ func sortByName(roles []*models.Role) {
 	sort.Slice(roles, func(i, j int) bool {
 		return *roles[i].Name < *roles[j].Name
 	})
+}
+
+func validatePermissions(permissions ...*models.Permission) error {
+	if len(permissions) == 0 {
+		return fmt.Errorf("role has to have at least 1 permission")
+	}
+
+	for _, perm := range permissions {
+		if perm.Collections != nil {
+			if _, err := schema.ValidateClassName(*perm.Collections.Collection); err != nil {
+				return err
+			}
+		}
+
+		if perm.Tenants != nil {
+			if err := schema.ValidateTenantName(*perm.Tenants.Tenant); err != nil {
+				return err
+			}
+		}
+
+		if perm.Data != nil {
+			if _, err := schema.ValidateClassName(*perm.Data.Collection); err != nil {
+				return err
+			}
+
+			if err := schema.ValidateTenantName(*perm.Data.Tenant); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run

@@ -14,7 +14,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -28,8 +27,6 @@ import (
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)
 
 const (
 	ErrMsgMaxAllowedTenants = "maximum number of tenants allowed to be updated simultaneously is 100. Please reduce the number of tenants in your request and try again"
@@ -80,15 +77,8 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
-		if !regexTenantName.MatchString(requested.Name) {
-			var msg string
-			if requested.Name == "" {
-				msg = "empty tenant name"
-			} else {
-				msg = "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), " +
-					"underscore (_), and hyphen (-), with a length between 1 and 64 characters"
-			}
-			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
+		if errMsg := schema.ValidateTenantName(requested.Name); errMsg != nil {
+			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, errMsg.Error())
 			return
 		}
 		_, found := uniq[requested.Name]

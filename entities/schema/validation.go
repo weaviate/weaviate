@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	validateClassNameRegex          *regexp.Regexp
-	validatePropertyNameRegex       *regexp.Regexp
-	validateNestedPropertyNameRegex *regexp.Regexp
-	reservedPropertyNames           []string
+	validateClassNameRegex          = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
+	validateTenantNameRegex         = regexp.MustCompile(`^` + ShardNameRegexCore + `$`)
+	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
+	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
+	reservedPropertyNames           = []string{"_additional", "_id", "id"}
 )
 
 const (
@@ -47,23 +48,34 @@ const (
 	TargetVectorNameRegex     = `[_A-Za-z][_0-9A-Za-z]{0,229}`
 )
 
-func init() {
-	validateClassNameRegex = regexp.MustCompile(`^` + ClassNameRegexCore + `$`)
-	validatePropertyNameRegex = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
-	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
-	reservedPropertyNames = []string{"_additional", "_id", "id"}
-}
-
 // ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {
 	if len(name) > classNameMaxLength {
-		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters.",
+		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
 			name, classNameMaxLength)
 	}
 	if !validateClassNameRegex.MatchString(name) {
 		return "", fmt.Errorf("'%s' is not a valid class name", name)
 	}
 	return ClassName(name), nil
+}
+
+// ValidateTenantName validates that this string is a valid tenant name (format wise)
+func ValidateTenantName(name string) error {
+	if !validateTenantNameRegex.MatchString(name) {
+		var msg string
+		if name == "" {
+			msg = "empty tenant name"
+		} else {
+			msg = fmt.Sprintf(
+				" '%s' is not a valid tenant name. should only contain alphanumeric characters (a-z, A-Z, 0-9), "+
+					"underscore (_), and hyphen (-), with a length between 1 and 64 characters",
+				name,
+			)
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }
 
 // ValidatePropertyName validates that this string is a valid property name
