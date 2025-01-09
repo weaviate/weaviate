@@ -680,35 +680,33 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // followed by the payload which depends on the specific version
 //
 // Version 1
-// No. of B   | Type          | Content
-// ------------------------------------------------
-// 1          | uint8         | MarshallerVersion = 1
-// 8          | uint64        | index id, keep early so id-only lookups are maximum efficient
-// 1          | uint8         | kind, 0=action, 1=thing - deprecated
-// 16         | uint128       | uuid
-// 8          | int64         | create time
-// 8          | int64         | update time
-// 2          | uint16        | VectorLength
-// n*4        | []float32     | vector of length n
-// 2          | uint16        | length of class name
-// n          | []byte        | className
-// 4          | uint32        | length of schema json
-// n          | []byte        | schema as json
-// 4          | uint32        | length of meta json
-// n          | []byte        | meta as json
-// 4          | uint32        | length of vectorweights json
-// n          | []byte        | vectorweights as json
-// 4          | uint32        | length of packed target vectors offsets (in bytes)
-// n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
-// 4          | uint32        | length of target vectors segment (in bytes)
-// n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
-// 4          | uint32        | length of packed multivector offsets (in bytes)
-// n          | []byte        | packed multivector offsets map { name : offset_in_bytes }
-// 4          | uint32        | length of multivectors segment (in bytes)
-// n          | uint16 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
-// TODO formatting
+// No. of B      | Type                     | Content
+// --------------------------------------------------------------
+// 1             | uint8                    | MarshallerVersion = 1
+// 8             | uint64                   | index id, keep early so id-only lookups are maximum efficient
+// 1             | uint8                    | kind, 0=action, 1=thing - deprecated
+// 16            | uint128                  | uuid
+// 8             | int64                    | create time
+// 8             | int64                    | update time
+// 2             | uint16                   | VectorLength
+// n*4           | []float32                | vector of length n
+// 2             | uint16                   | length of class name
+// n             | []byte                   | className
+// 4             | uint32                   | length of schema json
+// n             | []byte                   | schema as json
+// 4             | uint32                   | length of meta json
+// n             | []byte                   | meta as json
+// 4             | uint32                   | length of vectorweights json
+// n             | []byte                   | vectorweights as json
+// 4             | uint32                   | length of packed target vectors offsets (in bytes)
+// n             | []byte                   | packed target vectors offsets map { name : offset_in_bytes }
+// 4             | uint32                   | length of target vectors segment (in bytes)
+// n             | uint16+[]byte            | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
+// 4             | uint32                   | length of packed multivector offsets (in bytes)
+// n             | []byte                   | packed multivector offsets map { name : offset_in_bytes }
+// 4             | uint32                   | length of multivectors segment (in bytes)
+// 4 + (2 + n*4) | uint32 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 // TODO vec lengths immediately following num vecs so you can jump straight to specific vec?
-// TODO 4 bytes for number of vectors for future proofing?
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -821,8 +819,8 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		offsetsMap := map[string]uint32{}
 		for name, vecs := range ko.MultiVectors {
 			offsetsMap[name] = uint32(multiVectorsSegmentLength)
-			// 2 bytes for number of vectors
-			multiVectorsSegmentLength += 2
+			// 4 bytes for number of vectors
+			multiVectorsSegmentLength += 4
 			for _, vec := range vecs {
 				if len(vec) > maxVectorLength {
 					return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
@@ -930,7 +928,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	rw.WriteUint32(uint32(multiVectorsSegmentLength))
 	for _, name := range multiVectorsOffsetOrder {
 		vecs := ko.MultiVectors[name]
-		rw.WriteUint16(uint16(len(vecs)))
+		rw.WriteUint32(uint32(len(vecs)))
 		for _, vec := range vecs {
 			vecLen := len(vec)
 			rw.WriteUint16(uint16(vecLen))
@@ -1181,12 +1179,14 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 	return nil, nil
 }
 
-// TODO doc for onlyUnmarshalNames
-func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string]interface{}) (map[string][][]float32, error) {
-	// TODO is this comment still right? DRY comment/code?
+// unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
+func unmarshalMultiVectors(
+	rw *byteops.ReadWriter,
+	onlyUnmarshalNames map[string]interface{},
+) (map[string][][]float32, error) {
 	// This check prevents from panic when somebody is upgrading from version that
-	// didn't have multi vector support. This check is needed bc with multi vectors
-	// feature storage object can have vectors data appended at the end of the file
+	// didn't have multi vector support. This check is needed bc with the multi vectors
+	// feature the storage object can have vectors data appended at the end of the file
 	if rw.Position < uint64(len(rw.Buffer)) {
 		multiVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
 		multiVectorsSegmentLength := rw.ReadUint32()
@@ -1202,7 +1202,7 @@ func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string
 			// sequential reads, haven't tried this yet
 			multiVectors := map[string][][]float32{}
 			for name, offset := range mvOffsets {
-				// if onlyUnmarshalNames is set and non-empty, only unmarshal the vectors
+				// if onlyUnmarshalNames is not nil and non-empty, only unmarshal the vectors
 				// for the names in the map
 				if len(onlyUnmarshalNames) > 0 {
 					if _, ok := onlyUnmarshalNames[name]; !ok {
@@ -1210,7 +1210,7 @@ func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string
 					}
 				}
 				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
-				numVecs := rw.ReadUint16()
+				numVecs := rw.ReadUint32()
 				vecs := make([][]float32, 0)
 				for i := 0; i < int(numVecs); i++ {
 					vecLen := rw.ReadUint16()
