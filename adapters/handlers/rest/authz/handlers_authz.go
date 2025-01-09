@@ -203,7 +203,7 @@ func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principa
 	}
 
 	if err := validatePermissions(params.Body); err != nil {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
