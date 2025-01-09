@@ -31,6 +31,7 @@ const (
 	vectorIndexQueueInsertOp uint8 = iota + 1
 	vectorIndexQueueDeleteOp
 	vectorIndexQueueMultiInsertOp
+	vectorIndexQueueMultiDeleteOp
 )
 
 type VectorIndexQueue struct {
@@ -152,6 +153,13 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 		return iq.vectorIndex.Delete(ids...)
 	}
 
+	if iq.vectorIndex.Multivector() {
+		return iq.delete(vectorIndexQueueMultiDeleteOp, ids...)
+	}
+	return iq.delete(vectorIndexQueueDeleteOp, ids...)
+}
+
+func (iq *VectorIndexQueue) delete(deleteOperation uint8, ids ...uint64) error {
 	start := time.Now()
 	defer iq.metrics.Delete(start, len(ids))
 
@@ -160,7 +168,7 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 	for _, id := range ids {
 		buf = buf[:0]
 		// write the operation
-		buf = append(buf, vectorIndexQueueDeleteOp)
+		buf = append(buf, deleteOperation)
 		// write the id
 		buf = binary.BigEndian.AppendUint64(buf, id)
 
@@ -307,6 +315,15 @@ func (v *vectorIndexQueueDecoder) DecodeTask(data []byte) (queue.Task, error) {
 			vector: multiVec,
 			idx:    v.q.vectorIndex,
 		}, nil
+	case vectorIndexQueueMultiDeleteOp:
+		// decode id
+		id := binary.BigEndian.Uint64(data)
+
+		return &Task[[][]float32]{
+			op:  op,
+			id:  uint64(id),
+			idx: v.q.vectorIndex,
+		}, nil
 	}
 
 	return nil, errors.Errorf("unknown operation: %d", op)
@@ -335,10 +352,10 @@ func (t *Task[T]) Execute(ctx context.Context) error {
 	switch t.op {
 	case vectorIndexQueueInsertOp:
 		return t.idx.Add(ctx, t.id, any(t.vector).([]float32))
-	case vectorIndexQueueDeleteOp:
-		return t.idx.Delete(t.id)
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.AddMulti(ctx, t.id, any(t.vector).([][]float32))
+	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+		return t.idx.Delete(t.id)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())
@@ -385,10 +402,10 @@ func (t *TaskGroup[T]) Execute(ctx context.Context) error {
 	switch t.op {
 	case vectorIndexQueueInsertOp:
 		return t.idx.AddBatch(ctx, t.ids, any(t.vectors).([][]float32))
-	case vectorIndexQueueDeleteOp:
-		return t.idx.Delete(t.ids...)
 	case vectorIndexQueueMultiInsertOp:
 		return t.idx.AddMultiBatch(ctx, t.ids, any(t.vectors).([][][]float32))
+	case vectorIndexQueueDeleteOp, vectorIndexQueueMultiDeleteOp:
+		return t.idx.Delete(t.ids...)
 	}
 
 	return errors.Errorf("unknown operation: %d", t.Op())

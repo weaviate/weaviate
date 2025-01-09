@@ -332,7 +332,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
-		if len(object.Vector) == 0 && len(object.Vectors) == 0 {
+		if len(object.Vector) == 0 && len(object.Vectors) == 0 && len(object.MultiVectors) == 0 {
 			continue
 		}
 
