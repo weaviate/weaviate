@@ -19,9 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-var (
-	errCollectionRequired = fmt.Errorf("collection is required")
-)
+var errCollectionRequired = fmt.Errorf("collection is required")
 
 func validatePermissions(permissions ...*models.Permission) error {
 	if len(permissions) == 0 {
@@ -64,7 +62,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 		}
 
 		if perm.Backups != nil {
-			if perm.Data.Collection == nil {
+			if perm.Backups.Collection == nil {
 				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Backups.Collection)
@@ -72,7 +70,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 		}
 
 		if perm.Nodes != nil {
-			if perm.Data.Collection == nil {
+			if perm.Nodes.Collection == nil {
 				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Nodes.Collection)
