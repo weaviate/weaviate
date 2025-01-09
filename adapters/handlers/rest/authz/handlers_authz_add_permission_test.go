@@ -43,8 +43,10 @@ func TestAddPermissionsSuccess(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},
@@ -90,8 +92,10 @@ func TestAddPermissionsSuccess(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},
@@ -212,8 +216,10 @@ func TestAddPermissionsForbidden(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},
@@ -264,8 +270,10 @@ func TestAddPermissionsRoleNotFound(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},
@@ -313,8 +321,10 @@ func TestAddPermissionsInternalServerError(t *testing.T) {
 				Body: authz.AddPermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},

@@ -27,27 +27,46 @@ func validatePermissions(permissions ...*models.Permission) error {
 	for _, perm := range permissions {
 		var multiErr error
 		if perm.Collections != nil {
-			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection); err != nil {
-				multiErr = errors.Join(err)
+			if perm.Collections.Collection == nil {
+				return fmt.Errorf("collection is required")
 			}
+			_, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection)
+			multiErr = errors.Join(err)
 		}
 
 		if perm.Tenants != nil {
-			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection); err != nil {
-				multiErr = errors.Join(err)
+			if perm.Tenants.Collection == nil {
+				return fmt.Errorf("collection is required")
 			}
-			if err := schema.ValidateTenantNameIncludesRegex(*perm.Tenants.Tenant); err != nil {
-				multiErr = errors.Join(err)
+
+			_, classErr := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection)
+			multiErr = errors.Join(classErr)
+
+			if perm.Tenants.Tenant != nil {
+				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*perm.Tenants.Tenant))
 			}
 		}
 
 		if perm.Data != nil {
-			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection); err != nil {
-				multiErr = errors.Join(err)
+			if perm.Data.Collection == nil {
+				return fmt.Errorf("collection is required")
 			}
-			if err := schema.ValidateTenantNameIncludesRegex(*perm.Data.Tenant); err != nil {
-				multiErr = errors.Join(err)
+			_, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection)
+			multiErr = errors.Join(err)
+
+			if perm.Data.Tenant != nil {
+				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*perm.Data.Tenant))
 			}
+		}
+
+		if perm.Backups != nil {
+			_, err := schema.ValidateClassNameIncludesRegex(*perm.Backups.Collection)
+			multiErr = errors.Join(err)
+		}
+
+		if perm.Nodes != nil {
+			_, err := schema.ValidateClassNameIncludesRegex(*perm.Nodes.Collection)
+			multiErr = errors.Join(err)
 		}
 
 		if multiErr != nil {
