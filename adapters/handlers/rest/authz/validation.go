@@ -19,61 +19,56 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-var errCollectionRequired = fmt.Errorf("collection is required")
-
 func validatePermissions(permissions ...*models.Permission) error {
 	if len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 
 	for _, perm := range permissions {
-		var multiErr error
-		if perm.Collections != nil {
-			if perm.Collections.Collection == nil {
-				return errCollectionRequired
+
+		var (
+			multiErr         error
+			collectionsInput = perm.Collections
+			tenantsInput     = perm.Tenants
+			dataInput        = perm.Data
+			backupsInput     = perm.Backups
+			nodesInput       = perm.Nodes
+		)
+		if collectionsInput != nil {
+			if collectionsInput.Collection != nil {
+				_, err := schema.ValidateClassNameIncludesRegex(*collectionsInput.Collection)
+				multiErr = errors.Join(err)
 			}
-			_, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection)
+		}
+
+		if tenantsInput != nil {
+			if tenantsInput.Collection != nil {
+				_, classErr := schema.ValidateClassNameIncludesRegex(*tenantsInput.Collection)
+				multiErr = errors.Join(classErr)
+			}
+			if tenantsInput.Tenant != nil {
+				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*tenantsInput.Tenant))
+			}
+		}
+
+		if dataInput != nil {
+			if dataInput.Collection != nil {
+				_, err := schema.ValidateClassNameIncludesRegex(*dataInput.Collection)
+				multiErr = errors.Join(err)
+			}
+
+			if dataInput.Tenant != nil {
+				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*dataInput.Tenant))
+			}
+		}
+
+		if backupsInput != nil && backupsInput.Collection != nil {
+			_, err := schema.ValidateClassNameIncludesRegex(*backupsInput.Collection)
 			multiErr = errors.Join(err)
 		}
 
-		if perm.Tenants != nil {
-			if perm.Tenants.Collection == nil {
-				return errCollectionRequired
-			}
-
-			_, classErr := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection)
-			multiErr = errors.Join(classErr)
-
-			if perm.Tenants.Tenant != nil {
-				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*perm.Tenants.Tenant))
-			}
-		}
-
-		if perm.Data != nil {
-			if perm.Data.Collection == nil {
-				return errCollectionRequired
-			}
-			_, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection)
-			multiErr = errors.Join(err)
-
-			if perm.Data.Tenant != nil {
-				multiErr = errors.Join(schema.ValidateTenantNameIncludesRegex(*perm.Data.Tenant))
-			}
-		}
-
-		if perm.Backups != nil {
-			if perm.Backups.Collection == nil {
-				return errCollectionRequired
-			}
-			_, err := schema.ValidateClassNameIncludesRegex(*perm.Backups.Collection)
-			multiErr = errors.Join(err)
-		}
-
-		if perm.Nodes != nil {
-			if perm.Nodes.Collection == nil {
-				return errCollectionRequired
-			}
-			_, err := schema.ValidateClassNameIncludesRegex(*perm.Nodes.Collection)
+		if nodesInput != nil && nodesInput.Collection != nil {
+			_, err := schema.ValidateClassNameIncludesRegex(*nodesInput.Collection)
 			multiErr = errors.Join(err)
 		}
 
