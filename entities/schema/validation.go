@@ -29,10 +29,12 @@ const (
 	// As dir containing class data is named after class, 255 chars are allowed
 	classNameMaxLength = 255
 	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]{0,254}`
-	// Allow regex patterns at the end or a capital letter followed by alphanumeric characters, underscores, or hyphens
-	ClassNameIncludesRegex      = `^(\*|[A-Z][_0-9A-Za-z\-.*+?^$()|{}\[\]\\]{0,254})$`
-	ShardNameRegexCore          = `[A-Za-z0-9\-\_]{1,64}`
-	ShardNameRegexIncludesRegex = `^[A-Za-z0-9\-_.*+?^$()|{}\[\]\\*]{1,64}$`
+	// ClassNameRegexAllowRegex allowed chars in class name including regex patterns, 255 chars are allowed
+	ClassNameRegexAllowRegex = `^(\*|[A-Z][_0-9A-Za-z\-.*+?^$()|{}\[\]\\]{0,254})$`
+	// ShardNameRegexCore allowed chars in shard name, 64 chars are allowed
+	ShardNameRegexCore = `[A-Za-z0-9\-\_]{1,64}`
+	//ShardNameRegexAllowRegex allowed chars in shard name including regex patterns, 64 chars are allowed
+	ShardNameRegexAllowRegex = `^[A-Za-z0-9\-_.*+?^$()|{}\[\]\\*]{1,64}$`
 	// Restricted by max length allowed for dir name (255 chars)
 	// Property name is used to build dir names of various purposes containing property
 	// related data. Among them might be (depending on the settings):
@@ -70,7 +72,7 @@ func ValidateClassNameIncludesRegex(name string) (ClassName, error) {
 		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
 			name, classNameMaxLength)
 	}
-	if !regexp.MustCompile(ClassNameIncludesRegex).MatchString(name) {
+	if !regexp.MustCompile(ClassNameRegexAllowRegex).MatchString(name) {
 		return "", fmt.Errorf("'%s' is not a valid class name", name)
 	}
 	return ClassName(name), nil
@@ -97,7 +99,7 @@ func ValidateTenantName(name string) error {
 // ValidateTenantNameIncludesRegex validates that this string is a valid tenant name (format wise)
 // can include regex pattern
 func ValidateTenantNameIncludesRegex(name string) error {
-	if !regexp.MustCompile(ShardNameRegexIncludesRegex).MatchString(name) {
+	if !regexp.MustCompile(ShardNameRegexAllowRegex).MatchString(name) {
 		var msg string
 		if name == "" {
 			msg = "empty tenant name"
