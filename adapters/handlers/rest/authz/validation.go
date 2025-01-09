@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	ErrCollectionRequired = fmt.Errorf("collection is required")
+	errCollectionRequired = fmt.Errorf("collection is required")
 )
 
 func validatePermissions(permissions ...*models.Permission) error {
@@ -32,7 +32,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 		var multiErr error
 		if perm.Collections != nil {
 			if perm.Collections.Collection == nil {
-				return ErrCollectionRequired
+				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection)
 			multiErr = errors.Join(err)
@@ -40,7 +40,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Tenants != nil {
 			if perm.Tenants.Collection == nil {
-				return ErrCollectionRequired
+				return errCollectionRequired
 			}
 
 			_, classErr := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection)
@@ -53,7 +53,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Data != nil {
 			if perm.Data.Collection == nil {
-				return ErrCollectionRequired
+				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection)
 			multiErr = errors.Join(err)
@@ -65,7 +65,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Backups != nil {
 			if perm.Data.Collection == nil {
-				return ErrCollectionRequired
+				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Backups.Collection)
 			multiErr = errors.Join(err)
@@ -73,7 +73,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Nodes != nil {
 			if perm.Data.Collection == nil {
-				return ErrCollectionRequired
+				return errCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Nodes.Collection)
 			multiErr = errors.Join(err)
