@@ -201,7 +201,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
