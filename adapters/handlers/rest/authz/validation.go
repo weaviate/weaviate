@@ -19,6 +19,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
+var (
+	ErrCollectionRequired = fmt.Errorf("collection is required")
+)
+
 func validatePermissions(permissions ...*models.Permission) error {
 	if len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
@@ -28,7 +32,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 		var multiErr error
 		if perm.Collections != nil {
 			if perm.Collections.Collection == nil {
-				return fmt.Errorf("collection is required")
+				return ErrCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection)
 			multiErr = errors.Join(err)
@@ -36,7 +40,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Tenants != nil {
 			if perm.Tenants.Collection == nil {
-				return fmt.Errorf("collection is required")
+				return ErrCollectionRequired
 			}
 
 			_, classErr := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection)
@@ -49,7 +53,7 @@ func validatePermissions(permissions ...*models.Permission) error {
 
 		if perm.Data != nil {
 			if perm.Data.Collection == nil {
-				return fmt.Errorf("collection is required")
+				return ErrCollectionRequired
 			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection)
 			multiErr = errors.Join(err)
@@ -60,11 +64,17 @@ func validatePermissions(permissions ...*models.Permission) error {
 		}
 
 		if perm.Backups != nil {
+			if perm.Data.Collection == nil {
+				return ErrCollectionRequired
+			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Backups.Collection)
 			multiErr = errors.Join(err)
 		}
 
 		if perm.Nodes != nil {
+			if perm.Data.Collection == nil {
+				return ErrCollectionRequired
+			}
 			_, err := schema.ValidateClassNameIncludesRegex(*perm.Nodes.Collection)
 			multiErr = errors.Join(err)
 		}
