@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/pkg/errors"
@@ -46,40 +45,42 @@ func (m *Memtable) flush() error {
 	if err != nil {
 		return err
 	}
-
-	w := bufio.NewWriter(f)
+	bufw := bufio.NewWriter(f)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(bufw),
+	)
 
 	var keys []segmentindex.Key
 	skipIndices := false
 
 	switch m.flushStrategy {
 	case StrategyReplace:
-		if keys, err = m.flushDataReplace(w); err != nil {
+		if keys, err = m.flushDataReplace(segmentFile); err != nil {
 			return err
 		}
 
 	case StrategySetCollection:
-		if keys, err = m.flushDataSet(w); err != nil {
+		if keys, err = m.flushDataSet(segmentFile); err != nil {
 			return err
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(w); err != nil {
+		if keys, err = m.flushDataRoaringSet(segmentFile); err != nil {
 			return err
 		}
 
 	case StrategyRoaringSetRange:
-		if keys, err = m.flushDataRoaringSetRange(w); err != nil {
+		if keys, err = m.flushDataRoaringSetRange(segmentFile); err != nil {
 			return err
 		}
 		skipIndices = true
 
 	case StrategyMapCollection:
-		if keys, err = m.flushDataMap(w); err != nil {
+		if keys, err = m.flushDataMap(segmentFile); err != nil {
 			return err
 		}
 	case StrategyInverted:
-		if keys, _, err = m.flushDataInverted(w, f); err != nil {
+		if keys, _, err = m.flushDataInverted(bufw, f); err != nil {
 			return err
 		}
 	default:
@@ -87,19 +88,33 @@ func (m *Memtable) flush() error {
 	}
 
 	if !skipIndices {
-		indices := &segmentindex.Indexes{
+		indexes := &segmentindex.Indexes{
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
 		}
 
-		if _, err := indices.WriteTo(w); err != nil {
-			return err
+		// TODO: Currently no checksum validation support for StrategyInverted.
+		//       This condition can be removed once support is added, and for
+		//       all strategies we can simply `segmentFile.WriteIndexes(indexes)`
+		if m.flushStrategy == StrategyInverted {
+			if _, err := indexes.WriteTo(bufw); err != nil {
+				return err
+			}
+		} else {
+			if _, err := segmentFile.WriteIndexes(indexes); err != nil {
+				return err
+			}
 		}
 	}
 
-	if err := w.Flush(); err != nil {
-		return err
+	// TODO: Currently no checksum validation support for StrategyInverted.
+	//       This condition can be removed once support is added, and for
+	//       all strategies we can simply `segmentFile.WriteChecksum()`
+	if m.flushStrategy != StrategyInverted {
+		if _, err := segmentFile.WriteChecksum(); err != nil {
+			return err
+		}
 	}
 
 	if err := f.Sync(); err != nil {
@@ -116,21 +131,21 @@ func (m *Memtable) flush() error {
 	return m.commitlog.delete()
 }
 
-func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(m.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
 	headerSize := segmentindex.HeaderSize
-	header := segmentindex.Header{
+	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.SegmentV1,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
 
-	n, err := header.WriteTo(f)
+	n, err := f.WriteHeader(header)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +163,7 @@ func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 			secondaryIndexCount: m.secondaryIndices,
 		}
 
-		ki, err := segNode.KeyIndexAndWriteTo(f)
+		ki, err := segNode.KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
@@ -160,12 +175,12 @@ func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	return keys, nil
 }
 
-func (m *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.keyMulti.flattenInOrder()
 	return m.flushDataCollection(f, flat)
 }
 
-func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	m.RLock()
 	flat := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -195,19 +210,19 @@ func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 	return m.flushDataCollection(f, asMulti)
 }
 
-func (m *Memtable) flushDataCollection(f io.Writer,
+func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
-	header := segmentindex.Header{
+	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.SegmentV1,
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
 
-	n, err := header.WriteTo(f)
+	n, err := f.WriteHeader(header)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +235,7 @@ func (m *Memtable) flushDataCollection(f io.Writer,
 			values:     node.values,
 			primaryKey: node.key,
 			offset:     totalWritten,
-		}).KeyIndexAndWriteTo(f)
+		}).KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			return nil, errors.Wrapf(err, "write node %d", i)
 		}
