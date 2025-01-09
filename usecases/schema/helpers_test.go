@@ -45,10 +45,13 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorDistanceMetric: "cosine",
 		GetClassMethod:              GetClassAlwaysLeader,
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 
 	require.Nil(t, err)
 	return &handler, schemaManager
@@ -63,10 +66,13 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 			"model1", "model2",
 		},
 	}
+	fakeClusterState := fakes.NewFakeClusterState()
+	fakeValidator := &fakeValidator{}
+	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
+		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
+		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }

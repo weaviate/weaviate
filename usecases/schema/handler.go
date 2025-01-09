@@ -133,12 +133,6 @@ type Handler struct {
 	classGetter             classGetter
 }
 
-const (
-	GetClassAlwaysLeader            = "always_leader"
-	GetClassAlwaysLocal             = "always_local"
-	GetClassLeaderIfVersionMismatch = "leader_if_version_mismatch"
-)
-
 // NewHandler creates a new handler
 func NewHandler(
 	schemaReader SchemaReader,
@@ -150,25 +144,14 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	parser Parser, classGetter classGetter,
 ) (Handler, error) {
 	logger.WithField("get_class_method", config.GetClassMethod).Debug("creating schema handler")
-	var classGetter classGetter
-	switch strings.ToLower(config.GetClassMethod) {
-	case GetClassAlwaysLeader:
-		classGetter = getVersionedClassesFromLeader
-	case GetClassAlwaysLocal:
-		classGetter = getVersionedClassesFromLocal
-	case GetClassLeaderIfVersionMismatch:
-		classGetter = getVersionedClassesFromLeaderIfVersionMismatch
-	default:
-		logger.WithField("method", config.GetClassMethod).Error("unknown class getter method")
-		return Handler{}, fmt.Errorf("unknown class getter method: %s", config.GetClassMethod)
-	}
 	handler := Handler{
 		config:                  config,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
-		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
+		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
 		Authorizer:              authorizer,

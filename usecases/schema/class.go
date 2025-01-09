@@ -78,14 +78,77 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		return h.classGetter(h, names)
+		return h.classGetter.getClasses(names)
 	}, names...)
 }
 
-type classGetter func(h *Handler, names []string) (map[string]versioned.Class, error)
+const (
+	GetClassAlwaysLeader            = "always_leader"
+	GetClassAlwaysLocal             = "always_local"
+	GetClassLeaderIfVersionMismatch = "leader_if_version_mismatch"
+)
 
-func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versioned.Class, error) {
-	vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
+type classGetter interface {
+	getClasses(names []string) (map[string]versioned.Class, error)
+}
+
+func NewClassGetter(getClassMethod string, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) (classGetter, error) {
+	switch strings.ToLower(getClassMethod) {
+	case GetClassAlwaysLeader:
+		return newClassGetterFromLeader(schemaParser, schemaManager, logger), nil
+	case GetClassAlwaysLocal:
+		return newClassGetterFromLocal(schemaParser, schemaManager, schemaReader, logger), nil
+	case GetClassLeaderIfVersionMismatch:
+		return newClassGetterFromLeaderIfVersionMismatch(schemaReader, logger), nil
+	default:
+		return nil, fmt.Errorf("unknown class getter method: %s", getClassMethod)
+	}
+}
+
+type classGetterFromLeader struct {
+	parser        *Parser
+	schemaManager SchemaManager
+	logger        logrus.FieldLogger
+}
+
+func newClassGetterFromLeader(parser *Parser, schemaManager SchemaManager, logger logrus.FieldLogger) *classGetterFromLeader {
+	return &classGetterFromLeader{
+		parser:        parser,
+		schemaManager: schemaManager,
+		logger:        logger,
+	}
+}
+
+type classGetterFromLocal struct {
+	parser        *Parser
+	schemaManager SchemaManager
+	schemaReader  SchemaReader
+	logger        logrus.FieldLogger
+}
+
+func newClassGetterFromLocal(parser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) *classGetterFromLocal {
+	return &classGetterFromLocal{
+		parser:        parser,
+		schemaManager: schemaManager,
+		schemaReader:  schemaReader,
+		logger:        logger,
+	}
+}
+
+type classGetterFromLeaderIfVersionMismatch struct {
+	schemaReader SchemaReader
+	logger       logrus.FieldLogger
+}
+
+func newClassGetterFromLeaderIfVersionMismatch(schemaReader SchemaReader, logger logrus.FieldLogger) *classGetterFromLeaderIfVersionMismatch {
+	return &classGetterFromLeaderIfVersionMismatch{
+		schemaReader: schemaReader,
+		logger:       logger,
+	}
+}
+
+func (cg *classGetterFromLeader) getClasses(names []string) (map[string]versioned.Class, error) {
+	vclasses, err := cg.schemaManager.QueryReadOnlyClasses(names...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,9 +158,9 @@ func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versi
 	}
 
 	for _, vclass := range vclasses {
-		if err := h.parser.ParseClass(vclass.Class); err != nil {
+		if err := cg.parser.ParseClass(vclass.Class); err != nil {
 			// remove invalid classes
-			h.logger.WithFields(logrus.Fields{
+			cg.logger.WithFields(logrus.Fields{
 				"Class": vclass.Class.Class,
 				"Error": err,
 			}).Warn("parsing class error")
@@ -109,15 +172,15 @@ func getVersionedClassesFromLeader(h *Handler, names []string) (map[string]versi
 	return vclasses, nil
 }
 
-func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) (map[string]versioned.Class, error) {
-	classVersions, err := h.schemaManager.QueryClassVersions(names...)
+func (cg *classGetterFromLocal) getClasses(names []string) (map[string]versioned.Class, error) {
+	classVersions, err := cg.schemaManager.QueryClassVersions(names...)
 	if err != nil {
 		return nil, err
 	}
 	versionedClassesToReturn := map[string]versioned.Class{}
 	versionedClassesToQueryFromLeader := []string{}
 	for _, name := range names {
-		localVclass, err := h.schemaReader.ReadOnlyVersionedClass(name)
+		localVclass, err := cg.schemaReader.ReadOnlyVersionedClass(name)
 		leaderClassVersion, ok := classVersions[name]
 		// < leaderClassVersion instead of != because there is some chance that the local version
 		// could be ahead of the version returned by the leader if the response from the leader was
@@ -133,9 +196,9 @@ func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) 
 		return versionedClassesToReturn, nil
 	}
 
-	versionedClassesFromLeader, err := h.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
+	versionedClassesFromLeader, err := cg.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
 	if err != nil || len(versionedClassesFromLeader) == 0 {
-		h.logger.WithFields(logrus.Fields{
+		cg.logger.WithFields(logrus.Fields{
 			"classes":    versionedClassesToQueryFromLeader,
 			"error":      err,
 			"suggestion": "look for network issues between this node and the leader",
@@ -145,9 +208,9 @@ func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) 
 	}
 
 	for _, vclass := range versionedClassesFromLeader {
-		if err := h.parser.ParseClass(vclass.Class); err != nil {
+		if err := cg.parser.ParseClass(vclass.Class); err != nil {
 			// silently remove invalid classes to match previous behavior
-			h.logger.WithFields(logrus.Fields{
+			cg.logger.WithFields(logrus.Fields{
 				"Class": vclass.Class.Class,
 				"Error": err,
 			}).Warn("parsing class error")
@@ -160,12 +223,12 @@ func getVersionedClassesFromLeaderIfVersionMismatch(h *Handler, names []string) 
 	return versionedClassesToReturn, nil
 }
 
-func getVersionedClassesFromLocal(h *Handler, names []string) (map[string]versioned.Class, error) {
+func (cg *classGetterFromLeaderIfVersionMismatch) getClasses(names []string) (map[string]versioned.Class, error) {
 	vclasses := map[string]versioned.Class{}
 	for _, name := range names {
-		vc, err := h.schemaReader.ReadOnlyVersionedClass(name)
+		vc, err := cg.schemaReader.ReadOnlyVersionedClass(name)
 		if err != nil {
-			h.logger.WithFields(logrus.Fields{
+			cg.logger.WithFields(logrus.Fields{
 				"Class": vc.Class.Class,
 				"Error": err,
 			}).Warn("parsing local class error")
@@ -180,7 +243,7 @@ func getVersionedClassesFromLocal(h *Handler, names []string) (map[string]versio
 				missingClasses = append(missingClasses, name)
 			}
 		}
-		h.logger.WithFields(logrus.Fields{
+		cg.logger.WithFields(logrus.Fields{
 			"missing": missingClasses,
 			"suggestion": "if this node is too slow to pick up new classes from the leader, " +
 				"consider changing the GET_CLASS_METHOD config to `always_leader`",
