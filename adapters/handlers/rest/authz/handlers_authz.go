@@ -12,19 +12,18 @@
 package authz
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -536,38 +535,6 @@ func sortByName(roles []*models.Role) {
 	sort.Slice(roles, func(i, j int) bool {
 		return *roles[i].Name < *roles[j].Name
 	})
-}
-
-func validatePermissions(permissions ...*models.Permission) error {
-	if len(permissions) == 0 {
-		return fmt.Errorf("role has to have at least 1 permission")
-	}
-
-	for _, perm := range permissions {
-		if perm.Collections != nil {
-			if _, err := schema.ValidateClassName(*perm.Collections.Collection); err != nil {
-				return err
-			}
-		}
-
-		if perm.Tenants != nil {
-			if err := schema.ValidateTenantName(*perm.Tenants.Tenant); err != nil {
-				return err
-			}
-		}
-
-		if perm.Data != nil {
-			if _, err := schema.ValidateClassName(*perm.Data.Collection); err != nil {
-				return err
-			}
-
-			if err := schema.ValidateTenantName(*perm.Data.Tenant); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 // TODO-RBAC: we could expose endpoint to validate permissions as dry-run

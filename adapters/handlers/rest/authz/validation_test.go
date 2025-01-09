@@ -40,7 +40,6 @@ func TestValidatePermissions(t *testing.T) {
 			},
 			expectedErr: "not a valid class name",
 		},
-
 		{
 			name: "invalid collection name with space",
 			permissions: []*models.Permission{
@@ -68,7 +67,8 @@ func TestValidatePermissions(t *testing.T) {
 			permissions: []*models.Permission{
 				{
 					Tenants: &models.PermissionTenants{
-						Tenant: String("Invalid Tenant Name"),
+						Collection: String("*"),
+						Tenant:     String("Invalid Tenant Name"),
 					},
 				},
 			},
@@ -79,7 +79,8 @@ func TestValidatePermissions(t *testing.T) {
 			permissions: []*models.Permission{
 				{
 					Tenants: &models.PermissionTenants{
-						Tenant: String("InvalidTenantName!"),
+						Collection: String("*"),
+						Tenant:     String("InvalidTenantName!"),
 					},
 				},
 			},
@@ -90,11 +91,54 @@ func TestValidatePermissions(t *testing.T) {
 			permissions: []*models.Permission{
 				{
 					Tenants: &models.PermissionTenants{
-						Tenant: String("#"),
+						Collection: String("*"),
+						Tenant:     String("#"),
 					},
 				},
 			},
 			expectedErr: "is not a valid tenant name.",
+		},
+		{
+			name: "valid collection regex name",
+			permissions: []*models.Permission{
+				{
+					Collections: &models.PermissionCollections{
+						Collection: String("ValidTenantName*"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid collection *",
+			permissions: []*models.Permission{
+				{
+					Collections: &models.PermissionCollections{
+						Collection: String("*"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid tenant regex name",
+			permissions: []*models.Permission{
+				{
+					Tenants: &models.PermissionTenants{
+						Collection: String("*"),
+						Tenant:     String("Tenant*"),
+					},
+				},
+			},
+		},
+		{
+			name: "valid tenant *",
+			permissions: []*models.Permission{
+				{
+					Tenants: &models.PermissionTenants{
+						Collection: String("*"),
+						Tenant:     String("*"),
+					},
+				},
+			},
 		},
 		{
 			name: "valid permissions",
@@ -104,7 +148,8 @@ func TestValidatePermissions(t *testing.T) {
 						Collection: String("ValidCollectionName"),
 					},
 					Tenants: &models.PermissionTenants{
-						Tenant: String("ValidTenantName"),
+						Collection: String("*"),
+						Tenant:     String("ValidTenantName"),
 					},
 					Data: &models.PermissionData{
 						Collection: String("ValidCollectionName"),
@@ -112,7 +157,6 @@ func TestValidatePermissions(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "",
 		},
 	}
 

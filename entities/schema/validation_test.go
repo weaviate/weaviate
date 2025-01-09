@@ -190,3 +190,120 @@ func TestValidateTenantName(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateClassNameIncludesRegex(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedErr string
+	}{
+		{
+			name:        "valid class name",
+			input:       "ValidClassName",
+			expectedErr: "",
+		},
+		{
+			name:        "valid class name",
+			input:       "*",
+			expectedErr: "",
+		},
+		{
+			name:        "valid class name with regex pattern",
+			input:       "ValidClassName.*",
+			expectedErr: "",
+		},
+		{
+			name:        "invalid class name with special character",
+			input:       "InvalidClassName!",
+			expectedErr: "not a valid class name",
+		},
+		{
+			name:        "invalid class name with space",
+			input:       "Invalid ClassName",
+			expectedErr: "not a valid class name",
+		},
+		{
+			name:        "invalid class name with spaces",
+			input:       "InvalidClassName WithSpaces",
+			expectedErr: "not a valid class name",
+		},
+		{
+			name:        "class name too long",
+			input:       "ThisClassNameHasExactly256Characters_MaximumAllowed____________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890A",
+			expectedErr: "not a valid class name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ValidateClassNameIncludesRegex(tt.input)
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTenantNameIncludesRegex(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedErr string
+	}{
+		{
+			name:        "valid tenant name",
+			input:       "ValidTenantName",
+			expectedErr: "",
+		},
+		{
+			name:        "valid tenant name",
+			input:       "*",
+			expectedErr: "",
+		},
+		{
+			name:        "valid tenant name with hyphen",
+			input:       "Valid-Tenant-Name",
+			expectedErr: "",
+		},
+		{
+			name:        "valid tenant name with underscore",
+			input:       "Valid_Tenant_Name",
+			expectedErr: "",
+		},
+		{
+			name:        "empty tenant name",
+			input:       "",
+			expectedErr: "empty tenant name",
+		},
+		{
+			name:        "invalid tenant name with space",
+			input:       "Invalid Tenant Name",
+			expectedErr: "not a valid tenant name",
+		},
+		{
+			name:        "invalid tenant name with special character",
+			input:       "InvalidTenantName!",
+			expectedErr: "not a valid tenant name",
+		},
+		{
+			name:        "tenant name too long",
+			input:       "ThisTenantNameIsWayTooLongAndShouldNotBeValidBecauseItExceedsTheMaximumAllowedLength",
+			expectedErr: "not a valid tenant name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTenantNameIncludesRegex(tt.input)
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

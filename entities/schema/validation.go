@@ -29,7 +29,10 @@ const (
 	// As dir containing class data is named after class, 255 chars are allowed
 	classNameMaxLength = 255
 	ClassNameRegexCore = `[A-Z][_0-9A-Za-z]{0,254}`
-	ShardNameRegexCore = `[A-Za-z0-9\-\_]{1,64}`
+	// Allow regex patterns at the end or a capital letter followed by alphanumeric characters, underscores, or hyphens
+	ClassNameIncludesRegex      = `^(\*|[A-Z][_0-9A-Za-z\-.*+?^$()|{}\[\]\\]{0,254})$`
+	ShardNameRegexCore          = `[A-Za-z0-9\-\_]{1,64}`
+	ShardNameRegexIncludesRegex = `^[A-Za-z0-9\-_.*+?^$()|{}\[\]\\*]{1,64}$`
 	// Restricted by max length allowed for dir name (255 chars)
 	// Property name is used to build dir names of various purposes containing property
 	// related data. Among them might be (depending on the settings):
@@ -51,7 +54,7 @@ const (
 // ValidateClassName validates that this string is a valid class name (format wise)
 func ValidateClassName(name string) (ClassName, error) {
 	if len(name) > classNameMaxLength {
-		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
+		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters.",
 			name, classNameMaxLength)
 	}
 	if !validateClassNameRegex.MatchString(name) {
@@ -60,9 +63,41 @@ func ValidateClassName(name string) (ClassName, error) {
 	return ClassName(name), nil
 }
 
+// ValidateClassNameIncludesRegex validates that this string is a valid class name (format wise)
+// can include regex pattern
+func ValidateClassNameIncludesRegex(name string) (ClassName, error) {
+	if len(name) > classNameMaxLength {
+		return "", fmt.Errorf("'%s' is not a valid class name. Name should not be longer than %d characters",
+			name, classNameMaxLength)
+	}
+	if !regexp.MustCompile(ClassNameIncludesRegex).MatchString(name) {
+		return "", fmt.Errorf("'%s' is not a valid class name", name)
+	}
+	return ClassName(name), nil
+}
+
 // ValidateTenantName validates that this string is a valid tenant name (format wise)
 func ValidateTenantName(name string) error {
 	if !validateTenantNameRegex.MatchString(name) {
+		var msg string
+		if name == "" {
+			msg = "empty tenant name"
+		} else {
+			msg = fmt.Sprintf(
+				" '%s' is not a valid tenant name. should only contain alphanumeric characters (a-z, A-Z, 0-9), "+
+					"underscore (_), and hyphen (-), with a length between 1 and 64 characters",
+				name,
+			)
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+// ValidateTenantNameIncludesRegex validates that this string is a valid tenant name (format wise)
+// can include regex pattern
+func ValidateTenantNameIncludesRegex(name string) error {
+	if !regexp.MustCompile(ShardNameRegexIncludesRegex).MatchString(name) {
 		var msg string
 		if name == "" {
 			msg = "empty tenant name"
