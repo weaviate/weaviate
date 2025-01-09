@@ -20,38 +20,38 @@ import (
 )
 
 func validatePermissions(permissions ...*models.Permission) error {
-	// TODO: allow regex pattern in collection and tenant name
 	if len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 
 	for _, perm := range permissions {
+		var multiErr error
 		if perm.Collections != nil {
 			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Collections.Collection); err != nil {
-				return err
+				multiErr = errors.Join(err)
 			}
 		}
 
 		if perm.Tenants != nil {
 			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Tenants.Collection); err != nil {
-				return err
+				multiErr = errors.Join(err)
 			}
 			if err := schema.ValidateTenantNameIncludesRegex(*perm.Tenants.Tenant); err != nil {
-				return err
+				multiErr = errors.Join(err)
 			}
 		}
 
 		if perm.Data != nil {
-			var multiErr error
 			if _, err := schema.ValidateClassNameIncludesRegex(*perm.Data.Collection); err != nil {
 				multiErr = errors.Join(err)
 			}
 			if err := schema.ValidateTenantNameIncludesRegex(*perm.Data.Tenant); err != nil {
 				multiErr = errors.Join(err)
 			}
-			if multiErr != nil {
-				return multiErr
-			}
+		}
+
+		if multiErr != nil {
+			return multiErr
 		}
 	}
 
