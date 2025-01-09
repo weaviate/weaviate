@@ -13,12 +13,12 @@ package db
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -270,27 +270,15 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 }
 
 var (
-	uniqueCounter    int
-	uniqueNumberLock = &sync.Mutex{}
+	uniqueCounter    atomic.Uint64
 )
 
-func uniqueNumber() int {
-	uniqueNumberLock.Lock()
-	defer uniqueNumberLock.Unlock()
-	uniqueCounter = uniqueCounter + 1
-	return uniqueCounter
-}
 
-// GenerateRandomString generates a random string of the specified length
-func GenerateRandomString(length int) (string, error) {
-	// Allocate a byte slice with half the desired length (each byte will convert to 2 hex chars)
-	bytes := make([]byte, length/2)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
-	}
-	// Convert the bytes to a hex string
-	return fmt.Sprintf("%v%v", hex.EncodeToString(bytes), uniqueNumber()), nil
+
+// GenerateUniqueString generates a random string of the specified length
+func GenerateUniqueString(length int) (string, error) {
+	uniqueCounter.Inc()
+	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
 // Empty the dimensions bucket, quickly and efficiently
@@ -316,12 +304,12 @@ func (s *Shard) resetDimensionsLSM() error {
 	}
 
 	// Create random bucket name
-	name, err := GenerateRandomString(32)
+	name, err := GenerateUniqueString(32)
 	if err != nil {
-		return errors.Wrap(err, "generate random bucket name")
+		return errors.Wrap(err, "generate unique bucket name")
 	}
 
-	// Create a new bucket with the random name
+	// Create a new bucket with the unique name
 	err = s.createDimensionsBucket(context.Background(), name)
 	if err != nil {
 		return errors.Wrap(err, "create temporary dimensions bucket")
