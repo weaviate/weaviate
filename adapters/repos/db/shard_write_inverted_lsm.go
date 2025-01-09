@@ -14,10 +14,8 @@ package db
 import (
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math"
-	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -277,7 +275,7 @@ var (
 
 // GenerateUniqueString generates a random string of the specified length
 func GenerateUniqueString(length int) (string, error) {
-	uniqueCounter.Inc()
+	uniqueCounter.Add(1)
 	return fmt.Sprintf("%v", uniqueCounter.Load()), nil
 }
 
