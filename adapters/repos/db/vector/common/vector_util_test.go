@@ -71,11 +71,98 @@ func TestVectorUtil_Equal(t *testing.T) {
 			vecB:          []float32{},
 			expectedEqual: false,
 		},
+		{
+			vecA:          []float32{1, 2, 3},
+			vecB:          []float32{2, 3, 4},
+			expectedEqual: false,
+		},
 	}
 
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("#%d", i+1), func(t *testing.T) {
 			assert.Equal(t, tc.expectedEqual, VectorsEqual(tc.vecA, tc.vecB))
+		})
+	}
+}
+
+func TestMultiVectorUtil_Equal(t *testing.T) {
+	type testCase struct {
+		vecA          [][]float32
+		vecB          [][]float32
+		expectedEqual bool
+	}
+
+	testCases := []testCase{
+		{
+			vecA:          nil,
+			vecB:          nil,
+			expectedEqual: true,
+		},
+		{
+			vecA:          nil,
+			vecB:          [][]float32{},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{},
+			vecB:          nil,
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{},
+			vecB:          [][]float32{},
+			expectedEqual: true,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}},
+			vecB:          [][]float32{{1., 2., 3.}},
+			expectedEqual: true,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3, 4}},
+			vecB:          [][]float32{{1., 2., 3.}},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}},
+			vecB:          [][]float32{{1., 2., 3., 4.}},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{},
+			vecB:          [][]float32{{1., 2., 3.}},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}},
+			vecB:          [][]float32{},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}},
+			vecB:          [][]float32{{1, 2, 3}, {11, 22, 33}},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}, {11, 22, 33}},
+			vecB:          [][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}},
+			expectedEqual: false,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}},
+			vecB:          [][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}},
+			expectedEqual: true,
+		},
+		{
+			vecA:          [][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}},
+			vecB:          [][]float32{{11, 22, 33}, {111, 222, 333}, {1, 2, 3}},
+			expectedEqual: false,
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i+1), func(t *testing.T) {
+			assert.Equal(t, tc.expectedEqual, MultiVectorsEqual(tc.vecA, tc.vecB))
 		})
 	}
 }

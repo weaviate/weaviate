@@ -46,13 +46,22 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		vecDimensions := make(map[int]struct{})
+		for i := range vector {
+			vecDimensions[len(vector[i])] = struct{}{}
+		}
+		if len(vecDimensions) > 1 {
+			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+		}
 		return nil
 	}
 
 	// check if vector length is the same as existing nodes
-	if dims != len(vector) {
-		return fmt.Errorf("new node has a multi vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), dims)
+	for i := range vector {
+		if dims != len(vector[i]) {
+			return fmt.Errorf("new node has a multi vector with length %v at position %v. "+
+				"Existing nodes have vectors with length %v", len(vector[i]), i, dims)
+		}
 	}
 
 	return nil

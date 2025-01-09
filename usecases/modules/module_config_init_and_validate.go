@@ -250,6 +250,12 @@ func (p *Provider) validateClassesModuleConfig(ctx context.Context,
 		return fmt.Errorf("multiple vectorizers configured in class's moduleConfig: %v. class.vectorizer is set to %q",
 			configuredVectorizers, class.Vectorizer)
 	}
+	if len(configuredVectorizers) == 1 && p.IsMultiVector(configuredVectorizers[0]) {
+		return fmt.Errorf("multi vector vectorizer: %q is only allowed to be defined using named vector configuration", configuredVectorizers[0])
+	}
+	if p.IsMultiVector(class.Vectorizer) {
+		return fmt.Errorf("multi vector vectorizer: %q is only allowed to be defined using named vector configuration", class.Vectorizer)
+	}
 	return nil
 }
 

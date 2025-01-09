@@ -67,7 +67,18 @@ type Vector[T dto.Embedding] struct {
 }
 
 func (v *Vector[T]) Len() int {
-	return len(v.Vector)
+	switch any(v.Vector).(type) {
+	case []float32:
+		return len(v.Vector)
+	case [][]float32:
+		vec := any(v.Vector).([][]float32)
+		if len(vec) > 0 {
+			return len(vec[0])
+		}
+		return 0
+	default:
+		return 0
+	}
 }
 
 func (v *Vector[T]) Validate(vectorIndex VectorIndex) error {

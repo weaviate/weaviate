@@ -89,6 +89,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 			}
 		}
+		for targetVector, vector := range obj.MultiVectors {
+			if err := s.updateMultiVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+				return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
+			}
+		}
 	} else {
 		if err := s.updateVectorIndex(ctx, obj.Vector, status); err != nil {
 			return errors.Wrap(err, "update vector index")
@@ -304,6 +309,7 @@ func mergeProps(previous *storobj.Object,
 
 	if len(merge.Vectors) == 0 {
 		next.Vectors = previous.Vectors
+		next.MultiVectors = previous.MultiVectors
 	} else {
 		next.Vectors = vectorsAsMap(merge.Vectors)
 		next.MultiVectors = multiVectorsAsMap(merge.Vectors)

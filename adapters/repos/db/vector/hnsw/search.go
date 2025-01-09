@@ -929,8 +929,17 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 }
 
 func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer {
-	// TODO:colbert implement
-	return common.QueryVectorDistancer{}
+	queryVector = h.normalizeVecs(queryVector)
+	f := func(docID uint64) (float32, error) {
+		h.RLock()
+		_, ok := h.docIDVectors[docID]
+		h.RUnlock()
+		if !ok {
+			return -1, fmt.Errorf("docID %v is not in the vector index", docID)
+		}
+		return h.computeScore(queryVector, docID)
+	}
+	return common.QueryVectorDistancer{DistanceFunc: f}
 }
 
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {

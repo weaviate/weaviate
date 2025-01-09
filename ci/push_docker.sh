@@ -11,10 +11,12 @@ function release() {
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
 
+  # nightly tag was added to be pushed on merges to main branch, latest tag is used to get latest released version
   tag_latest="${DOCKER_REPO}:latest"
   tag_exact=
   tag_preview=
   tag_preview_semver=
+  tag_nightly=
 
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
   git_branch="$GITHUB_HEAD_REF"
@@ -38,6 +40,9 @@ function release() {
       tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
       weaviate_version="${branch_name}-${git_revision}"
       git_branch="$GITHUB_HEAD_REF"
+      if [ "$branch_name" == "main" ]; then
+        tag_nightly="${DOCKER_REPO}:nightly"
+      fi
     else
       tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}"
       weaviate_version="preview-${pr_title}-${git_revision}"
@@ -55,6 +60,9 @@ function release() {
     # preview tag on PR builds
     args+=("-t=$tag_preview")
     args+=("-t=$tag_preview_semver")
+    if [ -n "$tag_nightly" ]; then
+      args+=("-t=$tag_nightly")
+    fi
   fi
 
   # build weaviate image
