@@ -197,12 +197,8 @@ func (p *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 		if err != nil {
 			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
 		}
-		if vectorizerModuleName != "none" && parsed.IsMultiVector() != isMultiVector {
-			if isMultiVector {
-				return fmt.Errorf("parse vector config for %s: configured vectorizer: %q supports multi vectors but multi vector index is not configured", targetVector, vectorizerModuleName)
-			} else {
-				return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
-			}
+		if parsed.IsMultiVector() && vectorizerModuleName != "none" && !isMultiVector {
+			return fmt.Errorf("parse vector config for %s: multi vector index configured but vectorizer: %q doesn't support multi vectors", targetVector, vectorizerModuleName)
 		}
 		vectorConfig.VectorIndexConfig = parsed
 		class.VectorConfig[targetVector] = vectorConfig

@@ -2,7 +2,7 @@ module github.com/weaviate/weaviate
 
 require (
 	cloud.google.com/go/storage v1.43.0
-	github.com/bmatcuk/doublestar v1.1.3
+	github.com/bmatcuk/doublestar v1.3.4
 	github.com/buger/jsonparser v1.1.1
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
@@ -38,14 +38,14 @@ require (
 	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.29.0
 	gonum.org/v1/gonum v0.12.0
-	google.golang.org/api v0.214.0
+	google.golang.org/api v0.215.0
 	google.golang.org/grpc v1.69.2
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.4.1
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.5.0
 	github.com/KimMachineGun/automemlimit v0.6.1
 	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go-v2 v1.32.7
@@ -70,7 +70,7 @@ require (
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-	github.com/prometheus/common v0.60.0
+	github.com/prometheus/common v0.61.0
 	github.com/tailor-inc/graphql v0.5.7
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -215,7 +215,7 @@ require (
 	golang.org/x/crypto v0.31.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241209162323-e6fa225c2576 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241209162323-e6fa225c2576 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
