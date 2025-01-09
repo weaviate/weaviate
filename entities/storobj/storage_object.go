@@ -213,8 +213,11 @@ func FromBinaryOptional(data []byte,
 		ko.Vectors = vectors
 
 		if vectors != nil {
-			ko.Object.Vectors = make(models.Vectors)
+			if ko.Object.Vectors == nil {
+				ko.Object.Vectors = make(models.Vectors)
+			}
 			for vecName, vec := range vectors {
+				// TODO extra safe check that vecName is not in vectors already?
 				ko.Object.Vectors[vecName] = vec
 			}
 		}
@@ -238,6 +241,16 @@ func FromBinaryOptional(data []byte,
 			return nil, err
 		}
 		ko.MultiVectors = multiVectors
+
+		if multiVectors != nil {
+			if ko.Object.Vectors == nil {
+				ko.Object.Vectors = make(models.Vectors)
+			}
+			for vecName, vec := range multiVectors {
+				// TODO extra safe check that vecName is not in vectors already?
+				ko.Object.Vectors[vecName] = vec
+			}
+		}
 	}
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
@@ -1437,15 +1450,23 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	ko.Object = models.Object{
-		Class:              className,
-		CreationTimeUnix:   create,
-		LastUpdateTimeUnix: update,
-		ID:                 uuid,
-		Properties:         returnProps,
-		VectorWeights:      vectorWeights,
-		Additional:         additionalProperties,
-	}
+	ko.Object.Class = className
+	ko.Object.CreationTimeUnix = create
+	ko.Object.LastUpdateTimeUnix = update
+	ko.Object.ID = uuid
+	ko.Object.Properties = returnProps
+	ko.Object.VectorWeights = vectorWeights
+	ko.Object.Additional = additionalProperties
+
+	// ko.Object = models.Object{
+	// 	Class:              className,
+	// 	CreationTimeUnix:   create,
+	// 	LastUpdateTimeUnix: update,
+	// 	ID:                 uuid,
+	// 	Properties:         returnProps,
+	// 	VectorWeights:      vectorWeights,
+	// 	Additional:         additionalProperties,
+	// }
 
 	return nil
 }
