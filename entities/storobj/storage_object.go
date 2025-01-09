@@ -145,7 +145,6 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	return ko, nil
 }
 
-// TODO multivector add multivector to addProp?
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -209,15 +208,13 @@ func FromBinaryOptional(data []byte,
 		if err != nil {
 			return nil, err
 		}
-		// TODO vectors here has ALL the vectors, not just the named ones in the args
 		ko.Vectors = vectors
 
 		if vectors != nil {
-			if ko.Object.Vectors == nil {
-				ko.Object.Vectors = make(models.Vectors)
-			}
+			// If parseObject is called, ko.Object will be overwritten making this effectively a
+			// no-op, but I'm leaving it here for now to avoid breaking anything.
+			ko.Object.Vectors = make(models.Vectors)
 			for vecName, vec := range vectors {
-				// TODO extra safe check that vecName is not in vectors already?
 				ko.Object.Vectors[vecName] = vec
 			}
 		}
@@ -235,7 +232,6 @@ func FromBinaryOptional(data []byte,
 		for _, name := range addProp.Vectors {
 			vectorNamesToUnmarshal[name] = nil
 		}
-		// TODO does any calling code depend on having all multivectors included as before?
 		multiVectors, err := unmarshalMultiVectors(&rw, vectorNamesToUnmarshal)
 		if err != nil {
 			return nil, err
@@ -243,11 +239,13 @@ func FromBinaryOptional(data []byte,
 		ko.MultiVectors = multiVectors
 
 		if multiVectors != nil {
+			// If parseObject is called, ko.Object will be overwritten making this effectively a
+			// no-op, but I'm leaving it here to match the target vector behavior.
 			if ko.Object.Vectors == nil {
 				ko.Object.Vectors = make(models.Vectors)
 			}
 			for vecName, vec := range multiVectors {
-				// TODO extra safe check that vecName is not in vectors already?
+				// assume at this level target vectors and multi vectors won't have the same name
 				ko.Object.Vectors[vecName] = vec
 			}
 		}
@@ -709,6 +707,8 @@ func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err erro
 // 4          | uint32        | length of multivectors segment (in bytes)
 // n          | uint16 + (uint16+[]byte) | multivectors segment: num vecs + (vec length + vec floats), ...
 // TODO formatting
+// TODO vec lengths immediately following num vecs so you can jump straight to specific vec?
+// TODO 4 bytes for number of vectors for future proofing?
 
 const (
 	maxVectorLength               int = math.MaxUint16
@@ -718,9 +718,8 @@ const (
 	maxVectorWeightsLength        int = math.MaxUint32
 	maxTargetVectorsSegmentLength int = math.MaxUint32
 	maxTargetVectorsOffsetsLength int = math.MaxUint32
-	// TODO just use target max's instead of multi specific?
-	maxMultiVectorsSegmentLength int = math.MaxUint32
-	maxMultiVectorsOffsetsLength int = math.MaxUint32
+	maxMultiVectorsSegmentLength  int = math.MaxUint32
+	maxMultiVectorsOffsetsLength  int = math.MaxUint32
 )
 
 func (ko *Object) MarshalBinary() ([]byte, error) {
@@ -1186,7 +1185,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string]interface{}) (map[string][][]float32, error) {
 	// TODO is this comment still right? DRY comment/code?
 	// This check prevents from panic when somebody is upgrading from version that
-	// didn't have multi vector support. This check is needed bc with named vectors
+	// didn't have multi vector support. This check is needed bc with multi vectors
 	// feature storage object can have vectors data appended at the end of the file
 	if rw.Position < uint64(len(rw.Buffer)) {
 		multiVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
@@ -1450,23 +1449,15 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	ko.Object.Class = className
-	ko.Object.CreationTimeUnix = create
-	ko.Object.LastUpdateTimeUnix = update
-	ko.Object.ID = uuid
-	ko.Object.Properties = returnProps
-	ko.Object.VectorWeights = vectorWeights
-	ko.Object.Additional = additionalProperties
-
-	// ko.Object = models.Object{
-	// 	Class:              className,
-	// 	CreationTimeUnix:   create,
-	// 	LastUpdateTimeUnix: update,
-	// 	ID:                 uuid,
-	// 	Properties:         returnProps,
-	// 	VectorWeights:      vectorWeights,
-	// 	Additional:         additionalProperties,
-	// }
+	ko.Object = models.Object{
+		Class:              className,
+		CreationTimeUnix:   create,
+		LastUpdateTimeUnix: update,
+		ID:                 uuid,
+		Properties:         returnProps,
+		VectorWeights:      vectorWeights,
+		Additional:         additionalProperties,
+	}
 
 	return nil
 }

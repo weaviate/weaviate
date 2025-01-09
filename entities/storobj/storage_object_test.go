@@ -264,18 +264,11 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				require.Nil(t, err)
 				require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
 				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
-				// TODO should this length be 1 or 2?
 				require.Len(t, afterMultiVectorsOptional.Vectors, 2)
 				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
-				// TODO this passes, should we modify FromBinaryOptional to only populate vector2?
 				require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Vectors["vector1"])
 				require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Vectors["vector2"])
-				// TODO why doesn't FromBinaryOptional set .Object.Vectors?
-				// require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Object.Vectors["vector1"])
-				// require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Object.Vectors["vector2"])
 				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
-				// TODO do we need to populate object.Vectors with multivectors? or should we add a new MultiVectors field?
-				// require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.Object.Vectors["vector4"])
 			})
 		})
 	})
