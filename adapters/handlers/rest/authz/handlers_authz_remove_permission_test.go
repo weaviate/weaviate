@@ -205,8 +205,10 @@ func TestRemovePermissionsRoleNotFound(t *testing.T) {
 				Body: authz.RemovePermissionsBody{
 					Permissions: []*models.Permission{
 						{
-							Action:      String(authorization.CreateCollections),
-							Collections: &models.PermissionCollections{},
+							Action: String(authorization.CreateCollections),
+							Collections: &models.PermissionCollections{
+								Collection: String("*"),
+							},
 						},
 					},
 				},
