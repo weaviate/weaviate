@@ -30,17 +30,6 @@ func TestValidatePermissions(t *testing.T) {
 			expectedErr: "role has to have at least 1 permission",
 		},
 		{
-			name: "invalid collection name",
-			permissions: []*models.Permission{
-				{
-					Collections: &models.PermissionCollections{
-						Collection: String("Invalid class name"),
-					},
-				},
-			},
-			expectedErr: "not a valid class name",
-		},
-		{
 			name: "invalid collection name with space",
 			permissions: []*models.Permission{
 				{
