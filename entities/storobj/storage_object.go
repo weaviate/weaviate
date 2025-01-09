@@ -212,15 +212,15 @@ func FromBinaryOptional(data []byte,
 		// TODO vectors here has ALL the vectors, not just the named ones in the args
 		ko.Vectors = vectors
 
-		if vectors != nil {
-			if ko.Object.Vectors == nil {
-				ko.Object.Vectors = make(models.Vectors)
-			}
-			for vecName, vec := range vectors {
-				// TODO extra safe check that vecName is not in vectors already?
-				ko.Object.Vectors[vecName] = vec
-			}
-		}
+		// if vectors != nil {
+		// 	if ko.Object.Vectors == nil {
+		// 		ko.Object.Vectors = make(models.Vectors)
+		// 	}
+		// 	for vecName, vec := range vectors {
+		// 		// TODO extra safe check that vecName is not in vectors already?
+		// 		ko.Object.Vectors[vecName] = vec
+		// 	}
+		// }
 	} else {
 		if rw.Position < uint64(len(rw.Buffer)) {
 			_ = rw.ReadBytesFromBufferWithUint32LengthIndicator()
@@ -242,15 +242,15 @@ func FromBinaryOptional(data []byte,
 		}
 		ko.MultiVectors = multiVectors
 
-		if multiVectors != nil {
-			if ko.Object.Vectors == nil {
-				ko.Object.Vectors = make(models.Vectors)
-			}
-			for vecName, vec := range multiVectors {
-				// TODO extra safe check that vecName is not in vectors already?
-				ko.Object.Vectors[vecName] = vec
-			}
-		}
+		// if multiVectors != nil {
+		// 	if ko.Object.Vectors == nil {
+		// 		ko.Object.Vectors = make(models.Vectors)
+		// 	}
+		// 	for vecName, vec := range multiVectors {
+		// 		// TODO extra safe check that vecName is not in vectors already?
+		// 		ko.Object.Vectors[vecName] = vec
+		// 	}
+		// }
 	}
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
@@ -1450,23 +1450,23 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	ko.Object.Class = className
-	ko.Object.CreationTimeUnix = create
-	ko.Object.LastUpdateTimeUnix = update
-	ko.Object.ID = uuid
-	ko.Object.Properties = returnProps
-	ko.Object.VectorWeights = vectorWeights
-	ko.Object.Additional = additionalProperties
+	// ko.Object.Class = className
+	// ko.Object.CreationTimeUnix = create
+	// ko.Object.LastUpdateTimeUnix = update
+	// ko.Object.ID = uuid
+	// ko.Object.Properties = returnProps
+	// ko.Object.VectorWeights = vectorWeights
+	// ko.Object.Additional = additionalProperties
 
-	// ko.Object = models.Object{
-	// 	Class:              className,
-	// 	CreationTimeUnix:   create,
-	// 	LastUpdateTimeUnix: update,
-	// 	ID:                 uuid,
-	// 	Properties:         returnProps,
-	// 	VectorWeights:      vectorWeights,
-	// 	Additional:         additionalProperties,
-	// }
+	ko.Object = models.Object{
+		Class:              className,
+		CreationTimeUnix:   create,
+		LastUpdateTimeUnix: update,
+		ID:                 uuid,
+		Properties:         returnProps,
+		VectorWeights:      vectorWeights,
+		Additional:         additionalProperties,
+	}
 
 	return nil
 }
