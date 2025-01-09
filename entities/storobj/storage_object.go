@@ -1205,7 +1205,7 @@ func unmarshalMultiVectors(rw *byteops.ReadWriter, onlyUnmarshalNames map[string
 			for name, offset := range mvOffsets {
 				// if onlyUnmarshalNames is set and non-empty, only unmarshal the vectors
 				// for the names in the map
-				if onlyUnmarshalNames != nil && len(onlyUnmarshalNames) > 0 {
+				if len(onlyUnmarshalNames) > 0 {
 					if _, ok := onlyUnmarshalNames[name]; !ok {
 						continue
 					}
