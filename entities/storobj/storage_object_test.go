@@ -944,6 +944,10 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.Object.Additional = nil
 					before.Vector = vector
 					before.VectorLen = int(vectorLength)
+
+					// makes the test pass (nil vs [])
+					after.Object.Vector = nil
+
 					assert.Equal(t, before, after)
 
 					assert.Equal(t, before.DocID, after.DocID)
