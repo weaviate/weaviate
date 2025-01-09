@@ -493,7 +493,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
-		offloadmod,
+		offloadmod, appState.Metrics,
 	)
 	if err != nil {
 		appState.Logger.

@@ -19,16 +19,15 @@ import (
 	"reflect"
 	"strings"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/replication"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -159,6 +158,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, err
 	}
+	h.metrics.collectionsCountInc()
 	return cls, version, err
 }
 
@@ -213,7 +213,11 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
-	return err
+	if err != nil {
+		return err
+	}
+	h.metrics.collectionsCountInc()
+	return nil
 }
 
 // DeleteClass from the schema
@@ -229,7 +233,11 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 	class = schema.UppercaseClassName(class)
 
 	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if err != nil {
+		return err
+	}
+	h.metrics.collectionsCountDec()
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,

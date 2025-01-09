@@ -288,3 +288,8 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
 	return nil
 }
+
+type fakeMetrics struct{}
+
+func (m *fakeMetrics) collectionsCountInc() {}
+func (m *fakeMetrics) collectionsCountDec() {}

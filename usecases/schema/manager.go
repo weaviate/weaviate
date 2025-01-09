@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -49,6 +50,11 @@ type Manager struct {
 	Handler
 
 	SchemaReader
+}
+
+type schemaMetrics interface {
+	collectionsCountInc()
+	collectionsCountDec()
 }
 
 type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
@@ -204,6 +210,7 @@ func NewManager(validator validator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
+	prom *monitoring.PrometheusMetrics,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -211,7 +218,7 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager, cloud)
+		moduleConfig, clusterState, scaleoutManager, cloud, NewMetrics(prom))
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
