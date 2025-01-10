@@ -130,6 +130,12 @@ func configureAuthorizer(appState *state.State) error {
 		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.AuthzController == nil {
+		// this in general shall not happen, it's to catch cases were RBAC expected but we weren't able
+		// to assign it.
+		return fmt.Errorf("RBAC is expected to be enabled, but the controller wasn't initialized")
+	}
+
 	return nil
 }
 

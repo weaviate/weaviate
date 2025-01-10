@@ -25,17 +25,16 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	enabled bool
-	authZ   authorization.Controller
-	logger  logrus.FieldLogger
+	authZ  authorization.Controller
+	logger logrus.FieldLogger
 }
 
-func NewManager(controllerEnabled bool, authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{enabled: controllerEnabled, authZ: authZ, logger: logger}
+func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
-	if !m.enabled {
+	if m.authZ == nil {
 		payload, _ := json.Marshal(cmd.QueryGetRolesResponse{})
 		return payload, nil
 	}
@@ -58,7 +57,7 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
-	if !m.enabled {
+	if m.authZ == nil {
 		payload, _ := json.Marshal(cmd.QueryGetRolesForUserResponse{})
 		return payload, nil
 	}
@@ -81,7 +80,7 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
-	if !m.enabled {
+	if m.authZ == nil {
 		payload, _ := json.Marshal(cmd.QueryGetUsersForRoleResponse{})
 		return payload, nil
 	}
@@ -104,7 +103,7 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
-	if !m.enabled {
+	if m.authZ == nil {
 		payload, _ := json.Marshal(cmd.QueryHasPermissionResponse{})
 		return payload, nil
 	}
@@ -127,7 +126,7 @@ func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
 }
 
 func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
-	if !m.enabled {
+	if m.authZ == nil {
 		return nil
 	}
 	req := &cmd.CreateRolesRequest{}
@@ -170,7 +169,7 @@ func (m *Manager) UpsertRolesPermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
-	if !m.enabled {
+	if m.authZ == nil {
 		return nil
 	}
 	req := &cmd.DeleteRolesRequest{}
@@ -182,7 +181,7 @@ func (m *Manager) DeleteRoles(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
-	if !m.enabled {
+	if m.authZ == nil {
 		return nil
 	}
 	req := &cmd.AddRolesForUsersRequest{}
@@ -194,7 +193,7 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
-	if !m.enabled {
+	if m.authZ == nil {
 		return nil
 	}
 	req := &cmd.RemovePermissionsRequest{}
@@ -228,7 +227,7 @@ func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
 }
 
 func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
-	if !m.enabled {
+	if m.authZ == nil {
 		return nil
 	}
 	req := &cmd.RevokeRolesForUserRequest{}

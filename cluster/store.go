@@ -141,10 +141,9 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
-	// RBACAuthControllerEnabled is away to tell RAFT either to ignore RBAC commands or apply them
-	// this mechanism is needed to handle the cases were RBAC was enabled and then disabled later on.
-	RBACAuthControllerEnabled bool
-	AuthzController           authorization.Controller
+
+	// 	AuthzController to manage RBAC commands and apply it to casbin
+	AuthzController authorization.Controller
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -225,7 +224,7 @@ func NewFSM(cfg Config) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schemaManager,
-		authZManager:  rbac.NewManager(cfg.RBACAuthControllerEnabled, cfg.AuthzController, cfg.Logger),
+		authZManager:  rbac.NewManager(cfg.AuthzController, cfg.Logger),
 	}
 }
 
