@@ -278,7 +278,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initHashTree(ctx context.Context) error {
+func (s *Shard) initHashTree() error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
@@ -370,7 +370,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	s.hashtree = ht
 
 	// sync hashtree with current object states
@@ -382,10 +381,10 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 		// data inserted before v1.26 does not contain the required secondary index
 		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectsWith(ctx, 2, func(object *storobj.Object) error {
+		err := bucket.IterateObjectsWith(s.hashBeaterCtx, 2, func(object *storobj.Object) error {
 			if time.Since(prevContextEvaluation) > time.Second {
-				if ctx.Err() != nil {
-					return ctx.Err()
+				if s.hashBeaterCtx.Err() != nil {
+					return s.hashBeaterCtx.Err()
 				}
 
 				prevContextEvaluation = time.Now()
@@ -443,17 +442,29 @@ func (s *Shard) mayCloseHashTree() {
 	s.hashtreeRWMux.Unlock()
 }
 
+func (s *Shard) mayCleanupHashTree() {
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.cleanupHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+}
+
+func (s *Shard) cleanupHashTree() {
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+}
+
 func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
 	s.hashtreeRWMux.Lock()
 	defer s.hashtreeRWMux.Unlock()
 
 	if enabled {
 		if s.hashtree == nil {
-			err := s.initHashTree(ctx)
+			err := s.initHashTree()
 			if err != nil {
 				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
 			}
-
 			return nil
 		}
 
@@ -470,6 +481,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
+	s.cleanupHashTree()
 
 	return nil
 }

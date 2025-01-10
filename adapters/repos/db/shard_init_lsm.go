@@ -98,7 +98,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// Object bucket must be available, initHashTree depends on it
 	if s.index.asyncReplicationEnabled() {
-		err = s.initHashTree(ctx)
+		err = s.initHashTree()
 		if err != nil {
 			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
 		}
