@@ -112,15 +112,12 @@ func configureAuthorizer(appState *state.State, authorizer authorization.Authori
 	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
 		appState.Authorizer = authorizer
-		return nil
-	}
-
-	if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
+	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
-		return nil
+	} else {
+		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
-	appState.Authorizer = &authorization.DummyAuthorizer{}
 	return nil
 }
 
