@@ -13,8 +13,10 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -108,10 +111,19 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func configureAuthorizer(appState *state.State, authorizer authorization.Authorizer) error {
-	// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
+func configureAuthorizer(appState *state.State) error {
 	if appState.ServerConfig.Config.Authorization.Rbac.Enabled {
-		appState.Authorizer = authorizer
+		// if rbac enforcer enabled, start forcing all requests using the casbin enforcer
+		rbacController, err := rbac.New(
+			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
+			appState.ServerConfig.Config.Authorization.Rbac,
+			appState.Logger)
+		if err != nil {
+			return fmt.Errorf("can't init casbin %w", err)
+		}
+
+		appState.AuthzController = rbacController
+		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
 	} else {

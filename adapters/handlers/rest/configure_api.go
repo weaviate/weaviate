@@ -111,7 +111,6 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -440,35 +439,36 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	rConfig := rCluster.Config{
-		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
-		NodeID:                 nodeName,
-		Host:                   addrs[0],
-		RaftPort:               appState.ServerConfig.Config.Raft.Port,
-		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
-		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
-		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
-		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
-		DB:                     nil,
-		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
-		NodeNameToPortMap:      server2port,
-		NodeToAddressResolver:  appState.Cluster,
-		NodeSelector:           appState.Cluster,
-		Logger:                 appState.Logger,
-		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
-		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
-		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
+		WorkDir:                   filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                    nodeName,
+		Host:                      addrs[0],
+		RaftPort:                  appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                   appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:     appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		BootstrapTimeout:          appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:           appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:          appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:           appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:          appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:         appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		ConsistencyWaitTimeout:    appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:        appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:     appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
+		ForceOneNodeRecovery:      appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		DB:                        nil,
+		Parser:                    schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules),
+		NodeNameToPortMap:         server2port,
+		NodeToAddressResolver:     appState.Cluster,
+		NodeSelector:              appState.Cluster,
+		Logger:                    appState.Logger,
+		IsLocalHost:               appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:          schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:          schemaRepo.SaveLegacySchema,
+		EnableFQDNResolver:        appState.ServerConfig.Config.Raft.EnableFQDNResolver,
+		FQDNResolverTLD:           appState.ServerConfig.Config.Raft.FQDNResolverTLD,
+		SentryEnabled:             appState.ServerConfig.Config.Sentry.Enabled,
+		RBACAuthControllerEnabled: appState.ServerConfig.Config.Authorization.Rbac.Enabled,
+		AuthzController:           appState.AuthzController,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -825,17 +825,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
-	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
-	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
-	rbacConroller, err := rbac.New(rbacStoragePath, rbacConfig, appState.Logger)
-	if err != nil {
-		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
-		logger.Exit(1)
-	}
-
-	appState.AuthzController = rbacConroller
-
-	if err = configureAuthorizer(appState, rbacConroller); err != nil {
+	if err = configureAuthorizer(appState); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
 		logger.Exit(1)
 	}
