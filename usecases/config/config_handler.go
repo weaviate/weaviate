@@ -424,7 +424,7 @@ func (r *Raft) Validate() error {
 		}
 
 		// TODO-RAFT START
-		// ValidateModules host and port
+		// Validate host and port
 
 		updatedJoinList[i] = strings.Join(nodeNameAndPortSplitted, ":")
 	}
