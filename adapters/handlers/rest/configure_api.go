@@ -318,7 +318,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
-	if err := appState.ServerConfig.Config.Validate(appState.Modules); err != nil {
+	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("invalid config")
