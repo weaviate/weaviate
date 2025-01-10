@@ -267,11 +267,7 @@ func (s *Shard) extendDimensionTrackerForVecLSM(
 	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
-var (
-	uniqueCounter    atomic.Uint64
-)
-
-
+var uniqueCounter atomic.Uint64
 
 // GenerateUniqueString generates a random string of the specified length
 func GenerateUniqueString(length int) (string, error) {
