@@ -434,10 +434,11 @@ func (s *Shard) initHashTree() error {
 	return nil
 }
 
-func (s *Shard) mayCloseHashTree() {
+func (s *Shard) mayCloseAndStoreHashTree() {
 	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
+	if s.hashtreeInitialized.Load() {
+		// the hashtree needs to be fully in sync with stored data before it can be persisted
+		s.closeAndStoreHashTree()
 	}
 	s.hashtreeRWMux.Unlock()
 }
@@ -490,7 +491,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
-func (s *Shard) closeHashTree() error {
+func (s *Shard) closeAndStoreHashTree() error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
