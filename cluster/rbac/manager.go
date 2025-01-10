@@ -36,7 +36,8 @@ func NewManager(controllerEnabled bool, authZ authorization.Controller, logger l
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 	if !m.enabled {
-		return []byte{}, nil
+		payload, _ := json.Marshal(cmd.QueryGetRolesResponse{})
+		return payload, nil
 	}
 	subCommand := cmd.QueryGetRolesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
@@ -58,7 +59,8 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 
 func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 	if !m.enabled {
-		return []byte{}, nil
+		payload, _ := json.Marshal(cmd.QueryGetRolesForUserResponse{})
+		return payload, nil
 	}
 	subCommand := cmd.QueryGetRolesForUserRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
@@ -80,7 +82,8 @@ func (m *Manager) GetRolesForUser(req *cmd.QueryRequest) ([]byte, error) {
 
 func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 	if !m.enabled {
-		return []byte{}, nil
+		payload, _ := json.Marshal(cmd.QueryGetUsersForRoleResponse{})
+		return payload, nil
 	}
 	subCommand := cmd.QueryGetUsersForRoleRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
@@ -102,7 +105,8 @@ func (m *Manager) GetUsersForRole(req *cmd.QueryRequest) ([]byte, error) {
 
 func (m *Manager) HasPermission(req *cmd.QueryRequest) ([]byte, error) {
 	if !m.enabled {
-		return []byte{}, nil
+		payload, _ := json.Marshal(cmd.QueryHasPermissionResponse{})
+		return payload, nil
 	}
 	subCommand := cmd.QueryHasPermissionRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
