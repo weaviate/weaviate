@@ -318,7 +318,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
-	if err := appState.ServerConfig.Config.Validate(appState.Modules); err != nil {
+	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("invalid config")
@@ -827,15 +827,15 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	rbacStoragePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir)
 	rbacConfig := appState.ServerConfig.Config.Authorization.Rbac
-	controller, err := rbac.New(rbacStoragePath, rbacConfig, appState.Logger)
+	rbacConroller, err := rbac.New(rbacStoragePath, rbacConfig, appState.Logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithField("error", err).WithField("startupPath", rbacStoragePath).Error("cannot init casbin")
 		logger.Exit(1)
 	}
 
-	appState.AuthzController = controller
+	appState.AuthzController = rbacConroller
 
-	if err = configureAuthorizer(appState, controller); err != nil {
+	if err = configureAuthorizer(appState, rbacConroller); err != nil {
 		logger.WithField("action", "startup").WithField("error", err).Error("cannot configure authorizer")
 		logger.Exit(1)
 	}
