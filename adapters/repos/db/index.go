@@ -2104,14 +2104,19 @@ func (i *Index) drop() error {
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
-	dropShard := func(name string, shard ShardLike) error {
-		if shard == nil {
-			return nil
-		}
+	dropShard := func(name string, _ ShardLike) error {
 		eg.Go(func() error {
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			shard, ok := i.shards.LoadAndDelete(name)
+			if !ok {
+				return nil // shard already does not exist
+			}
 			if err := shard.drop(); err != nil {
 				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
 			}
+
 			return nil
 		})
 		return nil
