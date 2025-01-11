@@ -12,15 +12,10 @@
 package db
 
 import (
-	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
-	"os"
 	"path"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,7 +23,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -94,7 +88,7 @@ type ShardLike interface {
 	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
 	drop() error
-	HaltForTransfer(ctx context.Context) error
+	HaltForTransfer(offloading bool, ctx context.Context) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -193,11 +187,11 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	hashtree             hashtree.AggregatedHashTree
-	hashtreeRWMux        sync.RWMutex
-	hashtreeInitialized  atomic.Bool
-	hashBeaterCtx        context.Context
-	hashBeaterCancelFunc context.CancelFunc
+	asyncReplicationRWMux      sync.RWMutex
+	hashtree                   hashtree.AggregatedHashTree
+	hashtreeFullyInitialized   bool
+	asyncReplicationCtx        context.Context
+	asyncReplicationCancelFunc context.CancelFunc
 
 	objectPropagationNeededCond *sync.Cond
 	objectPropagationNeeded     bool
@@ -276,273 +270,6 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
 	return idBytes[15] % IdLockPoolSize
-}
-
-func (s *Shard) initHashTree() error {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	if bucket.GetSecondaryIndices() < 2 {
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("secondary index for token ranges is not available")
-		return nil
-	}
-
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
-	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
-		return err
-	}
-
-	// load the most recent hashtree file
-	dirEntries, err := os.ReadDir(s.pathHashTree())
-	if err != nil {
-		return err
-	}
-
-	for i := len(dirEntries) - 1; i >= 0; i-- {
-		dirEntry := dirEntries[i]
-
-		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
-			continue
-		}
-
-		hashtreeFilename := filepath.Join(s.pathHashTree(), dirEntry.Name())
-
-		if s.hashtree != nil {
-			err := os.Remove(hashtreeFilename)
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("deleting older hashtree file %q: %v", hashtreeFilename, err)
-			continue
-		}
-
-		f, err := os.OpenFile(hashtreeFilename, os.O_RDONLY, os.ModePerm)
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
-			continue
-		}
-
-		// attempt to load hashtree from file
-		ht, err := hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
-		} else {
-			s.hashtree = ht
-		}
-
-		err = f.Close()
-		if err != nil {
-			return err
-		}
-
-		err = os.Remove(hashtreeFilename)
-		if err != nil {
-			return err
-		}
-	}
-
-	if s.hashtree != nil {
-		s.hashtreeInitialized.Store(true)
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Info("hashtree successfully initialized")
-
-		s.initHashBeater()
-		return nil
-	}
-
-	ht, err := s.buildCompactHashTree()
-	if err != nil {
-		return err
-	}
-	s.hashtree = ht
-
-	// sync hashtree with current object states
-
-	enterrors.GoWrapper(func() {
-		prevContextEvaluation := time.Now()
-
-		objCount := 0
-
-		// data inserted before v1.26 does not contain the required secondary index
-		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectsWith(s.hashBeaterCtx, 2, func(object *storobj.Object) error {
-			if time.Since(prevContextEvaluation) > time.Second {
-				if s.hashBeaterCtx.Err() != nil {
-					return s.hashBeaterCtx.Err()
-				}
-
-				prevContextEvaluation = time.Now()
-
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("object_count", objCount).
-					Infof("hashtree initialization is progress...")
-			}
-
-			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
-			if err != nil {
-				return err
-			}
-
-			err = s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
-			if err != nil {
-				return err
-			}
-
-			objCount++
-
-			return nil
-		})
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("iterating objects during hashtree initialization: %v", err)
-			return
-		}
-
-		s.hashtreeInitialized.Store(true)
-
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Info("hashtree successfully initialized")
-
-		s.initHashBeater()
-	}, s.index.logger)
-
-	return nil
-}
-
-func (s *Shard) mayCloseAndStoreHashTree() {
-	s.hashtreeRWMux.Lock()
-	if s.hashtreeInitialized.Load() {
-		// the hashtree needs to be fully in sync with stored data before it can be persisted
-		s.closeAndStoreHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
-}
-
-func (s *Shard) mayCleanupHashTree() {
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.cleanupHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
-}
-
-func (s *Shard) cleanupHashTree() {
-	s.hashtree = nil
-	s.hashtreeInitialized.Store(false)
-}
-
-func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
-	s.hashtreeRWMux.Lock()
-	defer s.hashtreeRWMux.Unlock()
-
-	if enabled {
-		if s.hashtree == nil {
-			err := s.initHashTree()
-			if err != nil {
-				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
-			}
-			return nil
-		}
-
-		if s.hashBeaterCtx == nil || s.hashBeaterCtx.Err() != nil {
-			s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-			s.initHashBeater()
-		}
-
-		return nil
-	}
-
-	if s.hashtree == nil {
-		return nil
-	}
-
-	s.stopHashBeater()
-	s.cleanupHashTree()
-
-	return nil
-}
-
-func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
-	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
-}
-
-func (s *Shard) closeAndStoreHashTree() error {
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
-
-	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x.ht", string(b[:])))
-
-	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-	defer f.Close()
-
-	w := bufio.NewWriter(f)
-
-	_, err = s.hashtree.Serialize(w)
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	err = w.Flush()
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	err = f.Sync()
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	s.hashtree = nil
-	s.hashtreeInitialized.Store(false)
-
-	return nil
-}
-
-func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	s.hashtreeRWMux.RLock()
-	defer s.hashtreeRWMux.RUnlock()
-
-	if !s.hashtreeInitialized.Load() {
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
-	}
-
-	// TODO (jeroiraz): reusable pool of digests slices
-	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
-
-	n, err := s.hashtree.Level(level, discriminant, digests)
-	if err != nil {
-		return nil, err
-	}
-
-	return digests[:n], nil
 }
 
 func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
