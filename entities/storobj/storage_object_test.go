@@ -239,6 +239,38 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
 			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
 		})
+
+		t.Run("check multi vectors optional", func(t *testing.T) {
+			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+				require.Nil(t, err)
+				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
+			})
+
+			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+
+			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector2", "vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.Vectors, 2)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Vectors["vector1"])
+				require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Vectors["vector2"])
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+		})
 	})
 
 	t.Run("only vectors and multivectors", func(t *testing.T) {
@@ -905,6 +937,10 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.Object.Additional = nil
 					before.Vector = vector
 					before.VectorLen = int(vectorLength)
+
+					// makes the test pass (nil vs [])
+					after.Object.Vector = nil
+
 					assert.Equal(t, before, after)
 
 					assert.Equal(t, before.DocID, after.DocID)
