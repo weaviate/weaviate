@@ -187,10 +187,10 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
+	// async replication
 	asyncReplicationRWMux      sync.RWMutex
 	hashtree                   hashtree.AggregatedHashTree
 	hashtreeFullyInitialized   bool
-	asyncReplicationCtx        context.Context
 	asyncReplicationCancelFunc context.CancelFunc
 
 	objectPropagationNeededCond *sync.Cond
@@ -198,6 +198,7 @@ type Shard struct {
 
 	lastComparedHosts    []string
 	lastComparedHostsMux sync.RWMutex
+	//
 
 	status              ShardStatus
 	statusLock          sync.Mutex
@@ -248,15 +249,15 @@ func (s *Shard) pathLSM() string {
 	return path.Join(s.path(), "lsm")
 }
 
+func (s *Shard) pathHashTree() string {
+	return path.Join(s.path(), "hashtree")
+}
+
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
-}
-
-func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), "hashtree")
 }
 
 func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
