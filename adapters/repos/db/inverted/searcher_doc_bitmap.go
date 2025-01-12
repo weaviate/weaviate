@@ -60,18 +60,13 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.docIDs.Or(docIDs)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, limit, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -115,18 +110,13 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.docIDs.Or(ids)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
+	rr := NewRowReader(b, pv.value, pv.operator, false, limit, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -150,18 +140,13 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.docIDs.Or(ids)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
-			return true, nil
-		}
-
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, limit, s.shardVersion, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}

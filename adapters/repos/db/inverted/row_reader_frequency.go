@@ -29,19 +29,21 @@ type RowReaderFrequency struct {
 	bucket        *lsmkv.Bucket
 	operator      filters.Operator
 	keyOnly       bool
+	limit         int
 	shardVersion  uint16
 	bitmapFactory *roaringset.BitmapFactory
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.BitmapFactory,
+	operator filters.Operator, keyOnly bool, limit int,
+	shardVersion uint16, bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:        bucket,
 		value:         value,
 		operator:      operator,
 		keyOnly:       keyOnly,
+		limit:         limit,
 		shardVersion:  shardVersion,
 		bitmapFactory: bitmapFactory,
 	}
@@ -86,10 +88,32 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 		return err
 	}
 
-	// Invert the Equal results for an efficient NotEqual
-	inverted := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(rr.transformToBitmap(v))
-	_, err = readFn(rr.value, inverted)
+	bm := rr.transformToBitmap(v)
+
+	foundDocIDs := rr.bitmapFactory.GetBitmap()
+
+	cursor := rr.bucket.CursorWithSecondaryIndex(0)
+	defer cursor.Close()
+
+	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		docID := binary.LittleEndian.Uint64(k[:])
+
+		if bm.Contains(docID) {
+			continue
+		}
+
+		foundDocIDs.Set(docID)
+
+		if rr.limit > 0 && foundDocIDs.GetCardinality() >= rr.limit {
+			break
+		}
+	}
+
+	_, err = readFn(rr.value, foundDocIDs)
 	return err
 }
 

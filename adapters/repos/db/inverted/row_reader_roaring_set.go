@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -25,8 +26,10 @@ import (
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
+	bucket        *lsmkv.Bucket
 	value         []byte
 	operator      filters.Operator
+	limit         int
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, error)
 	bitmapFactory *roaringset.BitmapFactory
@@ -36,7 +39,7 @@ type RowReaderRoaringSet struct {
 // wherever cursors are used, the specified value arguments in the
 // ReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
+	keyOnly bool, limit int, bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -45,8 +48,10 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 	}
 
 	return &RowReaderRoaringSet{
+		bucket:        bucket,
 		value:         value,
 		operator:      operator,
+		limit:         limit,
 		newCursor:     newCursor,
 		getter:        getter,
 		bitmapFactory: bitmapFactory,
@@ -114,9 +119,30 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 		return err
 	}
 
-	inverted := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(v)
-	_, err = readFn(rr.value, inverted)
+	foundDocIDs := rr.bitmapFactory.GetBitmap()
+
+	cursor := rr.bucket.CursorWithSecondaryIndex(0)
+	defer cursor.Close()
+
+	for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		docID := binary.LittleEndian.Uint64(k[:])
+
+		if v.Contains(docID) {
+			continue
+		}
+
+		foundDocIDs.Set(docID)
+
+		if rr.limit > 0 && foundDocIDs.GetCardinality() >= rr.limit {
+			break
+		}
+	}
+
+	_, err = readFn(rr.value, foundDocIDs)
 	return err
 }
 
