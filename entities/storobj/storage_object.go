@@ -1180,6 +1180,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 }
 
 // unmarshalMultiVectors unmarshals the multi vectors from the buffer. If onlyUnmarshalNames is set and non-empty,
+// then only the multivectors which names specified as the map's keys will be unmarshaled.
 func unmarshalMultiVectors(
 	rw *byteops.ReadWriter,
 	onlyUnmarshalNames map[string]interface{},
@@ -1195,7 +1196,7 @@ func unmarshalMultiVectors(
 		if len(multiVectorsOffsets) > 0 {
 			var mvOffsets map[string]uint32
 			if err := msgpack.Unmarshal(multiVectorsOffsets, &mvOffsets); err != nil {
-				return nil, fmt.Errorf("Could not unmarshal multi vectors offset: %w", err)
+				return nil, fmt.Errorf("could not unmarshal multi vectors offset: %w", err)
 			}
 
 			// NOTE if you sort mvOffsets by offset, you may be able to speed this up via
