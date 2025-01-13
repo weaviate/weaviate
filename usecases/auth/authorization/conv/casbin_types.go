@@ -298,7 +298,7 @@ func weaviatePermissionAction(pathLastPart, verb, domain string) string {
 	}
 }
 
-func permission(policy []string) (*models.Permission, error) {
+func permission(policy []string, validatePath bool) (*models.Permission, error) {
 	mapped := newPolicy(policy)
 
 	if mapped.Resource == InternalPlaceHolder {
@@ -312,7 +312,9 @@ func permission(policy []string) (*models.Permission, error) {
 	permission := &models.Permission{}
 
 	splits := strings.Split(mapped.Resource, "/")
-	if !validResource(mapped.Resource) {
+
+	// validating the resource can be expensive (regexp!)
+	if validatePath && !validResource(mapped.Resource) {
 		return nil, fmt.Errorf("invalid resource: %s", mapped.Resource)
 	}
 
