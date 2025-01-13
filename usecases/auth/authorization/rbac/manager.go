@@ -20,6 +20,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -238,9 +239,9 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 
 	// Start worker pool
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 5; i++ {
 		wg.Add(1)
-		go func() {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			for resource := range jobs {
 				r := result{resource: resource}
@@ -263,22 +264,22 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 
 				results <- r
 			}
-		}()
+		}, m.logger)
 	}
 
 	// Send jobs
-	go func() {
+	enterrors.GoWrapper(func() {
 		for _, resource := range resources {
 			jobs <- resource
 		}
 		close(jobs)
-	}()
+	}, m.logger)
 
 	// Close results channel after all workers are done
-	go func() {
+	enterrors.GoWrapper(func() {
 		wg.Wait()
 		close(results)
-	}()
+	}, m.logger)
 
 	// Collect results
 	for r := range results {
