@@ -21,12 +21,12 @@ jobs:
             https://api.github.com/orgs/${{ github.repository_owner }}/teams/core/memberships/${{ github.actor }})
           
           if [ "$response" -eq 200 ]; then
-            echo "is_non_member=false" >> $GITHUB_OUTPUT
+            echo "is_non_member=false" >> $GITHUB_ENV
           elif [ "$response" -eq 404 ]; then
-            echo "is_non_member=true" >> $GITHUB_OUTPUT
+            echo "is_non_member=true" >> $GITHUB_ENV
           else
-            echo "Error: Unexpected response code: $response"
-            echo "is_non_member=true" >> $GITHUB_OUTPUT
+            echo "error checking membership: HTTP $response"
+            exit 1
           fi
 
       - name: Send Slack Notification for PR (Community)
