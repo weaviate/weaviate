@@ -115,6 +115,10 @@ func (c *Compactor) Do() error {
 		return fmt.Errorf("write header: %w", err)
 	}
 
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorRoaringSetRange segment checksum: %w", err)
+	}
+
 	return nil
 }
 
@@ -158,7 +162,7 @@ func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 
 	h := &segmentindex.Header{
 		Level:            c.currentLevel,
-		Version:          0,
+		Version:          segmentindex.ChooseHeaderVersion(c.enableChecksumValidation),
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 		IndexStart:       startOfIndex,
