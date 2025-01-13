@@ -40,6 +40,20 @@ const (
 	DefaultRaftDir              = "raft"
 )
 
+type SchemaRetrievalStrategy int
+
+const (
+	LeaderOnly SchemaRetrievalStrategy = iota
+	LocalOnly
+	LeaderOnMismatch
+)
+
+var schemaRetrievalStrategyToEnum = map[string]SchemaRetrievalStrategy{
+	"LeaderOnly":       LeaderOnly,
+	"LocalOnly":        LocalOnly,
+	"LeaderOnMismatch": LeaderOnMismatch,
+}
+
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
@@ -479,9 +493,11 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
-	config.GetClassMethod = "always_leader" // NOTE didn't import usecases/schema to avoid cyclical import
-	if v := os.Getenv("GET_CLASS_METHOD"); v != "" {
-		config.GetClassMethod = v
+	config.SchemaRetrievalStrategy = LeaderOnly
+	if v := os.Getenv("SCHEMA_RETRIEVAL_STRATEGY"); v != "" {
+		if enum, ok := schemaRetrievalStrategyToEnum[v]; ok {
+			config.SchemaRetrievalStrategy = enum
+		}
 	}
 
 	// explicitly reset sentry config

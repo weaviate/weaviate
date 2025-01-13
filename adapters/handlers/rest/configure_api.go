@@ -487,7 +487,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 
 	classGetter, err := schema.NewClassGetter(
-		appState.ServerConfig.Config.GetClassMethod,
+		appState.ServerConfig.Config.SchemaRetrievalStrategy,
 		schemaParser,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
