@@ -80,7 +80,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
+		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
+			cl, b.metrics, b.logger, b.disableChecksumValidation)
 		if err != nil {
 			return err
 		}

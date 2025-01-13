@@ -23,29 +23,31 @@ import (
 )
 
 type segmentCleanerReplace struct {
-	w                   io.WriteSeeker
-	bufw                *bufio.Writer
-	cursor              *segmentCursorReplace
-	keyExistsFn         keyExistsOnUpperSegmentsFunc
-	version             uint16
-	level               uint16
-	secondaryIndexCount uint16
-	scratchSpacePath    string
+	w                         io.WriteSeeker
+	bufw                      *bufio.Writer
+	cursor                    *segmentCursorReplace
+	keyExistsFn               keyExistsOnUpperSegmentsFunc
+	version                   uint16
+	level                     uint16
+	secondaryIndexCount       uint16
+	scratchSpacePath          string
+	disableChecksumValidation bool
 }
 
 func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
-	scratchSpacePath string,
+	scratchSpacePath string, disableChecksumValidation bool,
 ) *segmentCleanerReplace {
 	return &segmentCleanerReplace{
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		cursor:              cursor,
-		keyExistsFn:         keyExistsFn,
-		version:             segmentindex.SegmentV1,
-		level:               level,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
+		w:                         w,
+		bufw:                      bufio.NewWriterSize(w, 256*1024),
+		cursor:                    cursor,
+		keyExistsFn:               keyExistsFn,
+		version:                   segmentindex.SegmentV1,
+		level:                     level,
+		secondaryIndexCount:       secondaryIndexCount,
+		scratchSpacePath:          scratchSpacePath,
+		disableChecksumValidation: disableChecksumValidation,
 	}
 }
 
@@ -56,6 +58,7 @@ func (p *segmentCleanerReplace) do(shouldAbort cyclemanager.ShouldAbortCallback)
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(p.bufw),
+		segmentindex.WithChecksumsDisabled(p.disableChecksumValidation),
 	)
 
 	indexKeys, err := p.writeKeys(segmentFile, shouldAbort)

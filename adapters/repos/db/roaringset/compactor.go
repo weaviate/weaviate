@@ -72,6 +72,8 @@ type Compactor struct {
 	bufw *bufio.Writer
 
 	scratchSpacePath string
+
+	disableChecksumValidation bool
 }
 
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
@@ -80,15 +82,17 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
+	disableChecksumValidation bool,
 ) *Compactor {
 	return &Compactor{
-		left:             left,
-		right:            right,
-		w:                w,
-		bufw:             bufio.NewWriterSize(w, 256*1024),
-		currentLevel:     level,
-		cleanupDeletions: cleanupDeletions,
-		scratchSpacePath: scratchSpacePath,
+		left:                      left,
+		right:                     right,
+		w:                         w,
+		bufw:                      bufio.NewWriterSize(w, 256*1024),
+		currentLevel:              level,
+		cleanupDeletions:          cleanupDeletions,
+		scratchSpacePath:          scratchSpacePath,
+		disableChecksumValidation: disableChecksumValidation,
 	}
 }
 
@@ -100,6 +104,7 @@ func (c *Compactor) Do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
 	)
 
 	kis, err := c.writeNodes(segmentFile)

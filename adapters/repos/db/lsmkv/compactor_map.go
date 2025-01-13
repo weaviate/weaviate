@@ -44,22 +44,26 @@ type compactorMap struct {
 	// for backward-compatibility with states where the disk state for maps was
 	// not guaranteed to be sorted yet
 	requiresSorting bool
+
+	disableChecksumValidation bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
+	disableChecksumValidation bool,
 ) *compactorMap {
 	return &compactorMap{
-		c1:                  c1,
-		c2:                  c2,
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		currentLevel:        level,
-		cleanupTombstones:   cleanupTombstones,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
-		requiresSorting:     requiresSorting,
+		c1:                        c1,
+		c2:                        c2,
+		w:                         w,
+		bufw:                      bufio.NewWriterSize(w, 256*1024),
+		currentLevel:              level,
+		cleanupTombstones:         cleanupTombstones,
+		secondaryIndexCount:       secondaryIndexCount,
+		scratchSpacePath:          scratchSpacePath,
+		requiresSorting:           requiresSorting,
+		disableChecksumValidation: disableChecksumValidation,
 	}
 }
 
@@ -70,6 +74,7 @@ func (c *compactorMap) do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
 	)
 
 	kis, err := c.writeKeys(segmentFile)

@@ -39,21 +39,25 @@ type compactorSet struct {
 	bufw *bufio.Writer
 
 	scratchSpacePath string
+
+	disableChecksumValidation bool
 }
 
 func newCompactorSetCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollection, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
+	disableChecksumValidation bool,
 ) *compactorSet {
 	return &compactorSet{
-		c1:                  c1,
-		c2:                  c2,
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		currentLevel:        level,
-		cleanupTombstones:   cleanupTombstones,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
+		c1:                        c1,
+		c2:                        c2,
+		w:                         w,
+		bufw:                      bufio.NewWriterSize(w, 256*1024),
+		currentLevel:              level,
+		cleanupTombstones:         cleanupTombstones,
+		secondaryIndexCount:       secondaryIndexCount,
+		scratchSpacePath:          scratchSpacePath,
+		disableChecksumValidation: disableChecksumValidation,
 	}
 }
 
@@ -64,6 +68,7 @@ func (c *compactorSet) do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
 	)
 
 	kis, err := c.writeKeys(segmentFile)

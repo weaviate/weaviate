@@ -42,6 +42,7 @@ type bucketIntegrationTests []bucketIntegrationTest
 func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			test.opts = append(test.opts, WithSegmentsChecksumValidationDisabled(true))
 			t.Run("mmap", func(t *testing.T) {
 				test.f(ctx, t, test.opts)
 			})

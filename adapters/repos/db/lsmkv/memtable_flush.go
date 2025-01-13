@@ -47,6 +47,7 @@ func (m *Memtable) flush() error {
 	}
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
+		segmentindex.WithChecksumsDisabled(m.disableChecksumValidation),
 	)
 
 	var keys []segmentindex.Key
