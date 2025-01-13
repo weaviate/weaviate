@@ -217,7 +217,10 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return errors.NewUnauthenticated()
 	}
 
-	// TODO-RBAC: batch enforce
+	// BatchEnforcers is not needed after some digging they just loop over requests,
+	// w.r.t.
+	// source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
+	// issue https://github.com/casbin/casbin/issues/710
 	for _, resource := range resources {
 		allow, err := m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
 		if err != nil {
