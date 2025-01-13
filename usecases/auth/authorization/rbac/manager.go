@@ -15,15 +15,16 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"sync"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
 type manager struct {
@@ -221,35 +222,82 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 	// w.r.t.
 	// source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
 	// issue https://github.com/casbin/casbin/issues/710
-	for _, resource := range resources {
-		allow, err := m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
-		if err != nil {
-			m.logger.WithFields(logrus.Fields{
-				"action":         "authorize",
-				"user":           principal.Username,
-				"component":      authorization.ComponentName,
-				"resource":       resource,
-				"request_action": verb,
-			}).WithError(err).Error("failed to enforce policy")
-			return err
-		}
 
-		perm, err := conv.PathToPermission(verb, resource)
-		if err != nil {
-			return err
+	username := conv.PrefixUserName(principal.Username)
+
+	type result struct {
+		resource string
+		allow    bool
+		perm     *models.Permission
+		err      error
+	}
+
+	// Create channels
+	jobs := make(chan string, len(resources))
+	results := make(chan result, len(resources))
+
+	// Start worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for resource := range jobs {
+				r := result{resource: resource}
+
+				allow, err := m.casbin.Enforce(username, resource, verb)
+				if err != nil {
+					r.err = err
+					results <- r
+					continue
+				}
+				r.allow = allow
+
+				perm, err := conv.PathToPermission(verb, resource)
+				if err != nil {
+					r.err = err
+					results <- r
+					continue
+				}
+				r.perm = perm
+
+				results <- r
+			}
+		}()
+	}
+
+	// Send jobs
+	go func() {
+		for _, resource := range resources {
+			jobs <- resource
+		}
+		close(jobs)
+	}()
+
+	// Close results channel after all workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	for r := range results {
+		if r.err != nil {
+			m.logger.WithError(r.err).Error("failed to enforce policies")
+			return r.err
 		}
 
 		m.logger.WithFields(logrus.Fields{
 			"action":         "authorize",
 			"component":      authorization.ComponentName,
 			"user":           principal.Username,
-			"resources":      prettyPermissionsResources(perm),
-			"request_action": prettyPermissionsActions(perm),
-			"results":        prettyStatus(allow),
+			"resources":      prettyPermissionsResources(r.perm),
+			"request_action": prettyPermissionsActions(r.perm),
+			"results":        prettyStatus(r.allow),
 		}).Info()
 
-		if !allow {
-			return errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm))
+		if !r.allow {
+			return errors.NewForbidden(principal, prettyPermissionsActions(r.perm), prettyPermissionsResources(r.perm))
 		}
 	}
 
