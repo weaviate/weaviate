@@ -23,8 +23,8 @@ type classGetter interface {
 	getClasses(names []string) (map[string]versioned.Class, error)
 }
 
-func NewClassGetter(getClassMethod config.SchemaRetrievalStrategy, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) (classGetter, error) {
-	switch getClassMethod {
+func NewClassGetter(schemaRetrievalStrategy config.SchemaRetrievalStrategy, schemaParser *Parser, schemaManager SchemaManager, schemaReader SchemaReader, logger logrus.FieldLogger) (classGetter, error) {
+	switch schemaRetrievalStrategy {
 	case config.LeaderOnly:
 		return newClassGetterLeaderOnly(schemaParser, schemaManager, logger), nil
 	case config.LocalOnly:
@@ -32,7 +32,7 @@ func NewClassGetter(getClassMethod config.SchemaRetrievalStrategy, schemaParser 
 	case config.LeaderOnMismatch:
 		return newClassGetterLeaderOnMismatch(schemaReader, logger), nil
 	default:
-		return nil, fmt.Errorf("unknown class getter method: %s", getClassMethod)
+		return nil, fmt.Errorf("unknown class getter method: %s", config.SchemaRetrievalStrategyToString[schemaRetrievalStrategy])
 	}
 }
 
@@ -132,7 +132,7 @@ func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned
 		cg.logger.WithFields(logrus.Fields{
 			"classes":    versionedClassesToQueryFromLeader,
 			"error":      err,
-			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the GET_CLASS_METHOD config to \"always_leader\".",
+			"suggestion": "This node received a data request for a class that is not present on the local schema on the node. If the class was just updated in the schema and you want to be able to query it immediately consider changing the " + config.SchemaRetrievalStrategyEnvVariable + " config to \"" + config.SchemaRetrievalStrategyToString[config.LeaderOnly] + "\".",
 		}).Warn("unable to query classes from leader")
 		// return as many classes as we could get (to match previous behavior of the caller)
 		return versionedClassesToReturn, err

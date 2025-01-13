@@ -35,9 +35,10 @@ const (
 	// DefaultRaftBootstrapTimeout is the time raft will wait to bootstrap or rejoin the cluster on a restart. We set it
 	// to 600 because if we're loading a large DB we need to wait for it to load before being able to join the cluster
 	// on a single node cluster.
-	DefaultRaftBootstrapTimeout = 600
-	DefaultRaftBootstrapExpect  = 1
-	DefaultRaftDir              = "raft"
+	DefaultRaftBootstrapTimeout        = 600
+	DefaultRaftBootstrapExpect         = 1
+	DefaultRaftDir                     = "raft"
+	SchemaRetrievalStrategyEnvVariable = "SCHEMA_RETRIEVAL_CONFIG"
 )
 
 type SchemaRetrievalStrategy int
@@ -52,6 +53,12 @@ var schemaRetrievalStrategyToEnum = map[string]SchemaRetrievalStrategy{
 	"LeaderOnly":       LeaderOnly,
 	"LocalOnly":        LocalOnly,
 	"LeaderOnMismatch": LeaderOnMismatch,
+}
+
+var SchemaRetrievalStrategyToString = map[SchemaRetrievalStrategy]string{
+	LeaderOnly:       "LeaderOnly",
+	LocalOnly:        "LocalOnly",
+	LeaderOnMismatch: "LeaderOnMismatch",
 }
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -494,7 +501,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.SchemaRetrievalStrategy = LeaderOnly
-	if v := os.Getenv("SCHEMA_RETRIEVAL_STRATEGY"); v != "" {
+	if v := os.Getenv(SchemaRetrievalStrategyEnvVariable); v != "" {
 		if enum, ok := schemaRetrievalStrategyToEnum[v]; ok {
 			config.SchemaRetrievalStrategy = enum
 		}
