@@ -22,7 +22,7 @@ jobs:
           
           if [ "$response" -eq 200 ]; then
             echo "is_non_member=false" >> $GITHUB_ENV
-          elif [ "$response" -eq 404 ]; then
+          elif [ "$response" -eq 401 ] || [ "$response" -eq 404 ]; then
             echo "is_non_member=true" >> $GITHUB_ENV
           else
             echo "error checking membership: HTTP $response"
