@@ -782,7 +782,7 @@ func Test_permission(t *testing.T) {
 			t.Run(fmt.Sprintf("%s %s", ttt.testDescription, tt.name), func(t *testing.T) {
 				tt.permission.Action = authorization.String(ttt.permissionAction)
 				tt.policy[2] = ttt.policyVerb
-				permission, err := permission(tt.policy, false)
+				permission, err := permission(tt.policy, true)
 				require.Nil(t, err)
 				require.Equal(t, permission, tt.permission)
 			})
