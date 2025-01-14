@@ -132,7 +132,7 @@ type Bucket struct {
 	// optional validation of segment file checksums. Enabling this option
 	// introduces latency of segment availability, for the tradeoff of
 	// ensuring segment files have integrity before reading them.
-	disableChecksumValidation bool
+	enableChecksumValidation bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -184,18 +184,18 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                       dir,
-			strategy:                  b.strategy,
-			mapRequiresSorting:        b.legacyMapSortingBeforeCompaction,
-			monitorCount:              b.monitorCount,
-			mmapContents:              b.mmapContents,
-			keepTombstones:            b.keepTombstones,
-			forceCompaction:           b.forceCompaction,
-			useBloomFilter:            b.useBloomFilter,
-			calcCountNetAdditions:     b.calcCountNetAdditions,
-			maxSegmentSize:            b.maxSegmentSize,
-			cleanupInterval:           b.segmentsCleanupInterval,
-			disableChecksumValidation: b.disableChecksumValidation,
+			dir:                      dir,
+			strategy:                 b.strategy,
+			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
+			monitorCount:             b.monitorCount,
+			mmapContents:             b.mmapContents,
+			keepTombstones:           b.keepTombstones,
+			forceCompaction:          b.forceCompaction,
+			useBloomFilter:           b.useBloomFilter,
+			calcCountNetAdditions:    b.calcCountNetAdditions,
+			maxSegmentSize:           b.maxSegmentSize,
+			cleanupInterval:          b.segmentsCleanupInterval,
+			enableChecksumValidation: b.enableChecksumValidation,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -908,7 +908,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.disableChecksumValidation)
+		b.metrics, b.logger, b.enableChecksumValidation)
 	if err != nil {
 		return err
 	}

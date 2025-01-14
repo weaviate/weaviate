@@ -47,7 +47,7 @@ func (m *Memtable) flush() error {
 	}
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
-		segmentindex.WithChecksumsDisabled(m.disableChecksumValidation),
+		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 	)
 
 	var keys []segmentindex.Key
@@ -123,7 +123,7 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.SegmentV1,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}
@@ -200,7 +200,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          segmentindex.SegmentV1,
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(m.strategy),
 	}

@@ -97,6 +97,7 @@ func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.checksumsDisabled = true
 	return s
 }
 

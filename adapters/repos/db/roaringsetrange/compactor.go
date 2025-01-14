@@ -65,8 +65,8 @@ type Compactor struct {
 	// Tells if deletions or keys without corresponding values
 	// can be removed from merged segment.
 	// (left segment is root (1st) one, keepTombstones is off for bucket)
-	cleanupDeletions          bool
-	disableChecksumValidation bool
+	cleanupDeletions         bool
+	enableChecksumValidation bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -76,16 +76,16 @@ type Compactor struct {
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
-	level uint16, cleanupDeletions bool, disableChecksumValidation bool,
+	level uint16, cleanupDeletions bool, enableChecksumValidation bool,
 ) *Compactor {
 	return &Compactor{
-		left:                      left,
-		right:                     right,
-		w:                         w,
-		bufw:                      bufio.NewWriterSize(w, 256*1024),
-		currentLevel:              level,
-		cleanupDeletions:          cleanupDeletions,
-		disableChecksumValidation: disableChecksumValidation,
+		left:                     left,
+		right:                    right,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupDeletions:         cleanupDeletions,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -97,7 +97,7 @@ func (c *Compactor) Do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
-		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
 	written, err := c.writeNodes(segmentFile)

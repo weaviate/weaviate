@@ -73,7 +73,7 @@ type Compactor struct {
 
 	scratchSpacePath string
 
-	disableChecksumValidation bool
+	enableChecksumValidation bool
 }
 
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
@@ -82,17 +82,17 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	disableChecksumValidation bool,
+	enableChecksumValidation bool,
 ) *Compactor {
 	return &Compactor{
-		left:                      left,
-		right:                     right,
-		w:                         w,
-		bufw:                      bufio.NewWriterSize(w, 256*1024),
-		currentLevel:              level,
-		cleanupDeletions:          cleanupDeletions,
-		scratchSpacePath:          scratchSpacePath,
-		disableChecksumValidation: disableChecksumValidation,
+		left:                     left,
+		right:                    right,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupDeletions:         cleanupDeletions,
+		scratchSpacePath:         scratchSpacePath,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -104,7 +104,7 @@ func (c *Compactor) Do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
-		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
 	kis, err := c.writeNodes(segmentFile)
@@ -126,8 +126,9 @@ func (c *Compactor) Do() error {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
 	}
 
+	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
 	if err := c.writeHeader(segmentFile, c.currentLevel,
-		segmentindex.SegmentV1, 0, dataEnd); err != nil {
+		version, 0, dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
 

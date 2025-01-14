@@ -45,25 +45,25 @@ type compactorMap struct {
 	// not guaranteed to be sorted yet
 	requiresSorting bool
 
-	disableChecksumValidation bool
+	enableChecksumValidation bool
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
-	disableChecksumValidation bool,
+	enableChecksumValidation bool,
 ) *compactorMap {
 	return &compactorMap{
-		c1:                        c1,
-		c2:                        c2,
-		w:                         w,
-		bufw:                      bufio.NewWriterSize(w, 256*1024),
-		currentLevel:              level,
-		cleanupTombstones:         cleanupTombstones,
-		secondaryIndexCount:       secondaryIndexCount,
-		scratchSpacePath:          scratchSpacePath,
-		requiresSorting:           requiresSorting,
-		disableChecksumValidation: disableChecksumValidation,
+		c1:                       c1,
+		c2:                       c2,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupTombstones:        cleanupTombstones,
+		secondaryIndexCount:      secondaryIndexCount,
+		scratchSpacePath:         scratchSpacePath,
+		requiresSorting:          requiresSorting,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -74,7 +74,7 @@ func (c *compactorMap) do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
-		segmentindex.WithChecksumsDisabled(c.disableChecksumValidation),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
 	kis, err := c.writeKeys(segmentFile)
@@ -96,7 +96,8 @@ func (c *compactorMap) do() error {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
 	}
 
-	if err := c.writeHeader(segmentFile, c.currentLevel, segmentindex.SegmentV1,
+	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
+	if err := c.writeHeader(segmentFile, c.currentLevel, version,
 		c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}

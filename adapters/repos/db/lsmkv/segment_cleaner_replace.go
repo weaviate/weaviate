@@ -23,31 +23,31 @@ import (
 )
 
 type segmentCleanerReplace struct {
-	w                         io.WriteSeeker
-	bufw                      *bufio.Writer
-	cursor                    *segmentCursorReplace
-	keyExistsFn               keyExistsOnUpperSegmentsFunc
-	version                   uint16
-	level                     uint16
-	secondaryIndexCount       uint16
-	scratchSpacePath          string
-	disableChecksumValidation bool
+	w                        io.WriteSeeker
+	bufw                     *bufio.Writer
+	cursor                   *segmentCursorReplace
+	keyExistsFn              keyExistsOnUpperSegmentsFunc
+	version                  uint16
+	level                    uint16
+	secondaryIndexCount      uint16
+	scratchSpacePath         string
+	enableChecksumValidation bool
 }
 
 func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
 	keyExistsFn keyExistsOnUpperSegmentsFunc, level, secondaryIndexCount uint16,
-	scratchSpacePath string, disableChecksumValidation bool,
+	scratchSpacePath string, enableChecksumValidation bool,
 ) *segmentCleanerReplace {
 	return &segmentCleanerReplace{
-		w:                         w,
-		bufw:                      bufio.NewWriterSize(w, 256*1024),
-		cursor:                    cursor,
-		keyExistsFn:               keyExistsFn,
-		version:                   segmentindex.SegmentV1,
-		level:                     level,
-		secondaryIndexCount:       secondaryIndexCount,
-		scratchSpacePath:          scratchSpacePath,
-		disableChecksumValidation: disableChecksumValidation,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		cursor:                   cursor,
+		keyExistsFn:              keyExistsFn,
+		version:                  segmentindex.ChooseHeaderVersion(enableChecksumValidation),
+		level:                    level,
+		secondaryIndexCount:      secondaryIndexCount,
+		scratchSpacePath:         scratchSpacePath,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -58,7 +58,7 @@ func (p *segmentCleanerReplace) do(shouldAbort cyclemanager.ShouldAbortCallback)
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(p.bufw),
-		segmentindex.WithChecksumsDisabled(p.disableChecksumValidation),
+		segmentindex.WithChecksumsDisabled(!p.enableChecksumValidation),
 	)
 
 	indexKeys, err := p.writeKeys(segmentFile, shouldAbort)

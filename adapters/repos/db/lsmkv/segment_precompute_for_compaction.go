@@ -34,7 +34,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	disableChecksumValidation bool,
+	enableChecksumValidation bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -73,7 +73,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 && !disableChecksumValidation {
+	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)

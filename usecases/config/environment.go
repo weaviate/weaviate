@@ -212,9 +212,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_ENABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
-		config.Persistence.LSMDisableSegmentsChecksumValidation = false
-	} else {
-		config.Persistence.LSMDisableSegmentsChecksumValidation = true
+		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
