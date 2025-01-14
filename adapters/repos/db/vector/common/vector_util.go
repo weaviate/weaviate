@@ -12,6 +12,16 @@
 package common
 
 func VectorsEqual(vecA, vecB []float32) bool {
+	return vectorsEqual(vecA, vecB, func(valueA, valueB float32) bool {
+		return valueA == valueB
+	})
+}
+
+func MultiVectorsEqual(vecA, vecB [][]float32) bool {
+	return vectorsEqual(vecA, vecB, VectorsEqual)
+}
+
+func vectorsEqual[T []C, C float32 | []float32](vecA, vecB T, valuesEqual func(valueA, valueB C) bool) bool {
 	if len(vecA) != len(vecB) {
 		return false
 	}
@@ -22,7 +32,7 @@ func VectorsEqual(vecA, vecB []float32) bool {
 		return false
 	}
 	for i := range vecA {
-		if vecA[i] != vecB[i] {
+		if !valuesEqual(vecA[i], vecB[i]) {
 			return false
 		}
 	}

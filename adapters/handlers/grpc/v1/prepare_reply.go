@@ -245,14 +245,27 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if len(additionalPropsParams.Vectors) > 0 {
 		vectors, ok := additionalPropertiesMap["vectors"]
 		if ok {
-			vectorfmt, ok2 := vectors.(map[string][]float32)
+			vectorfmt, ok2 := vectors.(map[string]models.Vector)
 			if ok2 {
 				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
 				for name, vector := range vectorfmt {
-					metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
-						VectorBytes: byteops.Float32ToByteVector(vector),
-						Name:        name,
-					})
+					switch vec := vector.(type) {
+					case []float32:
+						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+							VectorBytes: byteops.Float32ToByteVector(vec),
+							Name:        name,
+						})
+					case [][]float32:
+						for i := range vec {
+							metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+								VectorBytes: byteops.Float32ToByteVector(vec[i]),
+								Name:        name,
+								Index:       uint64(i),
+							})
+						}
+					default:
+						// do nothing
+					}
 				}
 			}
 

@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -107,6 +108,11 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 		for _, id := range vecIDs {
 			if err := h.Delete(id); err != nil {
 				return err
+			}
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, id)
+			if err := h.store.Bucket(h.id + "_mv_mappings").Delete(idBytes); err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to delete %s_mv_mappings from the bucket", h.id))
 			}
 		}
 		h.Lock()

@@ -15,12 +15,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/types"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
-type movements[T types.Embedding] struct{}
+type movements[T dto.Embedding] struct{}
 
-func newMovements[T types.Embedding]() *movements[T] {
+func newMovements[T dto.Embedding]() *movements[T] {
 	return &movements[T]{}
 }
 

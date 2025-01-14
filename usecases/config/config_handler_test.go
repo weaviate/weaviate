@@ -16,11 +16,13 @@ import (
 	"os"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestConfig(t *testing.T) {
+func TestConfigModules(t *testing.T) {
 	t.Run("invalid DefaultVectorDistanceMetric", func(t *testing.T) {
 		moduleProvider := &fakeModuleProvider{
 			valid: []string{"text2vec-contextionary"},
@@ -29,7 +31,7 @@ func TestConfig(t *testing.T) {
 			DefaultVectorizerModule:     "text2vec-contextionary",
 			DefaultVectorDistanceMetric: "euclidean",
 		}
-		err := config.Validate(moduleProvider)
+		err := config.ValidateModules(moduleProvider)
 		assert.EqualError(
 			t,
 			err,
@@ -45,7 +47,7 @@ func TestConfig(t *testing.T) {
 			DefaultVectorizerModule:     "contextionary",
 			DefaultVectorDistanceMetric: "cosine",
 		}
-		err := config.Validate(moduleProvider)
+		err := config.ValidateModules(moduleProvider)
 		assert.EqualError(
 			t,
 			err,
@@ -61,7 +63,7 @@ func TestConfig(t *testing.T) {
 			DefaultVectorizerModule:     "text2vec-contextionary",
 			DefaultVectorDistanceMetric: "l2-squared",
 		}
-		err := config.Validate(moduleProvider)
+		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")
 	})
 
@@ -72,7 +74,7 @@ func TestConfig(t *testing.T) {
 		config := Config{
 			DefaultVectorizerModule: "text2vec-contextionary",
 		}
-		err := config.Validate(moduleProvider)
+		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")
 	})
 
@@ -83,7 +85,7 @@ func TestConfig(t *testing.T) {
 		config := Config{
 			DefaultVectorizerModule: "none",
 		}
-		err := config.Validate(moduleProvider)
+		err := config.ValidateModules(moduleProvider)
 		assert.Nil(t, err, "should not error")
 	})
 
@@ -114,7 +116,9 @@ func TestConfig(t *testing.T) {
 		assert.ElementsMatch(t, []string{"api-key-1"}, config.Authentication.APIKey.AllowedKeys)
 		assert.ElementsMatch(t, []string{"readonly@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
+}
 
+func TestConfigParsing(t *testing.T) {
 	t.Run("parse config.yaml file with admin_list and read_only_users", func(t *testing.T) {
 		configFileName := "config.yaml"
 		configYaml := `authorization:
@@ -174,4 +178,39 @@ func TestConfig(t *testing.T) {
 		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
 		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
+}
+
+func TestConfigValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected bool
+	}{
+		{
+			name: "invalid combination of rbac and anon access",
+			config: &Config{
+				Authentication: Authentication{AnonymousAccess: AnonymousAccess{Enabled: true}},
+				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: true}},
+			},
+			expected: true,
+		},
+		{
+			name: "valid combination of anon access and no authorization",
+			config: &Config{
+				Authentication: Authentication{AnonymousAccess: AnonymousAccess{Enabled: true}},
+			},
+			expected: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.config.Validate()
+			if test.expected {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

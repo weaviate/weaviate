@@ -134,6 +134,11 @@ type Bucket struct {
 	// redundant obsolete data, that was deleted or updated in newer segments
 	// (currently supported only in buckets of REPLACE strategy)
 	segmentsCleanupInterval time.Duration
+
+	// optional validation of segment file checksums. Enabling this option
+	// introduces latency of segment availability, for the tradeoff of
+	// ensuring segment files have integrity before reading them.
+	disableChecksumValidation bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -185,17 +190,18 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                   dir,
-			strategy:              b.strategy,
-			mapRequiresSorting:    b.legacyMapSortingBeforeCompaction,
-			monitorCount:          b.monitorCount,
-			mmapContents:          b.mmapContents,
-			keepTombstones:        b.keepTombstones,
-			forceCompaction:       b.forceCompaction,
-			useBloomFilter:        b.useBloomFilter,
-			calcCountNetAdditions: b.calcCountNetAdditions,
-			maxSegmentSize:        b.maxSegmentSize,
-			cleanupInterval:       b.segmentsCleanupInterval,
+			dir:                       dir,
+			strategy:                  b.strategy,
+			mapRequiresSorting:        b.legacyMapSortingBeforeCompaction,
+			monitorCount:              b.monitorCount,
+			mmapContents:              b.mmapContents,
+			keepTombstones:            b.keepTombstones,
+			forceCompaction:           b.forceCompaction,
+			useBloomFilter:            b.useBloomFilter,
+			calcCountNetAdditions:     b.calcCountNetAdditions,
+			maxSegmentSize:            b.maxSegmentSize,
+			cleanupInterval:           b.segmentsCleanupInterval,
+			disableChecksumValidation: b.disableChecksumValidation,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

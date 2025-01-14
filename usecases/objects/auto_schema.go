@@ -76,11 +76,6 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		classes = append(classes, schema.UppercaseClassName(object.Class))
 	}
 
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classes...)...)
-	if err != nil {
-		return 0, err
-	}
-
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
 	if err != nil {
 		return 0, err

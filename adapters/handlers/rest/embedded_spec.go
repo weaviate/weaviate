@@ -5074,24 +5074,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -5289,10 +5271,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -5492,7 +5470,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -5500,11 +5477,14 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -5524,11 +5504,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -5581,6 +5556,22 @@ func init() {
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -6150,11 +6141,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",
@@ -11810,24 +11797,6 @@ func init() {
         }
       }
     },
-    "MultiVector": {
-      "description": "A multi vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "array",
-        "items": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "MultiVectors": {
-      "description": "A map of named multi vectors for multi-vector representations.",
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/definitions/MultiVector"
-      }
-    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -12025,10 +11994,6 @@ func init() {
           "description": "(Response only) Timestamp of the last object update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "multiVectors": {
-          "description": "This field returns vectors associated with the Object.",
-          "$ref": "#/definitions/MultiVectors"
         },
         "properties": {
           "$ref": "#/definitions/PropertySchema"
@@ -12245,7 +12210,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -12253,11 +12217,14 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -12277,11 +12244,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12338,6 +12300,22 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         }
       }
     },
@@ -12358,11 +12336,6 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12415,6 +12388,22 @@ func init() {
       "properties": {
         "role": {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionTenants": {
+      "description": "resources applicable for tenant actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12982,11 +12971,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",

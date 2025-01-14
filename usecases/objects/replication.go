@@ -34,9 +34,8 @@ type VObject struct {
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
-	Vector       []float32           `json:"vector"`
-	Vectors      models.Vectors      `json:"vectors"`
-	MultiVectors models.MultiVectors `json:"multiVectors"`
+	Vector  []float32      `json:"vector"`
+	Vectors models.Vectors `json:"vectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`

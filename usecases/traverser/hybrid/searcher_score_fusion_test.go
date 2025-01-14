@@ -39,7 +39,7 @@ func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
 		Class: class,
 	}
 	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 	provider := &fakeModuleProvider{}
 	schemaGetter := newFakeSchemaManager()
 	targetVectorParamHelper := newFakeTargetVectorParamHelper()
@@ -75,7 +75,7 @@ func TestScoreFusionSearchWithSparseSearchOnly(t *testing.T) {
 			},
 		}, []float32{0.008}, nil
 	}
-	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
@@ -102,7 +102,7 @@ func TestScoreFusionSearchWithDenseSearchOnly(t *testing.T) {
 		Class: class,
 	}
 	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		return []*storobj.Object{
 			{
 				Object: models.Object{
@@ -158,7 +158,7 @@ func TestScoreFusionCombinedHybridSearch(t *testing.T) {
 			},
 		}, []float32{0.008}, nil
 	}
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		return []*storobj.Object{
 			{
 				Object: models.Object{
@@ -218,7 +218,7 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 			},
 		}, []float32{0.008}, nil
 	}
-	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
@@ -247,7 +247,7 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 		Class: class,
 	}
 	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		return []*storobj.Object{
 			{
 				Object: models.Object{
@@ -284,7 +284,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				Vectors:   [][]float32{{1, 2, 3}},
+				Vectors:   []models.Vector{[]float32{1, 2, 3}},
 				Certainty: 0.8,
 			},
 			Alpha: 1.0,
@@ -292,7 +292,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 		Class: class,
 	}
 	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		return []*storobj.Object{
 			{
 				Object: models.Object{
@@ -329,7 +329,7 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				Vectors:   [][]float32{{1, 2, 3}},
+				Vectors:   []models.Vector{[]float32{1, 2, 3}},
 				Certainty: 0.8,
 			},
 			Alpha:      0.5,
@@ -352,7 +352,7 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 			},
 		}, []float32{0.008}, nil
 	}
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+	dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 		return []*storobj.Object{
 			{
 				Object: models.Object{

@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -110,7 +111,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, updates.MultiVectors, repl, schemaVersion)
+	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
+	if err != nil {
+		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
+	}
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

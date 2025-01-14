@@ -246,7 +246,10 @@ jobs:
           "--only-module-generative-google",
           "--only-module-generative-openai",
           "--only-module-text2vec-google",
-          "--only-module-text2vec-aws"
+          "--only-module-text2vec-aws",
+          "--only-module-text2vec-jinaai",
+          "--only-module-multi2vec-jinaai",
+          "--only-module-text2colbert-jinaai",
         ]
     steps:
       - uses: actions/checkout@v4
@@ -305,6 +308,7 @@ jobs:
           OPENAI_ORGANIZATION: ${{ secrets.OPENAI_ORGANIZATION }}
           COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
+          JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests

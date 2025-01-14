@@ -80,13 +80,18 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
-							assert.True(t, len(obj.Vectors["description"]) > 0)
+							require.IsType(t, []float32{}, obj.Vectors["description"])
+							assert.True(t, len(obj.Vectors["description"].([]float32)) > 0)
 						})
 					}
 				})
 				// vector search
 				t.Run("perform vector search", func(t *testing.T) {
 					companies.PerformVectorSearchTest(t, host, class.Class)
+				})
+				// hybird search
+				t.Run("perform hybrid search", func(t *testing.T) {
+					companies.PerformHybridSearchTest(t, host, class.Class)
 				})
 			})
 		}

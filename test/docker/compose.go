@@ -42,6 +42,7 @@ import (
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
@@ -319,6 +320,12 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
+func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
 	return d
 }
 
@@ -787,7 +794,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	if d.withWeaviateRbac {
-		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
+		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
 		if len(d.weaviateRbacAdmins) > 0 {
 			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")

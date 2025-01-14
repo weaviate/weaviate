@@ -42,7 +42,7 @@ func newSegmentCleanerReplace(w io.WriteSeeker, cursor *segmentCursorReplace,
 		bufw:                bufio.NewWriterSize(w, 256*1024),
 		cursor:              cursor,
 		keyExistsFn:         keyExistsFn,
-		version:             0,
+		version:             segmentindex.SegmentV1,
 		level:               level,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
@@ -54,12 +54,16 @@ func (p *segmentCleanerReplace) do(shouldAbort cyclemanager.ShouldAbortCallback)
 		return fmt.Errorf("init: %w", err)
 	}
 
-	indexKeys, err := p.writeKeys(shouldAbort)
+	segmentFile := segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(p.bufw),
+	)
+
+	indexKeys, err := p.writeKeys(segmentFile, shouldAbort)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
 
-	if err := p.writeIndices(indexKeys); err != nil {
+	if err := p.writeIndexes(segmentFile, indexKeys); err != nil {
 		return fmt.Errorf("write indices: %w", err)
 	}
 
@@ -73,8 +77,12 @@ func (p *segmentCleanerReplace) do(shouldAbort cyclemanager.ShouldAbortCallback)
 		dataEnd = uint64(indexKeys[l-1].ValueEnd)
 	}
 
-	if err := p.writeHeader(dataEnd); err != nil {
+	if err := p.writeHeader(segmentFile, dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
+	}
+
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorSet segment checksum: %w", err)
 	}
 
 	return nil
@@ -91,7 +99,9 @@ func (p *segmentCleanerReplace) init() error {
 	return nil
 }
 
-func (p *segmentCleanerReplace) writeKeys(shouldAbort cyclemanager.ShouldAbortCallback) ([]segmentindex.Key, error) {
+func (p *segmentCleanerReplace) writeKeys(f *segmentindex.SegmentFile,
+	shouldAbort cyclemanager.ShouldAbortCallback,
+) ([]segmentindex.Key, error) {
 	// the (dummy) header was already written, this is our initial offset
 	offset := segmentindex.HeaderSize
 
@@ -117,7 +127,7 @@ func (p *segmentCleanerReplace) writeKeys(shouldAbort cyclemanager.ShouldAbortCa
 		}
 		nodeCopy := node
 		nodeCopy.offset = offset
-		indexKey, err = nodeCopy.KeyIndexAndWriteTo(p.bufw)
+		indexKey, err = nodeCopy.KeyIndexAndWriteTo(f.BodyWriter())
 		if err != nil {
 			break
 		}
@@ -131,21 +141,23 @@ func (p *segmentCleanerReplace) writeKeys(shouldAbort cyclemanager.ShouldAbortCa
 	return indexKeys, nil
 }
 
-func (p *segmentCleanerReplace) writeIndices(keys []segmentindex.Key) error {
-	indices := &segmentindex.Indexes{
+func (p *segmentCleanerReplace) writeIndexes(f *segmentindex.SegmentFile,
+	keys []segmentindex.Key,
+) error {
+	indexes := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: p.secondaryIndexCount,
 		ScratchSpacePath:    p.scratchSpacePath,
 	}
-
-	_, err := indices.WriteTo(p.bufw)
+	_, err := f.WriteIndexes(indexes)
 	return err
 }
 
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (p *segmentCleanerReplace) writeHeader(startOfIndex uint64,
+func (p *segmentCleanerReplace) writeHeader(f *segmentindex.SegmentFile,
+	startOfIndex uint64,
 ) error {
 	if _, err := p.w.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("seek to beginning to write header: %w", err)
@@ -158,7 +170,22 @@ func (p *segmentCleanerReplace) writeHeader(startOfIndex uint64,
 		Strategy:         segmentindex.StrategyReplace,
 		IndexStart:       startOfIndex,
 	}
+	// We have to write directly to compactor writer,
+	// since it has seeked back to start. The following
+	// call to f.WriteHeader will not write again.
+	if _, err := h.WriteTo(p.w); err != nil {
+		return err
+	}
 
-	_, err := h.WriteTo(p.w)
-	return err
+	if _, err := f.WriteHeader(h); err != nil {
+		return err
+	}
+
+	if _, err := p.w.Seek(0, io.SeekEnd); err != nil {
+		return fmt.Errorf("seek to end after writing header: %w", err)
+	}
+
+	p.bufw.Reset(p.w)
+
+	return nil
 }

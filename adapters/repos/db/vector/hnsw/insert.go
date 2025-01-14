@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -45,13 +46,22 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 
 	// no vectors exist
 	if dims == 0 {
+		vecDimensions := make(map[int]struct{})
+		for i := range vector {
+			vecDimensions[len(vector[i])] = struct{}{}
+		}
+		if len(vecDimensions) > 1 {
+			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+		}
 		return nil
 	}
 
 	// check if vector length is the same as existing nodes
-	if dims != len(vector) {
-		return fmt.Errorf("new node has a multi vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), dims)
+	for i := range vector {
+		if dims != len(vector[i]) {
+			return fmt.Errorf("new node has a multi vector with length %v at position %v. "+
+				"Existing nodes have vectors with length %v", len(vector[i]), i, dims)
+		}
 	}
 
 	return nil
@@ -227,7 +237,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
 			h.Unlock()
 
-			err := h.addOne(ctx, vector, node)
+			nodeIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docID)
+			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			}
+
+			err = h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}

@@ -74,9 +74,12 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	}
 
 	header := segmentindex.Header{
+		// TODO: checksums currently not supported for StrategyInverted,
+		//       which was introduced with segmentindex.SegmentV1. When
+		//       support is added, we can bump this header version to 1.
+		Version:          0,
 		IndexStart:       0, // will be updated later
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
 		SecondaryIndices: m.secondaryIndices,
 		Strategy:         SegmentStrategyFromString(StrategyInverted),
 	}

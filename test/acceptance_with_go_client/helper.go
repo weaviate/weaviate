@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,7 +57,7 @@ func GetVectors(t *testing.T,
 	className string,
 	withCertainty bool,
 	targetVectors ...string,
-) map[string][]float32 {
+) map[string]models.Vector {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Data)
 	require.Empty(t, resp.Errors)
@@ -67,7 +68,7 @@ func GetVectors(t *testing.T,
 	class, ok := classMap[className].([]interface{})
 	require.True(t, ok)
 
-	targetVectorsMap := make(map[string][]float32)
+	targetVectorsMap := make(map[string]models.Vector)
 	for i := range class {
 		resultMap, ok := class[i].(map[string]interface{})
 		require.True(t, ok)
@@ -85,15 +86,30 @@ func GetVectors(t *testing.T,
 		require.True(t, ok)
 
 		for _, targetVector := range targetVectors {
-			vector, ok := vectors[targetVector].([]interface{})
-			require.True(t, ok)
-
-			vec := make([]float32, len(vector))
-			for i := range vector {
-				vec[i] = float32(vector[i].(float64))
+			switch vector := vectors[targetVector].(type) {
+			case []interface{}:
+				var multiVector [][]float32
+				var vec []float32
+				for i := range vector {
+					switch v := vector[i].(type) {
+					case float64:
+						vec = append(vec, float32(v))
+					case []interface{}:
+						multiVectorVector := make([]float32, len(v))
+						for j := range v {
+							multiVectorVector[j] = float32(v[j].(float64))
+						}
+						multiVector = append(multiVector, multiVectorVector)
+					}
+				}
+				if len(multiVector) > 0 {
+					targetVectorsMap[targetVector] = multiVector
+				} else {
+					targetVectorsMap[targetVector] = vec
+				}
+			default:
+				panic(fmt.Sprintf("unexpected vector types in GraphQL response: %T", vectors[targetVector]))
 			}
-
-			targetVectorsMap[targetVector] = vec
 		}
 	}
 

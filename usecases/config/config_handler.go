@@ -135,13 +135,42 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 }
 
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
+// Validate the configuration
+func (c *Config) Validate() error {
+	if err := c.Authentication.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Authorization.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if c.Authentication.AnonymousAccess.Enabled && c.Authorization.Rbac.Enabled {
+		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
+	}
+
+	if err := c.Persistence.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.AutoSchema.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.ResourceUsage.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	return nil
 }
 
-// Validate the non-nested parameters. Nested objects must provide their own
+// ValidateModules validates the non-nested parameters. Nested objects must provide their own
 // validation methods
-func (c Config) Validate(modProv moduleProvider) error {
+func (c *Config) ValidateModules(modProv moduleProvider) error {
 	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
 		return errors.Wrap(err, "default vectorizer module")
 	}
@@ -153,7 +182,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 	return nil
 }
 
-func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
+func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	if c.DefaultVectorizerModule == VectorizerModuleNone {
 		return nil
 	}
@@ -161,7 +190,11 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
 }
 
-func (c Config) validateDefaultVectorDistanceMetric() error {
+type moduleProvider interface {
+	ValidateVectorizer(moduleName string) error
+}
+
+func (c *Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
@@ -222,15 +255,16 @@ type Profiling struct {
 }
 
 type Persistence struct {
-	DataPath                          string `json:"dataPath" yaml:"dataPath"`
-	MemtablesFlushDirtyAfter          int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
-	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
-	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
-	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
-	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
-	LSMSegmentsCleanupIntervalSeconds int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
-	LSMSeparateObjectsCompactions     bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
-	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	DataPath                             string `json:"dataPath" yaml:"dataPath"`
+	MemtablesFlushDirtyAfter             int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
+	MemtablesMaxSizeMB                   int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
+	MemtablesMinActiveDurationSeconds    int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
+	MemtablesMaxActiveDurationSeconds    int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                    int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds    int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions        bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
+	LSMDisableSegmentsChecksumValidation bool   `json:"lsmDisableSegmentsChecksumValidation" yaml:"lsmDisableSegmentsChecksumValidation"`
+	HNSWMaxLogSize                       int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -480,31 +514,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Load config from flags
 	f.fromFlags(flags.Options.(*Flags))
 
-	if err := f.Config.Authentication.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Authorization.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Persistence.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.AutoSchema.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.ResourceUsage.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	if err := f.Config.Raft.Validate(); err != nil {
-		return configErr(err)
-	}
-
-	return nil
+	return f.Config.Validate()
 }
 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {

@@ -123,7 +123,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}}},
 		},
 		{
-			name: "Named Vecs",
+			name: "named vectors",
 			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
 				{
 					Name:        "custom",
@@ -306,6 +306,37 @@ func TestGRPCBatchRequest(t *testing.T) {
 			out:       []*models.Object{{Class: collection, Properties: nilMap, ID: UUID4}, {Class: collection, Properties: nilMap, ID: UUID3}},
 			outError:  []int{1, 2},
 			origIndex: map[int]int{0: 0, 1: 3},
+		},
+		{
+			name: "named multi vectors",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "custom",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "colbert",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "colbert",
+					Index:       1,
+					VectorBytes: byteVector([]float32{0.1, 0.2}),
+				},
+				{
+					Name:        "colbert",
+					Index:       2,
+					VectorBytes: byteVector([]float32{0.1}),
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"custom":  []float32{0.1, 0.2, 0.3},
+					"colbert": [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2}, {0.1}},
+				},
+			}},
 		},
 	}
 	getClass := func(class, shard string) (*models.Class, error) {

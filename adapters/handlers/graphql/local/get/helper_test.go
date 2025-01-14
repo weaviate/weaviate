@@ -688,7 +688,7 @@ func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal
 
 type targetsAndVectors struct {
 	targets []string
-	vectors [][]float32
+	vectors []models.Vector
 }
 
 func (t targetsAndVectors) Len() int {

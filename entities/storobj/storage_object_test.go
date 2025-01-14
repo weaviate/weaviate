@@ -58,7 +58,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
@@ -126,11 +126,11 @@ func TestStorageObjectMarshallingMultiVector(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 		},
-		map[string]models.MultiVector{
+		map[string][][]float32{
 			"vector3": {{7, 8, 9}, {10, 11, 12}},
 			"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 			"vector5": {{19, 20, 21}, {22, 23, 24}},
@@ -199,11 +199,11 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				},
 			},
 			[]float32{1, 2, 0.7},
-			models.Vectors{
+			map[string][]float32{
 				"vector1": {1, 2, 3},
 				"vector2": {4, 5, 6},
 			},
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -239,6 +239,38 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			assert.ElementsMatch(t, after.MultiVectors["vector4"], before.MultiVectors["vector4"])
 			assert.ElementsMatch(t, after.MultiVectors["vector5"], before.MultiVectors["vector5"])
 		})
+
+		t.Run("check multi vectors optional", func(t *testing.T) {
+			t.Run("FromBinaryOptional: empty additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
+				require.Nil(t, err)
+				require.Nil(t, afterMultiVectorsOptional.MultiVectors)
+			})
+
+			t.Run("FromBinaryOptional: multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+
+			t.Run("FromBinaryOptional: named vector and multi vector in additional", func(t *testing.T) {
+				afterMultiVectorsOptional, err := FromBinaryOptional(asBinary, additional.Properties{
+					Vectors: []string{"vector2", "vector4"},
+				}, nil)
+				require.Nil(t, err)
+				require.NotEmpty(t, afterMultiVectorsOptional.Vectors)
+				require.NotEmpty(t, afterMultiVectorsOptional.MultiVectors)
+				require.Len(t, afterMultiVectorsOptional.Vectors, 2)
+				require.Len(t, afterMultiVectorsOptional.MultiVectors, 1)
+				require.Equal(t, before.Vectors["vector1"], afterMultiVectorsOptional.Vectors["vector1"])
+				require.Equal(t, before.Vectors["vector2"], afterMultiVectorsOptional.Vectors["vector2"])
+				require.Equal(t, before.MultiVectors["vector4"], afterMultiVectorsOptional.MultiVectors["vector4"])
+			})
+		})
 	})
 
 	t.Run("only vectors and multivectors", func(t *testing.T) {
@@ -268,11 +300,11 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 				},
 			},
 			nil,
-			models.Vectors{
+			map[string][]float32{
 				"vector1": {1, 2, 3},
 				"vector2": {4, 5, 6},
 			},
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -333,7 +365,7 @@ func TestStorageObjectUnMarshallingMultiVector(t *testing.T) {
 			},
 			nil,
 			nil,
-			map[string]models.MultiVector{
+			map[string][][]float32{
 				"vector3": {{7, 8, 9}, {10, 11, 12}},
 				"vector4": {{13, 14, 15}, {16, 17, 18}, {16, 1}, {1}},
 				"vector5": {{19, 20, 21}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}, {22, 23, 24}},
@@ -416,7 +448,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -587,7 +619,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -749,7 +781,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": {1, 2, 3},
 			"vector2": {4, 5, 6},
 			"vector3": {7, 8, 9},
@@ -905,6 +937,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.Object.Additional = nil
 					before.Vector = vector
 					before.VectorLen = int(vectorLength)
+
 					assert.Equal(t, before, after)
 
 					assert.Equal(t, before.DocID, after.DocID)
@@ -996,7 +1029,7 @@ func TestVectorFromBinary(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector1": vector1,
 			"vector2": vector2,
 			"vector3": vector3,
@@ -1074,10 +1107,10 @@ func TestMultiVectorFromBinary(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
-		models.Vectors{
+		map[string][]float32{
 			"vector4": vector4,
 		},
-		map[string]models.MultiVector{
+		map[string][][]float32{
 			"vector1": vector1,
 			"vector2": vector2,
 			"vector3": vector3,
@@ -1152,8 +1185,8 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 			},
 			nil,
-			models.Vectors{
-				"vector1": make(models.Vector, maxVectorLength+1),
+			map[string][]float32{
+				"vector1": make([]float32, maxVectorLength+1),
 			},
 			nil,
 		)

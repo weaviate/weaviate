@@ -288,8 +288,8 @@ func TestProvider_UpdateVector(t *testing.T) {
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)
 		assert.NoError(t, err)
-		assert.NotEmpty(t, obj.MultiVectors)
-		assert.Equal(t, models.MultiVector{{0.11, 0.22, 0.33}, {0.11, 0.22, 0.33}}, obj.MultiVectors["colbert"])
+		assert.NotEmpty(t, obj.Vectors)
+		assert.Equal(t, [][]float32{{0.11, 0.22, 0.33}, {0.11, 0.22, 0.33}}, obj.Vectors["colbert"])
 	})
 }
 

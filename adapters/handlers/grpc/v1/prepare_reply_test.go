@@ -217,7 +217,7 @@ func TestGRPCReply(t *testing.T) {
 			name: "named vector only",
 			res: []interface{}{
 				map[string]interface{}{
-					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+					"_additional": map[string]interface{}{"vectors": map[string]models.Vector{"custom": []float32{1}, "first": []float32{2}}},
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},

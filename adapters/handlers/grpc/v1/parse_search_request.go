@@ -236,7 +236,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 
-		var vector []float32
+		var vector models.Vector
 		// bytes vector has precedent for being more efficient
 		if len(hs.VectorBytes) > 0 {
 			vector = byteops.Float32FromByteVector(hs.VectorBytes)
@@ -1153,7 +1153,7 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	vectors := make([][]float32, len(targetVectorsTmp))
+	vectors := make([]models.Vector, len(targetVectorsTmp))
 	if vector != nil {
 		for i := range targetVectorsTmp {
 			vectors[i] = vector

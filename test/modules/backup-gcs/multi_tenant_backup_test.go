@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -28,8 +27,7 @@ const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
 	// Set up a context with a 30-minute timeout to manage test duration
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	ctx := context.Background()
 
 	// Define test cases using a table-driven approach
 	tests := []struct {
@@ -101,6 +99,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
@@ -133,6 +133,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
+		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {

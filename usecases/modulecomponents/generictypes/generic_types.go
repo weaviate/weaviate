@@ -15,17 +15,24 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
 )
 
 type findVectorFn = func(ctx context.Context,
 	className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error)
 
+type findMultiVectorFn = func(ctx context.Context,
+	className string, id strfmt.UUID, tenant, targetVector string) ([][]float32, string, error)
+
 // Helper method for creating modulecapabilities.FindVectorFn[[]float32]
 func FindVectorFn(findVectorFn findVectorFn) modulecapabilities.FindVectorFn[[]float32] {
 	return &findVector[[]float32]{findVectorFn}
+}
+
+func FindMultiVectorFn(findMultiVectorFn findMultiVectorFn) modulecapabilities.FindVectorFn[[][]float32] {
+	return &findVector[[][]float32]{findMultiVectorFn}
 }
 
 type multiFindVectorFn = func(ctx context.Context,
@@ -42,7 +49,7 @@ func (f *findVector[T]) FindVector(ctx context.Context,
 	return f.findVectorFn(ctx, className, id, tenant, targetVector)
 }
 
-type findVector[T types.Embedding] struct {
+type findVector[T dto.Embedding] struct {
 	findVectorFn func(ctx context.Context,
 		className string, id strfmt.UUID, tenant, targetVector string) (T, string, error)
 }
@@ -65,7 +72,7 @@ func MultiVectorForParams(multiVectorForParamsFn multiVectorForParamsFn) modulec
 	return &vectorForParams[[][]float32]{multiVectorForParamsFn}
 }
 
-type vectorForParams[T types.Embedding] struct {
+type vectorForParams[T dto.Embedding] struct {
 	vectorForParams func(ctx context.Context, params interface{},
 		className string, findVectorFn modulecapabilities.FindVectorFn[T], cfg moduletools.ClassConfig,
 	) (T, error)

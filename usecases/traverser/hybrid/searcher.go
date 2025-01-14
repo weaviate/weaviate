@@ -21,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -55,7 +57,7 @@ type sparseSearchFunc func() (results []*storobj.Object, weights []float32, err 
 // A search vector argument is required to pass along to the vector index.
 // Any package which wishes use hybrid search must provide this The weights are
 // used in calculating the final scores of the result set.
-type denseSearchFunc func(searchVector []float32) (results []*storobj.Object, weights []float32, err error)
+type denseSearchFunc func(searchVector models.Vector) (results []*storobj.Object, weights []float32, err error)
 
 // postProcFunc takes the results of the hybrid search and applies some transformation.
 // This is optionally provided, and allows the caller to somehow change the nature of
@@ -66,6 +68,9 @@ type postProcFunc func(hybridResults []*search.Result) (postProcResults []search
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
 		className, input, targetVector string) ([]float32, error)
+	MultiVectorFromInput(ctx context.Context,
+		className, input, targetVector string) ([][]float32, error)
+	IsTargetVectorMultiVector(className, targetVector string) (bool, error)
 }
 
 type targetVectorParamHelper interface {
@@ -268,10 +273,14 @@ func processDenseSearch(ctx context.Context,
 }
 
 func decideSearchVector(ctx context.Context,
-	class, query string, targetVectors []string, vector []float32, modules modulesProvider,
+	class, query string, targetVectors []string, vector models.Vector, modules modulesProvider,
 	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
-) ([]float32, error) {
-	if len(vector) != 0 {
+) (models.Vector, error) {
+	isVectorEmpty, err := dto.IsVectorEmpty(vector)
+	if err != nil {
+		return nil, fmt.Errorf("decide search vector: is vector empty: %w", err)
+	}
+	if !isVectorEmpty {
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
@@ -292,7 +301,18 @@ func decideSearchVector(ctx context.Context,
 	}
 }
 
-func vectorFromModuleInput(ctx context.Context, class, input, targetVector string, modules modulesProvider) ([]float32, error) {
+func vectorFromModuleInput(ctx context.Context, class, input, targetVector string, modules modulesProvider) (models.Vector, error) {
+	isMultiVector, err := modules.IsTargetVectorMultiVector(class, targetVector)
+	if err != nil {
+		return nil, fmt.Errorf("get vector input from modules provider: is target vector multi vector: %w", err)
+	}
+	if isMultiVector {
+		vector, err := modules.MultiVectorFromInput(ctx, class, input, targetVector)
+		if err != nil {
+			return nil, fmt.Errorf("get multi vector input from modules provider: %w", err)
+		}
+		return vector, nil
+	}
 	vector, err := modules.VectorFromInput(ctx, class, input, targetVector)
 	if err != nil {
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
