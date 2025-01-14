@@ -29,14 +29,6 @@ const (
 	// ChecksumSize describes the length of the segment file checksum.
 	// This is currently based on the CRC32 hashing algorithm.
 	ChecksumSize = 4
-
-	// SegmentV1 is the current latest version, and introduced support
-	// for integrity checks with checksums added to the segment files.
-	SegmentV1 = uint16(1)
-
-	// CurrentSegmentVersion is used to ensure that the parsed header
-	// version does not exceed the highest valid version.
-	CurrentSegmentVersion = SegmentV1
 )
 
 type Header struct {
