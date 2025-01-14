@@ -79,6 +79,10 @@ func testText2VecJinaAI(host string) func(t *testing.T) {
 				t.Run("perform vector search", func(t *testing.T) {
 					companies.PerformVectorSearchTest(t, host, class.Class)
 				})
+				// hybird search
+				t.Run("perform hybrid search", func(t *testing.T) {
+					companies.PerformHybridSearchTest(t, host, class.Class)
+				})
 			})
 		}
 	}
