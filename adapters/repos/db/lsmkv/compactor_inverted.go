@@ -131,7 +131,12 @@ func (c *compactorInverted) do() error {
 	if err := c.bufw.Flush(); err != nil {
 		return errors.Wrap(err, "flush buffered")
 	}
-	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
+
+	// TODO: checksums currently not supported for StrategyInverted,
+	//       which was introduced with segmentindex.SegmentV1. When
+	//       support is added, we can bump this header version to 1.
+	version := uint16(0)
+	if err := c.writeHeader(c.currentLevel, version, c.secondaryIndexCount,
 		treeOffset); err != nil {
 		return errors.Wrap(err, "write header")
 	}
@@ -163,10 +168,13 @@ func (c *compactorInverted) init() error {
 	c.offset = segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
 	c.invertedHeader = &segmentindex.HeaderInverted{
+		// TODO: checksums currently not supported for StrategyInverted,
+		//       which was introduced with segmentindex.SegmentV1. When
+		//       support is added, we can bump this header version to 1.
+		Version:               0,
 		KeysOffset:            uint64(c.offset),
 		TombstoneOffset:       0,
 		PropertyLengthsOffset: 0,
-		Version:               0,
 		BlockSize:             uint8(segmentindex.SegmentInvertedDefaultBlockSize),
 		DataFieldCount:        uint8(len(c.c1.segment.invertedHeader.DataFields)),
 		DataFields:            c.c1.segment.invertedHeader.DataFields,

@@ -201,7 +201,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) {
+	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_ADMIN_USERS")
@@ -246,6 +246,10 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SEPARATE_OBJECTS_COMPACTIONS")) {
 		config.Persistence.LSMSeparateObjectsCompactions = true
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_DISABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
+		config.Persistence.LSMDisableSegmentsChecksumValidation = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {

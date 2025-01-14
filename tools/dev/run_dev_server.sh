@@ -68,7 +68,7 @@ case $CONFIG in
 
   local-single-node-rbac)
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -91,7 +91,7 @@ case $CONFIG in
   local-first-rbac)
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -118,7 +118,7 @@ case $CONFIG in
     GRPC_PORT=50052 \
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -149,7 +149,7 @@ case $CONFIG in
     GRPC_PORT=50053 \
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \

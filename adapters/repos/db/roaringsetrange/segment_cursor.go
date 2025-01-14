@@ -14,9 +14,11 @@ package roaringsetrange
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
@@ -84,7 +86,7 @@ type SegmentCursorPread struct {
 // Similarly, the reader may only read payload, as the EOF
 // is used to determine if more keys can be found.
 //
-// bufferCount tells how many exlusive payload buffers should be used to return
+// bufferCount tells how many exclusive payload buffers should be used to return
 // expected data. Set multiple buffers if data returned by First/Next will not be used
 // before following call will be made, not to overwrite previously fetched values.
 // (e.g. count 3 means, 3 buffers will be used internally and following calls to First/Next
@@ -112,8 +114,8 @@ func (c *SegmentCursorPread) Next() (uint8, roaringset.BitmapLayer, bool) {
 }
 
 func (c *SegmentCursorPread) read(isFirst bool) (uint8, roaringset.BitmapLayer, bool) {
-	_, err := io.ReadFull(c.reader, c.lenBuf)
-	if err == io.EOF {
+	n, err := io.ReadFull(c.reader, c.lenBuf)
+	if err == io.EOF || onlyChecksumRemaining(n, err) {
 		return 0, roaringset.BitmapLayer{}, false
 	}
 	if err != nil {
@@ -212,4 +214,12 @@ func (c *GaplessSegmentCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
 		return currKey, c.readLayer, true
 	}
 	return currKey, roaringset.BitmapLayer{}, true
+}
+
+// onlyChecksumRemaining determines if the only remaining segment contents
+// are the checksum. Segment file checksums were introduced with
+// https://github.com/weaviate/weaviate/pull/6620.
+func onlyChecksumRemaining(n int, err error) bool {
+	return errors.Is(err, io.ErrUnexpectedEOF) &&
+		n == segmentindex.ChecksumSize
 }

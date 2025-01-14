@@ -55,7 +55,7 @@ func PathToPermission(verb, path string) (*models.Permission, error) {
 		return nil, fmt.Errorf("invalid path")
 	}
 
-	return permission([]string{"", path, verb, parts[0]})
+	return permission([]string{"", path, verb, parts[0]}, false)
 }
 
 func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permission, error) {
@@ -64,7 +64,7 @@ func PoliciesToPermission(policies ...authorization.Policy) ([]*models.Permissio
 		// 1st empty string to replace casbin pattern of having policy name as 1st place
 		// e.g.  tester, roles/.*, (C)|(R)|(U)|(D), roles
 		// see newPolicy()
-		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain})
+		perm, err := permission([]string{"", policies[idx].Resource, policies[idx].Verb, policies[idx].Domain}, true)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +91,7 @@ func CasbinPolicies(casbinPolicies ...[][]string) (map[string][]authorization.Po
 					rolesPermissions[name] = append(rolesPermissions[name], *perm)
 				}
 			} else {
-				perm, err := permission(policyParts)
+				perm, err := permission(policyParts, true)
 				if err != nil {
 					return nil, err
 				}

@@ -66,7 +66,6 @@ func TestAuthzRolesWithPermissions(t *testing.T) {
 		require.Len(t, role.Permissions, 1)
 		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, testClass.Class, *role.Permissions[0].Collections.Collection)
-		require.Equal(t, "*", *role.Permissions[0].Collections.Tenant)
 	})
 
 	t.Run("create and get a role to manage all roles", func(t *testing.T) {

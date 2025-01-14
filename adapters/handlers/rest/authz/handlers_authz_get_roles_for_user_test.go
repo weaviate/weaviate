@@ -172,3 +172,58 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 		})
 	}
 }
+
+func TestSortRolesByName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []*models.Role
+		expected []*models.Role
+	}{
+		{
+			name: "already sorted",
+			input: []*models.Role{
+				{Name: String("admin")},
+				{Name: String("editor")},
+				{Name: String("user")},
+			},
+			expected: []*models.Role{
+				{Name: String("admin")},
+				{Name: String("editor")},
+				{Name: String("user")},
+			},
+		},
+		{
+			name: "unsorted",
+			input: []*models.Role{
+				{Name: String("user")},
+				{Name: String("admin")},
+				{Name: String("editor")},
+			},
+			expected: []*models.Role{
+				{Name: String("admin")},
+				{Name: String("editor")},
+				{Name: String("user")},
+			},
+		},
+		{
+			name: "same name",
+			input: []*models.Role{
+				{Name: String("admin")},
+				{Name: String("admin")},
+				{Name: String("editor")},
+			},
+			expected: []*models.Role{
+				{Name: String("admin")},
+				{Name: String("admin")},
+				{Name: String("editor")},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortByName(tt.input)
+			assert.Equal(t, tt.expected, tt.input)
+		})
+	}
+}
