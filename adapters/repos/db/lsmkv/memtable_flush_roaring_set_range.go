@@ -25,7 +25,7 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
-		Version:          0, // always version 0 for now
+		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 	}
