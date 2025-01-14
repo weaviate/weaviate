@@ -38,7 +38,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 FROM golang:1.23-alpine AS grpc_health_probe_builder
 WORKDIR /app
 RUN apk add git
-RUN git clone https://github.com/grpc-ecosystem/grpc-health-probe.git 
+RUN git clone https://github.com/grpc-ecosystem/grpc-health-probe.git
 WORKDIR /app/grpc-health-probe
 RUN git checkout v0.4.36
 RUN go get -v -u golang.org/x/net@v0.33.0
