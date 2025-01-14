@@ -237,8 +237,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 
 		var vector models.Vector
-		// bytes vector has precedent for being more efficient
-		if len(hs.VectorBytes) > 0 {
+		// vectors has precedent for being more efficient
+		if len(hs.Vectors) > 0 {
+			vector, err = extractVector(hs.Vectors)
+			if err != nil {
+				return dto.GetParams{}, fmt.Errorf("hybrid: %w", err)
+			}
+		} else if len(hs.VectorBytes) > 0 {
 			vector = byteops.Float32FromByteVector(hs.VectorBytes)
 		} else if len(hs.Vector) > 0 {
 			vector = hs.Vector
@@ -1136,9 +1141,15 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 }
 
 func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.NearVector, error) {
-	var vector []float32
-	// bytes vector has precedent for being more efficient
-	if len(nv.VectorBytes) > 0 {
+	var vector models.Vector
+	var err error
+	// vectors has precedent for being more efficient
+	if len(nv.Vectors) > 0 {
+		vector, err = extractVector(nv.Vectors)
+		if err != nil {
+			return nil, fmt.Errorf("near_vector: %w", err)
+		}
+	} else if len(nv.VectorBytes) > 0 {
 		vector = byteops.Float32FromByteVector(nv.VectorBytes)
 	} else if len(nv.Vector) > 0 {
 		vector = nv.Vector
@@ -1171,7 +1182,14 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 				}
 				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
-			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+			if len(nv.VectorForTargets[i].Vectors) > 0 {
+				vectors[i], err = extractVector(nv.VectorForTargets[i].Vectors)
+				if err != nil {
+					return nil, fmt.Errorf("near_vector: vector for targets: extract vectors[%v]: %w", i, err)
+				}
+			} else {
+				vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+			}
 		}
 
 	} else if nv.VectorPerTarget != nil {
@@ -1232,4 +1250,22 @@ OUTER:
 	if len(params.Properties) > 0 {
 		params.AdditionalProperties.NoProps = false
 	}
+}
+
+func extractVector(vectors []*pb.Vectors) (models.Vector, error) {
+	if len(vectors) > 0 {
+		switch vectors[0].Type {
+		case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_FP32.Enum():
+			return byteops.Float32FromByteVector(vectors[0].VectorBytes), nil
+		case *pb.VectorType_VECTOR_TYPE_COLBERT_FP32.Enum():
+			multiVector := make([][]float32, len(vectors))
+			for i := range vectors {
+				multiVector[i] = byteops.Float32FromByteVector(vectors[i].VectorBytes)
+			}
+			return multiVector, nil
+		default:
+			return nil, fmt.Errorf("cannot extract vector: unknown vector type: %T", vectors[0].Type)
+		}
+	}
+	return nil, fmt.Errorf("cannot extract vector: empty vectors")
 }

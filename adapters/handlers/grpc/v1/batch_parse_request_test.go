@@ -318,16 +318,19 @@ func TestGRPCBatchRequest(t *testing.T) {
 					Name:        "colbert",
 					Index:       0,
 					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 				{
 					Name:        "colbert",
 					Index:       1,
 					VectorBytes: byteVector([]float32{0.1, 0.2}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 				{
 					Name:        "colbert",
 					Index:       2,
 					VectorBytes: byteVector([]float32{0.1}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 			}}},
 			out: []*models.Object{{
@@ -335,6 +338,41 @@ func TestGRPCBatchRequest(t *testing.T) {
 				Vectors: map[string]models.Vector{
 					"custom":  []float32{0.1, 0.2, 0.3},
 					"colbert": [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2}, {0.1}},
+				},
+			}},
+		},
+		{
+			name: "named multi vectors with 1 token level embedding",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "custom",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "colbert",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert",
+					Index:       1,
+					VectorBytes: byteVector([]float32{0.1, 0.2}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert1",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"custom":   []float32{0.1, 0.2, 0.3},
+					"colbert":  [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2}},
+					"colbert1": [][]float32{{0.1}},
 				},
 			}},
 		},

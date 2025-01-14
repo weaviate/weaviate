@@ -254,6 +254,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 						metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
 							VectorBytes: byteops.Float32ToByteVector(vec),
 							Name:        name,
+							Type:        pb.VectorType_VECTOR_TYPE_FP32,
 						})
 					case [][]float32:
 						for i := range vec {
@@ -261,6 +262,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 								VectorBytes: byteops.Float32ToByteVector(vec[i]),
 								Name:        name,
 								Index:       uint64(i),
+								Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 							})
 						}
 					default:
@@ -268,7 +270,6 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 					}
 				}
 			}
-
 		}
 	}
 

@@ -254,6 +254,105 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "hybrid nearvector returns all named vectors with fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						Certainty: &one,
+						Distance:  &one,
+						Vectors: []*pb.Vectors{
+							{
+								VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
+								Type:        pb.VectorType_VECTOR_TYPE_FP32,
+							},
+						},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vectors:       []models.Vector{[]float32{1, 2, 3}},
+						Certainty:     1.0,
+						Distance:      1.0,
+						WithDistance:  true,
+						TargetVectors: []string{"custom"},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid nearvector returns all named vectors with colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						Certainty: &one,
+						Distance:  &one,
+						Vectors: []*pb.Vectors{
+							{
+								VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
+								Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+								Index:       0,
+							},
+							{
+								VectorBytes: byteops.Float32ToByteVector([]float32{11, 22, 33}),
+								Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+								Index:       1,
+							},
+							{
+								VectorBytes: byteops.Float32ToByteVector([]float32{111, 222, 333}),
+								Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+								Index:       2,
+							},
+						},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}}},
+						Certainty:     1.0,
+						Distance:      1.0,
+						WithDistance:  true,
+						TargetVectors: []string{"custom"},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "near text wrong uuid format",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -374,6 +473,57 @@ func TestGRPCRequest(t *testing.T) {
 				NearVector: &searchparams.NearVector{
 					TargetVectors: []string{"custom"},
 					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Vectors returns all named fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3})},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					TargetVectors: []string{"custom"},
+					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Vectors returns all named colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+						{VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					TargetVectors: []string{"custom"},
+					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}},
 				},
 			},
 			error: false,
@@ -1405,6 +1555,58 @@ func TestGRPCRequest(t *testing.T) {
 					Group:   true,
 				},
 				NearVector: &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
+			},
+			error: false,
+		},
+		{
+			name: "group by ref prop with fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy: &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3})},
+					},
+				},
+				Properties: &pb.PropertiesRequest{},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}},
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}},
+				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
+			},
+			error: false,
+		},
+		{
+			name: "group by ref prop with colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy: &pb.GroupBy{Path: []string{"ref"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+						{VectorBytes: byteops.Float32ToByteVector([]float32{11, 22, 33}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+						{VectorBytes: byteops.Float32ToByteVector([]float32{111, 222, 333}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+					},
+				},
+				Properties: &pb.PropertiesRequest{},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}},
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					Group:   true,
+				},
+				NearVector: &searchparams.NearVector{Vectors: []models.Vector{[][]float32{{1, 2, 3}, {11, 22, 33}, {111, 222, 333}}}},
 				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "ref", Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, IsObject: false}}},
 			},
 			error: false,

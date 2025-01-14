@@ -125,7 +125,7 @@ message Hybrid {
   string query = 1;
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vector_bytes
+  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vectors
   float alpha = 4;
   enum FusionType {
     FUSION_TYPE_UNSPECIFIED = 0;
@@ -133,7 +133,7 @@ message Hybrid {
     FUSION_TYPE_RELATIVE_SCORE = 2;
   }
   FusionType fusion_type = 5;
-  bytes vector_bytes = 6;
+  bytes vector_bytes = 6 [deprecated = true];  // will be removed in the future, use vectors
   repeated string target_vectors = 7 [deprecated = true];  // deprecated in 1.26 - use targets
   NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
@@ -144,6 +144,7 @@ message Hybrid {
     float vector_distance = 20;
   };
 
+  repeated Vectors vectors = 21;
 }
 
 message NearTextSearch {
@@ -225,19 +226,21 @@ message RefPropertiesRequest {
 
 message VectorForTarget {
   string name = 1;
-  bytes vector_bytes = 2;
+  bytes vector_bytes = 2 [deprecated = true];  // will be removed in the future, use vectors
+  repeated Vectors vectors = 3;
 }
 
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
+  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vectors
   optional double certainty = 2;
   optional double distance = 3;
-  bytes vector_bytes = 4;
+  bytes vector_bytes = 4 [deprecated = true];  // will be removed in the future, use vectors
   repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 6;
   map <string, bytes> vector_per_target = 7 [deprecated = true]; // deprecated in 1.26.2 - use vector_for_targets
   repeated VectorForTarget vector_for_targets = 8;
+  repeated Vectors vectors = 9;
 }
 
 message NearObject {
