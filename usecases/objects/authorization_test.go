@@ -220,8 +220,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*string{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:      authorization.READ,
-			expectedResources: authorization.ShardsMetadata("", ""),
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.ShardsData("", ""),
 		},
 		{
 			methodName: "AddReferences",
