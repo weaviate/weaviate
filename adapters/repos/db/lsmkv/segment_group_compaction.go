@@ -245,7 +245,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, leftSegment.newCursor(),
-			rightSegment.newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+			rightSegment.newCursor(), level, secondaryIndices,
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -258,7 +259,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
 			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -272,7 +273,9 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		c := newCompactorMapCollection(f,
 			leftSegment.newCollectionCursorReusable(),
 			rightSegment.newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
+			level, secondaryIndices, scratchSpacePath,
+			sg.mapRequiresSorting, cleanupTombstones,
+			sg.enableChecksumValidation)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -287,7 +290,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath, cleanupTombstones)
+			level, scratchSpacePath, cleanupTombstones,
+			sg.enableChecksumValidation)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -303,7 +307,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		rightCursor := rightSegment.newRoaringSetRangeCursor()
 
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
-			level, cleanupTombstones)
+			level, cleanupTombstones, sg.enableChecksumValidation)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
@@ -344,7 +348,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger, sg.useBloomFilter,
-		sg.calcCountNetAdditions, sg.disableChecksumValidation)
+		sg.calcCountNetAdditions, sg.enableChecksumValidation)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -443,11 +447,11 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 
 	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
 		segmentConfig{
-			mmapContents:              sg.mmapContents,
-			useBloomFilter:            sg.useBloomFilter,
-			calcCountNetAdditions:     sg.calcCountNetAdditions,
-			overwriteDerived:          false,
-			disableChecksumValidation: sg.disableChecksumValidation,
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         false,
+			enableChecksumValidation: sg.enableChecksumValidation,
 		})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "create new segment")
