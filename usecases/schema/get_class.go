@@ -14,7 +14,6 @@ package schema
 import (
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -93,11 +92,10 @@ func (cg *classGetterLeaderOnly) getClasses(names []string) (map[string]versione
 
 	for _, vclass := range vclasses {
 		if err := cg.parser.ParseClass(vclass.Class); err != nil {
-			spew.Dump(err)
 			// remove invalid classes
 			cg.logger.WithFields(logrus.Fields{
-				"Class": vclass.Class.Class,
-				"Error": err,
+				"class": vclass.Class.Class,
+				"error": err,
 			}).Warn("parsing class error")
 			delete(vclasses, vclass.Class.Class)
 			continue
@@ -113,8 +111,8 @@ func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned
 		vc, err := cg.schemaReader.ReadOnlyVersionedClass(name)
 		if err != nil {
 			cg.logger.WithFields(logrus.Fields{
-				"Class": vc.Class.Class,
-				"Error": err,
+				"class": vc.Class.Class,
+				"error": err,
 			}).Warn("error reading local class")
 			continue
 		}
@@ -123,11 +121,10 @@ func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned
 
 	for _, vclass := range vclasses {
 		if err := cg.parser.ParseClass(vclass.Class); err != nil {
-			spew.Dump(err)
 			// remove invalid classes
 			cg.logger.WithFields(logrus.Fields{
-				"Class": vclass.Class.Class,
-				"Error": err,
+				"class": vclass.Class.Class,
+				"error": err,
 			}).Warn("parsing class error")
 			delete(vclasses, vclass.Class.Class)
 			continue
@@ -189,8 +186,8 @@ func (cg *classGetterLeaderOnMismatch) getClasses(names []string) (map[string]ve
 		if err := cg.parser.ParseClass(vclass.Class); err != nil {
 			// silently remove invalid classes to match previous behavior
 			cg.logger.WithFields(logrus.Fields{
-				"Class": vclass.Class.Class,
-				"Error": err,
+				"class": vclass.Class.Class,
+				"error": err,
 			}).Warn("parsing class error")
 			delete(versionedClassesFromLeader, vclass.Class.Class)
 			continue

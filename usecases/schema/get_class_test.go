@@ -22,7 +22,6 @@ import (
 )
 
 func TestClassGetterFromSchema(t *testing.T) {
-
 	testCases := []struct {
 		name          string
 		getFromSchema []string

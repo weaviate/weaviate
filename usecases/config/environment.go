@@ -38,7 +38,7 @@ const (
 	DefaultRaftBootstrapTimeout        = 600
 	DefaultRaftBootstrapExpect         = 1
 	DefaultRaftDir                     = "raft"
-	SchemaRetrievalStrategyEnvVariable = "SCHEMA_RETRIEVAL_CONFIG"
+	SchemaRetrievalStrategyEnvVariable = "COLLECTION_RETRIEVAL_STRATEGY"
 )
 
 type SchemaRetrievalStrategy int
