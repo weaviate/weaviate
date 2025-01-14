@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -92,6 +93,7 @@ func (cg *classGetterLeaderOnly) getClasses(names []string) (map[string]versione
 
 	for _, vclass := range vclasses {
 		if err := cg.parser.ParseClass(vclass.Class); err != nil {
+			spew.Dump(err)
 			// remove invalid classes
 			cg.logger.WithFields(logrus.Fields{
 				"Class": vclass.Class.Class,
@@ -113,10 +115,23 @@ func (cg *classGetterLocalOnly) getClasses(names []string) (map[string]versioned
 			cg.logger.WithFields(logrus.Fields{
 				"Class": vc.Class.Class,
 				"Error": err,
-			}).Warn("parsing local class error")
+			}).Warn("error reading local class")
 			continue
 		}
 		vclasses[name] = vc
+	}
+
+	for _, vclass := range vclasses {
+		if err := cg.parser.ParseClass(vclass.Class); err != nil {
+			spew.Dump(err)
+			// remove invalid classes
+			cg.logger.WithFields(logrus.Fields{
+				"Class": vclass.Class.Class,
+				"Error": err,
+			}).Warn("parsing class error")
+			delete(vclasses, vclass.Class.Class)
+			continue
+		}
 	}
 
 	// Check if we have all the classes from the local schema
