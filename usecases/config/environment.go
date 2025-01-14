@@ -227,8 +227,8 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMSeparateObjectsCompactions = true
 	}
 
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_DISABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
-		config.Persistence.LSMDisableSegmentsChecksumValidation = true
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_ENABLE_SEGMENTS_CHECKSUM_VALIDATION")) {
+		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {

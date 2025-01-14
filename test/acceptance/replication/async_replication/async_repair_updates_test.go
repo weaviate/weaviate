@@ -107,7 +107,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 				for i, id := range paragraphIDs {
 					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class, id, replica.One)
 					assert.NoError(ct, err)
-					assert.NotNil(t, resp)
+					assert.NotNil(ct, resp)
 
 					if resp == nil {
 						continue

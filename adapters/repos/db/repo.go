@@ -174,32 +174,32 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                             string
-	QueryLimit                           int64
-	QueryMaximumResults                  int64
-	QueryNestedRefLimit                  int64
-	ResourceUsage                        config.ResourceUsage
-	MaxImportGoroutinesFactor            float64
-	MemtablesFlushDirtyAfter             int
-	MemtablesInitialSizeMB               int
-	MemtablesMaxSizeMB                   int
-	MemtablesMinActiveSeconds            int
-	MemtablesMaxActiveSeconds            int
-	SegmentsCleanupIntervalSeconds       int
-	SeparateObjectsCompactions           bool
-	MaxSegmentSize                       int64
-	HNSWMaxLogSize                       int64
-	HNSWWaitForCachePrefill              bool
-	HNSWFlatSearchConcurrency            int
-	VisitedListPoolMaxSize               int
-	TrackVectorDimensions                bool
-	ServerVersion                        string
-	GitHash                              string
-	AvoidMMap                            bool
-	DisableLazyLoadShards                bool
-	ForceFullReplicasSearch              bool
-	LSMDisableSegmentsChecksumValidation bool
-	Replication                          replication.GlobalConfig
+	RootPath                            string
+	QueryLimit                          int64
+	QueryMaximumResults                 int64
+	QueryNestedRefLimit                 int64
+	ResourceUsage                       config.ResourceUsage
+	MaxImportGoroutinesFactor           float64
+	MemtablesFlushDirtyAfter            int
+	MemtablesInitialSizeMB              int
+	MemtablesMaxSizeMB                  int
+	MemtablesMinActiveSeconds           int
+	MemtablesMaxActiveSeconds           int
+	SegmentsCleanupIntervalSeconds      int
+	SeparateObjectsCompactions          bool
+	MaxSegmentSize                      int64
+	HNSWMaxLogSize                      int64
+	HNSWWaitForCachePrefill             bool
+	HNSWFlatSearchConcurrency           int
+	VisitedListPoolMaxSize              int
+	TrackVectorDimensions               bool
+	ServerVersion                       string
+	GitHash                             string
+	AvoidMMap                           bool
+	DisableLazyLoadShards               bool
+	ForceFullReplicasSearch             bool
+	LSMEnableSegmentsChecksumValidation bool
+	Replication                         replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
