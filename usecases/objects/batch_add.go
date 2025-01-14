@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -31,16 +33,21 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
+	knownClasses := map[string]versioned.Class{}
 
 	// whole request fails if permissions for any collection are not present
 	for class, shards := range classesShards {
-		if err := b.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, shards...)...); err != nil {
+		vClass, err := b.schemaManager.GetCachedClass(ctx, principal, class)
+		if err != nil {
 			return nil, err
 		}
+		knownClasses[class] = vClass[class]
 
 		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(class, shards...)...); err != nil {
 			return nil, err
@@ -51,18 +58,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
-	return b.addObjects(ctx, principal, objects, fields, repl)
+	return b.addObjects(ctx, principal, objects, fields, repl, knownClasses)
 }
 
 // AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
-	return b.addObjects(ctx, principal, objects, fields, repl)
+	return b.addObjects(ctx, principal, objects, fields, repl, fetchedClasses)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
@@ -83,7 +90,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	var maxSchemaVersion uint64
-	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
+	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
@@ -113,14 +120,13 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 }
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, repl *additional.ReplicationProperties,
+	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, uint64) {
 	var (
 		now          = time.Now().UnixNano() / int64(time.Millisecond)
 		batchObjects = make(BatchObjects, len(objects))
 
 		objectsPerClass       = make(map[string][]*models.Object)
-		classPerClassName     = make(map[string]*models.Class)
 		originalIndexPerClass = make(map[string][]int)
 		validator             = validation.New(b.vectorRepo.Exists, b.config, repl)
 	)
@@ -135,7 +141,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj)
+		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, fetchedClasses, obj)
 		if err != nil {
 			batchObjects[i].Err = err
 		}
@@ -164,21 +170,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, obj.Class)
-		if err != nil {
-			batchObjects[i].Err = err
-			continue
-		}
-		if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
-			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
-			continue
-		}
-		class := vclasses[obj.Class].Class
-		// Set most up-to-date class's schema (in case new properties were added by autoschema)
-		// If it was not changed, same class will be fetched from cache
-		classPerClassName[obj.Class] = class
-
-		if err := validator.Object(ctx, class, obj, nil); err != nil {
+		if err := validator.Object(ctx, fetchedClasses[obj.Class].Class, obj, nil); err != nil {
 			batchObjects[i].Err = err
 			continue
 		}
@@ -192,8 +184,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	}
 
 	for className, objectsForClass := range objectsPerClass {
-		class := classPerClassName[className]
-		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class, objectsForClass, b.findObject, b.logger)
+		class := fetchedClasses[className]
+		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class.Class, objectsForClass, b.findObject, b.logger)
 		if err != nil {
 			for i := range objectsForClass {
 				origIndex := originalIndexPerClass[className][i]
