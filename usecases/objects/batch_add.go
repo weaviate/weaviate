@@ -149,6 +149,12 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			maxSchemaVersion = schemaVersion
 		}
 
+		if len(fetchedClasses) == 0 || fetchedClasses[obj.Class].Class == nil {
+			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
+			continue
+		}
+		class := fetchedClasses[obj.Class].Class
+
 		if obj.ID == "" {
 			// Generate UUID for the new object
 			uid, err := generateUUID()
@@ -170,7 +176,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		if err := validator.Object(ctx, fetchedClasses[obj.Class].Class, obj, nil); err != nil {
+		if err := validator.Object(ctx, class, obj, nil); err != nil {
 			batchObjects[i].Err = err
 			continue
 		}

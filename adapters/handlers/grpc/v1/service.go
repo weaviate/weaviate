@@ -157,11 +157,18 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	// we need to save the class two times:
+	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
+	//   a combination of class+shard
+	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
+	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
-		class, ok := knownClasses[classname]
+		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
+		classTenantName := classname + "#" + shard
+		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
-			return class.Class, nil
+			return class, nil
 		}
 
 		// batch is upsert
@@ -177,6 +184,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 			return nil, err
 		}
 		knownClasses[classname] = vClass[classname]
+		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
 		return vClass[classname].Class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
