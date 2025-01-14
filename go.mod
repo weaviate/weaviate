@@ -20,7 +20,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/memberlist v0.5.2
 	github.com/jessevdk/go-flags v1.4.0
-	github.com/minio/minio-go/v7 v7.0.82
+	github.com/minio/minio-go/v7 v7.0.83
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
@@ -133,7 +133,7 @@ require (
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
-	github.com/goccy/go-json v0.10.3 // indirect
+	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -156,7 +156,7 @@ require (
 	github.com/karrick/godirwalk v1.15.3 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lanrat/extsort v1.0.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
