@@ -278,7 +278,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initHashTree(ctx context.Context) error {
+func (s *Shard) initHashTree() error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
@@ -295,8 +295,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
-
-	partitioningEnabled := s.index.partitioningEnabled
 
 	// load the most recent hashtree file
 	dirEntries, err := os.ReadDir(s.pathHashTree())
@@ -334,13 +332,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		// attempt to load hashtree from file
-		var ht hashtree.AggregatedHashTree
-
-		if partitioningEnabled {
-			ht, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
-		} else {
-			ht, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
-		}
+		ht, err := hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		if err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -374,21 +366,10 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
-	var ht hashtree.AggregatedHashTree
-
-	// TODO (jeroiraz): for simplificy sake a compact hashtree is always used
-	// the multi-segment hashtree is an optimized implementation but it still requires
-	// further evaluation
-	/*if partitioningEnabled {
-		ht, err = s.buildCompactHashTree()
-	} else {
-		ht, err = s.buildMultiSegmentHashTree(ctx)
-	}*/
-	ht, err = s.buildCompactHashTree()
+	ht, err := s.buildCompactHashTree()
 	if err != nil {
 		return err
 	}
-
 	s.hashtree = ht
 
 	// sync hashtree with current object states
@@ -398,10 +379,12 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 		objCount := 0
 
-		err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
+		// data inserted before v1.26 does not contain the required secondary index
+		// to support async replication thus such data is not inserted into the hashtree
+		err := bucket.IterateObjectsWith(s.hashBeaterCtx, 2, func(object *storobj.Object) error {
 			if time.Since(prevContextEvaluation) > time.Second {
-				if ctx.Err() != nil {
-					return ctx.Err()
+				if s.hashBeaterCtx.Err() != nil {
+					return s.hashBeaterCtx.Err()
 				}
 
 				prevContextEvaluation = time.Now()
@@ -451,17 +434,38 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) mayCloseAndStoreHashTree() {
+	s.hashtreeRWMux.Lock()
+	if s.hashtreeInitialized.Load() {
+		// the hashtree needs to be fully in sync with stored data before it can be persisted
+		s.closeAndStoreHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+}
+
+func (s *Shard) mayCleanupHashTree() {
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.cleanupHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+}
+
+func (s *Shard) cleanupHashTree() {
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+}
+
 func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
 	s.hashtreeRWMux.Lock()
 	defer s.hashtreeRWMux.Unlock()
 
 	if enabled {
 		if s.hashtree == nil {
-			err := s.initHashTree(ctx)
+			err := s.initHashTree()
 			if err != nil {
 				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
 			}
-
 			return nil
 		}
 
@@ -478,6 +482,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
+	s.cleanupHashTree()
 
 	return nil
 }
@@ -486,73 +491,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
-/*
-func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
-	// when a class was just created, the shard state may not be already updated
-	// specially when an incoming request is trigering the shard creation or loading
-	// ideally the shard state obtained should already include the current shard
-	// the shard state is obtained by calling CopyShardingState, currently it's not
-	// waiting for it to be fully up to date thus the need of this approach
-	for {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		shardState := s.index.shardState()
-
-		_, ok := shardState.Physical[s.name]
-		if ok {
-			return shardState, nil
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.AggregatedHashTree, error) {
-	shardState, err := s.shardState(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
-	copy(virtualNodes, shardState.Virtual)
-
-	sort.SliceStable(virtualNodes, func(a, b int) bool {
-		return virtualNodes[a].Upper < virtualNodes[b].Upper
-	})
-
-	virtualNodesPos := make(map[string]int, len(virtualNodes))
-	for i, v := range virtualNodes {
-		virtualNodesPos[v.Name] = i
-	}
-
-	physical := shardState.Physical[s.name]
-
-	segments := make([]hashtree.Segment, len(physical.OwnsVirtual))
-
-	for i, v := range physical.OwnsVirtual {
-		var segmentStart uint64
-		var segmentSize uint64
-
-		vi := virtualNodesPos[v]
-
-		if vi == 0 {
-			segmentStart = virtualNodes[len(virtualNodes)-1].Upper
-			segmentSize = virtualNodes[0].Upper + (math.MaxUint64 - segmentStart)
-		} else {
-			segmentStart = virtualNodes[vi-1].Upper
-			segmentSize = virtualNodes[vi].Upper - segmentStart
-		}
-
-		segments[i] = hashtree.NewSegment(segmentStart, segmentSize)
-	}
-
-	return hashtree.NewMultiSegmentHashTree(segments, 16)
-}
-*/
-
-func (s *Shard) closeHashTree() error {
+func (s *Shard) closeAndStoreHashTree() error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
