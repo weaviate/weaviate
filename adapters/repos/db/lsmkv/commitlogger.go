@@ -19,8 +19,8 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
 type commitLogger struct {
@@ -29,7 +29,7 @@ type commitLogger struct {
 	n      atomic.Int64
 	path   string
 
-	checksumWriter rwhasher.WriterHasher
+	checksumWriter integrity.ChecksumWriter
 
 	bufNode *bytes.Buffer
 
@@ -52,7 +52,7 @@ type commitLogger struct {
 // | checksum (crc32 4bytes non-checksum fields so far) |
 // ------------------------------------------------------
 
-const CurrentVersion uint8 = 1
+const CurrentCommitLogVersion uint8 = 1
 
 type CommitType uint8
 
@@ -100,7 +100,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	out.file = f
 
 	out.writer = bufio.NewWriter(f)
-	out.checksumWriter = rwhasher.NewCRC32Writer(out.writer)
+	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)
 
@@ -115,7 +115,7 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 		return err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentCommitLogVersion)
 	if err != nil {
 		return err
 	}

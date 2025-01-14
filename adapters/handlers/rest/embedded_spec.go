@@ -5470,7 +5470,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -5478,11 +5477,14 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -5502,11 +5504,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -5559,6 +5556,22 @@ func init() {
           "properties": {
             "role": {
               "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12196,7 +12209,6 @@ func init() {
           "enum": [
             "manage_backups",
             "read_cluster",
-            "manage_data",
             "create_data",
             "read_data",
             "update_data",
@@ -12204,11 +12216,14 @@ func init() {
             "read_nodes",
             "manage_roles",
             "read_roles",
-            "manage_collections",
             "create_collections",
             "read_collections",
             "update_collections",
-            "delete_collections"
+            "delete_collections",
+            "create_tenants",
+            "read_tenants",
+            "update_tenants",
+            "delete_tenants"
           ]
         },
         "backups": {
@@ -12228,11 +12243,6 @@ func init() {
           "properties": {
             "collection": {
               "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-              "type": "string",
-              "default": "*"
-            },
-            "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
             }
@@ -12289,6 +12299,22 @@ func init() {
               "default": "*"
             }
           }
+        },
+        "tenants": {
+          "description": "resources applicable for tenant actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "tenant": {
+              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         }
       }
     },
@@ -12309,11 +12335,6 @@ func init() {
       "properties": {
         "collection": {
           "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
-          "type": "string",
-          "default": "*"
-        },
-        "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }
@@ -12366,6 +12387,22 @@ func init() {
       "properties": {
         "role": {
           "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
+    "PermissionTenants": {
+      "description": "resources applicable for tenant actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "tenant": {
+          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
         }

@@ -217,7 +217,10 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		return errors.NewUnauthenticated()
 	}
 
-	// TODO-RBAC: batch enforce
+	// BatchEnforcers is not needed after some digging they just loop over requests,
+	// w.r.t.
+	// source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
+	// issue https://github.com/casbin/casbin/issues/710
 	for _, resource := range resources {
 		allow, err := m.casbin.Enforce(conv.PrefixUserName(principal.Username), resource, verb)
 		if err != nil {
@@ -299,8 +302,12 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
 			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
 		}
-		if perm.Collections.Tenant != nil && *perm.Collections.Tenant != "" {
-			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Collections.Tenant)
+	}
+
+	if perm.Tenants != nil {
+		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
+			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Tenants.Collection)
+			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Tenants.Tenant)
 		}
 	}
 
