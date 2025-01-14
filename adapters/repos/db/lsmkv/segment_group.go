@@ -64,12 +64,12 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents              bool
-	keepTombstones            bool // see bucket for more details
-	useBloomFilter            bool // see bucket for more details
-	calcCountNetAdditions     bool // see bucket for more details
-	compactLeftOverSegments   bool // see bucket for more details
-	disableChecksumValidation bool
+	mmapContents             bool
+	keepTombstones           bool // see bucket for more details
+	useBloomFilter           bool // see bucket for more details
+	calcCountNetAdditions    bool // see bucket for more details
+	compactLeftOverSegments  bool // see bucket for more details
+	enableChecksumValidation bool
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -81,18 +81,18 @@ type SegmentGroup struct {
 }
 
 type sgConfig struct {
-	dir                       string
-	strategy                  string
-	mapRequiresSorting        bool
-	monitorCount              bool
-	mmapContents              bool
-	keepTombstones            bool
-	useBloomFilter            bool
-	calcCountNetAdditions     bool
-	forceCompaction           bool
-	maxSegmentSize            int64
-	cleanupInterval           time.Duration
-	disableChecksumValidation bool
+	dir                      string
+	strategy                 string
+	mapRequiresSorting       bool
+	monitorCount             bool
+	mmapContents             bool
+	keepTombstones           bool
+	useBloomFilter           bool
+	calcCountNetAdditions    bool
+	forceCompaction          bool
+	maxSegmentSize           int64
+	cleanupInterval          time.Duration
+	enableChecksumValidation bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -106,24 +106,24 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                  make([]*segment, len(list)),
-		dir:                       cfg.dir,
-		logger:                    logger,
-		metrics:                   metrics,
-		monitorCount:              cfg.monitorCount,
-		mapRequiresSorting:        cfg.mapRequiresSorting,
-		strategy:                  cfg.strategy,
-		mmapContents:              cfg.mmapContents,
-		keepTombstones:            cfg.keepTombstones,
-		useBloomFilter:            cfg.useBloomFilter,
-		calcCountNetAdditions:     cfg.calcCountNetAdditions,
-		compactLeftOverSegments:   cfg.forceCompaction,
-		maxSegmentSize:            cfg.maxSegmentSize,
-		cleanupInterval:           cfg.cleanupInterval,
-		disableChecksumValidation: cfg.disableChecksumValidation,
-		allocChecker:              allocChecker,
-		lastCompactionCall:        now,
-		lastCleanupCall:           now,
+		segments:                 make([]*segment, len(list)),
+		dir:                      cfg.dir,
+		logger:                   logger,
+		metrics:                  metrics,
+		monitorCount:             cfg.monitorCount,
+		mapRequiresSorting:       cfg.mapRequiresSorting,
+		strategy:                 cfg.strategy,
+		mmapContents:             cfg.mmapContents,
+		keepTombstones:           cfg.keepTombstones,
+		useBloomFilter:           cfg.useBloomFilter,
+		calcCountNetAdditions:    cfg.calcCountNetAdditions,
+		compactLeftOverSegments:  cfg.forceCompaction,
+		maxSegmentSize:           cfg.maxSegmentSize,
+		cleanupInterval:          cfg.cleanupInterval,
+		enableChecksumValidation: cfg.enableChecksumValidation,
+		allocChecker:             allocChecker,
+		lastCompactionCall:       now,
+		lastCleanupCall:          now,
 	}
 
 	segmentIndex := 0
@@ -197,11 +197,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
 				segmentConfig{
-					mmapContents:              sg.mmapContents,
-					useBloomFilter:            sg.useBloomFilter,
-					calcCountNetAdditions:     sg.calcCountNetAdditions,
-					overwriteDerived:          false,
-					disableChecksumValidation: sg.disableChecksumValidation,
+					mmapContents:             sg.mmapContents,
+					useBloomFilter:           sg.useBloomFilter,
+					calcCountNetAdditions:    sg.calcCountNetAdditions,
+					overwriteDerived:         false,
+					enableChecksumValidation: sg.enableChecksumValidation,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -245,11 +245,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		segment, err := newSegment(rightSegmentPath, logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			segmentConfig{
-				mmapContents:              sg.mmapContents,
-				useBloomFilter:            sg.useBloomFilter,
-				calcCountNetAdditions:     sg.calcCountNetAdditions,
-				overwriteDerived:          true,
-				disableChecksumValidation: sg.disableChecksumValidation,
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           sg.useBloomFilter,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         true,
+				enableChecksumValidation: sg.enableChecksumValidation,
 			},
 		)
 		if err != nil {
@@ -316,11 +316,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			segmentConfig{
-				mmapContents:              sg.mmapContents,
-				useBloomFilter:            sg.useBloomFilter,
-				calcCountNetAdditions:     sg.calcCountNetAdditions,
-				overwriteDerived:          false,
-				disableChecksumValidation: sg.disableChecksumValidation,
+				mmapContents:             sg.mmapContents,
+				useBloomFilter:           sg.useBloomFilter,
+				calcCountNetAdditions:    sg.calcCountNetAdditions,
+				overwriteDerived:         false,
+				enableChecksumValidation: sg.enableChecksumValidation,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
@@ -375,11 +375,11 @@ func (sg *SegmentGroup) add(path string) error {
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
 		segmentConfig{
-			mmapContents:              sg.mmapContents,
-			useBloomFilter:            sg.useBloomFilter,
-			calcCountNetAdditions:     sg.calcCountNetAdditions,
-			overwriteDerived:          true,
-			disableChecksumValidation: sg.disableChecksumValidation,
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         true,
+			enableChecksumValidation: sg.enableChecksumValidation,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)

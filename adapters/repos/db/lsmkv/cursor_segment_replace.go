@@ -94,12 +94,29 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 	return out, sg.maintenanceLock.RUnlock
 }
 
+func (sg *SegmentGroup) newCursorsWith(desiredSecondaryIndexCount int) ([]innerCursorReplace, func()) {
+	sg.maintenanceLock.RLock()
+	out := make([]innerCursorReplace, 0, len(sg.segments))
+
+	for _, segment := range sg.segments {
+		if int(segment.secondaryIndexCount) != desiredSecondaryIndexCount {
+			continue
+		}
+		out = append(out, segment.newCursor())
+	}
+
+	return out, sg.maintenanceLock.RUnlock
+}
+
 func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
 	sg.maintenanceLock.RLock()
-	out := make([]innerCursorReplace, len(sg.segments))
+	out := make([]innerCursorReplace, 0, len(sg.segments))
 
-	for i, segment := range sg.segments {
-		out[i] = segment.newCursorWithSecondaryIndex(pos)
+	for _, segment := range sg.segments {
+		if int(segment.secondaryIndexCount) <= pos {
+			continue
+		}
+		out = append(out, segment.newCursorWithSecondaryIndex(pos))
 	}
 
 	return out, sg.maintenanceLock.RUnlock
