@@ -98,7 +98,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// Object bucket must be available, initHashTree depends on it
 	if s.index.asyncReplicationEnabled() {
-		err = s.initHashTree(ctx)
+		err = s.initHashTree()
 		if err != nil {
 			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
 		}
@@ -143,7 +143,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsChecksumValidationDisabled(s.index.Config.LSMDisableSegmentsChecksumValidation),
+		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	}
 
