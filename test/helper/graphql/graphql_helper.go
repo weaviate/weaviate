@@ -72,7 +72,6 @@ func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, e
 	t.Helper()
 	if err != nil {
 		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
-		t.Log(parsedErr)
 		if !ok {
 			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
 		}
