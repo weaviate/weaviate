@@ -64,7 +64,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb string, resourc
 		}
 	}
 
-	return errors.NewForbidden(principal, verb, resources...)
+	return errors.NewForbidden(principal, verb, "adminlist", resources...)
 }
 
 func (a *Authorizer) addAdminUserList(users []string) {

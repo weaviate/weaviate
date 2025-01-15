@@ -249,7 +249,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		}).Info()
 
 		if !allow {
-			return errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm))
+			return errors.NewForbidden(principal, prettyPermissionsActions(perm), "rbac", prettyPermissionsResources(perm))
 		}
 	}
 
@@ -270,44 +270,44 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	}
 
 	if perm.Backups != nil && perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
-		res += fmt.Sprintf("Backups.Collection: %s,", *perm.Backups.Collection)
+		res += fmt.Sprintf(" Collection: %s,", *perm.Backups.Collection)
 	}
 
 	if perm.Data != nil {
 		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
-			res += fmt.Sprintf(" Data.Collection: %s,", *perm.Data.Collection)
+			res += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
-			res += fmt.Sprintf(" Data.Tenant: %s,", *perm.Data.Tenant)
+			res += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
 		}
 		if perm.Data.Object != nil && *perm.Data.Object != "" {
-			res += fmt.Sprintf(" Data.Object: %s,", *perm.Data.Object)
+			res += fmt.Sprintf(" Object: %s,", *perm.Data.Object)
 		}
 	}
 
 	if perm.Nodes != nil {
 		if perm.Nodes.Verbosity != nil && *perm.Nodes.Verbosity != "" {
-			res += fmt.Sprintf(" Nodes.Verbosity: %s,", *perm.Nodes.Verbosity)
+			res += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
 		}
 		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
-			res += fmt.Sprintf(" Nodes.Collection: %s,", *perm.Nodes.Collection)
+			res += fmt.Sprintf(" Collection: %s,", *perm.Nodes.Collection)
 		}
 	}
 
 	if perm.Roles != nil && perm.Roles.Role != nil && *perm.Roles.Role != "" {
-		res += fmt.Sprintf(" Roles.Role: %s,", *perm.Roles.Role)
+		res += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
 	}
 
 	if perm.Collections != nil {
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
-			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Collections.Collection)
+			res += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
 		}
 	}
 
 	if perm.Tenants != nil {
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
-			res += fmt.Sprintf(" Schema.Collection: %s,", *perm.Tenants.Collection)
-			res += fmt.Sprintf(" Schema.Tenant: %s,", *perm.Tenants.Tenant)
+			res += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
+			res += fmt.Sprintf(" Tenant: %s,", *perm.Tenants.Tenant)
 		}
 	}
 
