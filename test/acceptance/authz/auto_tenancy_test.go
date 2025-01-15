@@ -267,7 +267,7 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 	t.Run("add permission allowing to create tenants of collection", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{
-				helper.NewTenantsPermission().WithAction(authorization.CreateCollections).WithCollection(cls.Class).WithTenant(obj.Tenant).Permission(),
+				helper.NewTenantsPermission().WithAction(authorization.CreateTenants).WithCollection(cls.Class).WithTenant(obj.Tenant).Permission(),
 			},
 		}), adminAuth)
 		require.Nil(t, err)
