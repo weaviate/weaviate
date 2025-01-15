@@ -54,7 +54,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	}()
 
 	deactivateTenant := func(t *testing.T) {
-		helper.UpdateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
+		helper.UpdateTenantsWithAuthz(t, cls.Class, []*models.Tenant{{Name: obj.Tenant, ActivityStatus: models.TenantActivityStatusCOLD}}, adminAuth)
 	}
 
 	t.Run("setup", func(*testing.T) {
@@ -64,7 +64,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 			AutoTenantCreation:   false,
 		}
 		helper.CreateClassAuth(t, cls, existingKey)
-		helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: tenant, ActivityStatus: models.TenantActivityStatusHOT}}, existingKey)
+		helper.CreateTenantsAuth(t, cls.Class, []*models.Tenant{{Name: obj.Tenant, ActivityStatus: models.TenantActivityStatusHOT}}, existingKey)
 		helper.CreateObjectAuth(t, obj2, existingKey)
 		deactivateTenant(t)
 	})
@@ -125,14 +125,14 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	})
 
 	t.Run("fail with gql when trying to search (Get) an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
-		res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, tenant), customKey)
+		res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, obj.Tenant), customKey)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.GetPayload().Errors))
 		require.Contains(t, res.GetPayload().Errors[0].Message, "forbidden")
 	})
 
 	t.Run("fail with gql when trying to search (Aggregate) an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
-		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, tenant), customKey)
+		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, obj.Tenant), customKey)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.GetPayload().Errors))
 		require.Contains(t, res.GetPayload().Errors[0].Message, "forbidden")
@@ -151,7 +151,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("add permission allowing to update schema of collection", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{
-				helper.NewTenantsPermission().WithAction(authorization.UpdateTenants).WithCollection(cls.Class).WithTenant(tenant).Permission(),
+				helper.NewTenantsPermission().WithAction(authorization.UpdateTenants).WithCollection(cls.Class).WithTenant(obj.Tenant).Permission(),
 			},
 		}), adminAuth)
 		require.Nil(t, err)
@@ -178,7 +178,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	t.Run("successfully search (Get) with gql in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
-		res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, tenant), customKey)
+		res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, obj.Tenant), customKey)
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotEmpty(t, res.GetPayload().Data)
@@ -187,7 +187,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	t.Run("successfully search (Aggregate) with gql in tenant after adding permission for autoTenantActivation", func(t *testing.T) {
 		defer deactivateTenant(t)
-		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, tenant), customKey)
+		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, obj.Tenant), customKey)
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotEmpty(t, res.GetPayload().Data)
@@ -264,10 +264,10 @@ func TestAuthzAutoTenantCreation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("add permission allowing to create schema of collection", func(t *testing.T) {
+	t.Run("add permission allowing to create tenants of collection", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{
-				helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection(cls.Class).Permission(),
+				helper.NewTenantsPermission().WithAction(authorization.CreateCollections).WithCollection(cls.Class).WithTenant(obj.Tenant).Permission(),
 			},
 		}), adminAuth)
 		require.Nil(t, err)
