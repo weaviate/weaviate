@@ -26,9 +26,9 @@ import (
 
 type authCall struct {
 	Function string
-	Verb     string
-	Resource string
-	FilePath string
+	// Map verbs to their resources
+	VerbResourceMap map[string][]string // key: verb, value: slice of resources
+	FilePath        string
 }
 
 const mainDirPath = "../../../../"
@@ -105,21 +105,32 @@ func main() {
 						}
 
 						if len(call.Args) >= 3 {
-							// Extract verb and resource from the arguments
 							verb := formatArg(call.Args[1])
 							resource := formatArg(call.Args[2])
 
-							// Clean up the verb and resource
 							verb = strings.TrimPrefix(verb, "&")
 							verb = strings.TrimPrefix(verb, "authorization.")
 							resource = strings.TrimPrefix(resource, "authorization.")
 
-							calls = append(calls, authCall{
-								Function: funcName,
-								Verb:     verb,
-								Resource: resource,
-								FilePath: path,
-							})
+							// Check if we already have an entry for this function+file
+							if idx, found := findOrCreateCall(calls, funcName, path); found {
+								// Initialize map if needed
+								if calls[idx].VerbResourceMap == nil {
+									calls[idx].VerbResourceMap = make(map[string][]string)
+								}
+								// Add resource to verb's resource list if not already present
+								if !contains(calls[idx].VerbResourceMap[verb], resource) {
+									calls[idx].VerbResourceMap[verb] = append(calls[idx].VerbResourceMap[verb], resource)
+								}
+							} else {
+								verbMap := make(map[string][]string)
+								verbMap[verb] = []string{resource}
+								calls = append(calls, authCall{
+									Function:        funcName,
+									VerbResourceMap: verbMap,
+									FilePath:        path,
+								})
+							}
 						}
 					}
 				}
@@ -139,7 +150,13 @@ func main() {
 	fmt.Fprintf(os.Stderr, "Total files found: %d\n", totalFiles)
 	fmt.Fprintf(os.Stderr, "Files skipped: %d\n", skippedFiles)
 	fmt.Fprintf(os.Stderr, "Files processed: %d\n", processedFiles)
-	fmt.Fprintf(os.Stderr, "Auth calls found: %d\n", len(calls))
+
+	// Count total auth calls by summing the length of VerbResourceMap for each function
+	totalCalls := 0
+	for _, call := range calls {
+		totalCalls += len(call.VerbResourceMap)
+	}
+	fmt.Fprintf(os.Stderr, "Total Authorize calls found: %d\n", totalCalls)
 
 	// Create and write to the markdown file
 	f, err := os.Create("auth_calls.md")
@@ -165,18 +182,21 @@ func main() {
 	fmt.Fprintln(f, "## Statistics")
 	fmt.Fprintf(f, "- Total files found: %d\n", totalFiles)
 	fmt.Fprintf(f, "- Files processed: %d\n", processedFiles)
-	fmt.Fprintf(f, "- Auth calls found: %d\n\n", len(calls))
+	fmt.Fprintf(f, "- Total Authorize calls found: %d\n\n", totalCalls)
 
-	fmt.Fprintln(f, "| Function | File | Verb | Resource |")
-	fmt.Fprintln(f, "|----------|------|------|-----------|")
+	fmt.Fprintln(f, "| Function | File | Verb → Resources |")
+	fmt.Fprintln(f, "|----------|------|-----------------|")
 
 	// Write each call in table format
 	for _, call := range calls {
-		fmt.Fprintf(f, "| %s | %s | %s | %s |\n",
+		var mappings []string
+		for verb, resources := range call.VerbResourceMap {
+			mappings = append(mappings, fmt.Sprintf("%s → %s", verb, strings.Join(resources, ", ")))
+		}
+		fmt.Fprintf(f, "| %s | %s | %s |\n",
 			call.Function,
 			strings.TrimPrefix(call.FilePath, mainDirPath),
-			call.Verb,
-			call.Resource,
+			strings.Join(mappings, "<br>"),
 		)
 	}
 
@@ -217,4 +237,22 @@ func formatArg(expr ast.Expr) string {
 		}
 	}
 	return fmt.Sprintf("%v", expr)
+}
+
+func findOrCreateCall(calls []authCall, function, filePath string) (int, bool) {
+	for i, call := range calls {
+		if call.Function == function && call.FilePath == filePath {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
