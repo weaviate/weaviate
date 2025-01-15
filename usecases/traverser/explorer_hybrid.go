@@ -280,6 +280,16 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 						i := i
 						targetVector := targetVector
 						eg2.Go(func() error {
+							isMultiVector, err := e.modulesProvider.IsTargetVectorMultiVector(params.ClassName, targetVector)
+							if err != nil {
+								return fmt.Errorf("hybrid: is target vector multi vector: %w", err)
+							}
+							if isMultiVector {
+								searchVectors.TargetVectors[i] = targetVector
+								searchVector, err := e.modulesProvider.MultiVectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+								searchVectors.Vectors[i] = searchVector
+								return err
+							}
 							searchVectors.TargetVectors[i] = targetVector
 							searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 							searchVectors.Vectors[i] = searchVector

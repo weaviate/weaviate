@@ -65,7 +65,8 @@ type Compactor struct {
 	// Tells if deletions or keys without corresponding values
 	// can be removed from merged segment.
 	// (left segment is root (1st) one, keepTombstones is off for bucket)
-	cleanupDeletions bool
+	cleanupDeletions         bool
+	enableChecksumValidation bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -75,15 +76,16 @@ type Compactor struct {
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
-	level uint16, cleanupDeletions bool,
+	level uint16, cleanupDeletions bool, enableChecksumValidation bool,
 ) *Compactor {
 	return &Compactor{
-		left:             left,
-		right:            right,
-		w:                w,
-		bufw:             bufio.NewWriterSize(w, 256*1024),
-		currentLevel:     level,
-		cleanupDeletions: cleanupDeletions,
+		left:                     left,
+		right:                    right,
+		w:                        w,
+		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		currentLevel:             level,
+		cleanupDeletions:         cleanupDeletions,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -95,6 +97,7 @@ func (c *Compactor) Do() error {
 
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
 	written, err := c.writeNodes(segmentFile)
@@ -110,6 +113,10 @@ func (c *Compactor) Do() error {
 	dataEnd := segmentindex.HeaderSize + uint64(written)
 	if err := c.writeHeader(segmentFile, dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
+	}
+
+	if _, err := segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorRoaringSetRange segment checksum: %w", err)
 	}
 
 	return nil
@@ -155,7 +162,7 @@ func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 
 	h := &segmentindex.Header{
 		Level:            c.currentLevel,
-		Version:          0,
+		Version:          segmentindex.ChooseHeaderVersion(c.enableChecksumValidation),
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSetRange,
 		IndexStart:       startOfIndex,

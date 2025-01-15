@@ -47,30 +47,34 @@ type Memtable struct {
 	metrics   *memtableMetrics
 
 	tombstones *sroar.Bitmap
+
+	enableChecksumValidation bool
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	enableChecksumValidation bool,
 ) (*Memtable, error) {
 	flushStrategy := strategy
 	if strategy == StrategyInverted {
 		strategy = StrategyMapCollection
 	}
 	m := &Memtable{
-		key:              &binarySearchTree{},
-		keyMulti:         &binarySearchTreeMulti{},
-		keyMap:           &binarySearchTreeMap{},
-		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
-		roaringSet:       &roaringset.BinarySearchTree{},
-		roaringSetRange:  roaringsetrange.NewMemtable(logger),
-		commitlog:        cl,
-		path:             path,
-		strategy:         strategy,
-		flushStrategy:    flushStrategy,
-		secondaryIndices: secondaryIndices,
-		dirtyAt:          time.Time{},
-		createdAt:        time.Now(),
-		metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		key:                      &binarySearchTree{},
+		keyMulti:                 &binarySearchTreeMulti{},
+		keyMap:                   &binarySearchTreeMap{},
+		primaryIndex:             &binarySearchTree{}, // todo, sort upfront
+		roaringSet:               &roaringset.BinarySearchTree{},
+		roaringSetRange:          roaringsetrange.NewMemtable(logger),
+		commitlog:                cl,
+		path:                     path,
+		strategy:                 strategy,
+		flushStrategy:            flushStrategy,
+		secondaryIndices:         secondaryIndices,
+		dirtyAt:                  time.Time{},
+		createdAt:                time.Now(),
+		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		enableChecksumValidation: enableChecksumValidation,
 	}
 
 	if m.secondaryIndices > 0 {

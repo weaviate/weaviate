@@ -18,9 +18,9 @@ require (
 	github.com/go-openapi/validate v0.24.0
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/memberlist v0.5.1
+	github.com/hashicorp/memberlist v0.5.2
 	github.com/jessevdk/go-flags v1.4.0
-	github.com/minio/minio-go/v7 v7.0.82
+	github.com/minio/minio-go/v7 v7.0.83
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
@@ -28,29 +28,29 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.10.0
-	github.com/testcontainers/testcontainers-go v0.34.0
+	github.com/testcontainers/testcontainers-go v0.35.0
 	github.com/weaviate/contextionary v1.2.1
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.11
 	go.opentelemetry.io/otel v1.32.0 // indirect
-	golang.org/x/net v0.33.0
+	golang.org/x/net v0.34.0
 	golang.org/x/oauth2 v0.25.0
 	golang.org/x/sync v0.10.0
 	golang.org/x/sys v0.29.0
 	gonum.org/v1/gonum v0.12.0
-	google.golang.org/api v0.215.0
+	google.golang.org/api v0.216.0
 	google.golang.org/grpc v1.69.2
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.5.0
 	github.com/KimMachineGun/automemlimit v0.7.0
 	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go-v2 v1.32.8
-	github.com/aws/aws-sdk-go-v2/config v1.28.7
-	github.com/aws/aws-sdk-go-v2/credentials v1.17.50
+	github.com/aws/aws-sdk-go-v2/config v1.28.10
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.51
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.1
 	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
@@ -107,7 +107,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.8 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.33.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.33.6 // indirect
 	github.com/aws/smithy-go v1.22.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
@@ -133,7 +133,7 @@ require (
 	github.com/go-openapi/analysis v0.23.0 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
-	github.com/goccy/go-json v0.10.3 // indirect
+	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -156,7 +156,7 @@ require (
 	github.com/karrick/godirwalk v1.15.3 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lanrat/extsort v1.0.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
@@ -207,10 +207,10 @@ require (
 	go.opentelemetry.io/otel/metric v1.32.0 // indirect
 	go.opentelemetry.io/otel/trace v1.32.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.32.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241209162323-e6fa225c2576 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20241223144023-3abc09e42ca8 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250102185135-69823020774d // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
