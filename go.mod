@@ -54,7 +54,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.1
 	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/coreos/go-oidc/v3 v3.11.0
+	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/felixge/httpsnoop v1.0.4
 	github.com/getsentry/sentry-go v0.30.0
