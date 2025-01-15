@@ -77,12 +77,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
-
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid object")
 	}
@@ -103,6 +98,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
 	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
