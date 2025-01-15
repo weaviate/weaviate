@@ -46,7 +46,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections(class)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return nil, err
 	}
 
