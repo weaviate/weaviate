@@ -20,10 +20,9 @@ import (
 
 // Forbidden indicates a failed authorization
 type Forbidden struct {
-	principal           *models.Principal
-	verb                string
-	resources           []string
-	authorizationMethod string
+	principal *models.Principal
+	verb      string
+	resources []string
 }
 
 type Unauthenticated struct{}
@@ -39,12 +38,11 @@ func NewUnauthenticated() Unauthenticated {
 
 // NewForbidden creates an explicit Forbidden error with details about the
 // principal and the attempted access on a specific resource
-func NewForbidden(principal *models.Principal, verb string, authorization string, resources ...string) Forbidden {
+func NewForbidden(principal *models.Principal, verb string, resources ...string) Forbidden {
 	return Forbidden{
-		principal:           principal,
-		verb:                verb,
-		resources:           resources,
-		authorizationMethod: authorization,
+		principal: principal,
+		verb:      verb,
+		resources: resources,
 	}
 }
 
@@ -58,8 +56,8 @@ func (f Forbidden) Error() string {
 		optionalGroups = fmt.Sprintf(" (of groups %s)", groupsList)
 	}
 
-	return fmt.Sprintf("%s: authorization error: user '%s'%s has insufficient permissions to %s %s",
-		f.authorizationMethod, f.principal.Username, optionalGroups, f.verb, f.resources)
+	return fmt.Sprintf("authorization error, forbidden action: user '%s'%s has insufficient permissions to %s %s",
+		f.principal.Username, optionalGroups, f.verb, f.resources)
 }
 
 func wrapInSingleQuotes(input []string) []string {

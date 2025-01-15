@@ -249,7 +249,7 @@ func (m *manager) Authorize(principal *models.Principal, verb string, resources 
 		}).Info()
 
 		if !allow {
-			return errors.NewForbidden(principal, prettyPermissionsActions(perm), "rbac", prettyPermissionsResources(perm))
+			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
 		}
 	}
 
