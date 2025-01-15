@@ -52,6 +52,7 @@ func TestGRPCRequest(t *testing.T) {
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
 	singleNamedVecClass := "SingleNamedVecClass"
+	regularWithColBERTClass := "RegularWithColBERTClass"
 	one := float64(1.0)
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
@@ -163,6 +164,44 @@ func TestGRPCRequest(t *testing.T) {
 						"default": {
 							VectorIndexType:   "hnsw",
 							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
+					},
+				},
+				{
+					Class: regularWithColBERTClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"regular_no_type": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"regular_unspecified": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"regular_fp32": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"regular_fp32_and_name": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"colbert_fp32": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine, Multivector: hnsw.MultivectorConfig{Enabled: true}},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"colbert_fp32_2": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine, Multivector: hnsw.MultivectorConfig{Enabled: true}},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
@@ -347,6 +386,67 @@ func TestGRPCRequest(t *testing.T) {
 						WithDistance:  true,
 						TargetVectors: []string{"custom"},
 					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "nearvector with fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Distance: &one,
+					Vectors: []*pb.Vectors{
+						{
+							VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
+							Type:        pb.VectorType_VECTOR_TYPE_FP32,
+						},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+					Distance:      1.0,
+					WithDistance:  true,
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "nearvector with colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Certainty: &one,
+					Vectors: []*pb.Vectors{
+						{
+							VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
+							Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+						},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[][]float32{{1, 2, 3}}},
+					Certainty:     1.0,
 					TargetVectors: []string{"custom"},
 				},
 			},
@@ -1996,6 +2096,126 @@ func TestGRPCRequest(t *testing.T) {
 				},
 				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.9, 0.5}},
 				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets: &pb.Targets{TargetVectors: []string{"first", "first", "second"}},
+					VectorForTargets: []*pb.VectorForTarget{
+						{Name: "first", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
+						{Name: "first", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{2, 3, 4})}}},
+						{Name: "second", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3, 4})}}},
+					},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}, []float32{1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with mix of fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: regularWithColBERTClass,
+				NearVector: &pb.NearVector{
+					Targets: &pb.Targets{TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name"}},
+					VectorForTargets: []*pb.VectorForTarget{
+						{Name: "regular_no_type", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
+						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_UNSPECIFIED}}},
+						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.VectorType_VECTOR_TYPE_FP32}}},
+						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_FP32, Name: "regular_fp32_and_name"}}},
+					},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: regularWithColBERTClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0, 0}},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[]float32{1, 2, 3}, []float32{11, 22, 33}, []float32{111, 222, 333}, []float32{1, 2, 3}},
+					TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with mix of fp32 and colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: regularWithColBERTClass,
+				NearVector: &pb.NearVector{
+					Targets: &pb.Targets{TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name", "colbert_fp32"}},
+					VectorForTargets: []*pb.VectorForTarget{
+						{Name: "regular_no_type", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}},
+						{Name: "regular_unspecified", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_UNSPECIFIED}}},
+						{Name: "regular_fp32", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{111, 222, 333}), Type: pb.VectorType_VECTOR_TYPE_FP32}}},
+						{Name: "regular_fp32_and_name", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3}), Type: pb.VectorType_VECTOR_TYPE_FP32, Name: "regular_fp32_and_name"}}},
+						{Name: "colbert_fp32", Vectors: []*pb.Vectors{
+							{VectorBytes: byteVector([]float32{1, 2, 3}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32, Name: "colbert_fp32"},
+							{VectorBytes: byteVector([]float32{1, 2, 3}), Index: 1, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32, Name: "colbert_fp32"},
+						}},
+					},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: regularWithColBERTClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0, 0, 0}},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[]float32{1, 2, 3}, []float32{11, 22, 33}, []float32{111, 222, 333}, []float32{1, 2, 3}, [][]float32{{1, 2, 3}, {1, 2, 3}}},
+					TargetVectors: []string{"regular_no_type", "regular_unspecified", "regular_fp32", "regular_fp32_and_name", "colbert_fp32"},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with only colbert fp32 vectors",
+			req: &pb.SearchRequest{
+				Collection: regularWithColBERTClass,
+				NearVector: &pb.NearVector{
+					Targets: &pb.Targets{TargetVectors: []string{"colbert_fp32", "colbert_fp32_2"}},
+					VectorForTargets: []*pb.VectorForTarget{
+						{Name: "colbert_fp32", Vectors: []*pb.Vectors{
+							{VectorBytes: byteVector([]float32{1, 2, 3}), Index: 0, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32, Name: "colbert_fp32"},
+							{VectorBytes: byteVector([]float32{1, 2, 3}), Index: 1, Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32, Name: "colbert_fp32"},
+						}},
+						{Name: "colbert_fp32_2", Vectors: []*pb.Vectors{
+							{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+							{VectorBytes: byteVector([]float32{11, 22, 33}), Type: pb.VectorType_VECTOR_TYPE_COLBERT_FP32},
+						}},
+					},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: regularWithColBERTClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[][]float32{{1, 2, 3}, {1, 2, 3}}, [][]float32{{11, 22, 33}, {11, 22, 33}}},
+					TargetVectors: []string{"colbert_fp32", "colbert_fp32_2"},
+				},
 			},
 			error: false,
 		},
