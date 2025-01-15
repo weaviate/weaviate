@@ -79,7 +79,7 @@ func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQu
 		dimensions: len(data[0]),
 	}
 	sq.b = data[0][0]
-	for i := 1; i < len(data); i++ {
+	for i := 0; i < len(data); i++ {
 		vec := data[i]
 		for _, x := range vec {
 			if x < sq.b {
