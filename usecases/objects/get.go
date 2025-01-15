@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // GetObject Class from the connected DB
@@ -122,8 +123,8 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 		case ErrMultiTenancy:
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
-			if errors.As(err, &ErrForbidden{}) {
-				return nil, NewErrForbidden(fmt.Errorf("repo: object by id: %v", err))
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return nil, fmt.Errorf("repo: object by id: %v", err)
 			}
 			return nil, NewErrInternal("repo: object by id: %v", err)
 		}

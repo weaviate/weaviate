@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -139,7 +138,7 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, err.Error())
 		}
 
-		if errors.As(err, &authErrs.Forbidden{}) || errors.As(err, &objects.ErrForbidden{}) {
+		if errors.As(err, &authErrs.Forbidden{}) {
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 

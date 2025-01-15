@@ -25,6 +25,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -147,8 +148,6 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 		switch err.(type) {
 		case ErrInvalidUserInput:
 			return "", err
-		case ErrForbidden:
-			return "", err
 		case ErrMultiTenancy:
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
@@ -157,6 +156,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return "", err
+			}
 			return "", NewErrInternal("%v", err)
 		}
 	}

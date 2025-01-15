@@ -672,7 +672,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		case objects.ErrMultiTenancy:
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 		case authErrs.Forbidden:
-			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1060,7 +1060,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		case objects.ErrMultiTenancy:
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 		case authErrs.Forbidden:
-			return nil, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			return nil, fmt.Errorf("determine shard: %w", err)
 		default:
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1153,7 +1153,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 			case objects.ErrMultiTenancy:
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 			case authErrs.Forbidden:
-				return nil, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+				return nil, fmt.Errorf("determine shard: %w", err)
 			default:
 				return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 			}
@@ -1229,7 +1229,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		case objects.ErrMultiTenancy:
 			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 		case authErrs.Forbidden:
-			return false, objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			return false, fmt.Errorf("determine shard: %w", err)
 		default:
 			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1798,7 +1798,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		case objects.ErrMultiTenancy:
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 		case authErrs.Forbidden:
-			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1975,7 +1975,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		case objects.ErrMultiTenancy:
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
 		case authErrs.Forbidden:
-			return objects.NewErrForbidden(fmt.Errorf("determine shard: %w", err))
+			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}

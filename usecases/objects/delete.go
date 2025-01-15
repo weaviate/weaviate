@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -79,9 +80,9 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		if errors.As(err, &e2) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
 		}
-		var e3 ErrForbidden
+		var e3 authzerrs.Forbidden
 		if errors.As(err, &e3) {
-			return NewErrForbidden(fmt.Errorf("delete object from vector repo: %w", err))
+			return fmt.Errorf("delete object from vector repo: %w", err)
 		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
