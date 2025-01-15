@@ -368,11 +368,11 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {
+func (l *LazyLoadShard) HaltForTransfer(offloading bool, ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx)
+	return l.shard.HaltForTransfer(offloading, ctx)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
