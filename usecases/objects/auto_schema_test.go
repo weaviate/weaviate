@@ -18,8 +18,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/versioned"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -607,9 +605,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 	var obj *models.Object
 
-	knownClasses := map[string]versioned.Class{}
-
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -642,11 +638,9 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			"numberArray":     []interface{}{json.Number("30")},
 		},
 	}
-	knownClasses := map[string]versioned.Class{}
-
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -679,20 +673,20 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	logger, _ := test.NewNullLogger()
-
-	class := &models.Class{
-		Class: "Publication",
-		Properties: []*models.Property{
-			{
-				Name:     "age",
-				DataType: []string{"int"},
-			},
-		},
-	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema.Schema{
 			Objects: &models.Schema{
-				Classes: []*models.Class{class},
+				Classes: []*models.Class{
+					{
+						Class: "Publication",
+						Properties: []*models.Property{
+							{
+								Name:     "age",
+								DataType: []string{"int"},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -728,11 +722,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
 	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
 
-	knownClasses := map[string]versioned.Class{
-		class.Class: {Version: 0, Class: class},
-	}
-
-	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, obj)
+	_, err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, true, obj)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1650,11 +1640,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		authorizer: fakeAuthorizer{},
 	}
 
-	knownClasses := map[string]versioned.Class{
-		class.Class: {Version: 0, Class: class},
-	}
-
-	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, knownClasses, object)
+	_, err := manager.autoSchema(context.Background(), &models.Principal{}, true, object)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
