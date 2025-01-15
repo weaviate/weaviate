@@ -63,7 +63,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/raft v1.7.2
-	github.com/hashicorp/raft-boltdb/v2 v2.3.0
+	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.0
 	github.com/ikawaha/kagome/v2 v2.9.11
