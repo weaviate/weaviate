@@ -787,7 +787,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	if d.withWeaviateRbac {
-		settings["AUTHORIZATION_ENABLE_RBAC"] = "true"
+		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
+		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
 		if len(d.weaviateRbacAdmins) > 0 {
 			settings["AUTHORIZATION_ADMIN_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")

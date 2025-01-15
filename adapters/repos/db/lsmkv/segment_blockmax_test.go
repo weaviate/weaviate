@@ -20,8 +20,16 @@ import (
 
 func TestSerializeAndParseInvertedNodeTest(t *testing.T) {
 	t.Skip()
-	seg, err := newSegment("/Users/amourao/code/weaviate/weaviate/data-weaviate-0/msmarco/6Jx2gaSLtsnd/lsm/property_text_searchable/segment-1729794337023372000.db", nil,
-		nil, nil, false, false, false, true)
+	path := "/Users/amourao/code/weaviate/weaviate/data-weaviate-0/" +
+		"msmarco/6Jx2gaSLtsnd/lsm/property_text_searchable/segment-1729794337023372000.db"
+	cfg := segmentConfig{
+		mmapContents:             false,
+		useBloomFilter:           false,
+		calcCountNetAdditions:    false,
+		overwriteDerived:         true,
+		enableChecksumValidation: false,
+	}
+	seg, err := newSegment(path, nil, nil, nil, cfg)
 	if err != nil {
 		t.Fatalf("error creating segment: %v", err)
 	}

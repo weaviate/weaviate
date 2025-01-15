@@ -33,8 +33,7 @@ func TestAuthZBatchObjREST(t *testing.T) {
 	customKey := "custom-key"
 	customAuth := helper.CreateAuth(customKey)
 	testRoleName := "test-role"
-	readCollectionsAction := authorization.ReadCollections
-	// readDataAction := authorization.ReadData
+
 	updateDataAction := authorization.UpdateData
 	createDataAction := authorization.CreateData
 
@@ -80,8 +79,8 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className1},
 		},
 		{
-			Action:      &readCollectionsAction,
-			Collections: &models.PermissionCollections{Collection: &className1},
+			Action:  &authorization.ReadTenants,
+			Tenants: &models.PermissionTenants{Collection: &className1},
 		},
 		{
 			Action: &createDataAction,
@@ -92,8 +91,8 @@ func TestAuthZBatchObjREST(t *testing.T) {
 			Data:   &models.PermissionData{Collection: &className2},
 		},
 		{
-			Action:      &readCollectionsAction,
-			Collections: &models.PermissionCollections{Collection: &className2},
+			Action:  &authorization.ReadTenants,
+			Tenants: &models.PermissionTenants{Collection: &className2},
 		},
 	}
 	t.Run("all rights for both classes", func(t *testing.T) {

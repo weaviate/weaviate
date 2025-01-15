@@ -56,7 +56,7 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	allowCreateClass bool, objects ...*models.Object,
+	allowCreateClass bool, classes map[string]versioned.Class, objects ...*models.Object,
 ) (uint64, error) {
 	if !m.config.Enabled {
 		return 0, nil
@@ -66,25 +66,6 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 	defer m.mutex.Unlock()
 
 	var maxSchemaVersion uint64
-
-	// collect classes
-	classes := []string{}
-	for _, object := range objects {
-		if object == nil {
-			continue
-		}
-		classes = append(classes, schema.UppercaseClassName(object.Class))
-	}
-
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classes...)...)
-	if err != nil {
-		return 0, err
-	}
-
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
-	if err != nil {
-		return 0, err
-	}
 
 	for _, object := range objects {
 		if object == nil {
@@ -98,7 +79,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		vclass := vclasses[object.Class]
+		vclass := classes[object.Class]
 
 		schemaClass := vclass.Class
 		schemaVersion := vclass.Version
@@ -123,7 +104,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				return 0, err
 			}
 
-			vclasses[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
+			classes[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
@@ -136,7 +117,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				if err != nil {
 					return 0, err
 				}
-				vclasses[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
+				classes[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
 			}
 		}
@@ -510,7 +491,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 }
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
-	principal *models.Principal, objects []*models.Object, authorizeAutoTenantCreate func(string, []string) error,
+	principal *models.Principal, objects []*models.Object,
 ) (uint64, int, error) {
 	classTenants := make(map[string]map[string]struct{})
 
@@ -556,7 +537,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			tenants[i] = &models.Tenant{Name: name}
 			i++
 		}
-		err := authorizeAutoTenantCreate(className, names)
+		err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, names...)...)
 		if err != nil {
 			return 0, totalTenants, err
 		}

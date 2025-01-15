@@ -12,13 +12,13 @@
 package authz
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -39,13 +39,14 @@ type authZHandlers struct {
 	logger         logrus.FieldLogger
 	metrics        *monitoring.PrometheusMetrics
 	apiKeysConfigs config.APIKey
+	oidcConfigs    config.OIDC
 	rbacconfig     rbacconf.Config
 }
 
 func SetupHandlers(api *operations.WeaviateAPI, controller authorization.Controller, schemaReader schemaUC.SchemaGetter,
-	apiKeysConfigs config.APIKey, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+	apiKeysConfigs config.APIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
+	h := &authZHandlers{controller: controller, authorizer: authorizer, schemaReader: schemaReader, rbacconfig: rconfig, oidcConfigs: oidcConfigs, apiKeysConfigs: apiKeysConfigs, logger: logger, metrics: metrics}
 
 	// rbac role handlers
 	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
@@ -111,8 +112,8 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("you can not update builtin role %s", params.ID)))
 	}
 
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("role has to have at least 1 permission")))
+	if err := validatePermissions(params.Body.Permissions...); err != nil {
+		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	policies, err := conv.RolesToPolicies(&models.Role{
@@ -155,8 +156,8 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	// we don't validate permissions entity existence
 	// in case of the permissions gets removed after the entity got removed
 	// delete class ABC, then remove permissions on class ABC
-	if len(params.Body.Permissions) == 0 {
-		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("role has to have at least 1 permission")))
+	if err := validatePermissions(params.Body.Permissions...); err != nil {
+		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if slices.Contains(authorization.BuiltInRoles, params.ID) {
@@ -199,6 +200,10 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 func (h *authZHandlers) hasPermission(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
 	if params.Body == nil {
 		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("permission is required")))
+	}
+
+	if err := validatePermissions(params.Body); err != nil {
+		return authz.NewHasPermissionBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Roles(params.ID)...); err != nil {
@@ -508,6 +513,13 @@ func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *mod
 }
 
 func (h *authZHandlers) userExists(user string) bool {
+	// We are only able to check if a user is present on the system if APIKeys are the only auth method. For OIDC
+	// users are managed in an external service and there is no general way to check if a user we have not seen yet is
+	// valid.
+	if h.oidcConfigs.Enabled {
+		return true
+	}
+
 	if h.apiKeysConfigs.Enabled {
 		for _, apiKey := range h.apiKeysConfigs.Users {
 			if apiKey == user {
@@ -516,7 +528,7 @@ func (h *authZHandlers) userExists(user string) bool {
 		}
 		return false
 	}
-	return true // dont block OICD for now
+	return true
 }
 
 func sortByName(roles []*models.Role) {

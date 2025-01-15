@@ -79,16 +79,17 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid object")
 	}
 
-	authorizeAutoTenantCreate := func(className string, tenantNames []string) error {
-		return m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(className, tenantNames...)...)
-	}
-
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, authorizeAutoTenantCreate); err != nil {
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
 		return nil, err
 	}
 
@@ -104,10 +105,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
 	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err

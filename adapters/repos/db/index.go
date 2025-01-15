@@ -583,31 +583,31 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 }
 
 type IndexConfig struct {
-	RootPath                       string
-	ClassName                      schema.ClassName
-	QueryMaximumResults            int64
-	QueryNestedRefLimit            int64
-	ResourceUsage                  config.ResourceUsage
-	MemtablesFlushDirtyAfter       int
-	MemtablesInitialSizeMB         int
-	MemtablesMaxSizeMB             int
-	MemtablesMinActiveSeconds      int
-	MemtablesMaxActiveSeconds      int
-	SegmentsCleanupIntervalSeconds int
-	SeparateObjectsCompactions     bool
-	MaxSegmentSize                 int64
-	HNSWMaxLogSize                 int64
-	HNSWWaitForCachePrefill        bool
-	HNSWFlatSearchConcurrency      int
-	VisitedListPoolMaxSize         int
-	ReplicationFactor              *atomic.Int64
-	DeletionStrategy               string
-	AsyncReplicationEnabled        bool
-	AvoidMMap                      bool
-	DisableLazyLoadShards          bool
-	ForceFullReplicasSearch        bool
-
-	TrackVectorDimensions bool
+	RootPath                            string
+	ClassName                           schema.ClassName
+	QueryMaximumResults                 int64
+	QueryNestedRefLimit                 int64
+	ResourceUsage                       config.ResourceUsage
+	MemtablesFlushDirtyAfter            int
+	MemtablesInitialSizeMB              int
+	MemtablesMaxSizeMB                  int
+	MemtablesMinActiveSeconds           int
+	MemtablesMaxActiveSeconds           int
+	SegmentsCleanupIntervalSeconds      int
+	SeparateObjectsCompactions          bool
+	MaxSegmentSize                      int64
+	HNSWMaxLogSize                      int64
+	HNSWWaitForCachePrefill             bool
+	HNSWFlatSearchConcurrency           int
+	VisitedListPoolMaxSize              int
+	ReplicationFactor                   *atomic.Int64
+	DeletionStrategy                    string
+	AsyncReplicationEnabled             bool
+	AvoidMMap                           bool
+	DisableLazyLoadShards               bool
+	ForceFullReplicasSearch             bool
+	LSMEnableSegmentsChecksumValidation bool
+	TrackVectorDimensions               bool
 }
 
 func indexID(class schema.ClassName) string {

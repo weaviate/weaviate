@@ -15,8 +15,21 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
+const (
+	// in case changes happens to the RBAC message, add new version before the RBACLatestCommandPolicyVersion
+	// RBACCommandPolicyVersionV0 represents the first version of RBAC commands
+	RBACCommandPolicyVersionV0 = iota
+
+	// RBACLatestCommandPolicyVersion represents the latest version of RBAC commands policies
+	// It's used to migrate policy changes. if we end up with a cluster having different version
+	// that won't be a problem because the version here is not about the message change but more about
+	// the content of the body which will dumbed anyway in RBAC storage.
+	RBACLatestCommandPolicyVersion
+)
+
 type CreateRolesRequest struct {
-	Roles map[string][]authorization.Policy
+	Roles   map[string][]authorization.Policy
+	Version int
 }
 
 type DeleteRolesRequest struct {
@@ -26,6 +39,7 @@ type DeleteRolesRequest struct {
 type RemovePermissionsRequest struct {
 	Role        string
 	Permissions []*authorization.Policy
+	Version     int
 }
 
 type AddRolesForUsersRequest struct {
