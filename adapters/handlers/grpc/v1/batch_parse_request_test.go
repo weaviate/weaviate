@@ -318,16 +318,19 @@ func TestGRPCBatchRequest(t *testing.T) {
 					Name:        "colbert",
 					Index:       0,
 					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 				{
 					Name:        "colbert",
 					Index:       1,
 					VectorBytes: byteVector([]float32{0.1, 0.2}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 				{
 					Name:        "colbert",
 					Index:       2,
 					VectorBytes: byteVector([]float32{0.1}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
 				},
 			}}},
 			out: []*models.Object{{
@@ -335,6 +338,124 @@ func TestGRPCBatchRequest(t *testing.T) {
 				Vectors: map[string]models.Vector{
 					"custom":  []float32{0.1, 0.2, 0.3},
 					"colbert": [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2}, {0.1}},
+				},
+			}},
+		},
+		{
+			name: "named multi vectors with 1 token level embedding",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "custom",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "colbert",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert",
+					Index:       1,
+					VectorBytes: byteVector([]float32{0.1, 0.2}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert1",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"custom":   []float32{0.1, 0.2, 0.3},
+					"colbert":  [][]float32{{0.1, 0.2, 0.3}, {0.1, 0.2}},
+					"colbert1": [][]float32{{0.1}},
+				},
+			}},
+		},
+		{
+			name: "named regular vectors",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "regular_without_specified_type",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "regular_with_type",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.11, 0.22, 0.33}),
+					Type:        pb.VectorType_VECTOR_TYPE_FP32,
+				},
+				{
+					Name:        "regular_with_explicit_unspecified_type",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.111, 0.222, 0.333}),
+					Type:        pb.VectorType_VECTOR_TYPE_UNSPECIFIED,
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"regular_without_specified_type":         []float32{0.1, 0.2, 0.3},
+					"regular_with_type":                      []float32{0.11, 0.22, 0.33},
+					"regular_with_explicit_unspecified_type": []float32{0.111, 0.222, 0.333},
+				},
+			}},
+		},
+		{
+			name: "named mix of regular and colbert vectors with all possible types",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "regular_without_specified_type",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+				{
+					Name:        "regular_with_type",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.11, 0.22, 0.33}),
+					Type:        pb.VectorType_VECTOR_TYPE_FP32,
+				},
+				{
+					Name:        "regular_with_explicit_unspecified_type",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.111, 0.222, 0.333}),
+					Type:        pb.VectorType_VECTOR_TYPE_UNSPECIFIED,
+				},
+				{
+					Name:        "colbert_fp32_1_token_level_embedding",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.111}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert_fp32_normal_case",
+					Index:       0,
+					VectorBytes: byteVector([]float32{0.1, 0.1, 0.1}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "colbert_fp32_normal_case",
+					Index:       1,
+					VectorBytes: byteVector([]float32{0.2, 0.2, 0.2}),
+					Type:        pb.VectorType_VECTOR_TYPE_COLBERT_FP32,
+				},
+				{
+					Name:        "regular_with_only_one_value",
+					VectorBytes: byteVector([]float32{0.1}),
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"regular_without_specified_type":         []float32{0.1, 0.2, 0.3},
+					"regular_with_type":                      []float32{0.11, 0.22, 0.33},
+					"regular_with_explicit_unspecified_type": []float32{0.111, 0.222, 0.333},
+					"colbert_fp32_1_token_level_embedding":   [][]float32{{0.111}},
+					"colbert_fp32_normal_case":               [][]float32{{0.1, 0.1, 0.1}, {0.2, 0.2, 0.2}},
+					"regular_with_only_one_value":            []float32{0.1},
 				},
 			}},
 		},

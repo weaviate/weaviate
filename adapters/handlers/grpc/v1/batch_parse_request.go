@@ -87,17 +87,24 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 
 		var vectors models.Vectors = nil
 		if len(obj.Vectors) > 0 {
-			parsedVectors := make(map[string][][]float32)
+			parsedVectors := make(map[string][]float32)
+			parsedMultiVectors := make(map[string][][]float32)
 			for _, vec := range obj.Vectors {
-				parsedVectors[vec.Name] = append(parsedVectors[vec.Name], byteops.Float32FromByteVector(vec.VectorBytes))
-			}
-			vectors = make(models.Vectors)
-			for targetVector, vector := range parsedVectors {
-				if len(vector) == 1 {
-					vectors[targetVector] = vector[0]
-				} else {
-					vectors[targetVector] = vector
+				switch vec.Type {
+				case *pb.VectorType_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.VectorType_VECTOR_TYPE_FP32.Enum():
+					parsedVectors[vec.Name] = byteops.Float32FromByteVector(vec.VectorBytes)
+				case *pb.VectorType_VECTOR_TYPE_COLBERT_FP32.Enum():
+					parsedMultiVectors[vec.Name] = append(parsedMultiVectors[vec.Name], byteops.Float32FromByteVector(vec.VectorBytes))
+				default:
+					// do nothing
 				}
+			}
+			vectors = make(models.Vectors, len(parsedVectors)+len(parsedMultiVectors))
+			for targetVector, vector := range parsedVectors {
+				vectors[targetVector] = vector
+			}
+			for targetVector, multiVector := range parsedMultiVectors {
+				vectors[targetVector] = multiVector
 			}
 		}
 
