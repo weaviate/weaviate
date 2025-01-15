@@ -212,7 +212,7 @@ func formatArg(expr ast.Expr) string {
 	case *ast.CallExpr:
 		if sel, ok := v.Fun.(*ast.SelectorExpr); ok {
 			if ident, ok := sel.X.(*ast.Ident); ok {
-				return fmt.Sprintf("%s.%s()", ident.Name, sel.Sel.Name)
+				return fmt.Sprintf("%s.%s", ident.Name, sel.Sel.Name)
 			}
 		}
 	}
