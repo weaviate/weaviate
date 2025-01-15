@@ -918,7 +918,7 @@ type Hybrid struct {
 	Alpha      float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	// Deprecated: Do not use.
-	VectorBytes []byte `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // will be removed in the future, use vectors
+	VectorBytes []byte `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
 	// Deprecated: Do not use.
 	TargetVectors []string        `protobuf:"bytes,7,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	NearText      *NearTextSearch `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`                // targets in msg is ignored and should not be set for hybrid
@@ -1785,7 +1785,7 @@ type VectorForTarget struct {
 
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Deprecated: Do not use.
-	VectorBytes []byte     `protobuf:"bytes,2,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // will be removed in the future, use vectors
+	VectorBytes []byte     `protobuf:"bytes,2,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
 	Vectors     []*Vectors `protobuf:"bytes,3,rep,name=vectors,proto3" json:"vectors,omitempty"`
 }
 
@@ -1855,7 +1855,7 @@ type NearVector struct {
 	Certainty *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance  *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
 	// Deprecated: Do not use.
-	VectorBytes []byte `protobuf:"bytes,4,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // will be removed in the future, use vectors
+	VectorBytes []byte `protobuf:"bytes,4,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"` // deprecated in 1.29.0 - use vectors
 	// Deprecated: Do not use.
 	TargetVectors []string `protobuf:"bytes,5,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"` // deprecated in 1.26 - use targets
 	Targets       *Targets `protobuf:"bytes,6,opt,name=targets,proto3" json:"targets,omitempty"`
