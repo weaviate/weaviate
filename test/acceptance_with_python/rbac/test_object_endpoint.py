@@ -23,8 +23,10 @@ def test_obj_insert(
 
     required_permissions = [
         Permissions.data(collection=col.name, create=True),
-        Permissions.tenants(collection=col.name, read=True),
     ]
+    if mt:
+        required_permissions.append(Permissions.tenants(collection=col.name, read=True))
+
     with role_wrapper(admin_client, request, required_permissions):
         source_no_rights = custom_client.collections.get(name)  # no network call => no RBAC check
         if mt:
