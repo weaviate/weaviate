@@ -124,7 +124,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 			return nil, NewErrMultiTenancy(fmt.Errorf("repo: object by id: %w", err))
 		default:
 			if errors.As(err, &authzerrs.Forbidden{}) {
-				return nil, fmt.Errorf("repo: object by id: %v", err)
+				return nil, fmt.Errorf("repo: object by id: %w", err)
 			}
 			return nil, NewErrInternal("repo: object by id: %v", err)
 		}

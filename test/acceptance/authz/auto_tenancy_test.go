@@ -84,7 +84,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with 403 when trying to create an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := createObject(t, obj, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsCreateForbidden)
@@ -94,7 +94,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("fail with 403 when trying to read an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with 403 when trying to read an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := getObject(t, obj2.Class, obj2.ID, &obj2.Tenant, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsClassGetForbidden)
@@ -104,7 +104,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("fail with 403 when trying to update an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with 403 when trying to update an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := updateObject(t, obj, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsClassPatchForbidden)
@@ -114,7 +114,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("fail with 403 when trying to delete an object in an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with 403 when trying to delete an object in an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		_, err := deleteObject(t, obj.Class, obj.ID, &obj.Tenant, customKey)
 		require.NotNil(t, err)
 		parsed, forbidden := err.(*objects.ObjectsClassDeleteForbidden)
@@ -124,21 +124,21 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
-	t.Run("fail with gql when trying to search (Get) an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with gql when trying to search (Get) an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		res, err := queryGQL(t, fmt.Sprintf(`{Get{%s(tenant:%q){_additional{id}}}}`, cls.Class, tenant), customKey)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.GetPayload().Errors))
 		require.Contains(t, res.GetPayload().Errors[0].Message, "forbidden")
 	})
 
-	t.Run("fail with gql when trying to search (Aggregate) an inactive tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with gql when trying to search (Aggregate) an inactive tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		res, err := queryGQL(t, fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, cls.Class, tenant), customKey)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.GetPayload().Errors))
 		require.Contains(t, res.GetPayload().Errors[0].Message, "forbidden")
 	})
 
-	t.Run("fail with grpc when trying to search an inactivate tenant due to lacking authorization.UpdateCollections for autoTenantActivation", func(t *testing.T) {
+	t.Run("fail with grpc when trying to search an inactivate tenant due to lacking authorization.UpdateTenants for autoTenantActivation", func(t *testing.T) {
 		ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", fmt.Sprintf("Bearer %s", customKey))
 		_, err := helper.ClientGRPC(t).Search(ctx, &protocol.SearchRequest{
 			Collection: cls.Class,
@@ -151,7 +151,7 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 	t.Run("add permission allowing to update schema of collection", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.AddPermissions(authz.NewAddPermissionsParams().WithID(testRoleName).WithBody(authz.AddPermissionsBody{
 			Permissions: []*models.Permission{
-				helper.NewCollectionsPermission().WithAction(authorization.UpdateCollections).WithCollection(cls.Class).Permission(),
+				helper.NewTenantsPermission().WithAction(authorization.UpdateTenants).WithCollection(cls.Class).WithTenant(tenant).Permission(),
 			},
 		}), adminAuth)
 		require.Nil(t, err)
