@@ -23,7 +23,7 @@ import (
 )
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
-func (s *Shard) HaltForTransfer(offloading bool, ctx context.Context) (err error) {
+func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
@@ -33,11 +33,13 @@ func (s *Shard) HaltForTransfer(offloading bool, ctx context.Context) (err error
 		}
 	}()
 
-	if offloading {
-		// TODO: tenant offloading is calling HaltForTransfer but
-		// if Shutdown is called this step is not needed
-		s.mayStopAsyncReplication()
-	}
+	// NOTE: async replication may be paused during backup
+	// only if the hashtree can be resumed but object updates
+	// or deletions requires special handling.
+	// Curently hashtree is not included into the backup files,
+	// the hashtree will be automatically regenerated when restoring
+	// s.mayStopHashBeater()
+	// s.mayCloseHashTree()
 
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -98,6 +100,10 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
+	// NOTE: async replication may be resumed if paused in HaltForTransfer method
+	//g.Go(func() error {
+	//	return s.UpdateAsyncReplication(ctx, s.index.asyncReplicationEnabled())
+	//})
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
 	})

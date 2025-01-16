@@ -96,11 +96,11 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
-	// Object bucket must be available, initAsyncReplication depends on it
+	// Object bucket must be available, initHashTree depends on it
 	if s.index.asyncReplicationEnabled() {
-		err = s.initAsyncReplication()
+		err = s.initHashTree()
 		if err != nil {
-			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
+			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
 		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
