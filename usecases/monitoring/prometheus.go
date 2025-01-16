@@ -24,6 +24,10 @@ type Config struct {
 	Port                       int    `json:"port" yaml:"port"`
 	Group                      bool   `json:"group_classes" yaml:"group_classes"`
 	MonitorCriticalBucketsOnly bool   `json:"monitor_critical_buckets_only" yaml:"monitor_critical_buckets_only"`
+
+	// Metrics namespace group the metrics with common prefix.
+	// currently used only on ServerMetrics.
+	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
 type PrometheusMetrics struct {
@@ -138,6 +142,50 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
+func NewServerMetrics(namespace string, reg prometheus.Registerer) *ServerMetrics {
+	r := promauto.With(reg)
+
+	return &ServerMetrics{
+		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "tcp_active_connections",
+			Help:      "Current number of accepted TCP connections.",
+		}, []string{"protocol"}),
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Buckets:   LatencyBuckets,
+		}, []string{"method", "route", "status_code"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
+		}, []string{"method", "route"}),
+	}
+}
+
+// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
+type ServerMetrics struct {
+	TCPActiveConnections *prometheus.GaugeVec
+	RequestDuration      *prometheus.HistogramVec
+	RequestBodySize      *prometheus.HistogramVec
+	ResponseBodySize     *prometheus.HistogramVec
+	InflightRequests     *prometheus.GaugeVec
+}
+
 // Delete Shard deletes existing label combinations that match both
 // the shard and class name. If a metric is not collected at the shard
 // level it is unaffected. This is to make sure that deleting a single
@@ -227,10 +275,21 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	return nil
 }
 
+const mb = 1024 * 1024
+
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
-	sBuckets                     = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
-	metrics   *PrometheusMetrics = nil
+	// msBuckets and sBuckets are deprecated. Use `LatencyBuckets` and `sizeBuckets` instead.
+	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
+	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
+
+	// LatencyBuckets is default histogram bucket for response time (in seconds).
+	// It also includes request that served *very* fast and *very* slow
+	LatencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// sizeBuckets defines buckets for request/response body sizes (in bytes).
+	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
+	sizeBuckets                    = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
+	metrics     *PrometheusMetrics = nil
 )
 
 func init() {
