@@ -17,9 +17,8 @@ import (
 	"os"
 	"path/filepath"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
@@ -53,6 +52,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
+
+	// pause indexing
+	s.queue.Pause()
+
 	if s.hasTargetVectors() {
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
@@ -112,6 +115,11 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Activate()
+	})
+
+	g.Go(func() error {
+		s.queue.Resume()
+		return nil
 	})
 
 	if err := g.Wait(); err != nil {
