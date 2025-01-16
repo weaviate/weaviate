@@ -18,22 +18,28 @@ import (
 
 type Metrics struct {
 	collectionsCount prometheus.Gauge
+	enabled          bool
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	if prom == nil {
-		return nil
+		return &Metrics{}
 	}
 
 	return &Metrics{
 		collectionsCount: prom.CollectionsCount,
+		enabled:          true,
 	}
 }
 
 func (m *Metrics) collectionsCountInc() {
-	m.collectionsCount.Inc()
+	if m.enabled {
+		m.collectionsCount.Inc()
+	}
 }
 
 func (m *Metrics) collectionsCountDec() {
-	m.collectionsCount.Dec()
+	if m.enabled {
+		m.collectionsCount.Dec()
+	}
 }
