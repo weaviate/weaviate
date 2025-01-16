@@ -66,7 +66,7 @@ require (
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome-dict/ipa v1.2.0
-	github.com/ikawaha/kagome/v2 v2.9.11
+	github.com/ikawaha/kagome/v2 v2.10.0
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
