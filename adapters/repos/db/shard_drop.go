@@ -42,7 +42,8 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
-	s.mayStopAsyncReplication()
+	s.mayStopHashBeater()
+	s.mayCleanupHashTree()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
