@@ -514,6 +514,18 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-minio)
+    docker run \
+    -p 9000:9000 \
+    -p 9001:9001 \
+    --user $(id -u):$(id -g) \
+    --name minio1 \
+    -e "MINIO_ROOT_USER=aws_access_key" \
+    -e "MINIO_ROOT_PASSWORD=aws_secret_key" \
+    -v ${HOME}/minio/data:/data \
+    quay.io/minio/minio server /data --console-address ":9001"
+    ;;
+
   local-single-offload-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
@@ -524,6 +536,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
@@ -547,6 +560,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
@@ -574,6 +588,7 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
@@ -603,6 +618,7 @@ case $CONFIG in
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
+        OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
         OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
