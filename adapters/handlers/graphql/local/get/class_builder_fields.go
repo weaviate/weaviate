@@ -12,6 +12,7 @@
 package get
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -23,7 +24,6 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -330,7 +330,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 }
 
 func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interface{}, error) {
-	principal := restCtx.GetPrincipalFromContext(p.Context)
+	principal := principalFromContext(p.Context)
 
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
@@ -558,6 +558,15 @@ func extractGroup(args map[string]interface{}) *dto.GroupParams {
 		Strategy: strategy,
 		Force:    float32(force),
 	}
+}
+
+func principalFromContext(ctx context.Context) *models.Principal {
+	principal := ctx.Value("principal")
+	if principal == nil {
+		return nil
+	}
+
+	return principal.(*models.Principal)
 }
 
 func isPrimitive(selectionSet *ast.SelectionSet) bool {

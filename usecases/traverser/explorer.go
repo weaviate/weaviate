@@ -373,7 +373,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 			if errors.As(err, &e) {
 				return nil, e
 			}
-			return nil, fmt.Errorf("explorer: list class: search: %w", err)
+			return nil, errors.Errorf("explorer: list class: search: %v", err)
 		}
 	}
 

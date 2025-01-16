@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/sirupsen/logrus"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/usecases/config"
@@ -259,7 +258,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
-	res, err := s.traverser.GetClass(restCtx.AddPrincipalToContext(ctx, principal), principal, searchParams)
+	res, err := s.traverser.GetClass(ctx, principal, searchParams)
 	if err != nil {
 		return nil, err
 	}

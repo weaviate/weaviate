@@ -25,7 +25,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -40,9 +39,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	)
 	if object != nil {
 		class = object.Class
-		if object.Tenant != "" {
-			tenant = object.Tenant
-		}
+		tenant = object.Tenant
 	}
 
 	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
@@ -155,9 +152,6 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return "", err
-			}
 			return "", NewErrInternal("%v", err)
 		}
 	}

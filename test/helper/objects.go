@@ -101,7 +101,8 @@ func CreateObject(t *testing.T, object *models.Object) error {
 func CreateObjectAuth(t *testing.T, object *models.Object, key string) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
-	_, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	resp, err := Client(t).Objects.ObjectsCreate(params, CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
 	return err
 }
 
@@ -336,13 +337,6 @@ func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	t.Helper()
 	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
-}
-
-func UpdateTenantsWithAuthz(t *testing.T, class string, tenants []*models.Tenant, authInfo runtime.ClientAuthInfoWriter) {
-	t.Helper()
-	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
-	resp, err := Client(t).Schema.TenantsUpdate(params, authInfo)
 	AssertRequestOk(t, resp, err, nil)
 }
 

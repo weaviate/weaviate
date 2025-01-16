@@ -25,10 +25,10 @@ import (
 )
 
 func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
-	adminKey := "admin-key"
-	adminUser := "admin-user"
+	adminKey := "admin-Key"
+	adminUser := "admin-User"
 	viewerKey := "viewer-key"
-	viewerUser := "viewer-user"
+	viewerUser := "viewer-User"
 
 	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, map[string]string{viewerUser: viewerKey})
 	defer down()

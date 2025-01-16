@@ -21,7 +21,6 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -60,7 +59,7 @@ func makeResolveClass(authorizer authorization.Authorizer, modulesProvider Modul
 }
 
 func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authorizer, modulesProvider ModulesProvider, class *models.Class) (interface{}, error) {
-	principal := restCtx.GetPrincipalFromContext(p.Context)
+	principal := principalFromContext(p.Context)
 	className := schema.ClassName(p.Info.FieldName)
 
 	source, ok := p.Source.(map[string]interface{})
@@ -275,6 +274,15 @@ func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Pat
 	}
 
 	return filters.ParsePath(pathSegments, rootClass)
+}
+
+func principalFromContext(ctx context.Context) *models.Principal {
+	principal := ctx.Value("principal")
+	if principal == nil {
+		return nil
+	}
+
+	return principal.(*models.Principal)
 }
 
 func extractLimit(args map[string]interface{}) (*int, error) {

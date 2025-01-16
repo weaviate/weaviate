@@ -12,9 +12,11 @@
 package authz
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/client/graphql"
@@ -23,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -35,8 +38,24 @@ func TestAuthZGraphQLRefs(t *testing.T) {
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, teardown := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer teardown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	compose, err := docker.
+		New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		Start(ctx)
+
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
 
 	articlesCls := articles.ArticlesClass()
 	paragraphsCls := articles.ParagraphsClass()

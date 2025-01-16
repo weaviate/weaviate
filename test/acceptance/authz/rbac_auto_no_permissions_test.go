@@ -32,8 +32,8 @@ func TestCollectEndpoints(t *testing.T) {
 }
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
-	adminKey := "admin-key"
-	adminUser := "admin-user"
+	adminKey := "admin-Key"
+	adminUser := "admin-User"
 	customKey := "custom-key"
 	customUser := "custom-user"
 
@@ -78,7 +78,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{className}", className)
 		url = strings.ReplaceAll(url, "{tenantName}", "Tenant1")
 		url = strings.ReplaceAll(url, "{shardName}", "Shard1")
-		url = strings.ReplaceAll(url, "{id}", "admin-user")
+		url = strings.ReplaceAll(url, "{id}", "admin-User")
 		url = strings.ReplaceAll(url, "{backend}", "filesystem")
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 

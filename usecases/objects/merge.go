@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -72,9 +71,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
 				m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
 				return &Error{"not found", StatusNotFound, err}
-			}
-			if errors.As(err, &authzerrs.Forbidden{}) {
-				return &Error{"forbidden", StatusForbidden, err}
 			}
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}

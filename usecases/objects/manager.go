@@ -45,6 +45,7 @@ type schemaManager interface {
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
+	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
 	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
