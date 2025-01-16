@@ -44,8 +44,8 @@ func TestAuthzAutoTenantActivation(t *testing.T) {
 
 	cls := articles.ParagraphsClass()
 	tenant := "tenant"
-	obj := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000001").WithTenant(tenant).Object()
-	obj2 := articles.NewParagraph().WithID("00000000-0000-0000-0000-000000000002").WithTenant(tenant).Object()
+	obj := articles.NewParagraph().WithID(UUID1).WithTenant(tenant).Object()
+	obj2 := articles.NewParagraph().WithID(UUID2).WithTenant(tenant).Object()
 
 	defer func() {
 		helper.DeleteClassWithAuthz(t, cls.Class, adminAuth)
