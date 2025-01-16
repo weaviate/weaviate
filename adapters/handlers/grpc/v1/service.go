@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+	"github.com/weaviate/weaviate/entities/versioned"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
@@ -152,18 +155,20 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	ctx = classcache.ContextWithClassCache(ctx)
 
-	knownClasses := map[string]*models.Class{}
+	// we need to save the class two times:
+	// - to check if we already authorized the class+shard combination and if yes skip the auth, this is indexed by
+	//   a combination of class+shard
+	// - to pass down the stack to reuse, index by classname so it can be found easily
+	knownClasses := map[string]versioned.Class{}
+	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		name := classname + "#" + shard
-		class, ok := knownClasses[name]
+		classTenantName := classname + "#" + shard
+		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
 			return class, nil
-		}
-
-		if err := s.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(classname, shard)...); err != nil {
-			return nil, err
 		}
 
 		// batch is upsert
@@ -174,10 +179,13 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		if err := s.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
 			return nil, err
 		}
-		class = s.schemaManager.ReadOnlyClass(classname)
-
-		knownClasses[name] = class
-		return class, nil
+		vClass, err := s.schemaManager.GetCachedClass(ctx, principal, classname)
+		if err != nil {
+			return nil, err
+		}
+		knownClasses[classname] = vClass[classname]
+		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
+		return vClass[classname].Class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, classGetter)
 
@@ -198,7 +206,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
 	all := "ALL"
-	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, []*string{&all}, replicationProperties)
+	response, err := s.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, []*string{&all}, replicationProperties, knownClasses)
 	if err != nil {
 		return nil, err
 	}
