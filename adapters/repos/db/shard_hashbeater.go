@@ -12,21 +12,14 @@
 package db
 
 import (
-	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -39,279 +32,7 @@ import (
 
 const propagationLimitPerHashbeatIteration = 100_000
 
-func (s *Shard) initAsyncReplication() error {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-	if bucket.GetSecondaryIndices() < 2 {
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("secondary index for token ranges is not available")
-		return nil
-	}
-
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	s.asyncReplicationCancelFunc = cancelFunc
-
-	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
-		return err
-	}
-
-	// load the most recent hashtree file
-	dirEntries, err := os.ReadDir(s.pathHashTree())
-	if err != nil {
-		return err
-	}
-
-	for i := len(dirEntries) - 1; i >= 0; i-- {
-		dirEntry := dirEntries[i]
-
-		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
-			continue
-		}
-
-		hashtreeFilename := filepath.Join(s.pathHashTree(), dirEntry.Name())
-
-		if s.hashtree != nil {
-			err := os.Remove(hashtreeFilename)
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("deleting older hashtree file %q: %v", hashtreeFilename, err)
-			continue
-		}
-
-		f, err := os.OpenFile(hashtreeFilename, os.O_RDONLY, os.ModePerm)
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
-			continue
-		}
-
-		// attempt to load hashtree from file
-		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
-		}
-
-		err = f.Close()
-		if err != nil {
-			return err
-		}
-
-		err = os.Remove(hashtreeFilename)
-		if err != nil {
-			return err
-		}
-	}
-
-	if s.hashtree != nil {
-		s.hashtreeFullyInitialized = true
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Info("hashtree successfully initialized")
-
-		s.initHashBeater(ctx)
-		return nil
-	}
-
-	s.hashtree, err = s.buildCompactHashTree()
-	if err != nil {
-		return err
-	}
-
-	// sync hashtree with current object states
-
-	enterrors.GoWrapper(func() {
-		objCount := 0
-		prevProgressLogging := time.Now()
-
-		// data inserted before v1.26 does not contain the required secondary index
-		// to support async replication thus such data is not inserted into the hashtree
-		err := bucket.IterateObjectsWith(ctx, 2, func(object *storobj.Object) error {
-			if time.Since(prevProgressLogging) > time.Second {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("object_count", objCount).
-					Infof("hashtree initialization is progress...")
-				prevProgressLogging = time.Now()
-			}
-
-			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
-			if err != nil {
-				return err
-			}
-
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			err = s.mayUpsertObjectHashTree(object, uuid, objectInsertStatus{})
-			if err != nil {
-				return err
-			}
-
-			objCount++
-
-			return nil
-		})
-		if err != nil {
-			if ctx.Err() != nil {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					Info("hashtree initialization stopped")
-				return
-			}
-
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("iterating objects during hashtree initialization: %v", err)
-			return
-		}
-
-		s.asyncReplicationRWMux.Lock()
-
-		if ctx.Err() != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Info("hashtree initialization stopped")
-			return
-		}
-
-		s.hashtreeFullyInitialized = true
-
-		s.index.logger.
-			WithField("action", "async_replication").
-			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Info("hashtree successfully initialized")
-
-		s.asyncReplicationRWMux.Unlock()
-
-		s.initHashBeater(ctx)
-	}, s.index.logger)
-
-	return nil
-}
-
-func (s *Shard) mayStopAsyncReplication() {
-	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
-
-	if s.hashtree == nil {
-		return
-	}
-
-	s.asyncReplicationCancelFunc()
-
-	if s.hashtreeFullyInitialized {
-		// the hashtree needs to be fully in sync with stored data before it can be persisted
-		s.dumpHashTree()
-	}
-
-	s.hashtree = nil
-	s.hashtreeFullyInitialized = false
-}
-
-func (s *Shard) UpdateAsyncReplication(_ context.Context, enabled bool) error {
-	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
-
-	if enabled {
-		if s.hashtree != nil {
-			return nil
-		}
-
-		return s.initAsyncReplication()
-	}
-
-	if s.hashtree == nil {
-		return nil
-	}
-
-	s.asyncReplicationCancelFunc()
-
-	s.hashtree = nil
-	s.hashtreeFullyInitialized = false
-
-	return nil
-}
-
-func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
-	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
-}
-
-func (s *Shard) dumpHashTree() error {
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
-
-	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x.ht", string(b[:])))
-
-	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-	defer f.Close()
-
-	w := bufio.NewWriter(f)
-
-	_, err = s.hashtree.Serialize(w)
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	err = w.Flush()
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	err = f.Sync()
-	if err != nil {
-		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
-	}
-
-	return nil
-}
-
-func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	if !s.hashtreeFullyInitialized {
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
-	}
-
-	// TODO (jeroiraz): reusable pool of digests slices
-	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
-
-	n, err := s.hashtree.Level(level, discriminant, digests)
-	if err != nil {
-		return nil, err
-	}
-
-	return digests[:n], nil
-}
-
-func (s *Shard) initHashBeater(ctx context.Context) {
+func (s *Shard) initHashBeater() {
 	enterrors.GoWrapper(func() {
 		s.index.logger.
 			WithField("action", "async_replication").
@@ -340,11 +61,11 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 
 		for it := 0; ; it++ {
 			select {
-			case <-ctx.Done():
+			case <-s.hashBeaterCtx.Done():
 				return
 			case <-t.C:
-				err := s.waitUntilObjectPropagationRequired(ctx)
-				if ctx.Err() != nil {
+				err := s.waitUntilObjectPropagationRequired(s.hashBeaterCtx)
+				if s.hashBeaterCtx.Err() != nil {
 					return
 				}
 				if err != nil {
@@ -357,8 +78,8 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 					return
 				}
 
-				stats, err := s.hashBeat(ctx)
-				if ctx.Err() != nil {
+				stats, err := s.hashBeat()
+				if s.hashBeaterCtx.Err() != nil {
 					return
 				}
 				if err != nil {
@@ -439,7 +160,7 @@ func (s *Shard) initHashBeater(ctx context.Context) {
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-s.hashBeaterCtx.Done():
 				s.objectPropagationNeededCond.Signal()
 				return
 			case <-t.C:
@@ -512,9 +233,9 @@ type hashBeatHostStats struct {
 	err                 error
 }
 
-func (s *Shard) hashBeat(ctx context.Context) (stats hashBeatStats, err error) {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
+func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
 
 	if s.hashtree == nil {
 		// handling the case of a hashtree being explicitly set to nil
@@ -523,7 +244,7 @@ func (s *Shard) hashBeat(ctx context.Context) (stats hashBeatStats, err error) {
 
 	diffCalculationStart := time.Now()
 
-	replyCh, _, err := s.index.replicator.CollectShardDifferences(ctx, s.name, s.hashtree)
+	replyCh, _, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree)
 	if err != nil {
 		return stats, fmt.Errorf("collecting differences: %w", err)
 	}
@@ -554,8 +275,8 @@ func (s *Shard) hashBeat(ctx context.Context) (stats hashBeatStats, err error) {
 		var propagationErr error
 
 		for {
-			if ctx.Err() != nil {
-				return stats, ctx.Err()
+			if s.hashBeaterCtx.Err() != nil {
+				return stats, s.hashBeaterCtx.Err()
 			}
 
 			initialToken, finalToken, err := rangeReader.Next()
@@ -568,7 +289,7 @@ func (s *Shard) hashBeat(ctx context.Context) (stats hashBeatStats, err error) {
 			}
 
 			localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
-				ctx,
+				s.hashBeaterCtx,
 				s.name,
 				shardDiffReader.Host,
 				initialToken,
@@ -767,4 +488,16 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	// the local shard may receive recent objects when remote shard propagates them
 
 	return localObjects, remoteObjects, propagations, nil
+}
+
+func (s *Shard) mayStopHashBeater() {
+	s.hashtreeRWMux.RLock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+	}
+	s.hashtreeRWMux.RUnlock()
+}
+
+func (s *Shard) stopHashBeater() {
+	s.hashBeaterCancelFunc()
 }
