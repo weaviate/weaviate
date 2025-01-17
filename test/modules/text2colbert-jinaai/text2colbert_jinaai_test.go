@@ -79,7 +79,7 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 				t.Run("perform vector search with grpc", func(t *testing.T) {
 					companies.PerformVectorSearchGRPCTest(t, host, class.Class)
 				})
-				// hybird search with gql
+				// hybrid search with gql
 				t.Run("perform hybrid search with gql", func(t *testing.T) {
 					companies.PerformHybridSearchTest(t, host, class.Class)
 				})
