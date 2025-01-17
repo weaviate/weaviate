@@ -142,6 +142,7 @@ type ShardLike interface {
 	extendDimensionTrackerLSM(dimLength int, docID uint64) error
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics(ctx context.Context)
+	resetDimensionsLSM() error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
