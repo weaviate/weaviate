@@ -258,15 +258,15 @@ func (s *Shard) pathLSM() string {
 	return path.Join(s.path(), "lsm")
 }
 
+func (s *Shard) pathHashTree() string {
+	return path.Join(s.path(), "hashtree")
+}
+
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
-}
-
-func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), "hashtree")
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {

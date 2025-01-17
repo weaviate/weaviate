@@ -24,6 +24,7 @@ import (
 	tailorincgraphql "github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -112,8 +113,7 @@ func setupGraphQLHandlers(
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		ctx := params.HTTPRequest.Context()
-		ctx = context.WithValue(ctx, "principal", principal)
+		ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
