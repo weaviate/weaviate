@@ -105,14 +105,17 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 	references, err := h.manager.AddReferences(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		switch err.(type) {
-		case autherrs.Forbidden:
+		var forbidden autherrs.Forbidden
+		var errInvalidUserInput objects.ErrInvalidUserInput
+		var errMultiTenancy objects.ErrMultiTenancy
+		switch {
+		case errors.As(err, &forbidden):
 			return batch.NewBatchReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case objects.ErrInvalidUserInput:
+		case errors.As(err, &errInvalidUserInput):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case objects.ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
