@@ -21,6 +21,9 @@ import (
 )
 
 func (s *Shard) Queue() *IndexQueue {
+	if s.queue == nil {
+		return &IndexQueue{}
+	}
 	return s.queue
 }
 
