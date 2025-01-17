@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -40,7 +41,8 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	ctx = classcache.ContextWithClassCache(ctx)
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
 	if err != nil {
-		if _, ok := err.(autherrs.Forbidden); ok {
+		var forbidden autherrs.Forbidden
+		if errors.As(err, &forbidden) {
 			return err
 		}
 		return NewErrInvalidUserInput("invalid object: %v", err)

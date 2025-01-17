@@ -65,8 +65,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
+		var errMultiTenancy ErrMultiTenancy
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
 			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
@@ -83,9 +84,18 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	var schemaVersion uint64
-	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, schema.UppercaseClassName(updates.Class))
+	if err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
+	}
+
+	maxSchemaVersion := vclasses[schema.UppercaseClassName(updates.Class)].Version
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, vclasses, updates)
+	if err != nil {
+		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
+	}
+	if schemaVersion > maxSchemaVersion {
+		maxSchemaVersion = schemaVersion
 	}
 
 	var propertiesToDelete []string
@@ -107,7 +117,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, schemaVersion)
+	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, maxSchemaVersion)
 }
 
 // patchObject patches an existing object obj with updates

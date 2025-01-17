@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,7 +31,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authZerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -62,8 +63,9 @@ func setupGraphQLHandlers(
 		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
-			switch err.(type) {
-			case errors.Forbidden:
+			var forbidden authZerrors.Forbidden
+			switch {
+			case errors.As(err, &forbidden):
 				return graphql.NewGraphqlPostForbidden().
 					WithPayload(errPayloadFromSingleErr(err))
 			default:

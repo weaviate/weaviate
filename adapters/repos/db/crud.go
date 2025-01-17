@@ -13,11 +13,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -90,7 +90,7 @@ func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	for indexID, queries := range byIndex {
 		indexRes, err := db.indices[indexID].multiObjectByID(ctx, queries, tenant)
 		if err != nil {
-			return nil, errors.Wrapf(err, "index %q", indexID)
+			return nil, fmt.Errorf("index %q: %w", indexID, err)
 		}
 
 		for i, obj := range indexRes {
@@ -142,7 +142,7 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			case objects.ErrMultiTenancy:
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
-				return nil, errors.Wrapf(err, "search index %s", index.ID())
+				return nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 			}
 		}
 
@@ -172,11 +172,12 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 
 	obj, err := idx.objectByID(ctx, id, props, addl, repl, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		var errMultiTenancy objects.ErrMultiTenancy
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", idx.ID(), err))
 		default:
-			return nil, errors.Wrapf(err, "search index %s", idx.ID())
+			return nil, fmt.Errorf("search index %s: %w", idx.ID(), err)
 		}
 	}
 	var r *search.Result
@@ -195,7 +196,7 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	res, err := refcache.NewResolver(refcache.NewCacher(db, db.logger, tenant)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
-		return nil, errors.Wrap(err, "resolve cross-refs")
+		return nil, fmt.Errorf("resolve cross-refs: %w", err)
 	}
 
 	return &res[0], nil
@@ -229,7 +230,7 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 			case objects.ErrMultiTenancy:
 				return false, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
-				return false, errors.Wrapf(err, "search index %s", index.ID())
+				return false, fmt.Errorf("search index %s: %w", index.ID(), err)
 			}
 		}
 		if ok {
@@ -266,7 +267,7 @@ func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 
 	err := idx.mergeObject(ctx, merge, repl, tenant, schemaVersion)
 	if err != nil {
-		return errors.Wrapf(err, "merge into index %s", idx.ID())
+		return fmt.Errorf("merge into index %s: %w", idx.ID(), err)
 	}
 
 	return nil
