@@ -70,9 +70,18 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	var schemaVersion uint64
-	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
+		return nil, err
+	}
+
+	maxSchemaVersion := vclasses[className].Version
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, vclasses, updates)
+	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+	}
+	if schemaVersion > maxSchemaVersion {
+		maxSchemaVersion = schemaVersion
 	}
 
 	m.logger.
@@ -96,26 +105,21 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-
 	vclass := vclasses[className]
 	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
 	}
 
 	vectors, multiVectors, err := dto.GetVectors(updates.Vectors)
 	if err != nil {
 		return nil, fmt.Errorf("put object: cannot get vectors: %w", err)
 	}
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, schemaVersion)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

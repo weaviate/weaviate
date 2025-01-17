@@ -213,15 +213,14 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	// Note: this data would fit the "Set" type better, but since the "Map" type
-	// is currently optimized better, it is more efficient to use a Map here.
 	err := s.store.CreateOrLoadBucket(ctx,
-		helpers.DimensionsBucketLSM,
+		name,
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
@@ -229,6 +228,20 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
+	if err != nil {
+		return fmt.Errorf("create dimensions bucket: %w", err)
+	}
+	return nil
+}
+
+func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if err := s.isReadOnly(); err != nil {
+		return err
+	}
+
+	// Note: this data would fit the "Set" type better, but since the "Map" type
+	// is currently optimized better, it is more efficient to use a Map here.
+	err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}

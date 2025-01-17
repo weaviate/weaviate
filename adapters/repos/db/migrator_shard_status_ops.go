@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -152,7 +153,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 			if err := m.cloud.Upload(ctx, class, name, m.nodeId); err != nil {
 				m.logger.WithFields(logrus.Fields{
-					"action": "upload_tenant_from_cloud",
+					"action": "upload_tenant_to_cloud",
 					"error":  err,
 					"name":   class,
 					"tenant": name,
