@@ -12,11 +12,12 @@
 package adminlist
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authZErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func Test_AdminList_Authorizer(t *testing.T) {
@@ -32,8 +33,10 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "R", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
-				"should have the correct err msg")
+
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with a nil principal", func(t *testing.T) {
@@ -44,8 +47,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 
 			principal := (*models.Principal)(nil)
 			err := New(cfg).Authorize(principal, "R", "things")
-			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "R", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "anonymous")
 		})
 
 		t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
@@ -61,8 +65,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "R", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with a configured admin user, it allows the request", func(t *testing.T) {
@@ -128,8 +133,10 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 		err := New(cfg).Authorize(principal, "R", "things")
-		assert.Equal(t, errors.NewForbidden(principal, "R", "things"), err,
-			"should have the correct err msg")
+		assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+		assert.Contains(t, err.Error(), "forbidden")
+		assert.Contains(t, err.Error(), "posse")
+		assert.Contains(t, err.Error(), "alice")
 	})
 
 	t.Run("with a configured admin group, it allows the request", func(t *testing.T) {
@@ -226,8 +233,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 
 			principal := (*models.Principal)(nil)
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "anonymous")
 		})
 
 		t.Run("with no users configured at all", func(t *testing.T) {
@@ -241,8 +249,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
@@ -258,8 +267,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with an empty user, it denies the request", func(t *testing.T) {
@@ -275,8 +285,8 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
 		})
 
 		t.Run("with a configured admin user, it allows the request", func(t *testing.T) {
@@ -310,8 +320,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with anonymous on the read-only list and a nil principal", func(t *testing.T) {
@@ -325,8 +336,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 
 			principal := (*models.Principal)(nil)
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "anonymous")
 		})
 
 		t.Run("with a non-configured group, it denies the request", func(t *testing.T) {
@@ -344,8 +356,10 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				},
 			}
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "posse")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with an empty group, it denies the request", func(t *testing.T) {
@@ -361,8 +375,9 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Groups:   []string{},
 			}
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
 		})
 
 		t.Run("with a configured admin group, it allows the request", func(t *testing.T) {
@@ -401,8 +416,10 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			err := New(cfg).Authorize(principal, "create", "things")
-			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
-				"should have the correct err msg")
+			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
+			assert.Contains(t, err.Error(), "forbidden")
+			assert.Contains(t, err.Error(), "johndoe")
+			assert.Contains(t, err.Error(), "posse")
 		})
 
 		t.Run("with a configured admin user and non-configured group, it allows the request", func(t *testing.T) {
