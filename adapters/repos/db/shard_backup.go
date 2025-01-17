@@ -54,9 +54,12 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	}
 
 	// pause indexing
-	s.queue.Pause()
-	for _, q := range s.Queues() {
-		q.Pause()
+	if s.hasTargetVectors() {
+		for _, q := range s.Queues() {
+			q.Pause()
+		}
+	} else {
+		s.queue.Pause()
 	}
 
 	if s.hasTargetVectors() {
@@ -121,9 +124,12 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	g.Go(func() error {
-		s.queue.Resume()
-		for _, q := range s.Queues() {
-			q.Resume()
+		if s.hasTargetVectors() {
+			for _, q := range s.Queues() {
+				q.Resume()
+			}
+		} else {
+			s.queue.Resume()
 		}
 		return nil
 	})
