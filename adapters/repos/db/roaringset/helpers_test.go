@@ -148,7 +148,7 @@ func TestBitmapFactory(t *testing.T) {
 		expPrefilledMaxId := maxId + defaultIdIncrement
 		expPrefilledCardinality := int(maxId + defaultIdIncrement + 1)
 
-		bm, release := bmf.GetBitmap()
+		bm, release := bmf.GetPrefilledBitmap()
 		defer release()
 
 		require.NotNil(t, bm)
@@ -162,7 +162,7 @@ func TestBitmapFactory(t *testing.T) {
 		expPrefilledMaxId := bmf.prefilled.Maximum()
 
 		maxId += 10
-		bm1, release1 := bmf.GetBitmap()
+		bm1, release1 := bmf.GetPrefilledBitmap()
 		defer release1()
 
 		require.NotNil(t, bm1)
@@ -172,7 +172,7 @@ func TestBitmapFactory(t *testing.T) {
 		assert.Equal(t, int(maxId)+1, bm1.GetCardinality())
 
 		maxId += (defaultIdIncrement - 10)
-		bm2, release2 := bmf.GetBitmap()
+		bm2, release2 := bmf.GetPrefilledBitmap()
 		defer release2()
 
 		require.NotNil(t, bm2)
@@ -186,7 +186,7 @@ func TestBitmapFactory(t *testing.T) {
 		maxId += 1
 		expPrefilledMaxId := maxId + defaultIdIncrement
 
-		bm, release := bmf.GetBitmap()
+		bm, release := bmf.GetPrefilledBitmap()
 		defer release()
 
 		require.NotNil(t, bm)

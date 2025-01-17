@@ -73,17 +73,27 @@ func NewBitmapFactory(maxIdGetter MaxIdGetterFunc) *BitmapFactory {
 	}
 }
 
-// GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
+// GetPrefilledBitmap returns a prefilled bitmap, which is cloned from a shared internal.
 // This method is safe to call concurrently. The purpose behind sharing an
 // internal bitmap, is that a Clone() operation is cheaper than prefilling
 // a bitmap up to <maxDocID>
-func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
-	bitmap, release, removeRange := bmf.getBitmap()
+func (bmf *BitmapFactory) GetPrefilledBitmap() (cloned *sroar.Bitmap, release func()) {
+	bitmap, release, removeRange := bmf.getPrefilledBitmap()
 	bitmap.RemoveRange(removeRange[0], removeRange[1])
 	return bitmap, release
 }
 
-func (bmf *BitmapFactory) getBitmap() (cloned *sroar.Bitmap, release func(), removeRange [2]uint64) {
+func (bmf *BitmapFactory) GetEmptyBitmap() (empty *sroar.Bitmap, release func()) {
+	bmf.lock.RLock()
+	l := bmf.prefilled.LenInBytes()
+	bmf.lock.RUnlock()
+
+	buf, release := bmf.bufPool.Get(l)
+	empty = sroar.NewBitmap().CloneToBuf(buf)
+	return
+}
+
+func (bmf *BitmapFactory) getPrefilledBitmap() (cloned *sroar.Bitmap, release func(), removeRange [2]uint64) {
 	bmf.lock.RLock()
 
 	maxId := bmf.maxIdGetter()

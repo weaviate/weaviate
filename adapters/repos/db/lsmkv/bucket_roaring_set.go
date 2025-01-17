@@ -15,6 +15,7 @@ import (
 	"errors"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -96,4 +97,54 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	}
 
 	return layers.Flatten(false), nil
+}
+
+func (b *Bucket) RoaringSetGetBuffered(key []byte) (bm *sroar.Bitmap, release func(), err error) {
+	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
+		return nil, nil, err
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	layers, err := b.disk.roaringSetGet(key)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	useBufferedBitmap := len(layers) > 1
+
+	if b.flushing != nil {
+		flushing, err := b.flushing.roaringSetGet(key)
+		if err != nil {
+			if !errors.Is(err, lsmkv.NotFound) {
+				return nil, nil, err
+			}
+		} else {
+			layers = append(layers, flushing)
+		}
+	}
+
+	active, err := b.active.roaringSetGet(key)
+	if err != nil {
+		if !errors.Is(err, lsmkv.NotFound) {
+			return nil, nil, err
+		}
+	} else {
+		layers = append(layers, active)
+	}
+
+	release = func() {}
+	if useBufferedBitmap {
+		var empty *sroar.Bitmap
+		empty, release = b.bitmapFactory.GetEmptyBitmap()
+
+		layer := roaringset.BitmapLayer{Additions: empty, Deletions: empty}
+		tmpLayers := make(roaringset.BitmapLayers, 0, len(layers)+1)
+		tmpLayers = append(tmpLayers, layer)
+		tmpLayers = append(tmpLayers, layers...)
+		layers = tmpLayers
+	}
+
+	return layers.Flatten(false), release, nil
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -133,6 +134,8 @@ type Bucket struct {
 	// introduces latency of segment availability, for the tradeoff of
 	// ensuring segment files have integrity before reading them.
 	disableChecksumValidation bool
+
+	bitmapFactory *roaringset.BitmapFactory
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }

@@ -29,7 +29,7 @@ type RowReaderRoaringSet struct {
 	value         []byte
 	operator      filters.Operator
 	newCursor     func() lsmkv.CursorRoaringSet
-	getter        func(key []byte) (*sroar.Bitmap, error)
+	getter        func(key []byte) (*sroar.Bitmap, func(), error)
 	bitmapFactory *roaringset.BitmapFactory
 }
 
@@ -39,7 +39,6 @@ type RowReaderRoaringSet struct {
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
 	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderRoaringSet {
-	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
 	if keyOnly {
 		newCursor = bucket.CursorRoaringSetKeyOnly
@@ -49,7 +48,7 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 		value:         value,
 		operator:      operator,
 		newCursor:     newCursor,
-		getter:        getter,
+		getter:        bucket.RoaringSetGetBuffered,
 		bitmapFactory: bitmapFactory,
 	}
 }
@@ -98,26 +97,27 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	v, err := rr.equalHelper(ctx)
+	v, release, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	_, err = readFn(rr.value, v, noopRelease)
+	_, err = readFn(rr.value, v, release)
 	return err
 }
 
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	v, err := rr.equalHelper(ctx)
+	v, release, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	inverted, release := rr.bitmapFactory.GetBitmap()
+	inverted, release2 := rr.bitmapFactory.GetPrefilledBitmap()
 	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
-	_, err = readFn(rr.value, inverted, release)
+	release()
+	_, err = readFn(rr.value, inverted, release2)
 	return err
 }
 
@@ -232,9 +232,9 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 }
 
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
-func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, error) {
+func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, func(), error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return rr.getter(rr.value)
