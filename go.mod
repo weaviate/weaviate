@@ -49,7 +49,7 @@ require (
 	github.com/KimMachineGun/automemlimit v0.7.0
 	github.com/armon/go-metrics v0.4.1
 	github.com/aws/aws-sdk-go-v2 v1.33.0
-	github.com/aws/aws-sdk-go-v2/config v1.28.10
+	github.com/aws/aws-sdk-go-v2/config v1.29.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.53
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.1
 	github.com/casbin/casbin/v2 v2.103.0
