@@ -188,15 +188,6 @@ func (s *Shard) initAsyncReplication() error {
 
 		s.asyncReplicationRWMux.Lock()
 
-		if ctx.Err() != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Info("hashtree initialization stopped")
-			return
-		}
-
 		s.hashtreeFullyInitialized = true
 
 		s.index.logger.
