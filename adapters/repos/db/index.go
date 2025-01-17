@@ -1056,10 +1056,12 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		var errMultiTenancy objects.ErrMultiTenancy
+		var forbidden authErrs.Forbidden
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case authErrs.Forbidden:
+		case errors.As(err, &forbidden):
 			return nil, fmt.Errorf("determine shard: %w", err)
 		default:
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
