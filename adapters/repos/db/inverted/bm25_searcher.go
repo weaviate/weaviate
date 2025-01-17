@@ -457,7 +457,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	if filterDocIds != nil {
 		for _, docIDs := range filteredDocIDsThread {
 			if docIDs != nil {
-				filteredDocIDs.OrConc(docIDs, concurrency.NUMCPU_2)
+				filteredDocIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
 			}
 		}
 	}

@@ -278,13 +278,13 @@ func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *s
 	// (pread cursor use buffers to read entire nodes from file, therefore nodes already read
 	// are later overwritten with nodes being read later)
 	additions := additionsLeft.Clone()
-	additions.AndNotConc(nc.deletionsRight, concurrency.NUMCPU_2)
-	additions.OrConc(additionsRight, concurrency.NUMCPU_2)
+	additions.AndNotConc(nc.deletionsRight, concurrency.SROAR_MERGE)
+	additions.OrConc(additionsRight, concurrency.SROAR_MERGE)
 
 	var deletions *sroar.Bitmap
 	if key == 0 {
 		deletions = nc.deletionsLeft.Clone()
-		deletions.OrConc(nc.deletionsRight, concurrency.NUMCPU_2)
+		deletions.OrConc(nc.deletionsRight, concurrency.SROAR_MERGE)
 	}
 
 	return roaringset.BitmapLayer{Additions: additions, Deletions: deletions}

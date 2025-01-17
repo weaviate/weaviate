@@ -168,7 +168,7 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	}
 
 	for i := 1; i < len(dbms); i++ {
-		mergeFn(dbms[i].docIDs, concurrency.NUMCPU_2)
+		mergeFn(dbms[i].docIDs, concurrency.SROAR_MERGE)
 		dbms[i].release()
 	}
 	return dbms[0], nil

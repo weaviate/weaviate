@@ -116,7 +116,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	}
 
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(v, concurrency.NUMCPU_2)
+	inverted.AndNotConc(v, concurrency.SROAR_MERGE)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }

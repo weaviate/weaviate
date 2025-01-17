@@ -94,7 +94,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 
 	// Invert the Equal results for an efficient NotEqual
 	inverted, release := rr.bitmapFactory.GetBitmap()
-	inverted.AndNotConc(rr.transformToBitmap(v), concurrency.NUMCPU_2)
+	inverted.AndNotConc(rr.transformToBitmap(v), concurrency.SROAR_MERGE)
 	_, err = readFn(rr.value, inverted, release)
 	return err
 }

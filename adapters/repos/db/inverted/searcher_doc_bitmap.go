@@ -81,7 +81,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(docIDs, concurrency.NUMCPU_2)
+			out.docIDs.OrConc(docIDs, concurrency.SROAR_MERGE)
 			release()
 		}
 
@@ -139,7 +139,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.NUMCPU_2)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
 			release()
 		}
 
@@ -176,7 +176,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.release = release
 			isEmpty = false
 		} else {
-			out.docIDs.OrConc(ids, concurrency.NUMCPU_2)
+			out.docIDs.OrConc(ids, concurrency.SROAR_MERGE)
 			release()
 		}
 

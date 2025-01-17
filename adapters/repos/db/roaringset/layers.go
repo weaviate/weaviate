@@ -94,8 +94,8 @@ func (bml BitmapLayers) Flatten(clone bool) *sroar.Bitmap {
 	}
 
 	for i := 1; i < len(bml); i++ {
-		merged.AndNotConc(bml[i].Deletions, concurrency.NUMCPU_2)
-		merged.OrConc(bml[i].Additions, concurrency.NUMCPU_2)
+		merged.AndNotConc(bml[i].Deletions, concurrency.SROAR_MERGE)
+		merged.OrConc(bml[i].Additions, concurrency.SROAR_MERGE)
 	}
 
 	return merged
@@ -117,12 +117,12 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.AndNotConc(right.Deletions, concurrency.NUMCPU_2)
-	additions.OrConc(right.Additions, concurrency.NUMCPU_2)
+	additions.AndNotConc(right.Deletions, concurrency.SROAR_MERGE)
+	additions.OrConc(right.Additions, concurrency.SROAR_MERGE)
 
 	deletions := left.Deletions.Clone()
-	deletions.AndNotConc(right.Additions, concurrency.NUMCPU_2)
-	deletions.OrConc(right.Deletions, concurrency.NUMCPU_2)
+	deletions.AndNotConc(right.Additions, concurrency.SROAR_MERGE)
+	deletions.OrConc(right.Deletions, concurrency.SROAR_MERGE)
 
 	out.Additions = additions
 	out.Deletions = deletions
