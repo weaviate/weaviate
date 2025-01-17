@@ -65,8 +65,9 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
+		var errMultiTenancy ErrMultiTenancy
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
 			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
