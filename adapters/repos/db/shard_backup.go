@@ -53,8 +53,8 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 
-	s.queue.Pause()
 	// pause indexing
+	s.queue.Pause()
 	for _, q := range s.Queues() {
 		q.Pause()
 	}
