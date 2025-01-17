@@ -42,6 +42,13 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 	insertCounter := 0
 	for i, obj := range objectsBatch {
 		var props map[string]interface{}
+
+		class, err := authorizedGetClass(obj.Collection, obj.Tenant)
+		if err != nil {
+			objectErrors[insertCounter] = err
+			continue
+		}
+
 		if obj.Properties != nil {
 			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{
 				NonRefProperties:       obj.Properties.NonRefProperties,
@@ -53,11 +60,6 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
 				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
-			class, err := authorizedGetClass(obj.Collection, obj.Tenant)
-			if err != nil {
-				objectErrors[insertCounter] = err
-				continue
-			}
 			// If class is not in schema, continue as there is no ref to extract
 			if class != nil {
 				if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
@@ -71,8 +73,7 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			}
 		}
 
-		_, err := uuid.Parse(obj.Uuid)
-		if err != nil {
+		if _, err := uuid.Parse(obj.Uuid); err != nil {
 			objectErrors[i] = err
 			continue
 		}
