@@ -68,7 +68,6 @@ func TestAuthzSearchWithGRPC(t *testing.T) {
 		resp, err := grpcClient.Search(ctx, &protocol.SearchRequest{
 			Collection: articles.ArticlesClass().Class,
 		})
-		t.Log(err)
 		require.Nil(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Results, 1)

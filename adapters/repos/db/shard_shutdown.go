@@ -63,7 +63,8 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	).Unregister(ctx)
 	ec.Add(err)
 
-	s.mayStopAsyncReplication()
+	s.mayStopHashBeater()
+	s.mayCloseAndStoreHashTree()
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
