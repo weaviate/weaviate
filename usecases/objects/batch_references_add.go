@@ -17,18 +17,17 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 // AddReferences Class Instances in batch to the connected DB
@@ -81,7 +80,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
-	var mtTargetPaths []string
+	var shardsDataPaths []string
 	var schemaVersion uint64
 	for i, ref := range refs {
 		if ref.Err != nil {
@@ -99,12 +98,12 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			}
 		}
 
-		mtTargetPaths = append(mtTargetPaths, authorization.ShardsData(ref.To.Class, ref.Tenant)...)
+		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(ref.To.Class, ref.Tenant)...)
 	}
 
 	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
 	// the permission for everything, to not complicate things too much
-	if err := b.authorizer.Authorize(principal, authorization.READ, mtTargetPaths...); err != nil {
+	if err := b.authorizer.Authorize(principal, authorization.READ, shardsDataPaths...); err != nil {
 		return nil, err
 	}
 
