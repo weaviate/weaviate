@@ -144,10 +144,12 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if exists {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		switch err.(type) {
-		case ErrInvalidUserInput:
+		var errInvalidUserInput ErrInvalidUserInput
+		var errMultiTenancy ErrMultiTenancy
+		switch {
+		case errors.As(err, &errInvalidUserInput):
 			return "", err
-		case ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
 			if enterrors.IsTenantNotFound(err) {
