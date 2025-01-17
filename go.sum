@@ -394,8 +394,8 @@ github.com/ikawaha/kagome-dict-ko v0.2.1 h1:4vBxs9FhnrtCnCpM5J4niQIF8Ys2/p4xpy1p
 github.com/ikawaha/kagome-dict-ko v0.2.1/go.mod h1:37IdqtbE77c8xxVmsxtS4MIT5f78KZRDhiBOFfJ1wvw=
 github.com/ikawaha/kagome-dict/ipa v1.2.0 h1:lgehXOf2USDkBwGPEBD9sbbOBk3WlkhZ2zejPSLjIJA=
 github.com/ikawaha/kagome-dict/ipa v1.2.0/go.mod h1:LRtB3BXipG3Iu4V+KI/E1E7r9GMa79WgAH6IAW4wy6A=
-github.com/ikawaha/kagome/v2 v2.9.11 h1:5655Mj9t1KSwYyLercB7V9VvlI+uXdvQpaRUeUzHFp4=
-github.com/ikawaha/kagome/v2 v2.9.11/go.mod h1:IEyFbC0oCkMMaIvTAU3O4IrM5mK0AyWJwM41Tb4u77U=
+github.com/ikawaha/kagome/v2 v2.10.0 h1:gObyHxSPVudvHXHQecyVAv3DohIifx9MtA8ErXlx+1g=
+github.com/ikawaha/kagome/v2 v2.10.0/go.mod h1:IEyFbC0oCkMMaIvTAU3O4IrM5mK0AyWJwM41Tb4u77U=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/jessevdk/go-flags v1.4.0 h1:4IU2WS7AumrZ/40jfhf4QVDMsQwqA7VEHozFRrGARJA=
 github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
