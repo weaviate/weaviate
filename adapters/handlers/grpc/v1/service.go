@@ -68,6 +68,55 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	}
 }
 
+func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+	var result *pb.AggregateReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.aggregate(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+	before := time.Now()
+
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	parser := NewAggreagateParser(
+		s.classGetterWithAuthzFunc(principal),
+	)
+
+	params, err := parser.Aggregate(req)
+	if err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+
+	res, err := s.traverser.Aggregate(restCtx.AddPrincipalToContext(ctx, principal), principal, params)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate: %w", err)
+	}
+
+	replier := NewAggregateReplier()
+
+	result, err := replier.Aggregate(res)
+	if err != nil {
+		return nil, fmt.Errorf("prepare reply: %w", err)
+	}
+
+	reply := &pb.AggregateReply{
+		Took:   float32(time.Since(before).Seconds()),
+		Result: result,
+	}
+	return reply, nil
+}
+
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
 	before := time.Now()
 
