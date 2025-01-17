@@ -63,7 +63,7 @@ func (c *Client) Middleware(next http.Handler) http.Handler {
 
 		w.Write([]byte(
 			fmt.Sprintf(
-				`{"code":401,"message": "anonymous access not enabled. Please authenticate through one of the enabled auth schemas: [%s]" }`, strings.Join(authSchemas, ", "),
+				`{"code":401,"message": "anonymous access not enabled. Please authenticate through one of the available methods: [%s]" }`, strings.Join(authSchemas, ", "),
 			),
 		))
 	})
