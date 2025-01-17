@@ -138,6 +138,38 @@ func (p *CollectionsPermission) Permission() *models.Permission {
 	return &perm
 }
 
+type TenantsPermission models.Permission
+
+func NewTenantsPermission() *TenantsPermission {
+	return &TenantsPermission{}
+}
+
+func (p *TenantsPermission) WithAction(action string) *TenantsPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *TenantsPermission) WithCollection(collection string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *TenantsPermission) WithTenant(tenant string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Tenant = authorization.String(tenant)
+	return p
+}
+
+func (p *TenantsPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
+
 type DataPermission models.Permission
 
 func NewDataPermission() *DataPermission {
