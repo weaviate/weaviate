@@ -12,6 +12,7 @@
 package companies
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -147,6 +149,22 @@ func PerformVectorSearchTest(t *testing.T, host string, className string) {
 	assertResults(t, host, className, query)
 }
 
+func PerformVectorSearchGRPCTest(t *testing.T, host string, className string) {
+	req := protocol.SearchRequest{
+		Collection: className,
+		NearText: &protocol.NearTextSearch{
+			Query: []string{"SpaceX"},
+		},
+		Properties: &protocol.PropertiesRequest{
+			NonRefProperties: []string{"SpaceX"},
+		},
+		Metadata: &protocol.MetadataRequest{
+			Uuid: true,
+		},
+	}
+	assertResultsGRPC(t, host, &req)
+}
+
 func PerformHybridSearchTest(t *testing.T, host string, className string) {
 	query := fmt.Sprintf(`
 				{
@@ -168,6 +186,23 @@ func PerformHybridSearchTest(t *testing.T, host string, className string) {
 	assertResults(t, host, className, query)
 }
 
+func PerformHybridSearchGRPCTest(t *testing.T, host string, className string) {
+	req := protocol.SearchRequest{
+		Collection: className,
+		HybridSearch: &protocol.Hybrid{
+			Query: "SpaceX",
+			Alpha: 0.75,
+		},
+		Properties: &protocol.PropertiesRequest{
+			NonRefProperties: []string{"SpaceX"},
+		},
+		Metadata: &protocol.MetadataRequest{
+			Uuid: true,
+		},
+	}
+	assertResultsGRPC(t, host, &req)
+}
+
 func assertResults(t *testing.T, host string, className, query string) {
 	helper.SetupClient(host)
 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
@@ -182,5 +217,17 @@ func assertResults(t *testing.T, host string, className, query string) {
 		id, ok := additional["id"].(string)
 		require.True(t, ok)
 		require.NotEmpty(t, id)
+	}
+}
+
+func assertResultsGRPC(t *testing.T, host string, req *protocol.SearchRequest) {
+	helper.SetupGRPCClient(t, host)
+	client := helper.ClientGRPC(t)
+	resp, err := client.Search(context.Background(), req)
+	require.Nil(t, err)
+	require.Len(t, resp.Results, 2)
+	for _, res := range resp.Results {
+		assert.NotEmpty(t, res.GetProperties().GetNonRefProps().Fields["name"].GetTextValue())
+		assert.NotEmpty(t, res.GetMetadata().GetId())
 	}
 }
