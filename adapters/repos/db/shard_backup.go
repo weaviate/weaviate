@@ -59,7 +59,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 			q.PauseIndexing()
 		}
 	} else {
-		s.Queue().PauseIndexing()
+		if s.Queue() != nil {
+			s.Queue().PauseIndexing()
+		}
 	}
 
 	if s.hasTargetVectors() {
@@ -129,7 +131,9 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 				q.ResumeIndexing()
 			}
 		} else {
-			s.Queue().ResumeIndexing()
+			if s.Queue() != nil {
+				s.Queue().ResumeIndexing()
+			}
 		}
 		return nil
 	})
