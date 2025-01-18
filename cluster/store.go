@@ -142,6 +142,7 @@ type Config struct {
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
 
+	// 	AuthzController to manage RBAC commands and apply it to casbin
 	AuthzController authorization.Controller
 }
 

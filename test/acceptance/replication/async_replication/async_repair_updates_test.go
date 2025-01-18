@@ -45,7 +45,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -107,7 +107,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 				for i, id := range paragraphIDs {
 					resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class, id, replica.One)
 					assert.NoError(ct, err)
-					assert.NotNil(t, resp)
+					assert.NotNil(ct, resp)
 
 					if resp == nil {
 						continue

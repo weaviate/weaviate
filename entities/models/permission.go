@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster manage_data create_data read_data update_data delete_data read_nodes manage_roles read_roles manage_collections create_collections read_collections update_collections delete_collections]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes manage_roles read_roles create_collections read_collections update_collections delete_collections create_tenants read_tenants update_tenants delete_tenants]
 	Action *string `json:"action"`
 
 	// backups
@@ -50,6 +50,9 @@ type Permission struct {
 
 	// roles
 	Roles *PermissionRoles `json:"roles,omitempty"`
+
+	// tenants
+	Tenants *PermissionTenants `json:"tenants,omitempty"`
 }
 
 // Validate validates this permission
@@ -80,6 +83,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateTenants(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -90,7 +97,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","manage_data","create_data","read_data","update_data","delete_data","read_nodes","manage_roles","read_roles","manage_collections","create_collections","read_collections","update_collections","delete_collections"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","manage_roles","read_roles","create_collections","read_collections","update_collections","delete_collections","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -105,9 +112,6 @@ const (
 
 	// PermissionActionReadCluster captures enum value "read_cluster"
 	PermissionActionReadCluster string = "read_cluster"
-
-	// PermissionActionManageData captures enum value "manage_data"
-	PermissionActionManageData string = "manage_data"
 
 	// PermissionActionCreateData captures enum value "create_data"
 	PermissionActionCreateData string = "create_data"
@@ -130,9 +134,6 @@ const (
 	// PermissionActionReadRoles captures enum value "read_roles"
 	PermissionActionReadRoles string = "read_roles"
 
-	// PermissionActionManageCollections captures enum value "manage_collections"
-	PermissionActionManageCollections string = "manage_collections"
-
 	// PermissionActionCreateCollections captures enum value "create_collections"
 	PermissionActionCreateCollections string = "create_collections"
 
@@ -144,6 +145,18 @@ const (
 
 	// PermissionActionDeleteCollections captures enum value "delete_collections"
 	PermissionActionDeleteCollections string = "delete_collections"
+
+	// PermissionActionCreateTenants captures enum value "create_tenants"
+	PermissionActionCreateTenants string = "create_tenants"
+
+	// PermissionActionReadTenants captures enum value "read_tenants"
+	PermissionActionReadTenants string = "read_tenants"
+
+	// PermissionActionUpdateTenants captures enum value "update_tenants"
+	PermissionActionUpdateTenants string = "update_tenants"
+
+	// PermissionActionDeleteTenants captures enum value "delete_tenants"
+	PermissionActionDeleteTenants string = "delete_tenants"
 )
 
 // prop value enum
@@ -263,6 +276,25 @@ func (m *Permission) validateRoles(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Permission) validateTenants(formats strfmt.Registry) error {
+	if swag.IsZero(m.Tenants) { // not required
+		return nil
+	}
+
+	if m.Tenants != nil {
+		if err := m.Tenants.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("tenants")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("tenants")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this permission based on the context it is used
 func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -284,6 +316,10 @@ func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registr
 	}
 
 	if err := m.contextValidateRoles(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTenants(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -373,6 +409,22 @@ func (m *Permission) contextValidateRoles(ctx context.Context, formats strfmt.Re
 	return nil
 }
 
+func (m *Permission) contextValidateTenants(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Tenants != nil {
+		if err := m.Tenants.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("tenants")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("tenants")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // MarshalBinary interface implementation
 func (m *Permission) MarshalBinary() ([]byte, error) {
 	if m == nil {
@@ -435,9 +487,6 @@ type PermissionCollections struct {
 
 	// string or regex. if a specific collection name, if left empty it will be ALL or *
 	Collection *string `json:"collection,omitempty"`
-
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
-	Tenant *string `json:"tenant,omitempty"`
 }
 
 // Validate validates this permission collections
@@ -633,6 +682,46 @@ func (m *PermissionRoles) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 	var res PermissionRoles
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionTenants resources applicable for tenant actions
+//
+// swagger:model PermissionTenants
+type PermissionTenants struct {
+
+	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	Collection *string `json:"collection,omitempty"`
+
+	// string or regex. if a specific tenant name, if left empty it will be ALL or *
+	Tenant *string `json:"tenant,omitempty"`
+}
+
+// Validate validates this permission tenants
+func (m *PermissionTenants) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this permission tenants based on context it is used
+func (m *PermissionTenants) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionTenants) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
+	var res PermissionTenants
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

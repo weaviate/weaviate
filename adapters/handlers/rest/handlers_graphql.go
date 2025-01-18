@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,12 +25,13 @@ import (
 	tailorincgraphql "github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authZerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -61,8 +63,9 @@ func setupGraphQLHandlers(
 		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
-			switch err.(type) {
-			case errors.Forbidden:
+			var forbidden authZerrors.Forbidden
+			switch {
+			case errors.As(err, &forbidden):
 				return graphql.NewGraphqlPostForbidden().
 					WithPayload(errPayloadFromSingleErr(err))
 			default:
@@ -112,8 +115,7 @@ func setupGraphQLHandlers(
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		ctx := params.HTTPRequest.Context()
-		ctx = context.WithValue(ctx, "principal", principal)
+		ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
 		result := graphQL.Resolve(ctx, query,
 			operationName, variables)

@@ -58,6 +58,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -582,31 +583,31 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 }
 
 type IndexConfig struct {
-	RootPath                       string
-	ClassName                      schema.ClassName
-	QueryMaximumResults            int64
-	QueryNestedRefLimit            int64
-	ResourceUsage                  config.ResourceUsage
-	MemtablesFlushDirtyAfter       int
-	MemtablesInitialSizeMB         int
-	MemtablesMaxSizeMB             int
-	MemtablesMinActiveSeconds      int
-	MemtablesMaxActiveSeconds      int
-	SegmentsCleanupIntervalSeconds int
-	SeparateObjectsCompactions     bool
-	MaxSegmentSize                 int64
-	HNSWMaxLogSize                 int64
-	HNSWWaitForCachePrefill        bool
-	HNSWFlatSearchConcurrency      int
-	VisitedListPoolMaxSize         int
-	ReplicationFactor              *atomic.Int64
-	DeletionStrategy               string
-	AsyncReplicationEnabled        bool
-	AvoidMMap                      bool
-	DisableLazyLoadShards          bool
-	ForceFullReplicasSearch        bool
-
-	TrackVectorDimensions bool
+	RootPath                            string
+	ClassName                           schema.ClassName
+	QueryMaximumResults                 int64
+	QueryNestedRefLimit                 int64
+	ResourceUsage                       config.ResourceUsage
+	MemtablesFlushDirtyAfter            int
+	MemtablesInitialSizeMB              int
+	MemtablesMaxSizeMB                  int
+	MemtablesMinActiveSeconds           int
+	MemtablesMaxActiveSeconds           int
+	SegmentsCleanupIntervalSeconds      int
+	SeparateObjectsCompactions          bool
+	MaxSegmentSize                      int64
+	HNSWMaxLogSize                      int64
+	HNSWWaitForCachePrefill             bool
+	HNSWFlatSearchConcurrency           int
+	VisitedListPoolMaxSize              int
+	ReplicationFactor                   *atomic.Int64
+	DeletionStrategy                    string
+	AsyncReplicationEnabled             bool
+	AvoidMMap                           bool
+	DisableLazyLoadShards               bool
+	ForceFullReplicasSearch             bool
+	LSMEnableSegmentsChecksumValidation bool
+	TrackVectorDimensions               bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -667,7 +668,14 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	shardName, err := i.determineObjectShard(ctx, object.ID(), object.Object.Tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return fmt.Errorf("determine shard: %w", err)
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {
@@ -1048,9 +1056,13 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		var errMultiTenancy objects.ErrMultiTenancy
+		var forbidden authErrs.Forbidden
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case errors.As(err, &forbidden):
+			return nil, fmt.Errorf("determine shard: %w", err)
 		default:
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1139,7 +1151,14 @@ func (i *Index) multiObjectByID(ctx context.Context,
 	for pos, id := range query {
 		shardName, err := i.determineObjectShard(ctx, strfmt.UUID(id.ID), tenant)
 		if err != nil {
-			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+			switch err.(type) {
+			case objects.ErrMultiTenancy:
+				return nil, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+			case authErrs.Forbidden:
+				return nil, fmt.Errorf("determine shard: %w", err)
+			default:
+				return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
+			}
 		}
 
 		group := byShard[shardName]
@@ -1208,9 +1227,13 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		var errMultiTenancy objects.ErrMultiTenancy
+		var forbidden authErrs.Forbidden
+		switch {
+		case errors.As(err, &errMultiTenancy):
 			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case errors.As(err, &forbidden):
+			return false, fmt.Errorf("determine shard: %w", err)
 		default:
 			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1775,7 +1798,16 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		var errMultiTenancy objects.ErrMultiTenancy
+		var forbidden authErrs.Forbidden
+		switch {
+		case errors.As(err, &errMultiTenancy):
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case errors.As(err, &forbidden):
+			return fmt.Errorf("determine shard: %w", err)
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {
@@ -1945,7 +1977,14 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	shardName, err := i.determineObjectShard(ctx, merge.ID, tenant)
 	if err != nil {
-		return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		switch err.(type) {
+		case objects.ErrMultiTenancy:
+			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+		case authErrs.Forbidden:
+			return fmt.Errorf("determine shard: %w", err)
+		default:
+			return objects.NewErrInvalidUserInput("determine shard: %v", err)
+		}
 	}
 
 	if i.replicationEnabled() {

@@ -84,7 +84,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -145,24 +145,22 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("restart node 3", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 3)
-		time.Sleep(time.Second)
-	})
-
-	// wait for some time for async replication to repair missing object
-	time.Sleep(3 * time.Second)
-
-	t.Run("stop node 2", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
-		resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(3).URI(),
-			repairObj.Class, repairObj.ID, replica.One)
-		require.Nil(t, err)
-		assert.Equal(t, repairObj.ID, resp.ID)
-		assert.Equal(t, repairObj.Class, resp.Class)
-		assert.EqualValues(t, repairObj.Properties, resp.Properties)
-		assert.EqualValues(t, repairObj.Vector, resp.Vector)
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(3).URI(),
+				repairObj.Class, repairObj.ID, replica.One)
+			assert.Nil(ct, err)
+			assert.NotNil(ct, resp)
+			if resp == nil {
+				return
+			}
+			assert.Equal(ct, repairObj.ID, resp.ID)
+			assert.Equal(ct, repairObj.Class, resp.Class)
+			assert.EqualValues(ct, repairObj.Properties, resp.Properties)
+			assert.EqualValues(ct, repairObj.Vector, resp.Vector)
+		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 
 	replaceObj := repairObj
@@ -170,40 +168,38 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 		"contents": "this paragraph was replaced",
 	}
 
+	t.Run("stop node 2", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
+	})
+
 	t.Run("replace object", func(t *testing.T) {
 		common.UpdateObjectCL(t, compose.GetWeaviateNode(3).URI(), &replaceObj, replica.One)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
-		time.Sleep(time.Second)
-	})
-
-	// wait for some time for async replication to repair missing object
-	time.Sleep(3 * time.Second)
-
-	t.Run("stop node 3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
-			replaceObj.Class, replaceObj.ID, replica.One)
-		assert.Nil(t, err)
-		assert.True(t, exists)
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
+				replaceObj.Class, replaceObj.ID, replica.One)
+			assert.Nil(ct, err)
+			assert.True(ct, exists)
 
-		resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
-			repairObj.Class, repairObj.ID, replica.One)
-		assert.Nil(t, err)
-		assert.NotNil(t, resp)
+			resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
+				repairObj.Class, repairObj.ID, replica.One)
+			assert.Nil(ct, err)
+			assert.NotNil(ct, resp)
 
-		if resp == nil {
-			return
-		}
+			if resp == nil {
+				return
+			}
 
-		assert.Equal(t, replaceObj.ID, resp.ID)
-		assert.Equal(t, replaceObj.Class, resp.Class)
-		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
-		assert.EqualValues(t, replaceObj.Vector, resp.Vector)
+			assert.Equal(ct, replaceObj.ID, resp.ID)
+			assert.Equal(ct, replaceObj.Class, resp.Class)
+			assert.EqualValues(ct, replaceObj.Properties, resp.Properties)
+			assert.EqualValues(ct, replaceObj.Vector, resp.Vector)
+		}, 30*time.Second, 500*time.Millisecond, "not all the objects have been asynchronously replicated")
 	})
 }

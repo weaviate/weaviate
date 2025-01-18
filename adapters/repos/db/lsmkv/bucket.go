@@ -134,6 +134,11 @@ type Bucket struct {
 	// redundant obsolete data, that was deleted or updated in newer segments
 	// (currently supported only in buckets of REPLACE strategy)
 	segmentsCleanupInterval time.Duration
+
+	// optional validation of segment file checksums. Enabling this option
+	// introduces latency of segment availability, for the tradeoff of
+	// ensuring segment files have integrity before reading them.
+	enableChecksumValidation bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -185,17 +190,18 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                   dir,
-			strategy:              b.strategy,
-			mapRequiresSorting:    b.legacyMapSortingBeforeCompaction,
-			monitorCount:          b.monitorCount,
-			mmapContents:          b.mmapContents,
-			keepTombstones:        b.keepTombstones,
-			forceCompaction:       b.forceCompaction,
-			useBloomFilter:        b.useBloomFilter,
-			calcCountNetAdditions: b.calcCountNetAdditions,
-			maxSegmentSize:        b.maxSegmentSize,
-			cleanupInterval:       b.segmentsCleanupInterval,
+			dir:                      dir,
+			strategy:                 b.strategy,
+			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
+			monitorCount:             b.monitorCount,
+			mmapContents:             b.mmapContents,
+			keepTombstones:           b.keepTombstones,
+			forceCompaction:          b.forceCompaction,
+			useBloomFilter:           b.useBloomFilter,
+			calcCountNetAdditions:    b.calcCountNetAdditions,
+			maxSegmentSize:           b.maxSegmentSize,
+			cleanupInterval:          b.segmentsCleanupInterval,
+			enableChecksumValidation: b.enableChecksumValidation,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -302,9 +308,21 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	i := 0
 	cursor := b.Cursor()
 	defer cursor.Close()
+
+	return b.iterateObjectsCursor(ctx, cursor, f)
+}
+
+func (b *Bucket) IterateObjectsWith(ctx context.Context, desiredSecondaryIndexCount int, f func(object *storobj.Object) error) error {
+	cursor := b.CursorWith(desiredSecondaryIndexCount)
+	defer cursor.Close()
+
+	return b.iterateObjectsCursor(ctx, cursor, f)
+}
+
+func (b *Bucket) iterateObjectsCursor(ctx context.Context, cursor *CursorReplace, f func(object *storobj.Object) error) error {
+	i := 0
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
@@ -989,7 +1007,8 @@ func (b *Bucket) setNewActiveMemtable() error {
 		return errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
+		b.metrics, b.logger, b.enableChecksumValidation)
 	if err != nil {
 		return err
 	}

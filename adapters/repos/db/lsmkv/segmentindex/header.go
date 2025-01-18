@@ -19,11 +19,17 @@ import (
 	"io"
 )
 
-// HeaderSize describes the general offset in a segment until the data
-// starts, it is composed of 2 bytes for level, 2 bytes for version,
-// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
-// for the pointer to the index part
-const HeaderSize = 16
+const (
+	// HeaderSize describes the general offset in a segment until the data
+	// starts, it is composed of 2 bytes for level, 2 bytes for version,
+	// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
+	// for the pointer to the index part
+	HeaderSize = 16
+
+	// ChecksumSize describes the length of the segment file checksum.
+	// This is currently based on the CRC32 hashing algorithm.
+	ChecksumSize = 4
+)
 
 type Header struct {
 	Level            uint16
@@ -121,7 +127,7 @@ func ParseHeader(r io.Reader) (*Header, error) {
 		return nil, err
 	}
 
-	if out.Version != 0 {
+	if out.Version > CurrentSegmentVersion {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)
 	}
 

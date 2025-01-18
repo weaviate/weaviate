@@ -26,6 +26,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -40,14 +41,16 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	)
 	if object != nil {
 		class = object.Class
-		tenant = object.Tenant
+		if object.Tenant != "" {
+			tenant = object.Tenant
+		}
 	}
 
 	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(class, tenant)...); err != nil {
 		return nil, err
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
 		return nil, err
 	}
 
@@ -78,7 +81,12 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid object")
 	}
@@ -99,10 +107,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
 	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
@@ -146,10 +150,12 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if exists {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		switch err.(type) {
-		case ErrInvalidUserInput:
+		var errInvalidUserInput ErrInvalidUserInput
+		var errMultiTenancy ErrMultiTenancy
+		switch {
+		case errors.As(err, &errInvalidUserInput):
 			return "", err
-		case ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
 			if enterrors.IsTenantNotFound(err) {
@@ -157,6 +163,9 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 			}
 			return "", err
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return "", err
+			}
 			return "", NewErrInternal("%v", err)
 		}
 	}

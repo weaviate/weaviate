@@ -17,9 +17,8 @@ import (
 	"os"
 	"path/filepath"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
@@ -33,13 +32,13 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 		}
 	}()
 
-	s.mayStopHashBeater()
-
-	s.hashtreeRWMux.Lock()
-	if s.hashtree != nil {
-		s.closeHashTree()
-	}
-	s.hashtreeRWMux.Unlock()
+	// NOTE: async replication may be paused during backup
+	// only if the hashtree can be resumed but object updates
+	// or deletions requires special handling.
+	// Curently hashtree is not included into the backup files,
+	// the hashtree will be automatically regenerated when restoring
+	// s.mayStopHashBeater()
+	// s.mayCloseHashTree()
 
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
@@ -53,6 +52,18 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
+
+	// pause indexing
+	if s.hasTargetVectors() {
+		for _, q := range s.Queues() {
+			q.Pause()
+		}
+	} else {
+		if s.Queue() != nil {
+			s.Queue().Pause()
+		}
+	}
+
 	if s.hasTargetVectors() {
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
@@ -100,6 +111,10 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
+	// NOTE: async replication may be resumed if paused in HaltForTransfer method
+	//g.Go(func() error {
+	//	return s.UpdateAsyncReplication(ctx, s.index.asyncReplicationEnabled())
+	//})
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
 	})
@@ -108,6 +123,19 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Activate()
+	})
+
+	g.Go(func() error {
+		if s.hasTargetVectors() {
+			for _, q := range s.Queues() {
+				q.Resume()
+			}
+		} else {
+			if s.Queue() != nil {
+				s.Queue().Resume()
+			}
+		}
+		return nil
 	})
 
 	if err := g.Wait(); err != nil {

@@ -22,11 +22,11 @@ type GenerativeSearch struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/generative.proto.
+	// Deprecated: Do not use.
 	SingleResponsePrompt string `protobuf:"bytes,1,opt,name=single_response_prompt,json=singleResponsePrompt,proto3" json:"single_response_prompt,omitempty"`
-	// Deprecated: Marked as deprecated in v1/generative.proto.
+	// Deprecated: Do not use.
 	GroupedResponseTask string `protobuf:"bytes,2,opt,name=grouped_response_task,json=groupedResponseTask,proto3" json:"grouped_response_task,omitempty"`
-	// Deprecated: Marked as deprecated in v1/generative.proto.
+	// Deprecated: Do not use.
 	GroupedProperties []string                  `protobuf:"bytes,3,rep,name=grouped_properties,json=groupedProperties,proto3" json:"grouped_properties,omitempty"`
 	Single            *GenerativeSearch_Single  `protobuf:"bytes,4,opt,name=single,proto3" json:"single,omitempty"`
 	Grouped           *GenerativeSearch_Grouped `protobuf:"bytes,5,opt,name=grouped,proto3" json:"grouped,omitempty"`
@@ -64,7 +64,7 @@ func (*GenerativeSearch) Descriptor() ([]byte, []int) {
 	return file_v1_generative_proto_rawDescGZIP(), []int{0}
 }
 
-// Deprecated: Marked as deprecated in v1/generative.proto.
+// Deprecated: Do not use.
 func (x *GenerativeSearch) GetSingleResponsePrompt() string {
 	if x != nil {
 		return x.SingleResponsePrompt
@@ -72,7 +72,7 @@ func (x *GenerativeSearch) GetSingleResponsePrompt() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/generative.proto.
+// Deprecated: Do not use.
 func (x *GenerativeSearch) GetGroupedResponseTask() string {
 	if x != nil {
 		return x.GroupedResponseTask
@@ -80,7 +80,7 @@ func (x *GenerativeSearch) GetGroupedResponseTask() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/generative.proto.
+// Deprecated: Do not use.
 func (x *GenerativeSearch) GetGroupedProperties() []string {
 	if x != nil {
 		return x.GroupedProperties
@@ -109,7 +109,6 @@ type GenerativeProvider struct {
 
 	ReturnMetadata bool `protobuf:"varint,1,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
 	// Types that are assignable to Kind:
-	//
 	//	*GenerativeProvider_Anthropic
 	//	*GenerativeProvider_Anyscale
 	//	*GenerativeProvider_Aws
@@ -1872,7 +1871,6 @@ type GenerativeMetadata struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Kind:
-	//
 	//	*GenerativeMetadata_Anthropic
 	//	*GenerativeMetadata_Anyscale
 	//	*GenerativeMetadata_Aws

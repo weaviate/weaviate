@@ -68,7 +68,7 @@ case $CONFIG in
 
   local-single-node-rbac)
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -91,7 +91,7 @@ case $CONFIG in
   local-first-rbac)
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -118,7 +118,7 @@ case $CONFIG in
     GRPC_PORT=50052 \
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -149,7 +149,7 @@ case $CONFIG in
     GRPC_PORT=50053 \
     CONTEXTIONARY_URL=localhost:9999 \
     AUTHENTICATION_APIKEY_ENABLED=true \
-    AUTHORIZATION_ENABLE_RBAC=true \
+    AUTHORIZATION_RBAC_ENABLED=true \
     AUTHENTICATION_APIKEY_ALLOWED_KEYS='jane-secret-key,ian-secret-key,jp-secret-key' \
     AUTHENTICATION_APIKEY_USERS='jane@doe.com,ian-smith,jp-hwang' \
     AUTHORIZATION_ADMIN_USERS='jp-hwang' \
@@ -262,7 +262,7 @@ case $CONFIG in
         CLUSTER_DATA_BIND_PORT="7107" \
         CLUSTER_JOIN="localhost:7100" \
         PROMETHEUS_MONITORING_PORT="2115" \
-	PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
+        PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
         RAFT_PORT="8306" \
         RAFT_INTERNAL_RPC_PORT="8307" \
 	RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -637,6 +637,18 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-minio)
+    docker run \
+    -p 9000:9000 \
+    -p 9001:9001 \
+    --user $(id -u):$(id -g) \
+    --name minio1 \
+    -e "MINIO_ROOT_USER=aws_access_key" \
+    -e "MINIO_ROOT_PASSWORD=aws_secret_key" \
+    -v ${HOME}/minio/data:/data \
+    quay.io/minio/minio server /data --console-address ":9001"
+    ;;
+
   local-node-with-offload)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -654,6 +666,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       AWS_ACCESS_KEY_ID="aws_access_key"\
@@ -675,6 +688,7 @@ case $CONFIG in
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
       PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -706,6 +720,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
@@ -737,6 +752,7 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
@@ -770,6 +786,7 @@ case $CONFIG in
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
+        OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
         OFFLOAD_S3_ENDPOINT="http://localhost:9000"\

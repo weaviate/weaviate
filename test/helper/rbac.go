@@ -70,6 +70,15 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 	require.Nil(t, err)
 }
 
+func RevokeRoleFromUser(t *testing.T, key, role, user string) {
+	resp, err := Client(t).Authz.RevokeRole(
+		authz.NewRevokeRoleParams().WithID(user).WithBody(authz.RevokeRoleBody{Roles: []string{role}}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{
@@ -124,15 +133,39 @@ func (p *CollectionsPermission) WithCollection(collection string) *CollectionsPe
 	return p
 }
 
-func (p *CollectionsPermission) WithTenant(tenant string) *CollectionsPermission {
-	if p.Collections == nil {
-		p.Collections = &models.PermissionCollections{}
-	}
-	p.Collections.Tenant = authorization.String(tenant)
+func (p *CollectionsPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
+
+type TenantsPermission models.Permission
+
+func NewTenantsPermission() *TenantsPermission {
+	return &TenantsPermission{}
+}
+
+func (p *TenantsPermission) WithAction(action string) *TenantsPermission {
+	p.Action = authorization.String(action)
 	return p
 }
 
-func (p *CollectionsPermission) Permission() *models.Permission {
+func (p *TenantsPermission) WithCollection(collection string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *TenantsPermission) WithTenant(tenant string) *TenantsPermission {
+	if p.Tenants == nil {
+		p.Tenants = &models.PermissionTenants{}
+	}
+	p.Tenants.Tenant = authorization.String(tenant)
+	return p
+}
+
+func (p *TenantsPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }

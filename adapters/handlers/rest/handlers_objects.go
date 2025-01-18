@@ -20,12 +20,13 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -86,7 +87,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	}
 	className := getClassName(params.Body)
 
-	object, err := h.manager.AddObject(params.HTTPRequest.Context(),
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	object, err := h.manager.AddObject(ctx,
 		principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
@@ -96,7 +98,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		} else if errors.As(err, &autherrs.Forbidden{}) {
+		} else if errors.As(err, &authzerrs.Forbidden{}) {
 			return objects.NewObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else {
@@ -118,13 +120,11 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	className := getClassName(params.Body)
-	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body, nil)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := h.manager.ValidateObject(ctx, principal, params.Body, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsValidateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrInvalidUserInput:
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -132,6 +132,10 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return objects.NewObjectsValidateForbidden().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return objects.NewObjectsValidateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -146,6 +150,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	var additional additional.Properties
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 
 	// The process to extract additional params depends on knowing the schema
 	// which in turn requires a preflight load of the object. We can save this
@@ -157,9 +162,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		var class *models.Class
 		var err error
 		if params.ClassName == "" { // deprecated request without classname
-			class, err = h.manager.GetObjectsClass(params.HTTPRequest.Context(), principal, params.ID)
+			class, err = h.manager.GetObjectsClass(ctx, principal, params.ID)
 		} else {
-			class, err = h.manager.GetObjectClassFromName(params.HTTPRequest.Context(), principal, params.ClassName)
+			class, err = h.manager.GetObjectClassFromName(ctx, principal, params.ClassName)
 		}
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
@@ -184,20 +189,23 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 
 	tenant := getTenant(params.Tenant)
 
-	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
+	object, err := h.manager.GetObject(ctx, principal,
 		params.ClassName, params.ID, additional, replProps, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(object), err)
-		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsClassGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case uco.ErrNotFound:
+		var errNotFound uco.ErrNotFound
+		var errMultiTenancy uco.ErrMultiTenancy
+		switch {
+		case errors.As(err, &errNotFound):
 			return objects.NewObjectsClassGetNotFound()
-		case uco.ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return objects.NewObjectsClassGetForbidden().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return objects.NewObjectsClassGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -215,6 +223,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	if params.Class != nil && *params.Class != "" {
 		return h.query(params, principal)
 	}
@@ -227,19 +236,20 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 
 	var deprecationsRes []*models.Deprecation
 
-	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
+	list, err := h.manager.GetObjects(ctx, principal,
 		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional,
 		getTenant(params.Tenant))
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsListForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrMultiTenancy:
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return objects.NewObjectsListForbidden().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -264,6 +274,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 func (h *objectHandlers) query(params objects.ObjectsListParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	additional, err := parseIncludeParam(params.Include, h.modulesProvider, h.shouldIncludeGetObjectsModuleParams(), nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(*params.Class, err)
@@ -280,7 +291,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		Tenant:     params.Tenant,
 		Additional: additional,
 	}
-	resultSet, rerr := h.manager.Query(params.HTTPRequest.Context(), principal, &req)
+	resultSet, rerr := h.manager.Query(ctx, principal, &req)
 	if rerr != nil {
 		h.metricRequestsTotal.logError(req.Class, rerr)
 		switch rerr.Code {
@@ -321,6 +332,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -330,20 +342,21 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 
 	tenant := getTenant(params.Tenant)
 
-	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
+	err = h.manager.DeleteObject(ctx,
 		principal, params.ClassName, params.ID, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
-		case autherrs.Forbidden:
-			return objects.NewObjectsClassDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
 		case uco.ErrNotFound:
 			return objects.NewObjectsClassDeleteNotFound()
 		case uco.ErrMultiTenancy:
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
+			if errors.As(err, &authzerrs.Forbidden{}) {
+				return objects.NewObjectsClassDeleteForbidden().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
 			return objects.NewObjectsClassDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -356,6 +369,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	className := getClassName(params.Body)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
@@ -364,7 +378,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	object, err := h.manager.UpdateObject(params.HTTPRequest.Context(),
+	object, err := h.manager.UpdateObject(ctx,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
@@ -374,7 +388,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		} else if errors.As(err, &autherrs.Forbidden{}) {
+		} else if errors.As(err, &authzerrs.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else {
@@ -395,6 +409,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
@@ -404,7 +419,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 
 	tenant := getTenant(params.Tenant)
 
-	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
+	exists, objErr := h.manager.HeadObject(ctx,
 		principal, params.ClassName, params.ID, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
@@ -429,6 +444,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 }
 
 func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, principal *models.Principal) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	updates := params.Body
 	if updates == nil {
 		return objects.NewObjectsClassPatchBadRequest()
@@ -443,7 +459,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl)
+	objErr := h.manager.MergeObject(ctx, principal, updates, repl)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), objErr)
 		switch {
@@ -472,6 +488,7 @@ func (h *objectHandlers) addObjectReference(
 	params objects.ObjectsClassReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.AddReferenceInput{
 		Class:    params.ClassName,
 		ID:       params.ID,
@@ -487,7 +504,7 @@ func (h *objectHandlers) addObjectReference(
 	}
 	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.AddObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
+	objErr := h.manager.AddObjectReference(ctx, principal, &input, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
@@ -515,6 +532,7 @@ func (h *objectHandlers) addObjectReference(
 func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferencesPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.PutReferenceInput{
 		Class:    params.ClassName,
 		ID:       params.ID,
@@ -531,7 +549,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 
 	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl, tenant)
+	objErr := h.manager.UpdateObjectReferences(ctx, principal, &input, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch {
@@ -559,6 +577,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassReferencesDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
 	input := uco.DeleteReferenceInput{
 		Class:     params.ClassName,
 		ID:        params.ID,
@@ -574,7 +593,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 	}
 	tenant := getTenant(params.Tenant)
 
-	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl, tenant)
+	objErr := h.manager.DeleteObjectReference(ctx, principal, &input, repl, tenant)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(params.ClassName, objErr)
 		switch objErr.Code {
@@ -805,7 +824,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 		e.logUserError(className)
 	case errReplication, errUnregonizedProperty:
 		e.logUserError(className)
-	case autherrs.Forbidden:
+	case authzerrs.Forbidden:
 		e.logUserError(className)
 	case uco.ErrInvalidUserInput, uco.ErrNotFound:
 		e.logUserError(className)
@@ -819,7 +838,7 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	default:
 		if errors.As(err, &uco.ErrInvalidUserInput{}) ||
 			errors.As(err, &uco.ErrMultiTenancy{}) ||
-			errors.As(err, &autherrs.Forbidden{}) {
+			errors.As(err, &authzerrs.Forbidden{}) {
 			e.logUserError(className)
 		} else {
 			e.logServerError(className, err)

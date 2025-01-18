@@ -497,7 +497,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	case StrategyReplace:
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
 			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath)
+			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
 		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
@@ -574,7 +574,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	countNetAdditions := oldSegment.countNetAdditions
 
 	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions)
+		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -632,9 +632,15 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 	}
 
 	newSegment, err := newSegment(segmentPath, sg.logger, sg.metrics, nil,
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         false,
+			enableChecksumValidation: sg.enableChecksumValidation,
+		})
 	if err != nil {
-		return nil, fmt.Errorf("create new segment %q: %w", newSegment.path, err)
+		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)
 	}
 
 	sg.segments[segmentIdx] = newSegment

@@ -479,7 +479,7 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') && github.triggering_actor != 'dependabot[bot]' }} # no PRs from fork
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
@@ -501,7 +501,7 @@ jobs:
           PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') && github.triggering_actor != 'dependabot[bot]' }} # no PRs from fork
     name: push-docker-fast
     runs-on: ubuntu-latest-8-cores
     steps:
