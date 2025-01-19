@@ -87,8 +87,6 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 
 	// as newest segments are prioritized, loop in reverse order
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
-		fmt.Println("Debug!!!", fmt.Sprintf("segment-%d.skip-compact", leftId))
-
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
 		if left.level == right.level {
@@ -217,7 +215,17 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	}
 
 	leftSegment := sg.segmentAtPos(pair[0])
+	lpath := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path))
+
+	skipCompathPath := fmt.Sprintf("%s.%s", lpath, "skip-compact")
+	ok, err := fileExists(skipCompathPath)
+	if ok {
+		fmt.Println("Debug!!!", lpath, "skipping because of backup")
+		return false, nil
+	}
+
 	rightSegment := sg.segmentAtPos(pair[1])
+	// rpath := filepath.Join(sg.dir, "segment-"+segmentID(rightSegment.path))
 
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
