@@ -5,18 +5,23 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/oklog/run"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -65,15 +70,18 @@ func main() {
 		// backup-server
 		a := BackupServer{
 			logger: logger,
+			policy: &BackupPolicy{
+				Every: 3 * time.Second,
+			},
 		}
 
-		// // cron
-		// g.Add(func() error {
-		// 	return a.RunBackupCron(ctx)
-		// }, func(err error) {
-		// 	logger.Info("backup server stopped")
-		// 	cancel()
-		// })
+		// cron
+		g.Add(func() error {
+			return a.RunBackupCron(ctx)
+		}, func(err error) {
+			logger.Info("backup server stopped")
+			cancel()
+		})
 
 		// http server
 		listener, err := net.Listen("tcp", "0.0.0.0:7070")
@@ -176,17 +184,23 @@ func (a *ApiServer) Run(ctx context.Context) error {
 // shared between `ApiServer` and `BackupServer`
 type BackupServer struct {
 	logger logrus.FieldLogger
-	policy func() *BackupPolicy
+	policy *BackupPolicy
 }
 
 // Responsible for triggering backup based on given backup policy
-func (a *BackupServer) RunBackupCron(ctx context.Context, policy BackupPolicy) error {
+func (a *BackupServer) RunBackupCron(ctx context.Context) error {
 	a.logger.Info("running backup cron server")
-	// check for runtime config changes every 10s
-	for {
-		// t := time.NewTicker(a.policy().Every)
 
-		// time.Sleep(10 * time.Second)
+	// check for runtime config changes every 10s
+	t := time.NewTicker(a.policy.Every)
+	for {
+		<-t.C
+		err := a.backup(ctx)
+		if err != nil {
+			a.logger.Error("backup failed", err)
+			continue
+		}
+		a.logger.Info("backing up every", a.policy.Every)
 	}
 	return nil
 }
@@ -198,14 +212,90 @@ type BackupPolicy struct {
 // Responsible for user facing /v1/backup and /v1/restore.
 func (a *BackupServer) HTTPHandler(ctx context.Context) http.Handler {
 	a.logger.Info("running backup http server")
-	for {
-	}
 	return nil
 }
 
 // does the heavy job of backup.
 func (a *BackupServer) backup(ctx context.Context) error {
-	a.logger.Info("backup done")
+	candidates := []string{}
+	err := filepath.WalkDir("./data", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		// only copy the files that also has .skip-compact suffix
+		if filepath.Ext(path) == ".db" {
+			withoutExt := strings.TrimSuffix(path, filepath.Ext(".db"))
+			s := fmt.Sprintf("%s.%s", withoutExt, "skip-compact")
+			ok, err := fileExists(s)
+			if err != nil {
+				panic(err)
+			}
+			if ok {
+				candidates = append(candidates, path)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	levelZeroSegments := []string{}
+	for _, candidate := range candidates {
+		f, err := os.Open(candidate)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		header, err := segmentindex.ParseHeader(f)
+		if err != nil {
+			panic(err)
+		}
+
+		if header.Level == 0 {
+			levelZeroSegments = append(levelZeroSegments, candidate)
+		}
+	}
+
+	segmentsCopied := 0
+	filesCopied := 0
+	for _, segment := range levelZeroSegments {
+		withoutExt := strings.TrimSuffix(segment, filepath.Ext(segment))
+
+		for _, ext := range []string{".db", ".bloom", ".cna"} {
+			source := withoutExt + ext
+			target := strings.Replace(withoutExt, "data/", "backup/", 1)
+			target = target + ext
+
+			os.MkdirAll(filepath.Dir(target), 0o755)
+			cpCmd := exec.Command("cp", "-rf", source, target)
+			cpCmd.Stdout = os.Stdout
+			cpCmd.Stderr = os.Stderr
+			err := cpCmd.Run()
+			if err != nil {
+				panic(err)
+			}
+			filesCopied++
+		}
+		segmentsCopied++
+		// segment copied. Now remove `skip-compact` marker file
+		s := fmt.Sprintf("%s.%s", withoutExt, "skip-compact")
+		rm := exec.Command("rm", "-rf", s)
+		rm.Stdout = os.Stdout
+		rm.Stderr = os.Stderr
+		err := rm.Run()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	fmt.Printf("Copied %d segments (%d files)\n", segmentsCopied, filesCopied)
 	return nil
 }
 
@@ -239,3 +329,16 @@ type RuntimeConfigManager struct {
 }
 
 type RuntimeConfig struct{}
+
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, err
+}
