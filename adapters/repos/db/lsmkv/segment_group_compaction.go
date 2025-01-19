@@ -87,6 +87,8 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 
 	// as newest segments are prioritized, loop in reverse order
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
+		fmt.Println("Debug!!!", fmt.Sprintf("segment-%d.skip-compact", leftId))
+
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
 		if left.level == right.level {

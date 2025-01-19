@@ -1270,6 +1270,54 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
+func (b *Bucket) FlushAndSwitchX() (error, string) {
+	before := time.Now()
+
+	b.logger.WithField("action", "lsm_memtable_flush_start").
+		WithField("path", b.dir).
+		Trace("start flush and switch")
+	if err := b.atomicallySwitchMemtable(); err != nil {
+		return fmt.Errorf("switch active memtable: %w", err), ""
+	}
+
+	// Searchable buckets are flushed using the inverted index strategy,
+	// if the environment variable USE_INVERTED_SEARCHABLE is set to true.
+	// Memtables in memory are always created using the Map strategy.
+	// See the desiredStrategy for more information on why this only matters
+	// for searchable buckets and at flush time.
+	if strings.Contains(b.flushing.path, "_searchable") && os.Getenv("USE_INVERTED_SEARCHABLE") == "true" {
+		b.desiredStrategy = StrategyInverted
+		b.flushing.flushStrategy = StrategyInverted
+	}
+
+	old := b.flushing.path
+
+	if err := b.flushing.flush(); err != nil {
+		return fmt.Errorf("flush: %w", err), ""
+	}
+
+	segment, err := b.initAndPrecomputeNewSegment()
+	if err != nil {
+		return fmt.Errorf("precompute metadata: %w", err), ""
+	}
+
+	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
+		return fmt.Errorf("add segment and remove flushing: %w", err), ""
+	}
+
+	took := time.Since(before)
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", b.dir).
+		Trace("finish flush and switch")
+
+	b.logger.WithField("action", "lsm_memtable_flush_complete").
+		WithField("path", b.dir).
+		WithField("took", took).
+		Debugf("flush and switch took %s\n", took)
+
+	return nil, old
+}
+
 func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
 	// Note that this operation does not require the flush lock, i.e. it can
 	// happen in the background and we can accept new writes will this
