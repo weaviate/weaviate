@@ -1273,6 +1273,8 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) FlushAndSwitchX() (error, string) {
 	before := time.Now()
 
+	old := b.active.path
+
 	b.logger.WithField("action", "lsm_memtable_flush_start").
 		WithField("path", b.dir).
 		Trace("start flush and switch")
@@ -1289,8 +1291,6 @@ func (b *Bucket) FlushAndSwitchX() (error, string) {
 		b.desiredStrategy = StrategyInverted
 		b.flushing.flushStrategy = StrategyInverted
 	}
-
-	old := b.flushing.path
 
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err), ""

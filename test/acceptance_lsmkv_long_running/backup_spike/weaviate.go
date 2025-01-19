@@ -167,7 +167,18 @@ func (a *ApiServer) Run(ctx context.Context) error {
 		if err != nil {
 			panic(err)
 		}
-		if a.skipCompactMarker {
+		f, err := os.Open(fmt.Sprintf("%s.db", path))
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		header, err := segmentindex.ParseHeader(f)
+		if err != nil {
+			panic(err)
+		}
+
+		if a.skipCompactMarker && header.Level == 0 {
 			if _, err := os.Create(fmt.Sprintf("%s.%s", path, "skip-compact")); err != nil {
 				panic(err)
 			}
@@ -284,6 +295,10 @@ func (a *BackupServer) backup(ctx context.Context) error {
 			filesCopied++
 		}
 		segmentsCopied++
+	}
+
+	for _, segment := range candidates {
+		withoutExt := strings.TrimSuffix(segment, filepath.Ext(segment))
 		// segment copied. Now remove `skip-compact` marker file
 		s := fmt.Sprintf("%s.%s", withoutExt, "skip-compact")
 		rm := exec.Command("rm", "-rf", s)
