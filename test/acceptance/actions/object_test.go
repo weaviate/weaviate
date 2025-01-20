@@ -459,6 +459,7 @@ func TestPostReference(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
 	var targetErr *objects.ObjectsClassReferencesCreateUnprocessableEntity
 	if !errors.As(err, &targetErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, err)
@@ -561,6 +562,7 @@ func TestPutReferences(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	var expectedErr *objects.ObjectsClassReferencesPutUnprocessableEntity
 	if !errors.As(err, &expectedErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
@@ -586,6 +588,7 @@ func TestPutReferences(t *testing.T) {
 
 	// bad request since body is required
 	params.WithID(uuid).WithBody(nil).WithPropertyName("friend")
+	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
 	var expectedErr2 *objects.ObjectsClassReferencesPutUnprocessableEntity
 	if !errors.As(err, &expectedErr2) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)

@@ -108,7 +108,7 @@ func TestAuthzNodes(t *testing.T) {
 	t.Run("fail to get verbose nodes on all classes without read_nodes on *", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		var parsed *nodes.NodesGetClassForbidden
+		var parsed *nodes.NodesGetForbidden
 		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
