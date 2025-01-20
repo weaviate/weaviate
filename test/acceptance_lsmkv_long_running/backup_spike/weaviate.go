@@ -8,8 +8,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -37,27 +38,41 @@ func main() {
 		runtimeConfig     string
 		dataPath          string
 		backupDestination string
-		backupEnabled     bool
 	)
 	flag.StringVar(&target, "target", "all", "target running mode (all, api-server, backup-server, retention-server")
-	flag.StringVar(&runtimeConfig, "runtime-config", "rconfig.yaml", "runtime config that will be reloaded every second")
+	flag.StringVar(&runtimeConfig, "runtime-config", "runtime-overrides.yaml", "runtime config that will be reloaded every second")
 	flag.StringVar(&dataPath, "path", "data", "data path for segment files")
 	flag.StringVar(&backupDestination, "backup-dst", "backup", "destination to copy the backups to")
-	flag.BoolVar(&backupEnabled, "backup-enabled", false, "whether to enable backup")
 	flag.Parse()
 
 	// run group lifecycle
 	var g run.Group
 	ctx, cancel := context.WithCancel(context.Background())
 
+	cm := &RuntimeConfigManager{
+		path:         runtimeConfig,
+		reloadPeriod: 2 * time.Second,
+	}
+
+	{
+		// manage runtime confimanager
+		g.Add(func() error {
+			cm.loop()
+			return nil
+		}, func(err error) {
+			logger.Info("runtime configmanager stopped")
+			cancel()
+		})
+	}
+
 	if target == "api-server" || target == "all" {
 		// api-server
 
 		a := ApiServer{
-			logger:            logger,
-			dataPath:          dataPath,
-			bc:                lsmkv.NewBucketCreator(),
-			skipCompactMarker: backupEnabled,
+			logger:   logger,
+			dataPath: dataPath,
+			bc:       lsmkv.NewBucketCreator(),
+			cm:       cm,
 		}
 		g.Add(func() error {
 			return a.Run(ctx)
@@ -70,9 +85,7 @@ func main() {
 		// backup-server
 		a := BackupServer{
 			logger: logger,
-			policy: &BackupPolicy{
-				Every: 3 * time.Second,
-			},
+			cm:     cm,
 		}
 
 		// cron
@@ -84,25 +97,26 @@ func main() {
 		})
 
 		// http server
-		listener, err := net.Listen("tcp", "0.0.0.0:7070")
-		g.Add(func() error {
-			h := a.HTTPHandler(ctx)
-			if err != nil {
-				logger.Error("failed to create http listener")
-				return err
-			}
-			return http.Serve(listener, h)
-		}, func(err error) {
-			logger.Info("backup server stopped")
-			cancel()
-			listener.Close()
-		})
+		// listener, err := net.Listen("tcp", "0.0.0.0:7070")
+		// g.Add(func() error {
+		// 	h := a.HTTPHandler(ctx)
+		// 	if err != nil {
+		// 		logger.Error("failed to create http listener")
+		// 		return err
+		// 	}
+		// 	return http.Serve(listener, h)
+		// }, func(err error) {
+		// 	logger.Info("backup server stopped")
+		// 	cancel()
+		// 	listener.Close()
+		// })
 
 	}
 	if target == "retention-server" || target == "all" {
 		// retention-server
 		a := RetentionServer{
 			logger: logger,
+			cm:     cm,
 		}
 		g.Add(func() error {
 			return a.Run(ctx)
@@ -122,10 +136,10 @@ func main() {
 // Think of core weaviate api server. The whole purpose of `ApiServer` here is to
 // generate segment files without compaction (same assumption as Eitenie POC)
 type ApiServer struct {
-	logger            logrus.FieldLogger
-	dataPath          string
-	bc                lsmkv.BucketCreator
-	skipCompactMarker bool
+	logger   logrus.FieldLogger
+	dataPath string
+	bc       lsmkv.BucketCreator
+	cm       *RuntimeConfigManager
 }
 
 func (a *ApiServer) Run(ctx context.Context) error {
@@ -134,8 +148,8 @@ func (a *ApiServer) Run(ctx context.Context) error {
 	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, a.logger)
 	flushCycle.Start()
 
-	compactionCallbacks := cyclemanager.NewCallbackGroup("compaction", a.logger, 1)
-	compactionCycle := cyclemanager.NewManager(cyclemanager.CompactionCycleTicker(), compactionCallbacks.CycleCallback, a.logger)
+	compactionCallbacks := cyclemanager.NewCallbackGroup("compactions", a.logger, 1)
+	compactionCycle := cyclemanager.NewManager(cyclemanager.NewFixedTicker(20*time.Second), compactionCallbacks.CycleCallback, a.logger)
 	compactionCycle.Start()
 
 	h, m, s := time.Now().Clock()
@@ -143,6 +157,7 @@ func (a *ApiServer) Run(ctx context.Context) error {
 	bucket, err := a.bc.NewBucket(ctx, filepath.Join(a.dataPath, "my-bucket"), "", a.logger, nil,
 		compactionCallbacks, flushCallbacks,
 		lsmkv.WithPread(true),
+		lsmkv.WithForceCompation(true),
 	)
 	if err != nil {
 		panic(err)
@@ -150,8 +165,8 @@ func (a *ApiServer) Run(ctx context.Context) error {
 
 	defer bucket.Shutdown(context.Background())
 
-	// create phase segement files every 30s
-	tk := time.NewTicker(30 * time.Second)
+	// create phase segement files every 5s
+	tk := time.NewTicker(10 * time.Second)
 	phase := 0
 	for {
 		for i := 0; i < 100; i++ {
@@ -178,7 +193,7 @@ func (a *ApiServer) Run(ctx context.Context) error {
 			panic(err)
 		}
 
-		if a.skipCompactMarker && header.Level == 0 {
+		if a.cm.getConfig().Compact.SkipMarker && header.Level == 0 {
 			if _, err := os.Create(fmt.Sprintf("%s.%s", path, "skip-compact")); err != nil {
 				panic(err)
 			}
@@ -195,29 +210,37 @@ func (a *ApiServer) Run(ctx context.Context) error {
 // shared between `ApiServer` and `BackupServer`
 type BackupServer struct {
 	logger logrus.FieldLogger
-	policy *BackupPolicy
+	cm     *RuntimeConfigManager
 }
 
 // Responsible for triggering backup based on given backup policy
 func (a *BackupServer) RunBackupCron(ctx context.Context) error {
 	a.logger.Info("running backup cron server")
 
-	// check for runtime config changes every 10s
-	t := time.NewTicker(a.policy.Every)
+	t := time.NewTicker(2 * time.Second) // check for runtime config every 2 second
 	for {
 		<-t.C
+		if !a.cm.getConfig().Backup.Enabled {
+			a.logger.Info("backup is disabled. Skipping")
+			continue
+		}
+
+		tt := time.NewTicker(a.cm.getConfig().Backup.Every)
+		<-tt.C
 		err := a.backup(ctx)
 		if err != nil {
 			a.logger.Error("backup failed", err)
 			continue
 		}
-		a.logger.Info("backing up every", a.policy.Every)
+		a.logger.Info("backing up every", a.cm.getConfig().Backup.Every)
 	}
+
 	return nil
 }
 
 type BackupPolicy struct {
-	Every time.Duration `yaml:"every"`
+	Enabled bool          `yaml:"enabled"`
+	Every   time.Duration `yaml:"every"`
 }
 
 // Responsible for user facing /v1/backup and /v1/restore.
@@ -326,24 +349,115 @@ func (a *BackupServer) restore(ctx context.Context) error {
 // 2. When to merge these files to be able to restore backup like `hourly`, `weekly` and `monthly` retentions.
 type RetentionServer struct {
 	logger logrus.FieldLogger
+	cm     *RuntimeConfigManager
+}
+
+type RetentionPolicy struct {
+	Enabled bool
+	Every   time.Duration
+	Path    string
 }
 
 func (a *RetentionServer) Run(ctx context.Context) error {
 	a.logger.Info("running retention-server")
+	t := time.NewTicker(2 * time.Second) // check for runtime config every 2 second
 	for {
+		<-t.C
+		if !a.cm.getConfig().Retention.Enabled {
+			a.logger.Info("retention is disabled. Skipping")
+			continue
+		}
+
+		tt := time.NewTicker(a.cm.getConfig().Retention.Every)
+		<-tt.C
+		err := a.compact(ctx)
+		if err != nil {
+			a.logger.Error("retention compact failed", err)
+			continue
+		}
+		a.logger.Info("retention compacting every", a.cm.getConfig().Retention.Every)
 	}
+	return nil
+}
+
+// compacting the snapshot in time on retention server
+func (a *RetentionServer) compact(ctx context.Context) error {
+	cr := lsmkv.NewBucketCreator()
+
+	dir := fmt.Sprintf("./%s", a.cm.getConfig().Retention.Path)
+
+	flushCallbacks := cyclemanager.NewCallbackGroup("flush", a.logger, 1)
+	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, a.logger)
+	flushCycle.Start()
+	compactionCallbacks := cyclemanager.NewCallbackGroup("compactions", a.logger, 1)
+	cyclemanager.NewManager(cyclemanager.NewFixedTicker(100*time.Millisecond), compactionCallbacks.CycleCallback, a.logger).Start()
+
+	bucket, err := cr.NewBucket(ctx, filepath.Join(dir, "my-bucket"), "", a.logger, nil,
+		compactionCallbacks, flushCallbacks,
+		lsmkv.WithPread(true),
+		lsmkv.WithForceCompation(true),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	defer bucket.Shutdown(context.Background())
+
+	time.Sleep(3 * time.Second)
 	return nil
 }
 
 // Runtime config manager
 type RuntimeConfigManager struct {
+	reloadPeriod time.Duration
+	path         string
+
 	// mu protects the policy and keep it upto date with
 	// runtime overrides
 	mu     sync.Mutex // can be RWLock.
 	config RuntimeConfig
 }
 
-type RuntimeConfig struct{}
+func (cm *RuntimeConfigManager) loop() {
+	tk := time.NewTicker(cm.reloadPeriod)
+
+	for {
+		f, err := os.Open(cm.path)
+		if err != nil {
+			panic(err)
+		}
+		b, err := io.ReadAll(f)
+		if err != nil {
+			panic(err)
+		}
+		var c RuntimeConfig
+		if err := yaml.Unmarshal(b, &c); err != nil {
+			panic(err)
+		}
+
+		cm.mu.Lock()
+		cm.config = c
+		cm.mu.Unlock()
+
+		<-tk.C
+	}
+}
+
+func (cm *RuntimeConfigManager) getConfig() *RuntimeConfig {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return &cm.config
+}
+
+type RuntimeConfig struct {
+	Compact   CompactPolicy   `yaml:"compact"`
+	Backup    BackupPolicy    `yaml:"backup"`
+	Retention RetentionPolicy `yaml:"retention"`
+}
+
+type CompactPolicy struct {
+	SkipMarker bool `yaml:"skipmarker"`
+}
 
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)

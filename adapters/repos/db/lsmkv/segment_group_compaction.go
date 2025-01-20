@@ -220,7 +220,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	skipCompathPath := fmt.Sprintf("%s.%s", lpath, "skip-compact")
 	ok, err := fileExists(skipCompathPath)
 	if ok {
-		fmt.Println("Debug!!!", lpath, "skipping because of backup")
+		fmt.Println("Debug!!!", lpath, "skipping because of marker-file")
 		return false, nil
 	}
 
@@ -228,7 +228,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// rpath := filepath.Join(sg.dir, "segment-"+segmentID(rightSegment.path))
 
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
-
 	f, err := os.Create(path)
 	if err != nil {
 		return false, err
