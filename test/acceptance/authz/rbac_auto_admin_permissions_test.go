@@ -38,7 +38,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 	containers := compose.Containers()
 	require.Len(t, containers, 1) // started only one node
-	container := containers[0].Container()
 
 	className := "ABC"
 	tenantNames := []string{
@@ -58,8 +57,8 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 	endpoints := col.allEndpoints()
 
-	lastLogPosition := 0
-	getNewAuthZLogs(t, container, &lastLogPosition) // startup logs that are irrelevant
+	ls := newLogScanner(containers[0].Container())
+	ls.GetAuthzLogs(t) // startup logs that are irrelevant
 
 	for _, endpoint := range endpoints {
 		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
@@ -99,8 +98,7 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 			require.NotEqual(t, http.StatusForbidden, resp.StatusCode)
 
-			authZlogs := getNewAuthZLogs(t, container, &lastLogPosition)
-			// log.Println("endpoint", endpoint.method, url, "with ", len(authZlogs), ":", authZlogs)
+			authZlogs := ls.GetAuthzLogs(t)
 			endpointStats = append(endpointStats, endpointStat{
 				Count:    len(authZlogs),
 				Method:   endpoint.method,
@@ -113,33 +111,6 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	// sort by number of authZ calls and append to log
 	sort.Sort(endpointStats)
 	t.Log("EndpointStats:", endpointStats)
-}
-
-// getNewLogs count how many log entries a given endpoint produces. If there is a huge amount, it can indicate a
-// problem
-func getNewAuthZLogs(t *testing.T, container testcontainers.Container, lastLogPosition *int) []string {
-	logs, err := container.Logs(context.Background())
-	require.Nil(t, err)
-	defer logs.Close()
-
-	scanner := bufio.NewScanner(logs)
-	currentPosition := 0
-
-	var newLines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		if currentPosition >= *lastLogPosition && strings.Contains(line, `"action":"authorize"`) {
-			newLines = append(newLines, line)
-		}
-		currentPosition++
-	}
-
-	*lastLogPosition = currentPosition
-
-	return newLines
 }
 
 type endpointStat struct {
@@ -166,4 +137,40 @@ func (e endpointStatsSlice) String() string {
 		str += e.String() + "\n"
 	}
 	return str
+}
+
+type logScanner struct {
+	container testcontainers.Container
+	pos       int
+}
+
+func newLogScanner(c testcontainers.Container) *logScanner {
+	return &logScanner{container: c}
+}
+
+func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
+	t.Helper() // produces more accurate error tracebacks
+
+	logs, err := s.container.Logs(context.Background())
+	require.Nil(t, err)
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+	currentPosition := 0
+
+	var newLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if currentPosition >= s.pos && strings.Contains(line, `"action":"authorize"`) {
+			newLines = append(newLines, line)
+		}
+		currentPosition++
+	}
+
+	s.pos = currentPosition
+
+	return newLines
 }
