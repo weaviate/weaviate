@@ -56,6 +56,11 @@ func testText2ColBERTJinaAI(host, grpc string) func(t *testing.T) {
 				// create schema
 				helper.CreateClass(t, class)
 				defer helper.DeleteClass(t, class.Class)
+				// check that multivector is enabled
+				t.Run("check multivector config", func(t *testing.T) {
+					cls := helper.GetClass(t, class.Class)
+					assert.True(t, cls.VectorConfig["description"].VectorIndexConfig.(map[string]any)["multivector"].(map[string]any)["enabled"].(bool))
+				})
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
 					companies.InsertObjects(t, host, class.Class)
