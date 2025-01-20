@@ -51,7 +51,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.33.0
 	github.com/aws/aws-sdk-go-v2/config v1.29.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.53
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.23.3
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.24.0
 	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/coreos/go-oidc/v3 v3.12.0
