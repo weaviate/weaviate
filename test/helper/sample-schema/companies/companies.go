@@ -156,11 +156,14 @@ func PerformVectorSearchGRPCTest(t *testing.T, host string, className string) {
 			Query: []string{"SpaceX"},
 		},
 		Properties: &protocol.PropertiesRequest{
-			NonRefProperties: []string{"SpaceX"},
+			NonRefProperties: []string{"name"},
 		},
 		Metadata: &protocol.MetadataRequest{
 			Uuid: true,
 		},
+		Uses_123Api: true,
+		Uses_125Api: true,
+		Uses_127Api: true,
 	}
 	assertResultsGRPC(t, host, &req)
 }
@@ -194,11 +197,14 @@ func PerformHybridSearchGRPCTest(t *testing.T, host string, className string) {
 			Alpha: 0.75,
 		},
 		Properties: &protocol.PropertiesRequest{
-			NonRefProperties: []string{"SpaceX"},
+			NonRefProperties: []string{"name"},
 		},
 		Metadata: &protocol.MetadataRequest{
 			Uuid: true,
 		},
+		Uses_123Api: true,
+		Uses_125Api: true,
+		Uses_127Api: true,
 	}
 	assertResultsGRPC(t, host, &req)
 }
@@ -229,7 +235,7 @@ func assertResultsGRPC(t *testing.T, host string, req *protocol.SearchRequest) {
 	}
 	require.Len(t, resp.Results, 2)
 	for _, res := range resp.Results {
-		assert.NotEmpty(t, res.GetProperties().GetNonRefProps().Fields["name"].GetTextValue())
+		assert.NotEmpty(t, res.GetProperties().GetNonRefProps().GetFields()["name"].GetTextValue())
 		assert.NotEmpty(t, res.GetMetadata().GetId())
 	}
 }

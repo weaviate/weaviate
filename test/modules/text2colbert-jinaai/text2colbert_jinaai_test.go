@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2ColBERTJinaAI(host string) func(t *testing.T) {
+func testText2ColBERTJinaAI(host, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -77,7 +77,7 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 				})
 				// vector search with grpc
 				t.Run("perform vector search with grpc", func(t *testing.T) {
-					companies.PerformVectorSearchGRPCTest(t, host, class.Class)
+					companies.PerformVectorSearchGRPCTest(t, grpc, class.Class)
 				})
 				// hybrid search with gql
 				t.Run("perform hybrid search with gql", func(t *testing.T) {
@@ -85,7 +85,7 @@ func testText2ColBERTJinaAI(host string) func(t *testing.T) {
 				})
 				// hybrid search with grpc
 				t.Run("perform hybrid search with grpc", func(t *testing.T) {
-					companies.PerformHybridSearchGRPCTest(t, host, class.Class)
+					companies.PerformHybridSearchGRPCTest(t, grpc, class.Class)
 				})
 			})
 		}
