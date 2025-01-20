@@ -224,7 +224,9 @@ func assertResultsGRPC(t *testing.T, host string, req *protocol.SearchRequest) {
 	helper.SetupGRPCClient(t, host)
 	client := helper.ClientGRPC(t)
 	resp, err := client.Search(context.Background(), req)
-	require.Nil(t, err)
+	if err != nil {
+		t.Fatalf("search request failed: %v", err)
+	}
 	require.Len(t, resp.Results, 2)
 	for _, res := range resp.Results {
 		assert.NotEmpty(t, res.GetProperties().GetNonRefProps().Fields["name"].GetTextValue())
