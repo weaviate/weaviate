@@ -690,7 +690,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 		return false, time.Time{}, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted *lsmkv.ErrDeleted
+		var errDeleted lsmkv.ErrDeleted
 		if errors.As(err, &errDeleted) {
 			return true, errDeleted.DeletionTime(), nil
 		} else {
@@ -709,7 +709,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 			return false, time.Time{}, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
-			var errDeleted *lsmkv.ErrDeleted
+			var errDeleted lsmkv.ErrDeleted
 			if errors.As(err, &errDeleted) {
 				return true, errDeleted.DeletionTime(), nil
 			} else {
@@ -728,7 +728,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 		return false, time.Time{}, nil
 	}
 	if errors.Is(err, lsmkv.Deleted) {
-		var errDeleted *lsmkv.ErrDeleted
+		var errDeleted lsmkv.ErrDeleted
 		if errors.As(err, &errDeleted) {
 			return true, errDeleted.DeletionTime(), nil
 		} else {

@@ -235,7 +235,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 		require.NotNil(t, err)
 		var parsed *authz.CreateRoleConflict
 		require.True(t, errors.As(err, &parsed))
-		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
+		require.Contains(t, parsed.Payload.Error[0].Message, "already exists")
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {

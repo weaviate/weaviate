@@ -467,8 +467,8 @@ func TestPostReference(t *testing.T) {
 	params.WithPropertyName("friend")
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
-	var tagetErr *objects.ObjectsClassReferencesCreateNotFound
-	if !errors.As(err, &tagetErr) {
+	var targetNotFoundErr *objects.ObjectsClassReferencesCreateNotFound
+	if !errors.As(err, &targetNotFoundErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateNotFound{}, err)
 	}
 }
@@ -698,7 +698,7 @@ func TestDeleteReference(t *testing.T) {
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
 	var deleteUnprocessableEntityErr *objects.ObjectsClassReferencesDeleteUnprocessableEntity
 	if !errors.As(err, &deleteUnprocessableEntityErr) {
-		t.Errorf("error type expected: %T, got %T", *deleteUnprocessableEntityErr, err)
+		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
 	}
 	params.WithPropertyName("friend")
 
