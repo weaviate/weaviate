@@ -12,7 +12,6 @@
 package test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -368,12 +367,9 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_4.Class, tenantNames[0])
 
 			require.NotNil(t, err)
-			var listErr *objects.ObjectsListUnprocessableEntity
-			if errors.As(err, &listErr) {
-				assert.Contains(t, listErr.Payload.Error[0].Message, tenantNames[0])
-			} else {
-				t.Fatalf("expected ObjectsListUnprocessableEntity error, got %v", err)
-			}
+			expErr := &objects.ObjectsListUnprocessableEntity{}
+			require.ErrorAs(t, err, &expErr)
+			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[0])
 			require.Nil(t, res)
 		})
 	})
@@ -420,12 +416,9 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_3.Class, tenantNames[1])
 
 			require.NotNil(t, err)
-			var listErr *objects.ObjectsListUnprocessableEntity
-			if errors.As(err, &listErr) {
-				assert.Contains(t, listErr.Payload.Error[0].Message, tenantNames[1])
-			} else {
-				t.Fatalf("expected ObjectsListUnprocessableEntity error, got %v", err)
-			}
+			expErr := &objects.ObjectsListUnprocessableEntity{}
+			require.ErrorAs(t, err, &expErr)
+			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[1])
 			require.Nil(t, res)
 		})
 

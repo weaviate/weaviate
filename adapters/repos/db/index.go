@@ -1792,12 +1792,10 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
-		var errMultiTenancy objects.ErrMultiTenancy
-		var forbidden authzerrors.Forbidden
 		switch {
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		case errors.As(err, &forbidden):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return fmt.Errorf("determine shard: %w", err)
 		default:
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)

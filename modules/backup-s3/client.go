@@ -162,7 +162,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 
 	contents, err := io.ReadAll(obj)
 	if err != nil {
-		var s3Err *minio.ErrorResponse
+		var s3Err minio.ErrorResponse
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found %s", bucket, remotePath, remotePath))
 		}
@@ -319,7 +319,7 @@ func (s *s3Client) Read(ctx context.Context, backupID, key, overrideBucket, over
 	read, err := io.Copy(w, obj)
 	if err != nil {
 		err = fmt.Errorf("get object %q: %w", remotePath, err)
-		var s3Err *minio.ErrorResponse
+		var s3Err minio.ErrorResponse
 		if errors.As(err, &s3Err) && s3Err.StatusCode == http.StatusNotFound {
 			err = backup.NewErrNotFound(err)
 		}

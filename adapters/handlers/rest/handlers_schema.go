@@ -399,9 +399,9 @@ func newSchemaRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 
 func (e *schemaRequestsTotal) logError(className string, err error) {
 	switch {
-	case errors.As(err, &uco.ErrMultiTenancy{}):
-		e.logUserError(className)
 	case errors.As(err, &authzerrors.Forbidden{}):
+		e.logUserError(className)
+	case errors.As(err, &uco.ErrMultiTenancy{}):
 		e.logUserError(className)
 	default:
 		e.logUserError(className)

@@ -487,13 +487,6 @@ func (suite *ReplicationTestSuite) TestEventualReplicaCRUD() {
 				require.True(t, errors.As(err, &errResponse))
 				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
 			})
-			var schemaErr *schema.SchemaObjectsUpdateUnprocessableEntity
-			if errors.As(err, &schemaErr) {
-				errResponse := schemaErr
-				require.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
-			} else {
-				t.Fatalf("expected SchemaObjectsUpdateUnprocessableEntity error, got %v", err)
-			}
 		})
 	})
 }

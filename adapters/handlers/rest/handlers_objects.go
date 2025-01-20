@@ -136,10 +136,6 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 			return objects.NewObjectsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return objects.NewObjectsValidateForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
 			return objects.NewObjectsValidateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -207,10 +203,6 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return objects.NewObjectsClassGetForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
 			return objects.NewObjectsClassGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -254,10 +246,6 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return objects.NewObjectsListForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -364,10 +352,6 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				return objects.NewObjectsClassDeleteForbidden().
-					WithPayload(errPayloadFromSingleErr(err))
-			}
 			return objects.NewObjectsClassDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
