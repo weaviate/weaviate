@@ -149,7 +149,7 @@ func (a *ApiServer) Run(ctx context.Context) error {
 	flushCycle.Start()
 
 	compactionCallbacks := cyclemanager.NewCallbackGroup("compactions", a.logger, 1)
-	compactionCycle := cyclemanager.NewManager(cyclemanager.NewFixedTicker(20*time.Second), compactionCallbacks.CycleCallback, a.logger)
+	compactionCycle := cyclemanager.NewManager(cyclemanager.NewFixedTicker(4*time.Second), compactionCallbacks.CycleCallback, a.logger)
 	compactionCycle.Start()
 
 	h, m, s := time.Now().Clock()
@@ -313,7 +313,7 @@ func (a *BackupServer) backup(ctx context.Context) error {
 			cpCmd.Stderr = os.Stderr
 			err := cpCmd.Run()
 			if err != nil {
-				panic(err)
+				break
 			}
 			filesCopied++
 		}
@@ -329,7 +329,7 @@ func (a *BackupServer) backup(ctx context.Context) error {
 		rm.Stderr = os.Stderr
 		err := rm.Run()
 		if err != nil {
-			panic(err)
+			break
 		}
 	}
 

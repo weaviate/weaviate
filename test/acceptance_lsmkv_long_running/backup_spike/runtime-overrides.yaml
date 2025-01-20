@@ -1,9 +1,9 @@
 compact:
-  skipmarker: false
+e  skipmarker: false
 backup:
   enabled: false
   every: 5s
 retention:
   enabled: false
-  every: 5s
+  every: 4s
   path: "./backup"
