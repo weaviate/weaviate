@@ -248,7 +248,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		var err error
 
 		results, err = n.graph.searchLayerByVectorWithDistancer(ctx, n.nodeVec, eps, n.graph.efConstruction,
-			level, nil, n.distancer)
+			level, nil, n.distancer, false)
 		if err != nil {
 			return errors.Wrapf(err, "search layer at level %d", level)
 		}

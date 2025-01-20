@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -177,26 +178,24 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
-	useAcorn := h.acornSearch.Load()
-	var M int
+func (h *hnsw) acornParams(allowList helpers.AllowList) bool {
+	return false /*
+		useAcorn := h.acornSearch.Load()
 
-	if allowList != nil && useAcorn {
-		cacheSize := h.cacheSize()
-		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
-			useAcorn = false
+		if allowList != nil && useAcorn {
+			cacheSize := h.cacheSize()
+			allowListSize := allowList.Len()
+			if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
+				return false
+			}
 		}
-		M = int(cacheSize / int64(max(1, allowListSize)))
-		M = min(M, 1)
-	}
-	return useAcorn, M
+		return false*/
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer, useAcorn bool) (*priorityqueue.Queue[any], error,
 ) {
 	start := time.Now()
 	defer func() {
@@ -205,11 +204,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	}()
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
-	visitedNext := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
-
-	useAcorn, M := h.acornParams(allowList)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -225,7 +220,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	}
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
-		results, level, visited, allowList)
+		results, level, visited, allowList, useAcorn)
 
 	var worstResultDistance float32
 	var err error
@@ -238,18 +233,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	var connectionsReusable []uint64
-
-	var sliceConnectionsReusable *common.VectorUint64Slice
-	var slicePendingNextRound *common.VectorUint64Slice
-	var slicePendingThisRound *common.VectorUint64Slice
-
-	if allowList != nil && useAcorn {
-		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
-		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-	} else {
-		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
-	}
+	connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
@@ -288,95 +272,23 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 			continue
 		}
 
-		if allowList == nil || !useAcorn {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-				// How is it possible that we could ever have more connections than the
-				// allowed maximum? It is not anymore, but there was a bug that allowed
-				// this to happen in versions prior to v1.12.0:
-				// https://github.com/weaviate/weaviate/issues/1868
-				//
-				// As a result the length of this slice is entirely unpredictable and we
-				// can no longer retrieve it from the pool. Instead we need to fallback
-				// to allocating a new slice.
-				//
-				// This was discovered as part of
-				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
-			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
-			}
-			copy(connectionsReusable, candidateNode.connections[level])
+		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			// How is it possible that we could ever have more connections than the
+			// allowed maximum? It is not anymore, but there was a bug that allowed
+			// this to happen in versions prior to v1.12.0:
+			// https://github.com/weaviate/weaviate/issues/1868
+			//
+			// As a result the length of this slice is entirely unpredictable and we
+			// can no longer retrieve it from the pool. Instead we need to fallback
+			// to allocating a new slice.
+			//
+			// This was discovered as part of
+			// https://github.com/weaviate/weaviate/issues/1897
+			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 		} else {
-			connectionsReusable = sliceConnectionsReusable.Slice
-			pendingNextRound := slicePendingNextRound.Slice
-			pendingThisRound := slicePendingThisRound.Slice
-
-			realLen := 0
-			index := 0
-
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
-			hop := 1
-			maxHops := 1
-			for hop <= maxHops && realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
-				if cap(pendingThisRound) >= len(pendingNextRound) {
-					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
-				} else {
-					pendingThisRound = make([]uint64, len(pendingNextRound))
-					slicePendingThisRound.Slice = pendingThisRound
-				}
-				copy(pendingThisRound, pendingNextRound)
-				pendingNextRound = pendingNextRound[:0]
-				for index < len(pendingThisRound) && realLen < M*h.maximumConnectionsLayerZero {
-					nodeId := pendingThisRound[index]
-					index++
-					if visited.Visited(nodeId) || visitedExp.Visited(nodeId) {
-						// skip if we've already visited this neighbor
-						continue
-					}
-					visitedExp.Visit(nodeId)
-
-					if allowList.Contains(nodeId) {
-						connectionsReusable[realLen] = nodeId
-						realLen++
-						continue
-					}
-
-					h.RLock()
-					h.shardedNodeLocks.RLock(nodeId)
-					node := h.nodes[nodeId]
-					h.shardedNodeLocks.RUnlock(nodeId)
-					h.RUnlock()
-					if node == nil {
-						continue
-					}
-
-					visitedNext.Reset()
-					for _, expId := range node.connections[level] {
-						if visitedNext.Visited(expId) || visitedExp.Visited(expId) || visited.Visited(expId) {
-							continue
-						}
-						visitedNext.Visit(expId)
-
-						if realLen >= M*h.maximumConnectionsLayerZero {
-							break
-						}
-
-						if allowList.Contains(expId) {
-							visitedExp.Visit(expId)
-							connectionsReusable[realLen] = expId
-							realLen++
-						} else if hop < maxHops {
-							pendingNextRound = append(pendingNextRound, expId)
-						}
-					}
-
-				}
-				hop++
-			}
-			slicePendingNextRound.Slice = pendingNextRound
-			connectionsReusable = connectionsReusable[:realLen]
+			connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
 		}
+		copy(connectionsReusable, candidateNode.connections[level])
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
@@ -387,6 +299,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 			// make sure we never visit this neighbor again
 			visited.Visit(neighborID)
+			if useAcorn && allowList != nil {
+				if !allowList.Contains(neighborID) {
+					continue
+				}
+			}
 			var distance float32
 			var err error
 			if h.compressed.Load() {
@@ -402,7 +319,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 				} else {
 					h.pools.visitedListsLock.RLock()
 					h.pools.visitedLists.Return(visited)
-					h.pools.visitedLists.Return(visitedExp)
 					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
@@ -444,18 +360,10 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		}
 	}
 
-	if allowList != nil && useAcorn {
-		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
-		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
-		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
-	}
-
 	h.pools.pqCandidates.Put(candidates)
 
 	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
-	h.pools.visitedLists.Return(visitedExp)
-	h.pools.visitedLists.Return(visitedNext)
 	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
@@ -463,13 +371,13 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList visited.ListSet, allowList helpers.AllowList, useAcorn bool,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
-		if level == 0 && allowList != nil {
+		if allowList != nil && (useAcorn || level == 0) {
 			// we are on the lowest level containing the actual candidates and we
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
@@ -689,8 +597,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
-
-	useAcorn, _ := h.acornParams(allowList)
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
@@ -722,7 +628,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		eps := priorityqueue.NewMin[any](10)
 		eps.Insert(entryPointID, entryPointDistance)
 
-		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer)
+		res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, 1, level, nil, compressorDistancer, false)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -763,28 +669,72 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		h.pools.pqResults.Put(res)
 	}
 
+	useAcorn := h.acornParams(allowList)
+
 	eps := priorityqueue.NewMin[any](10)
-	eps.Insert(entryPointID, entryPointDistance)
-	if allowList != nil && useAcorn {
-		size := h.maximumConnectionsLayerZero
-		if size >= ef {
-			size = ef - 1
+	var res *priorityqueue.Queue[any]
+	//334441
+	//Look for isolated vectors
+	//[701241 758767 556698 182695 608489 444872 396467 265480 351902 244763]
+	//701241, 396467
+	if useAcorn {
+		seedIndex := rand.Int() % allowList.Len()
+		iterator := allowList.Iterator()
+		for i := 0; i < seedIndex-1; i++ {
+			iterator.Next()
 		}
-		it := allowList.Iterator()
-		i := 0
-		seeds := make([]uint64, size)
-		for idx, ok := it.Next(); ok && i < size; idx, ok = it.Next() {
-			seeds[i] = idx
-			i++
+		entryPointID, _ = iterator.Next()
+		entryPointDistance, _ = h.distToNode(compressorDistancer, entryPointID, searchVec)
+		eps.Reset()
+		eps.Insert(entryPointID, entryPointDistance)
+		res, err = h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, true)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 		}
-		for _, entryPoint := range seeds {
-			entryPointDistance, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
-			eps.Insert(entryPoint, entryPointDistance)
+		h.pools.visitedListsLock.RLock()
+		visited := h.pools.visitedLists.Borrow()
+		h.pools.visitedListsLock.RUnlock()
+		for _, elem := range res.Items() {
+			visited.Visit(elem.ID)
 		}
-	}
-	res, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		for restart := 0; res.Len() < ef || restart < 0; restart++ {
+			seedIndex = rand.Int() % allowList.Len()
+			iterator := allowList.Iterator()
+			for i := 0; i < seedIndex-1; i++ {
+				iterator.Next()
+			}
+			entryPointID, _ = iterator.Next()
+			entryPointDistance, _ = h.distToNode(compressorDistancer, entryPointID, searchVec)
+			eps.Reset()
+			eps.Insert(entryPointID, entryPointDistance)
+			localRes, err := h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, true)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+			}
+			for localRes.Len() > 0 {
+				item := localRes.Pop()
+				if visited.Visited(item.ID) {
+					continue
+				}
+				visited.Visit(item.ID)
+				if item.Dist < res.Top().Dist {
+					if res.Len() >= ef {
+						res.Pop()
+					}
+					res.Insert(item.ID, item.Dist)
+				}
+			}
+			h.pools.pqResults.Put(localRes)
+		}
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
+	} else {
+		eps.Insert(entryPointID, entryPointDistance)
+		res, err = h.searchLayerByVectorWithDistancer(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, false)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		}
 	}
 
 	beforeRescore := time.Now()
@@ -816,6 +766,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		i--
 	}
 	h.pools.pqResults.Put(res)
+
 	return ids, dists, nil
 }
 

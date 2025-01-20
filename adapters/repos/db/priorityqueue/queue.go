@@ -81,6 +81,10 @@ func (q *Queue[T]) InsertAndPop(id uint64, score float64, limit int, worstDist *
 	}
 }
 
+func (q *Queue[T]) Items() []Item[T] {
+	return q.items
+}
+
 // Pop removes the next item in the queue and returns it
 func (q *Queue[T]) Pop() Item[T] {
 	out := q.items[0]
