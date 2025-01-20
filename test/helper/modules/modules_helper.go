@@ -14,6 +14,7 @@ package moduleshelper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,10 +25,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func EnsureClassExists(t *testing.T, className string, tenant string) {
@@ -96,7 +98,6 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 		}
 		fmt.Fprintf(file, "This is content of db file named %s", fileName)
 		file.Close()
-		t.Logf("Created test file: %s\n", filePaths[i])
 	}
 	return filePaths
 }
@@ -119,7 +120,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 		it := bucket.Objects(ctx, nil)
 		for {
 			objAttrs, err := it.Next()
-			if err == iterator.Done {
+			if errors.Is(err, iterator.Done) {
 				break
 			}
 			assert.Nil(t, err)
@@ -133,7 +134,6 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 }
 
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
-	t.Log("Creating azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)

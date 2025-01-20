@@ -27,7 +27,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
 			if err2 := s.resumeMaintenanceCycles(ctx); err2 != nil {
-				err = fmt.Errorf("%w: resume maintenance: %v", err, err2)
+				err = fmt.Errorf("%w: resume maintenance: %w", err, err2)
 			}
 		}
 	}()

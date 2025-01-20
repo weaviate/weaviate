@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
@@ -107,8 +108,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if !deprecatedEndpoint {
 		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl, tenant)
 		if err != nil {
-			switch err.(type) {
-			case ErrMultiTenancy:
+			switch {
+			case errors.As(err, &ErrMultiTenancy{}):
 				return &Error{"source object", StatusUnprocessableEntity, err}
 			default:
 				return &Error{"source object", StatusInternalServerError, err}

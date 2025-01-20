@@ -12,9 +12,11 @@
 package authz
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -49,8 +51,8 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	t.Run("get roles for non existing user", func(t *testing.T) {
 		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists"), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
-		targetErr, ok := err.(*authz.GetRolesForUserNotFound)
-		require.True(t, ok)
+		var targetErr *authz.GetRolesForUserNotFound
+		require.True(t, errors.As(err, &targetErr))
 		require.Equal(t, 404, targetErr.Code())
 	})
 }

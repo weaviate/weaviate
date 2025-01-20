@@ -133,7 +133,7 @@ func (gs groups) flattenMerge() ([]search.Result, error) {
 	for i, group := range gs.Elements {
 		merged, err := group.flattenMerge()
 		if err != nil {
-			return nil, fmt.Errorf("group %d: %v", i, err)
+			return nil, fmt.Errorf("group %d: %w", i, err)
 		}
 
 		out[i] = merged

@@ -16,6 +16,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/entities/models"
@@ -86,8 +87,5 @@ func newClassificationRequestsTotal(metrics *monitoring.PrometheusMetrics, logge
 }
 
 func (e *classificationRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	default:
-		e.logServerError(className, err)
-	}
+	e.logServerError(className, err)
 }

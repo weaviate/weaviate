@@ -52,7 +52,7 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params aggregation.Pa
 
 		err = i.extendResWithType(res, prop.Name.String(), schemaProp.DataType)
 		if err != nil {
-			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
+			return nil, fmt.Errorf("with types: prop %s: %w", prop.Name, err)
 		}
 	}
 

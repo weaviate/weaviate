@@ -18,11 +18,12 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
+	gproto "google.golang.org/protobuf/proto"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {

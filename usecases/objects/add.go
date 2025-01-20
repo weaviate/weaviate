@@ -13,13 +13,13 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -87,7 +87,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid object")
+		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
 	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
@@ -145,12 +145,10 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if exists {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		var errInvalidUserInput ErrInvalidUserInput
-		var errMultiTenancy ErrMultiTenancy
 		switch {
-		case errors.As(err, &errInvalidUserInput):
+		case errors.As(err, &ErrInvalidUserInput{}):
 			return "", err
-		case errors.As(err, &errMultiTenancy):
+		case errors.As(err, &ErrMultiTenancy{}):
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
 			if enterrors.IsTenantNotFound(err) {

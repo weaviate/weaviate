@@ -12,9 +12,11 @@
 package authz
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,16 +48,16 @@ func TestAuthzNodes(t *testing.T) {
 	t.Run("fail to get nodes without minimal read_nodes", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetForbidden)
-		require.True(t, forbidden)
+		var parsed *nodes.NodesGetForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
 	t.Run("fail to get cluster stats without read_cluster", func(t *testing.T) {
 		_, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*cluster.ClusterGetStatisticsForbidden)
-		require.True(t, forbidden)
+		var parsed *cluster.ClusterGetStatisticsForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
@@ -88,8 +90,8 @@ func TestAuthzNodes(t *testing.T) {
 	t.Run("fail to get verbose nodes without verbose read_nodes on all collections", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(clsA.Class).WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetClassForbidden)
-		require.True(t, forbidden)
+		var parsed *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
@@ -106,8 +108,8 @@ func TestAuthzNodes(t *testing.T) {
 	t.Run("fail to get verbose nodes on all classes without read_nodes on *", func(t *testing.T) {
 		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*nodes.NodesGetForbidden)
-		require.True(t, forbidden)
+		var parsed *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 

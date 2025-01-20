@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
@@ -458,15 +459,16 @@ func TestPostReference(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
-	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesCreateUnprocessableEntity); !ok {
+	var targetErr *objects.ObjectsClassReferencesCreateUnprocessableEntity
+	if !errors.As(err, &targetErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateUnprocessableEntity{}, err)
 	}
 
 	params.WithPropertyName("friend")
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesCreateNotFound); !ok {
+	var tagetErr *objects.ObjectsClassReferencesCreateNotFound
+	if !errors.As(err, &tagetErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesCreateNotFound{}, err)
 	}
 }
@@ -559,15 +561,15 @@ func TestPutReferences(t *testing.T) {
 	assert.Equal(t, expected, actual)
 
 	params.WithPropertyName("unknown")
-	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+	var expectedErr *objects.ObjectsClassReferencesPutUnprocessableEntity
+	if !errors.As(err, &expectedErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
 	}
 	params.WithPropertyName("friend")
 
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesPutNotFound); !ok {
+	if !errors.As(err, &expectedErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutNotFound{}, err)
 	}
 	params.WithID(uuid)
@@ -583,8 +585,8 @@ func TestPutReferences(t *testing.T) {
 
 	// bad request since body is required
 	params.WithID(uuid).WithBody(nil).WithPropertyName("friend")
-	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesPutUnprocessableEntity); !ok {
+	var expectedErr2 *objects.ObjectsClassReferencesPutUnprocessableEntity
+	if !errors.As(err, &expectedErr2) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutUnprocessableEntity{}, err)
 	}
 }
@@ -693,24 +695,26 @@ func TestDeleteReference(t *testing.T) {
 	// property is not part of the schema
 	params.WithPropertyName("unknown")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesDeleteUnprocessableEntity); !ok {
-		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
+	var deleteUnprocessableEntityErr *objects.ObjectsClassReferencesDeleteUnprocessableEntity
+	if !errors.As(err, &deleteUnprocessableEntityErr) {
+		t.Errorf("error type expected: %T, got %T", *deleteUnprocessableEntityErr, err)
 	}
 	params.WithPropertyName("friend")
 
 	// This ID doesn't exist
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesDeleteNotFound); !ok {
-		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteNotFound{}, err)
+	var deleteNotFoundErr *objects.ObjectsClassReferencesDeleteNotFound
+	if !errors.As(err, &deleteNotFoundErr) {
+		t.Errorf("error type expected: %T, got %T", *deleteNotFoundErr, err)
 	}
 	params.WithID(uuid)
 
 	// bad request since body is required
 	params.WithID(uuid).WithBody(nil).WithPropertyName("friend")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
-	if _, ok := err.(*objects.ObjectsClassReferencesDeleteUnprocessableEntity); !ok {
-		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesDeleteUnprocessableEntity{}, err)
+	if !errors.As(err, &deleteUnprocessableEntityErr) {
+		t.Errorf("error type expected: %T, got %T", *deleteUnprocessableEntityErr, err)
 	}
 }
 
@@ -774,7 +778,8 @@ func TestQuery(t *testing.T) {
 	unknown_cls := "unknow"
 	listParams.Class = &unknown_cls
 	_, err = helper.Client(t).Objects.ObjectsList(listParams, nil)
-	if _, ok := err.(*objects.ObjectsListNotFound); !ok {
-		t.Errorf("error type expected: %T, got %T", objects.ObjectsListNotFound{}, err)
+	var customErr *objects.ObjectsListNotFound
+	if errors.As(err, &customErr) {
+		t.Errorf("error type expected: %T, got %T", *customErr, err)
 	}
 }

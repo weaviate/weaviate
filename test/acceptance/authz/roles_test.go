@@ -13,11 +13,13 @@ package authz
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
@@ -145,9 +147,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.CreateRoleBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.CreateRoleBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
 	})
 
 	t.Run("fail to delete builtin role", func(t *testing.T) {
@@ -156,9 +158,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.DeleteRoleBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.DeleteRoleBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
 	})
 
 	t.Run("add builtin role permission", func(t *testing.T) {
@@ -172,9 +174,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.AddPermissionsBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.AddPermissionsBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
 	})
 
 	t.Run("remove builtin role permission", func(t *testing.T) {
@@ -188,9 +190,9 @@ func TestAuthzBuiltInRolesJourney(t *testing.T) {
 			clientAuth,
 		)
 		require.NotNil(t, err)
-		err, failed := err.(*authz.RemovePermissionsBadRequest)
-		require.True(t, failed)
-		require.Contains(t, err.Payload.Error[0].Message, "builtin role")
+		var parsed *authz.RemovePermissionsBadRequest
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
 	})
 }
 
@@ -231,9 +233,9 @@ func TestAuthzRolesJourney(t *testing.T) {
 	t.Run("fail to create existing role", func(t *testing.T) {
 		_, err = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(testRole1), clientAuth)
 		require.NotNil(t, err)
-		err, conflict := err.(*authz.CreateRoleConflict)
-		require.True(t, conflict)
-		require.Contains(t, err.Payload.Error[0].Message, "already exists")
+		var parsed *authz.CreateRoleConflict
+		require.True(t, errors.As(err, &parsed))
+		require.Contains(t, parsed.Payload.Error[0].Message, "builtin role")
 	})
 
 	t.Run("get all roles after create", func(t *testing.T) {
@@ -541,8 +543,8 @@ func TestAuthzRolesHasPermission(t *testing.T) {
 			},
 		}), helper.CreateAuth(customKey))
 		require.NotNil(t, err)
-		parsed, forbidden := err.(*authz.HasPermissionForbidden)
-		require.True(t, forbidden)
+		var parsed *authz.HasPermissionForbidden
+		require.True(t, errors.As(err, &parsed))
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 }

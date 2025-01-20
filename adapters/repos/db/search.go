@@ -18,13 +18,13 @@ import (
 	"strings"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -229,8 +229,8 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
 		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
 	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
+		switch {
+		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusUnprocessableEntity, Err: err}
 		default:
 			return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}

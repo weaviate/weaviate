@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -778,7 +779,7 @@ func Test_GetThing(t *testing.T) {
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection").Error(), err.Error())
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {

@@ -12,10 +12,12 @@
 package test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -366,9 +368,12 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_4.Class, tenantNames[0])
 
 			require.NotNil(t, err)
-			expErr := &objects.ObjectsListUnprocessableEntity{}
-			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[0])
+			var listErr *objects.ObjectsListUnprocessableEntity
+			if errors.As(err, &listErr) {
+				assert.Contains(t, listErr.Payload.Error[0].Message, tenantNames[0])
+			} else {
+				t.Fatalf("expected ObjectsListUnprocessableEntity error, got %v", err)
+			}
 			require.Nil(t, res)
 		})
 	})
@@ -415,9 +420,12 @@ func TestListTenantObjects(t *testing.T) {
 			res, err := helper.TenantListObjects(t, classMT_3.Class, tenantNames[1])
 
 			require.NotNil(t, err)
-			expErr := &objects.ObjectsListUnprocessableEntity{}
-			require.ErrorAs(t, err, &expErr)
-			assert.Contains(t, err.(*objects.ObjectsListUnprocessableEntity).Payload.Error[0].Message, tenantNames[1])
+			var listErr *objects.ObjectsListUnprocessableEntity
+			if errors.As(err, &listErr) {
+				assert.Contains(t, listErr.Payload.Error[0].Message, tenantNames[1])
+			} else {
+				t.Fatalf("expected ObjectsListUnprocessableEntity error, got %v", err)
+			}
 			require.Nil(t, res)
 		})
 

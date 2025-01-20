@@ -17,6 +17,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -61,16 +62,17 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, out
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, output)
 	if err != nil {
-		switch typed := err.(type) {
-		case enterrors.ErrSendHttpRequest:
-			if errors.Is(typed.Unwrap(), context.DeadlineExceeded) {
+		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		switch {
+		case errors.As(err, &errSendHttpRequest):
+			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {
 				nodeTimeout := models.NodeStatusStatusTIMEOUT
 				return &models.NodeStatus{Name: nodeName, Status: &nodeTimeout}, nil
 			}
 
 			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
 			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
-		case enterrors.ErrOpenHttpRequest:
+		case errors.As(err, &enterrors.ErrOpenHttpRequest{}):
 			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
 			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
 		default:
@@ -305,16 +307,17 @@ func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.S
 	}
 	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)
 	if err != nil {
-		switch typed := err.(type) {
-		case enterrors.ErrSendHttpRequest:
-			if errors.Is(typed.Unwrap(), context.DeadlineExceeded) {
+		var errSendHttpRequest *enterrors.ErrSendHttpRequest
+		switch {
+		case errors.As(err, &errSendHttpRequest):
+			if errors.Is(errSendHttpRequest.Unwrap(), context.DeadlineExceeded) {
 				nodeTimeout := models.StatisticsStatusTIMEOUT
 				return &models.Statistics{Name: nodeName, Status: &nodeTimeout}, nil
 			}
 
 			nodeUnavailable := models.StatisticsStatusUNAVAILABLE
 			return &models.Statistics{Name: nodeName, Status: &nodeUnavailable}, nil
-		case enterrors.ErrOpenHttpRequest:
+		case errors.As(err, &enterrors.ErrOpenHttpRequest{}):
 			nodeUnavailable := models.StatisticsStatusUNAVAILABLE
 			return &models.Statistics{Name: nodeName, Status: &nodeUnavailable}, nil
 		default:

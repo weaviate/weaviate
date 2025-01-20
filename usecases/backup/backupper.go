@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -107,7 +107,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqState,
 	meta, err := store.Meta(ctx, req.ID, store.bucket, store.path, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
-		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
+		return reqState{}, fmt.Errorf("cannot get status while backing up: %w: %q: %w", errMetaNotFound, path, err)
 	}
 	if err != nil || meta.Error != "" {
 		return reqState{}, errors.New(meta.Error)

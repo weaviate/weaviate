@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -876,8 +877,8 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 func localIndexNotReady(resp replica.SimpleResponse) bool {
 	if err := resp.FirstError(); err != nil {
-		re, ok := err.(*replica.Error)
-		if ok && re.IsStatusCode(replica.StatusNotReady) {
+		var replicaErr *replica.Error
+		if errors.As(err, &replicaErr) && replicaErr.IsStatusCode(replica.StatusNotReady) {
 			return true
 		}
 	}
