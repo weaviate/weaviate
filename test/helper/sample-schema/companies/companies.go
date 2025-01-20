@@ -161,8 +161,6 @@ func PerformVectorSearchGRPCTest(t *testing.T, host string, className string) {
 		Metadata: &protocol.MetadataRequest{
 			Uuid: true,
 		},
-		Uses_123Api: true,
-		Uses_125Api: true,
 		Uses_127Api: true,
 	}
 	assertResultsGRPC(t, host, &req)
@@ -202,8 +200,6 @@ func PerformHybridSearchGRPCTest(t *testing.T, host string, className string) {
 		Metadata: &protocol.MetadataRequest{
 			Uuid: true,
 		},
-		Uses_123Api: true,
-		Uses_125Api: true,
 		Uses_127Api: true,
 	}
 	assertResultsGRPC(t, host, &req)
