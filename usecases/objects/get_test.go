@@ -294,7 +294,7 @@ func Test_GetAction(t *testing.T) {
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection").Error(), err.Error())
 			})
 
 			t.Run("semantic path", func(t *testing.T) {
@@ -313,7 +313,7 @@ func Test_GetAction(t *testing.T) {
 							"semanticPath": getDefaultParam("semanticPath"),
 						},
 					}, nil, "")
-				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath"), err)
+				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath").Error(), err.Error())
 			})
 
 			t.Run("nearest neighbors", func(t *testing.T) {

@@ -172,13 +172,17 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 			err := validator.properties(context.Background(), schema.Objects.Classes[0], obj, nil)
 
 			if test.expectedErr != nil {
-				assert.EqualError(t, err, test.expectedErr.Error())
+				assert.Equal(t, test.expectedErr.Error(), err.Error())
 			} else {
-				assert.NoError(t, err)
-				phone, ok := obj.Properties.(map[string]interface{})["phone"]
-				require.True(t, ok)
-				assert.Equal(t, test.expectedResult, phone)
+				assert.Equal(t, test.expectedErr, err)
 			}
+
+			if err != nil {
+				return
+			}
+			phone, ok := obj.Properties.(map[string]interface{})["phone"]
+			require.True(t, ok)
+			assert.Equal(t, test.expectedResult, phone)
 		})
 	}
 }

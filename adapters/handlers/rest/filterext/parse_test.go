@@ -12,6 +12,7 @@
 package filterext
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		name           string
 		input          *models.WhereFilter
 		expectedFilter *filters.LocalFilter
-		expectedErrMsg string
+		expectedErr    error
 	}
 
 	t.Run("all value types", func(t *testing.T) {
@@ -180,12 +181,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				filter, err := Parse(test.input, "Todo")
-				if test.expectedErrMsg != "" {
-					assert.EqualError(t, err, test.expectedErrMsg)
-				} else {
-					assert.NoError(t, err)
-					assert.Equal(t, test.expectedFilter, filter)
-				}
+				assert.Equal(t, test.expectedErr, err)
+				assert.Equal(t, test.expectedFilter, filter)
 			})
 		}
 	})
@@ -203,7 +200,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 					Path: []string{"geoField"},
 				},
-				expectedErrMsg: "invalid where filter: valueGeoRange: field 'geoCoordinates' must be set",
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'geoCoordinates' must be set"),
 			},
 			{
 				name: "geo missing distance object",
@@ -217,7 +215,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 					Path: []string{"geoField"},
 				},
-				expectedErrMsg: "invalid where filter: valueGeoRange: field 'distance' must be set",
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'distance' must be set"),
 			},
 			{
 				name: "geo having negative distance",
@@ -234,7 +233,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 					Path: []string{"geoField"},
 				},
-				expectedErrMsg: "invalid where filter: valueGeoRange: field 'distance.max' must be a positive number",
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'distance.max' must be a positive number"),
 			},
 			{
 				name: "and operator and path set",
@@ -242,7 +242,9 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Operator: "And",
 					Path:     []string{"some field"},
 				},
-				expectedErrMsg: "invalid where filter: operator 'And' not compatible with field 'path', remove 'path' or switch to compare operator (eg. Equal, NotEqual, etc.)",
+				expectedErr: fmt.Errorf("invalid where filter: " +
+					"operator 'And' not compatible with field 'path', remove 'path' " +
+					"or switch to compare operator (eg. Equal, NotEqual, etc.)"),
 			},
 			{
 				name: "and operator and value set",
@@ -250,21 +252,26 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Operator: "And",
 					ValueInt: ptInt(43),
 				},
-				expectedErrMsg: "invalid where filter: operator 'And' not compatible with field 'value<Type>', remove value field or switch to compare operator (eg. Equal, NotEqual, etc.)",
+				expectedErr: fmt.Errorf("invalid where filter: " +
+					"operator 'And' not compatible with field 'value<Type>', " +
+					"remove value field or switch to compare operator " +
+					"(eg. Equal, NotEqual, etc.)"),
 			},
 			{
 				name: "and operator and no operands set",
 				input: &models.WhereFilter{
 					Operator: "And",
 				},
-				expectedErrMsg: "invalid where filter: operator 'And', but no operands set - add at least one operand",
+				expectedErr: fmt.Errorf("invalid where filter: " +
+					"operator 'And', but no operands set - add at least one operand"),
 			},
 			{
 				name: "equal operator and no values set",
 				input: &models.WhereFilter{
 					Operator: "Equal",
 				},
-				expectedErrMsg: "invalid where filter: got operator 'Equal', but no value<Type> field set",
+				expectedErr: fmt.Errorf("invalid where filter: " +
+					"got operator 'Equal', but no value<Type> field set"),
 			},
 			{
 				name: "equal operator and no path set",
@@ -272,15 +279,16 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Operator: "Equal",
 					ValueInt: ptInt(43),
 				},
-				expectedErrMsg: "invalid where filter: field 'path': must have at least one element",
+				expectedErr: fmt.Errorf("invalid where filter: " +
+					"field 'path': must have at least one element"),
 			},
 		}
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				filter, err := Parse(test.input, "Todo")
-				assert.EqualError(t, err, test.expectedErrMsg)
-				assert.Nil(t, filter)
+				assert.ErrorAs(t, err, &test.expectedErr)
+				assert.Equal(t, test.expectedFilter, filter)
 			})
 		}
 	})
@@ -328,7 +336,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				filter, err := Parse(test.input, "Todo")
-				assert.NoError(t, err)
+				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
 		}
@@ -430,7 +438,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
 				filter, err := Parse(test.input, "Todo")
-				assert.NoError(t, err)
+				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
 		}
@@ -486,7 +494,9 @@ func inputIntFilterWithValue(value int) *models.WhereFilter {
 	}
 }
 
-func inputIntFilterWithValueAndPath(value int, path []string) *models.WhereFilter {
+func inputIntFilterWithValueAndPath(value int,
+	path []string,
+) *models.WhereFilter {
 	return &models.WhereFilter{
 		Operator: "Equal",
 		ValueInt: ptInt(value),

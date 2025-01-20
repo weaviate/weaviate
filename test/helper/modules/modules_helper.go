@@ -98,6 +98,7 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 		}
 		fmt.Fprintf(file, "This is content of db file named %s", fileName)
 		file.Close()
+		t.Logf("Created test file: %s\n", filePaths[i])
 	}
 	return filePaths
 }

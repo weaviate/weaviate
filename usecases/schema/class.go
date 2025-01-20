@@ -572,7 +572,7 @@ func (h *Handler) validateProperty(
 		propertyDataType, err := schema.FindPropertyDataTypeWithRefsAndAuth(classGetterWithAuth, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
-			return fmt.Errorf("property '%s': invalid dataType: %v, %w", property.Name, property.DataType, err)
+			return fmt.Errorf("property '%s': invalid dataType: %v: %w", property.Name, property.DataType, err)
 		}
 
 		if propertyDataType.IsNested() {

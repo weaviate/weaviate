@@ -569,7 +569,8 @@ func TestPutReferences(t *testing.T) {
 
 	params.WithID("e7cd261a-0000-0000-0000-d7b8e7b5c9ea")
 	_, err = helper.Client(t).Objects.ObjectsClassReferencesPut(params, nil)
-	if !errors.As(err, &expectedErr) {
+	var expectedRefErr *objects.ObjectsClassReferencesPutNotFound
+	if !errors.As(err, &expectedRefErr) {
 		t.Errorf("error type expected: %T, got %T", objects.ObjectsClassReferencesPutNotFound{}, err)
 	}
 	params.WithID(uuid)
@@ -779,7 +780,7 @@ func TestQuery(t *testing.T) {
 	listParams.Class = &unknown_cls
 	_, err = helper.Client(t).Objects.ObjectsList(listParams, nil)
 	var customErr *objects.ObjectsListNotFound
-	if errors.As(err, &customErr) {
+	if !errors.As(err, &customErr) {
 		t.Errorf("error type expected: %T, got %T", *customErr, err)
 	}
 }
