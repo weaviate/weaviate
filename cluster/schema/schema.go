@@ -350,26 +350,15 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantRes
 	var res []*models.TenantResponse
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.TenantResponse, len(ss.Physical))
-			i := 0
+			res = make([]*models.TenantResponse, 0, len(ss.Physical))
 			for tenant, physical := range ss.Physical {
-				// Ensure we copy the belongs to nodes array to avoid it being modified
-				cpy := make([]string, len(physical.BelongsToNodes))
-				copy(cpy, physical.BelongsToNodes)
-
-				res[i] = MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
-
-				// Increment our result iterator
-				i++
+				res = append(res, makeTenantResponse(tenant, physical))
 			}
 		} else {
 			res = make([]*models.TenantResponse, 0, len(tenants))
 			for _, tenant := range tenants {
 				if physical, ok := ss.Physical[tenant]; ok {
-					// Ensure we copy the belongs to nodes array to avoid it being modified
-					cpy := make([]string, len(physical.BelongsToNodes))
-					copy(cpy, physical.BelongsToNodes)
-					res = append(res, MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy))
+					res = append(res, makeTenantResponse(tenant, physical))
 				}
 			}
 		}
@@ -406,6 +395,14 @@ func makeTenant(name, status string) models.Tenant {
 		Name:           name,
 		ActivityStatus: status,
 	}
+}
+
+func makeTenantResponse(tenant string, physical sharding.Physical) *models.TenantResponse {
+	// copy BelongsToNodes to avoid modification of the original slice
+	cpy := make([]string, len(physical.BelongsToNodes))
+	copy(cpy, physical.BelongsToNodes)
+
+	return MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
 }
 
 // MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
