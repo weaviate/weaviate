@@ -193,10 +193,12 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		params.ClassName, params.ID, additional, replProps, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(object), err)
-		switch err.(type) {
-		case uco.ErrNotFound:
+		var errNotFound uco.ErrNotFound
+		var errMultiTenancy uco.ErrMultiTenancy
+		switch {
+		case errors.As(err, &errNotFound):
 			return objects.NewObjectsClassGetNotFound()
-		case uco.ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:

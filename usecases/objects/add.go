@@ -81,7 +81,12 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, vclasses, object)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid object")
 	}
@@ -102,10 +107,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
 	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
@@ -149,10 +150,12 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	if exists {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
-		switch err.(type) {
-		case ErrInvalidUserInput:
+		var errInvalidUserInput ErrInvalidUserInput
+		var errMultiTenancy ErrMultiTenancy
+		switch {
+		case errors.As(err, &errInvalidUserInput):
 			return "", err
-		case ErrMultiTenancy:
+		case errors.As(err, &errMultiTenancy):
 			// This may be fine, the class is configured to create non-existing tenants.
 			// A non-existing tenant will still be detected later on
 			if enterrors.IsTenantNotFound(err) {
