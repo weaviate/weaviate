@@ -1,14 +1,3 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
-//
-//  CONTACT: hello@weaviate.io
-//
-
 package multi_node
 
 import (
@@ -36,8 +25,9 @@ func TestNodesMultiNode(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-	helper.SetupClient(compose.GetWeaviate().URI())
 
+	helper.SetupClient(compose.GetWeaviate().URI())
+	// helper.SetupClient("127.0.0.1:8080")
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
