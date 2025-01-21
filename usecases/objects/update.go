@@ -15,12 +15,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -40,6 +41,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	className := schema.UppercaseClassName(updates.Class)
 	updates.Class = className
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
@@ -47,8 +49,6 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
-
-	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
