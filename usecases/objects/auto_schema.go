@@ -491,7 +491,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 }
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
-	principal *models.Principal, objects []*models.Object, fetchedClasses map[string]versioned.Class,
+	principal *models.Principal, objects []*models.Object,
 ) (uint64, int, error) {
 	classTenants := make(map[string]map[string]struct{})
 
@@ -503,11 +503,22 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 		classTenants[obj.Class][obj.Tenant] = struct{}{}
 	}
 
+	// collect classes
+	classes := []string{}
+	for className := range classTenants {
+		classes = append(classes, schema.UppercaseClassName(className))
+	}
+
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	totalTenants := 0
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
-		vclass, exists := fetchedClasses[schema.UppercaseClassName(className)]
+		vclass, exists := vclasses[schema.UppercaseClassName(className)]
 		if !exists || // invalid class
 			vclass.Class == nil { // class is nil
 			continue

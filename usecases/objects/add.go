@@ -90,7 +90,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, fmt.Errorf("invalid object: %w", err)
 	}
 
-	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}, vclasses); err != nil {
+	if _, _, err = m.autoSchemaManager.autoTenants(ctx, principal, []*models.Object{object}); err != nil {
 		return nil, err
 	}
 

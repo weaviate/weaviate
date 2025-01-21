@@ -150,14 +150,8 @@ func GetTokensFromMockOIDC(t *testing.T, authEndpoint, tokenEndpoint string) (st
 	var tokenResponse map[string]interface{}
 	err = json.Unmarshal(body, &tokenResponse)
 	assert.NoError(t, err)
-	accessToken, ok := tokenResponse["access_token"].(string)
-	if !ok {
-		t.Fatalf("failed to get access token from: %v", tokenResponse)
-	}
-	refreshToken, ok := tokenResponse["refresh_token"].(string)
-	if !ok {
-		t.Fatalf("failed to get refresh token from: %v", tokenResponse)
-	}
+	accessToken := tokenResponse["access_token"].(string)
+	refreshToken := tokenResponse["refresh_token"].(string)
 	return accessToken, refreshToken
 }
 
