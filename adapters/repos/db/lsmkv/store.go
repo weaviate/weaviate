@@ -423,7 +423,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
 
-
 	if s.closed {
 		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
 	}
@@ -461,7 +460,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
 	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
-
 
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
