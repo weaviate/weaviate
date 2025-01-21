@@ -33,8 +33,6 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 	containers := compose.Containers()
 	require.Len(t, containers, 1) // started only one node
 
-	// helper.SetupClient("127.0.0.1:8081")
-
 	// add classes with object
 	className1 := "AuthZBatchObjREST1"
 	className2 := "AuthZBatchObjREST2"
