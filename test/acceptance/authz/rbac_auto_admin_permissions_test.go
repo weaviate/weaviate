@@ -12,9 +12,7 @@
 package authz
 
 import (
-	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -22,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -137,40 +134,4 @@ func (e endpointStatsSlice) String() string {
 		str += e.String() + "\n"
 	}
 	return str
-}
-
-type logScanner struct {
-	container testcontainers.Container
-	pos       int
-}
-
-func newLogScanner(c testcontainers.Container) *logScanner {
-	return &logScanner{container: c}
-}
-
-func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
-	t.Helper() // produces more accurate error tracebacks
-
-	logs, err := s.container.Logs(context.Background())
-	require.Nil(t, err)
-	defer logs.Close()
-
-	scanner := bufio.NewScanner(logs)
-	currentPosition := 0
-
-	var newLines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		if currentPosition >= s.pos && strings.Contains(line, `"action":"authorize"`) {
-			newLines = append(newLines, line)
-		}
-		currentPosition++
-	}
-
-	s.pos = currentPosition
-
-	return newLines
 }
