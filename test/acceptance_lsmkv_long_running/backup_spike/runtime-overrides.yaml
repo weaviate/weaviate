@@ -1,9 +1,9 @@
 compact:
-e  skipmarker: false
+  skipmarker: true
 backup:
-  enabled: false
-  every: 5s
+  enabled: true
+  every: 3s
 retention:
-  enabled: false
+  enabled: true
   every: 4s
   path: "./backup"
