@@ -329,7 +329,7 @@ func getReferenceClasses(ctx context.Context,
 	if !ok {
 		targetVclasses, err2 := schemaManager.GetCachedClass(ctx, principal, toClassName)
 		if err2 != nil {
-			err = fmt.Errorf("get target class %q: %w", toClassName, err)
+			err = fmt.Errorf("get target class %q: %w", toClassName, err2)
 			return
 		}
 		toClass = targetVclasses[toClassName]

@@ -44,16 +44,6 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
-	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, input.Class)
-	if err != nil {
-		if errors.As(err, &autherrs.Forbidden{}) {
-			return &Error{err.Error(), StatusForbidden, err}
-		}
-
-		return &Error{err.Error(), StatusInternalServerError, err}
-	}
-	schemaVersion := fetchedClass[input.Class].Version
-
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
 		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
@@ -72,6 +62,16 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 		input.Class = objectRes.Object().Class
 	}
+
+	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, input.Class)
+	if err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+	schemaVersion := fetchedClass[input.Class].Version
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
