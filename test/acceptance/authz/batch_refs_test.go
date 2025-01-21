@@ -76,5 +76,5 @@ func TestAuthZBatchRefAuthZCalls(t *testing.T) {
 	require.NotNil(t, res.Payload)
 
 	authZlogs := ls.GetAuthzLogs(t)
-	t.Log("batch ref created", len(authZlogs), "calls to authorizer")
+	require.LessOrEqual(t, len(authZlogs), 4)
 }

@@ -97,7 +97,11 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
-	var shardsDataPaths []string
+	type classAndShard struct {
+		Class string
+		Shard string
+	}
+	uniqueClassShard := map[string]classAndShard{}
 	var schemaVersion uint64
 	for i, ref := range refs {
 		if ref.Err != nil {
@@ -115,7 +119,12 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			}
 		}
 
-		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(ref.To.Class, ref.Tenant)...)
+		uniqueClassShard[ref.To.Class+"#"+ref.Tenant] = classAndShard{Class: ref.To.Class, Shard: ref.Tenant}
+	}
+
+	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
+	for _, val := range uniqueClassShard {
+		shardsDataPaths = append(shardsDataPaths, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
 	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
