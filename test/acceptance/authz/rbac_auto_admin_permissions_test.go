@@ -12,13 +12,17 @@
 package authz
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -29,6 +33,11 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 
 	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, nil, nil)
 	defer down()
+
+	var endpointStats endpointStatsSlice
+
+	containers := compose.Containers()
+	require.Len(t, containers, 1) // started only one node
 
 	className := "ABC"
 	tenantNames := []string{
@@ -47,6 +56,9 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 	require.Nil(t, err)
 
 	endpoints := col.allEndpoints()
+
+	ls := newLogScanner(containers[0].Container())
+	ls.GetAuthzLogs(t) // startup logs that are irrelevant
 
 	for _, endpoint := range endpoints {
 		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
@@ -85,6 +97,80 @@ func TestAuthzAllEndpointsAdminDynamically(t *testing.T) {
 			defer resp.Body.Close()
 
 			require.NotEqual(t, http.StatusForbidden, resp.StatusCode)
+
+			authZlogs := ls.GetAuthzLogs(t)
+			endpointStats = append(endpointStats, endpointStat{
+				Count:    len(authZlogs),
+				Method:   endpoint.method,
+				Logs:     authZlogs,
+				Endpoint: url,
+			})
 		})
 	}
+
+	// sort by number of authZ calls and append to log
+	sort.Sort(endpointStats)
+	t.Log("EndpointStats:", endpointStats)
+}
+
+type endpointStat struct {
+	Count    int
+	Endpoint string
+	Method   string
+	Logs     []string
+}
+
+func (e endpointStat) String() string {
+	return fmt.Sprintf("%s %s (count: %d), Logs: %v", e.Method, e.Endpoint, e.Count, e.Logs)
+}
+
+type endpointStatsSlice []endpointStat
+
+// Implement sort.Interface
+func (e endpointStatsSlice) Len() int           { return len(e) }
+func (e endpointStatsSlice) Less(i, j int) bool { return e[i].Count < e[j].Count }
+func (e endpointStatsSlice) Swap(i, j int)      { e[i], e[j] = e[j], e[i] }
+
+func (e endpointStatsSlice) String() string {
+	var str string
+	for _, e := range e {
+		str += e.String() + "\n"
+	}
+	return str
+}
+
+type logScanner struct {
+	container testcontainers.Container
+	pos       int
+}
+
+func newLogScanner(c testcontainers.Container) *logScanner {
+	return &logScanner{container: c}
+}
+
+func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
+	t.Helper() // produces more accurate error tracebacks
+
+	logs, err := s.container.Logs(context.Background())
+	require.Nil(t, err)
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+	currentPosition := 0
+
+	var newLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if currentPosition >= s.pos && strings.Contains(line, `"action":"authorize"`) {
+			newLines = append(newLines, line)
+		}
+		currentPosition++
+	}
+
+	s.pos = currentPosition
+
+	return newLines
 }
