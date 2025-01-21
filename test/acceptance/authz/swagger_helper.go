@@ -57,7 +57,7 @@ func newCollector() (*collector, error) {
 func (c *collector) collectEndpoints() ([]endpoint, error) {
 	document, err := loads.Spec("../../../openapi-specs/schema.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load Swagger spec: %v", err)
+		return nil, fmt.Errorf("failed to load Swagger spec: %w", err)
 	}
 
 	specDoc := document.Spec()
@@ -82,7 +82,7 @@ func (c *collector) collectEndpoints() ([]endpoint, error) {
 				if param.In == "body" && param.Schema != nil {
 					requestBodyData, err = generateValidRequestBody(&param, specDoc.Definitions)
 					if err != nil {
-						return nil, fmt.Errorf("failed to generate request body data: %v", err)
+						return nil, fmt.Errorf("failed to generate request body data: %w", err)
 					}
 				}
 			}
@@ -194,7 +194,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -214,7 +214,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -228,7 +228,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 				mockData = array
 				jsonData, err := json.Marshal(mockData)
 				if err != nil {
-					return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+					return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 				}
 				return jsonData, nil
 			}
@@ -272,7 +272,7 @@ func generateValidData(schema *spec.Schema, definitions map[string]spec.Schema) 
 
 	jsonData, err := json.Marshal(mockData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal mock data: %v", err)
+		return nil, fmt.Errorf("failed to marshal mock data: %w", err)
 	}
 	return jsonData, nil
 }

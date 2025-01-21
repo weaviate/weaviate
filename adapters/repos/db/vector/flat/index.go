@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -886,7 +887,7 @@ func (index *flat) ContainsNode(id uint64) bool {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 	v, err := index.store.Bucket(bucketName).Get(idBytes)
-	if v == nil || err == entlsmkv.NotFound {
+	if v == nil || errors.Is(err, entlsmkv.NotFound) {
 		return false
 	}
 

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -138,8 +139,8 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)
 		if err != nil {
 			db.indexLock.RUnlock()
-			switch err.(type) {
-			case objects.ErrMultiTenancy:
+			switch {
+			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
 				return nil, fmt.Errorf("search index %s: %w", index.ID(), err)
@@ -226,8 +227,8 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 	for _, index := range db.indices {
 		ok, err := index.exists(ctx, id, repl, "")
 		if err != nil {
-			switch err.(type) {
-			case objects.ErrMultiTenancy:
+			switch {
+			case errors.As(err, &objects.ErrMultiTenancy{}):
 				return false, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
 			default:
 				return false, fmt.Errorf("search index %s: %w", index.ID(), err)

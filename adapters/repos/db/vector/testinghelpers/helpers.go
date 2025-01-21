@@ -23,11 +23,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -83,7 +83,7 @@ func readSiftFloat(file string, maxObjects int, vectorLengthFloat int) [][]float
 	vectorBytes := make([]byte, bytesPerF+vectorLengthFloat*bytesPerF)
 	for i := 0; i >= 0; i++ {
 		_, err = f.Read(vectorBytes)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			panic(err)

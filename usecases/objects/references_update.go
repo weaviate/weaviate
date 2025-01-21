@@ -164,7 +164,7 @@ func (req *PutReferenceInput) validate(
 	}
 
 	vclass := vclasses[req.Class]
-	return refs, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
+	return refs, vclass.Version, validateReferenceSchema(vclass.Class, req.Property)
 }
 
 func (req *PutReferenceInput) validateExistence(
@@ -191,13 +191,14 @@ func validateReferenceName(class, property string) error {
 	return nil
 }
 
-func validateReferenceSchema(sm schemaManager, c *models.Class, property string) error {
+func validateReferenceSchema(c *models.Class, property string) error {
 	prop, err := schema.GetPropertyByName(c, property)
 	if err != nil {
 		return err
 	}
 
-	dt, err := schema.FindPropertyDataTypeWithRefs(sm.ReadOnlyClass, prop.DataType, false, "")
+	classGetterFunc := func(string) *models.Class { return c }
+	dt, err := schema.FindPropertyDataTypeWithRefs(classGetterFunc, prop.DataType, false, "")
 	if err != nil {
 		return err
 	}

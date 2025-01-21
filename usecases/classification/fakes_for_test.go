@@ -409,7 +409,7 @@ func (c *fakeModuleClassifyFn) classifyFn(item search.Result, itemIndex int,
 
 	err := writer.Store(item)
 	if err != nil {
-		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
+		return fmt.Errorf("store %s/%s: %w", item.ClassName, item.ID, err)
 	}
 	return nil
 }

@@ -17,11 +17,12 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/entities/models"
-	authErrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -40,7 +41,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -61,12 +62,12 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
-		if err == schemaUC.ErrNotFound {
+		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
 
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -87,7 +88,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -110,7 +111,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -130,7 +131,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -148,7 +149,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -177,7 +178,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -201,7 +202,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -225,7 +226,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -247,7 +248,7 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -269,7 +270,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -290,7 +291,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -312,7 +313,7 @@ func (s *schemaHandlers) getTenant(
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsGetOneForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -343,7 +344,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 			return schema.NewTenantExistsNotFound()
 		}
 		switch {
-		case errors.As(err, &authErrors.Forbidden{}):
+		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantExistsForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -398,7 +399,7 @@ func newSchemaRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus
 
 func (e *schemaRequestsTotal) logError(className string, err error) {
 	switch {
-	case errors.As(err, &authErrors.Forbidden{}):
+	case errors.As(err, &authzerrors.Forbidden{}):
 		e.logUserError(className)
 	case errors.As(err, &uco.ErrMultiTenancy{}):
 		e.logUserError(className)

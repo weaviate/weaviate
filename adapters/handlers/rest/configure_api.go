@@ -26,8 +26,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/fgprof"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -37,11 +35,12 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -593,7 +592,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		enterrors.GoWrapper(func() {
 			// wait until meta store is ready, as reindex tasks needs schema
 			<-storeReadyCtx.Done()
-			if context.Cause(storeReadyCtx) == metaStoreReadyErr {
+			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
 				appState.Logger.
 					WithField("action", "startup").
 					Info("Reindexing inverted indexes")
@@ -872,7 +871,7 @@ func logger() *logrus.Logger {
 	}
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	level, err := logLevelFromString(logLevelStr)
-	if err == logLevelNotRecognized {
+	if errors.Is(err, logLevelNotRecognized) {
 		logger.WithField("log_level_env", logLevelStr).Warn("log level not recognized, defaulting to info")
 		level = logrus.InfoLevel
 	}

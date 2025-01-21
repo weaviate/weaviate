@@ -13,10 +13,12 @@ package test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+
 	"github.com/weaviate/weaviate/client/graphql"
 	graphql_client "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,8 +45,8 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
 	response, err := QueryGraphQL(t, auth, operation, query, variables)
 	if err != nil {
-		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
-		if !ok {
+		var parsedErr *graphql.GraphqlPostUnprocessableEntity
+		if !errors.As(err, &parsedErr) {
 			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
 		}
 		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error[0])

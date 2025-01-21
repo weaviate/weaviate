@@ -17,6 +17,7 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
@@ -140,8 +141,5 @@ func newMiscRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.F
 }
 
 func (e *miscRequestsTotal) logError(className string, err error) {
-	switch err.(type) {
-	default:
-		e.logServerError(className, err)
-	}
+	e.logServerError(className, err)
 }

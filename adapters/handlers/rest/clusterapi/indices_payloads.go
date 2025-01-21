@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -213,7 +214,7 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 
 	for {
 		_, err := r.Read(reusableLengthBuf)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -291,7 +292,7 @@ func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, er
 
 	for {
 		_, err := r.Read(reusableLengthBuf)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

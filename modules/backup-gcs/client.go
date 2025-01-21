@@ -24,12 +24,13 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/backup"
-	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/weaviate/weaviate/entities/backup"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type gcsClient struct {
@@ -350,7 +351,7 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 	path := g.makeObjectName(overridePath, []string{backupID, key})
 	rc, err := bucket.Object(path).NewReader(ctx)
 	if err != nil {
-		err = fmt.Errorf("create reader %s: %v", path, err)
+		err = fmt.Errorf("create reader %s: %w", path, err)
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			err = backup.NewErrNotFound(err)
 		}

@@ -297,7 +297,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				propagationLimitPerHashbeatIteration-objectsPropagated,
 			)
 			if err != nil {
-				propagationErr = fmt.Errorf("propagating local objects: %v", err)
+				propagationErr = fmt.Errorf("propagating local objects: %w", err)
 				break
 			}
 

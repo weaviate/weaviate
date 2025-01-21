@@ -95,7 +95,7 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	if param, ok := p.Args["nearVector"]; ok {
 		extracted, _, err := common_filters.ExtractNearVector(param.(map[string]interface{}), nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
 		params.NearVector = &extracted
 	}
@@ -103,7 +103,7 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 	if param, ok := p.Args["nearObject"]; ok {
 		extracted, _, err := common_filters.ExtractNearObject(param.(map[string]interface{}))
 		if err != nil {
-			return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
 		params.NearObject = &extracted
 	}

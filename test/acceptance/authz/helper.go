@@ -12,7 +12,12 @@
 package authz
 
 import (
+	"bufio"
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/stretchr/testify/require"
 	gql "github.com/weaviate/weaviate/client/graphql"
@@ -162,4 +167,40 @@ func updateTenantStatus(t *testing.T, class string, tenants []*models.Tenant, ke
 	params := clschema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
 	_, err := helper.Client(t).Schema.TenantsUpdate(params, helper.CreateAuth(key))
 	return err
+}
+
+type logScanner struct {
+	container testcontainers.Container
+	pos       int
+}
+
+func newLogScanner(c testcontainers.Container) *logScanner {
+	return &logScanner{container: c}
+}
+
+func (s *logScanner) GetAuthzLogs(t *testing.T) []string {
+	t.Helper() // produces more accurate error tracebacks
+
+	logs, err := s.container.Logs(context.Background())
+	require.Nil(t, err)
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+	currentPosition := 0
+
+	var newLines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		if currentPosition >= s.pos && strings.Contains(line, `"action":"authorize"`) {
+			newLines = append(newLines, line)
+		}
+		currentPosition++
+	}
+
+	s.pos = currentPosition
+
+	return newLines
 }

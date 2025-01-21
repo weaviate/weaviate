@@ -118,8 +118,8 @@ func creatingObjects(t *testing.T) {
 
 		resp, err = helper.Client(t).Objects.ObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			errResponse, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
-			if !ok {
+			var errResponse *objects.ObjectsCreateUnprocessableEntity
+			if !errors.As(err, &errResponse) {
 				t.Fatalf("Did not get not found response, but %#v", err)
 			}
 
@@ -315,8 +315,8 @@ func creatingObjects(t *testing.T) {
 				params := objects.NewObjectsCreateParams().WithBody(example.object())
 				resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 				helper.AssertRequestFail(t, resp, err, func() {
-					errResponse, ok := err.(*objects.ObjectsCreateUnprocessableEntity)
-					if !ok {
+					var errResponse *objects.ObjectsCreateUnprocessableEntity
+					if !errors.As(err, &errResponse) {
 						t.Fatalf("Did not get not found response, but %#v", err)
 					}
 					example.errorCheck(t, errResponse.Payload)

@@ -12,6 +12,7 @@
 package test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -48,8 +49,8 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
+			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Equal(t, "property 'someProperty': invalid dataType: []: dataType cannot be an empty string",
 				parsed.Payload.Error[0].Message)
 		})
@@ -79,8 +80,8 @@ func TestInvalidPropertyName(t *testing.T) {
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)
 		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
-			require.True(t, ok, "error should be unprocessable entity")
+			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
+			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
 				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”.",
 				parsed.Payload.Error[0].Message)
@@ -146,7 +147,8 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 		if err != nil {
-			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
+			var typed *clschema.SchemaObjectsDeleteBadRequest
+			if errors.As(err, &typed) {
 				fmt.Println(typed.Payload.Error[0].Message)
 			}
 		}
@@ -249,7 +251,8 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 		if err != nil {
-			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
+			var typed *clschema.SchemaObjectsDeleteBadRequest
+			if errors.As(err, &typed) {
 				fmt.Println(typed.Payload.Error[0].Message)
 			}
 		}
@@ -313,7 +316,8 @@ func TestUpdateDistanceSettings(t *testing.T) {
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 		if err != nil {
-			if typed, ok := err.(*clschema.SchemaObjectsDeleteBadRequest); ok {
+			var typed *clschema.SchemaObjectsDeleteBadRequest
+			if errors.As(err, &typed) {
 				fmt.Println(typed.Payload.Error[0].Message)
 			}
 		}

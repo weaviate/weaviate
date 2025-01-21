@@ -190,7 +190,7 @@ func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
 		}
 
 		if err := fa.addPropValue(prop, value); err != nil {
-			return fmt.Errorf("failed to add prop value: %s", err)
+			return fmt.Errorf("failed to add prop value: %w", err)
 		}
 	}
 

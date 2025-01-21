@@ -104,6 +104,10 @@ func testText2VecGoogle(host, gcpProject, vectorizerName string) func(t *testing
 				t.Run("perform vector search", func(t *testing.T) {
 					companies.PerformVectorSearchTest(t, host, class.Class)
 				})
+				// hybrid search
+				t.Run("perform hybrid search", func(t *testing.T) {
+					companies.PerformHybridSearchTest(t, host, class.Class)
+				})
 			})
 		}
 	}

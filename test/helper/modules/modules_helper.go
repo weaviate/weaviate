@@ -14,6 +14,7 @@ package moduleshelper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,10 +25,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func EnsureClassExists(t *testing.T, className string, tenant string) {
@@ -119,7 +121,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 		it := bucket.Objects(ctx, nil)
 		for {
 			objAttrs, err := it.Next()
-			if err == iterator.Done {
+			if errors.Is(err, iterator.Done) {
 				break
 			}
 			assert.Nil(t, err)
