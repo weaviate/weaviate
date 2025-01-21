@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 
@@ -24,7 +26,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -48,11 +49,6 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
-	if err != nil {
-		return nil, err
-	}
-
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)
@@ -62,12 +58,17 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+	fetchedClasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
 		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	ctx = classcache.ContextWithClassCache(ctx)
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
 }
 
