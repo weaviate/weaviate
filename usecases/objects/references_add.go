@@ -43,9 +43,16 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(input.Class)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+
+	fetchedClass, err := m.schemaManager.GetCachedClass(ctx, principal, input.Class)
+	if err != nil {
+		if errors.As(err, &autherrs.Forbidden{}) {
+			return &Error{err.Error(), StatusForbidden, err}
+		}
+
+		return &Error{err.Error(), StatusInternalServerError, err}
 	}
+	schemaVersion := fetchedClass[input.Class].Version
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
@@ -72,7 +79,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	targetRef, reqClass, schemaVersion, err := input.validate(ctx, principal, validator, m.schemaManager)
+	targetRef, reqClass, err := input.validate(validator, fetchedClass[input.Class].Class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
@@ -129,7 +136,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
 		_, err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, tenant)
+			m.schemaManager, m.vectorRepo, source, target, tenant, fetchedClass)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
 		}
@@ -171,26 +178,18 @@ type AddReferenceInput struct {
 }
 
 func (req *AddReferenceInput) validate(
-	ctx context.Context,
-	principal *models.Principal,
 	v *validation.Validator,
-	sm schemaManager,
-) (*crossref.Ref, *models.Class, uint64, error) {
+	class *models.Class,
+) (*crossref.Ref, *models.Class, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	ref, err := v.ValidateSingleRef(&req.Ref)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	vclass := vclasses[req.Class]
-
-	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
+	return ref, class, validateReferenceSchema(class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(
