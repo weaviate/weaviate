@@ -144,6 +144,31 @@ func PerformVectorSearchTest(t *testing.T, host string, className string) {
 					}
 				}
 			`, className)
+	assertResults(t, host, className, query)
+}
+
+func PerformHybridSearchTest(t *testing.T, host string, className string) {
+	query := fmt.Sprintf(`
+				{
+					Get {
+						%s(
+							hybrid:{
+								query:"SpaceX"
+								alpha:0.75
+							}
+						){
+							name
+							_additional {
+								id
+							}
+						}
+					}
+				}
+			`, className)
+	assertResults(t, host, className, query)
+}
+
+func assertResults(t *testing.T, host string, className, query string) {
 	helper.SetupClient(host)
 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	objs := result.Get("Get", className).AsSlice()
