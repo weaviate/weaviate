@@ -44,7 +44,7 @@ jobs:
 
           # Send Slack notification
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "📢 A Pull Request has been opened by a *community*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Labels:* ${{ join(github.event.pull_request.labels.*.name, ', ') }}\n*Link:* ${{ github.event.pull_request.html_url }}"
+            "text": "📢 A Pull Request has been opened by a *community*:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.pull_request.title }}\n*Labels:* `{{ join(github.event.pull_request.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.pull_request.html_url }}"
           }' $SLACK_WEBHOOK_URL
 
       - name: Send Slack Notification for All Issues
@@ -64,5 +64,5 @@ jobs:
 
           # Send Slack notification
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "🚨 A new Issue has been opened:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.issue.title }}\n*Labels:* ${{ join(github.event.issue.labels.*.name, ', ') }}\n*Link:* ${{ github.event.issue.html_url }}"
+            "text": "🚨 A new Issue has been opened:\n*User:* ${{ github.actor }}\n*Title:* ${{ github.event.issue.title }}\n*Labels:* `{{ join(github.event.issue.labels.*.name, ', ') }}`\n*Link:* ${{ github.event.issue.html_url }}"
           }' $SLACK_WEBHOOK_URL
