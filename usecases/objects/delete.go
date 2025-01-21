@@ -17,10 +17,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/classcache"
+
 	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -39,10 +40,6 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(class)...); err != nil {
-		return err
-	}
-
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := m.locks.LockConnector()
