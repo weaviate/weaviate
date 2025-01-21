@@ -36,9 +36,8 @@ func TestNodesMultiNode(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
 	helper.SetupClient(compose.GetWeaviate().URI())
-	// helper.SetupClient("127.0.0.1:8080")
+
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
